@@ -122,11 +122,12 @@ tools:
             check whether their answers cite the project's site. Each prompt has its text (from its `current_version`,
             out of `version_count` versions), topic, on/off state (`active`), when it last ran (`last_checked_at`) and
             `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based
-            rank of the first target URL among the cited URLs, `checked_at`). Filter by `topic` (use
-            `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by
-            `active`. Archived prompts are left out unless `include_archived` is true; they carry `archived_at`. Results
-            are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not
-            cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.
+            rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while
+            answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty
+            string selects prompts with no topic) and by `active`. Archived prompts are left out unless
+            `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
+            ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find
+            a prompt id before calling `aeo-prompts-update`.
         feature_flag: aeo-citation-tracking
     aeo-prompts-overview-get:
         operation: aeo_prompts_overview
@@ -142,9 +143,11 @@ tools:
             answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`).
             `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can
             rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all
-            answers, with `is_target` marking the project's own domains. Use it to answer "how are we doing overall",
-            "which topics or engines mention or cite us least", "how many prompts are never cited" and "which sites do
-            the engines cite instead of us". For one prompt, use `aeo-prompts-stats-get`.
+            answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the
+            engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers
+            cited the project and up to five of the prompts. Use it to answer "how are we doing overall", "which topics
+            or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
+            instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats

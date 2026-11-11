@@ -145,7 +145,7 @@ MAX_LAYOUT_ROUNDS = 3
 
 
 def promql_available(team: Team, user: User) -> bool:
-    return bool(settings.SNUFFLE_APM_URL) and posthog_feature_flag_enabled(
+    return bool(settings.SNUFFLE_METRICS_URL) and posthog_feature_flag_enabled(
         SNUFFLE_API_FEATURE_FLAG,
         str(user.distinct_id),
         organization_id=team.organization_id,

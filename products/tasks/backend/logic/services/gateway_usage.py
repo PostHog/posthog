@@ -5,7 +5,7 @@ import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -68,6 +68,10 @@ def gateway_usage_enabled(run: TaskRun) -> bool:
     )
 
 
+def _accounting_failed(run: TaskRun) -> bool:
+    return bool((run.state or {}).get("token_cost_incomplete")) or (run.is_terminal and not gateway_usage_enabled(run))
+
+
 def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
@@ -79,7 +83,7 @@ def _save_accounting_state(run: TaskRun) -> None:
         run_id=run.id,
         team_id=run.team_id,
         cost_delta_microusd=delta,
-        accounting_failed=_run_spend(run).accounting_failed,
+        accounting_failed=_accounting_failed(run),
         origin_product=previous.task.origin_product,
     )
 
@@ -288,18 +292,31 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
     return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
 
 
-def _run_spend(run: TaskRun, *, queued: bool | None = None) -> TaskRunSpend:
+def _run_spend(
+    run: TaskRun, *, queued: bool | None = None, sessions: list[SandboxSession] | None = None
+) -> TaskRunSpend:
     usage = _token_usage(run, queued=queued)
+    if sessions is None:
+        sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
+    compute = _compute_cost_source(run, sessions=sessions, include_unattributed=True) if sessions else Decimal(0)
+    compute_complete = compute is not None and (
+        not run.is_terminal
+        or all(session.ended_at is not None or session.ttl_expires_at <= timezone.now() for session in sessions)
+    )
+    if not sessions and (run.state or {}).get("sandbox_id"):
+        compute_complete = False
     return TaskRunSpend(
         created_at=run.created_at,
         run_id=run.id,
         task_id=run.task_id,
         cost_microusd=usage.cost_microusd,
-        complete=usage.complete,
+        complete=usage.complete and compute_complete,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",
-        accounting_failed=bool((run.state or {}).get("token_cost_incomplete"))
-        or (run.is_terminal and not gateway_usage_enabled(run)),
+        accounting_failed=_accounting_failed(run),
+        compute_cost_microusd=int(((compute or Decimal(0)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING)),
+        trial_grant_id=(run.state or {}).get("self_driving_funding", {}).get("grant_id") or None,
+        billing_exempt=(run.state or {}).get("self_driving_funding", {}).get("funding") == "operator",
     )
 
 
@@ -312,8 +329,13 @@ def locked_task_run_spend(*, team_id: int, run_id: UUID) -> Iterator[TaskRunSpen
 
 def get_task_runs_spend(*, team_id: int, run_ids: Iterable[UUID]) -> list[TaskRunSpend]:
     runs = list(TaskRun.objects.filter(team_id=team_id, id__in=run_ids))
+    if not runs:
+        return []
     queued = _runs_with_queued_requests(team_id, [run.id for run in runs])
-    return [_run_spend(run, queued=run.id in queued) for run in runs]
+    sessions_by_run: dict[UUID, list[SandboxSession]] = {}
+    for session in SandboxSession.objects.for_team(team_id).filter(task_run__in=runs):
+        sessions_by_run.setdefault(session.task_run_id, []).append(session)
+    return [_run_spend(run, queued=run.id in queued, sessions=sessions_by_run.get(run.id, [])) for run in runs]
 
 
 def _token_cost_microusd(run: TaskRun, *, queued: bool | None = None) -> int | None:
@@ -330,7 +352,9 @@ def _cost_sources(
     )
 
 
-def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> Decimal | None:
+def _compute_cost_source(
+    run: TaskRun, *, sessions: list[SandboxSession] | None = None, include_unattributed: bool = False
+) -> Decimal | None:
     if run.environment != TaskRun.Environment.CLOUD or not COMPUTE_RATE_CARDS:
         return None
     if sessions is None:
@@ -339,16 +363,24 @@ def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None 
         return None
     now = timezone.now()
     try:
-        return sum((_session_compute_cost(session, now) for session in sessions), Decimal(0))
+        return sum(
+            (_session_compute_cost(session, now, include_unattributed=include_unattributed) for session in sessions),
+            Decimal(0),
+        )
     except ValueError:
         return None
 
 
-def _session_compute_cost(session: SandboxSession, now: datetime) -> Decimal:
-    if session.compute_settled_at is not None and session.compute_settled_usd is not None:
+def _session_compute_cost(session: SandboxSession, now: datetime, *, include_unattributed: bool = False) -> Decimal:
+    if not include_unattributed and session.compute_settled_at is not None and session.compute_settled_usd is not None:
         return session.compute_settled_usd
     return calculate_sandbox_compute_cost(
-        session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
+        session,
+        COMPUTE_RATE_CARDS[0].effective_at,
+        now,
+        calculated_at=now,
+        rate_cards=COMPUTE_RATE_CARDS,
+        include_unattributed=include_unattributed,
     ).total_cost_usd
 
 

@@ -7,7 +7,14 @@ import posthoganalytics
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.ph_client import ScopedCapture, filter_scout_experiment_capture, get_client, ph_scoped_capture
+from posthog.ph_client import (
+    ScopedCapture,
+    default_before_send,
+    filter_scout_experiment_capture,
+    get_client,
+    ph_scoped_capture,
+    self_hosted_capture_reaches_posthog,
+)
 
 
 class TestAILaneOptIn(SimpleTestCase):
@@ -76,6 +83,43 @@ class TestPrivateScoutCapture(SimpleTestCase):
             self.assertEqual(before_send.call_count, 1 if private_capture else 2)
         finally:
             client.shutdown()
+
+    @parameterized.expand(
+        [
+            ("cloud", False, False, {"$exception": True, "query executed": True}),
+            ("cloud_private_scout", True, False, {"$exception": True, "query executed": True}),
+            ("self_hosted", False, True, {"$exception": False, "query executed": True}),
+            ("self_hosted_private_scout", True, True, {"$exception": False, "query executed": True}),
+        ]
+    )
+    def test_default_before_send_drops_self_hosted_exceptions(
+        self, _name: str, private_scout_capture: bool, self_hosted: bool, expected_kept: dict[str, bool]
+    ) -> None:
+        before_send = default_before_send(private_scout_capture=private_scout_capture, self_hosted=self_hosted)
+        for event, kept in expected_kept.items():
+            message = {"event": event, "distinct_id": "synthetic", "properties": {}}
+            with tags_context(is_scout_experiment=False):
+                result = message if before_send is None else before_send(message)
+            self.assertEqual(result is not None, kept, event)
+        if private_scout_capture and before_send is not None:
+            with tags_context(is_scout_experiment=True):
+                self.assertIsNone(before_send({"event": "query executed", "distinct_id": "synthetic"}))
+
+    @parameterized.expand(
+        [
+            ("self_hosted", True, False, True),
+            ("self_hosted_self_capture", True, True, False),
+            ("cloud_or_local", False, False, False),
+        ]
+    )
+    def test_self_hosted_capture_reaches_posthog(
+        self, _name: str, hobby: bool, self_capture: bool, expected: bool
+    ) -> None:
+        with (
+            patch("posthog.ph_client.is_hobby", return_value=hobby),
+            override_settings(TEST=False, SELF_CAPTURE=self_capture),
+        ):
+            self.assertEqual(self_hosted_capture_reaches_posthog(), expected)
 
     @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
     def test_unconfigured_regional_client_has_no_capture_filter(self) -> None:

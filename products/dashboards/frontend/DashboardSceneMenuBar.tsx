@@ -47,7 +47,6 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -95,7 +94,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     const { user } = useValues(userLogic)
-    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
@@ -367,7 +365,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         onSave={(t) => updateDashboardTags(t)}
                         canEdit={canEditDashboard}
                         tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
                         dataAttrKey={RESOURCE_TYPE}
                         loading={isSavingTags}
                     />

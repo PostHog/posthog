@@ -218,8 +218,20 @@ class PulsePin:
 
 
 @dataclass(frozen=True)
+class HiddenPulseNumber:
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
 class PulsePins:
     pins: list[PulsePin]
+    hidden: list[HiddenPulseNumber] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HiddenPulseNumbers:
+    hidden: list[HiddenPulseNumber]
 
 
 @dataclass(frozen=True)

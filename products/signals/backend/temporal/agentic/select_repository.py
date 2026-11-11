@@ -33,6 +33,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.trial.reports import trial_report_activity
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
     EmptyAgentTurnError,
@@ -177,6 +178,7 @@ def _capture_repo_research_event(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals.
 

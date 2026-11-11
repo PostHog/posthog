@@ -53,7 +53,7 @@ export interface TraceViewLogicProps {
 }
 
 /** Where the view sits. Pinned: sent as the `surface` property of analytics events, so keep the values stable. */
-export type TraceViewSurface = 'drawer' | 'trace_dialog'
+export type TraceViewSurface = 'drawer' | 'trace_dialog' | 'exception_card'
 
 /**
  * What the Operations tab counts: the whole trace, or the inspected span and the spans under it.

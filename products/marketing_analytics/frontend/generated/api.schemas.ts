@@ -1917,6 +1917,29 @@ export interface DataWarehouseSourceUsageApi {
     uses_history_table?: boolean | null
 }
 
+export type WarehouseSuggestionNoteKindApi =
+    (typeof WarehouseSuggestionNoteKindApi)[keyof typeof WarehouseSuggestionNoteKindApi]
+
+export const WarehouseSuggestionNoteKindApi = {
+    Materialize: 'materialize',
+    Unmaterialize: 'unmaterialize',
+} as const
+
+export interface WarehouseSuggestionNoteApi {
+    /** Whether this user can edit the view, which accepting the suggestion needs. */
+    can_act: boolean
+    /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+    id: string
+    /** What the suggestion proposes. */
+    kind: WarehouseSuggestionNoteKindApi
+    /** Plain-language note for the person, with the next step. */
+    message: string
+    /** Absolute link to the view's page in Models. */
+    url: string
+    /** The view's current name. */
+    view_name: string
+}
+
 export interface DataWarehouseSyncWarningApi {
     /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
     data_is_current?: boolean | null
@@ -1982,6 +2005,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     types?: unknown[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+    warehouse_suggestions?: WarehouseSuggestionNoteApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
 }
@@ -2737,6 +2762,7 @@ export interface UtmAuditResponseApi {
  * * `keyword_gap` - Keyword Gap
  * * `spend_without_conversions` - Spend Without Conversions
  * * `striking_distance` - Striking Distance
+ * * `keyword_tracking` - Keyword Tracking
  */
 export type RecommendationRuleEnumApi = (typeof RecommendationRuleEnumApi)[keyof typeof RecommendationRuleEnumApi]
 
@@ -2751,6 +2777,7 @@ export const RecommendationRuleEnumApi = {
     KeywordGap: 'keyword_gap',
     SpendWithoutConversions: 'spend_without_conversions',
     StrikingDistance: 'striking_distance',
+    KeywordTracking: 'keyword_tracking',
 } as const
 
 /**
@@ -2865,7 +2892,8 @@ export interface RecommendationResolutionApi {
      * * `content_gap` - Content Gap
      * * `keyword_gap` - Keyword Gap
      * * `spend_without_conversions` - Spend Without Conversions
-     * * `striking_distance` - Striking Distance */
+     * * `striking_distance` - Striking Distance
+     * * `keyword_tracking` - Keyword Tracking */
     rule: RecommendationRuleEnumApi
     /** The recommendation's `identity.source_type`.
      *

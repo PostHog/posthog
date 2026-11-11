@@ -1,25 +1,25 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { FakeSes, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
-import { EmailStatusOutput } from '~/cdp/outputs/outputs'
+import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
@@ -43,13 +43,6 @@ import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
-
-class ThrottlingException extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'ThrottlingException'
-    }
-}
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
@@ -180,6 +173,7 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: { report: jest.Mock }
+    let ses: FakeSes
     const createService = (config: Partial<EmailServiceConfig> = {}): EmailService =>
         new EmailService(
             {
@@ -203,6 +197,11 @@ describe('EmailService', () => {
         )
     beforeEach(async () => {
         hub = await createHub({})
+        ses = await startFakeSes({
+            [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+            [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+        })
+        hub.SES_ENDPOINT = ses.endpoint
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
         workflowsActivationReporter = { report: jest.fn() }
@@ -210,6 +209,7 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        await ses.close()
         await closeHub(hub)
     })
     describe('when SES is not configured', () => {
@@ -258,7 +258,6 @@ describe('EmailService', () => {
 
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
-        let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: getIntegrationId(1),
@@ -278,10 +277,6 @@ describe('EmailService', () => {
             } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
-
-            // Mock SES v2 send to avoid actual AWS calls
-            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         })
         describe('integration validation', () => {
             beforeEach(async () => {
@@ -362,10 +357,10 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(sendEmailSpy).toHaveBeenCalled()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
-                expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe('test@posthog.com')
+                expect(ses.sent).toHaveLength(1)
+                const [sent] = ses.sent
+                expect(sent.from).toBe('"Test User" <test@posthog.com>')
+                expect(sent.feedbackForwardingAddress).toBe('test@posthog.com')
             })
             it('should allow a valid email integration and domain', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -401,8 +396,8 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
 
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.FromEmailAddress).toBe('"Second Sender" <second@posthog.com>')
+                const [sent] = ses.sent
+                expect(sent.from).toBe('"Second Sender" <second@posthog.com>')
                 expect(result.logs.map((log) => log.message)).toContain(
                     'Email sent to test@example.com from Second Sender <second@posthog.com>'
                 )
@@ -461,9 +456,9 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.FromEmailAddress).toBe(expectedFrom)
-                expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe(expectedFeedback)
+                const [sent] = ses.sent
+                expect(sent.from).toBe(expectedFrom)
+                expect(sent.feedbackForwardingAddress).toBe(expectedFeedback)
             })
 
             it.each<[string, string, string?]>([
@@ -487,8 +482,8 @@ describe('EmailService', () => {
                 // an old sender picker wrote, so an unusable override degrades to the integration's
                 // own sender. The unverified address must never reach the provider either way.
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                const [sent] = ses.sent
+                expect(sent.from).toBe('"Test User" <test@posthog.com>')
                 expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(expectedWarning))).toBe(
                     true
                 )
@@ -498,27 +493,15 @@ describe('EmailService', () => {
             it('should send an email', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                expect(sendEmailSpy).toHaveBeenCalled()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input).toMatchObject({
-                    FromEmailAddress: '"Test User" <test@posthog.com>',
-                    FeedbackForwardingEmailAddress: 'test@posthog.com',
-                    Destination: {
-                        ToAddresses: ['"Test User" <test@example.com>'],
-                    },
-                    Content: {
-                        Simple: {
-                            Subject: {
-                                Data: 'Test Subject',
-                            },
-                            Body: {
-                                Text: {
-                                    Data: 'Test Text',
-                                },
-                            },
-                        },
-                    },
-                })
+                expect(ses.sent).toEqual([
+                    expect.objectContaining({
+                        from: '"Test User" <test@posthog.com>',
+                        feedbackForwardingAddress: 'test@posthog.com',
+                        to: ['"Test User" <test@example.com>'],
+                        subject: 'Test Subject',
+                        text: 'Test Text',
+                    }),
+                ])
             })
         })
         describe('SES throttle handling', () => {
@@ -530,27 +513,30 @@ describe('EmailService', () => {
             // the transport layer). SendingPausedException is *not* retryable —
             // it signals a reputation/account-state issue that needs operator
             // attention, not a 500ms reschedule.
-            const throttleCases: Array<[string, () => Error]> = [
-                [
-                    'TooManyRequestsException',
-                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
-                ],
-                ['ThrottlingException', () => new ThrottlingException('Rate exceeded')],
+            // The SDK retries a throttle by itself before it gives up, so SES throttles every attempt here.
+            const tooManyRequests: FakeSesFault = {
+                status: 429,
+                type: 'TooManyRequestsException',
+                message: 'Too many requests',
+            }
+            const throttleCases: Array<[string, FakeSesFault]> = [
+                ['TooManyRequestsException', tooManyRequests],
+                ['ThrottlingException', { status: 400, type: 'ThrottlingException', message: 'Rate exceeded' }],
             ]
-            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
-                sendEmailSpy.mockRejectedValueOnce(makeError())
-
-                const before = Date.now()
-                const result = await service.executeSendEmail(invocation)
+            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, fault) => {
+                ses.failWith(fault)
+                // Only the clock is frozen, so the SDK still waits between its own retries,
+                // and the reschedule lands exactly the jittered 500 to 1000ms past `now`.
+                const now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                const result = await service.executeSendEmail(invocation).finally(() => clock.mockRestore())
 
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
-                // Jittered 500–1000ms retry: must land in the future but never further
-                // than the upper bound + scheduler overhead.
-                expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
-                expect(scheduledMs).toBeLessThan(before + 2000)
+                expect(scheduledMs).toBeGreaterThanOrEqual(now + 500)
+                expect(scheduledMs).toBeLessThan(now + 1000)
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 // No business metric emitted on throttle — the eventual retry
@@ -564,9 +550,7 @@ describe('EmailService', () => {
                 // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
                 // which is exactly the traffic the fast lane exists to protect.
                 invocation.queuePriority = 1
-                sendEmailSpy.mockRejectedValueOnce(
-                    new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
-                )
+                ses.failWith(tooManyRequests)
 
                 const result = await service.executeSendEmail(invocation)
 
@@ -579,9 +563,7 @@ describe('EmailService', () => {
                 // Reputation/account-state pause won't recover in 500ms; retrying
                 // just burns reschedules. Hard-fail so the failure surfaces via
                 // email_failed and an operator can investigate.
-                sendEmailSpy.mockRejectedValueOnce(
-                    new SendingPausedException({ $metadata: {}, message: 'Sending paused' })
-                )
+                ses.failWith({ status: 400, type: 'SendingPausedException', message: 'Sending paused' })
 
                 const result = await service.executeSendEmail(invocation)
 
@@ -592,23 +574,18 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each<[string, () => Error, string]>([
-                [
-                    'TooManyRequestsException',
-                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
-                    'throttled',
-                ],
-                ['ThrottlingException', () => new ThrottlingException('Rate exceeded'), 'throttled'],
+            it.each<[string, string, FakeSesFault]>([
+                ...throttleCases.map(([name, fault]): [string, string, FakeSesFault] => [name, 'throttled', fault]),
                 [
                     'SendingPausedException',
-                    () => new SendingPausedException({ $metadata: {}, message: 'Sending paused' }),
                     'SendingPausedException',
+                    { status: 400, type: 'SendingPausedException', message: 'Sending paused' },
                 ],
-                ['an unknown error', () => new Error('connect ECONNRESET for test@example.com'), 'other'],
-            ])('counts an SES send that fails with %s as %s', async (_name, makeError, expectedResult) => {
+                ['a dropped connection', 'other', 'drop-connection'],
+            ])('counts an SES send that fails with %s as %s', async (_name, expectedResult, fault) => {
                 const labels = { result: expectedResult }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
-                sendEmailSpy.mockRejectedValueOnce(makeError())
+                ses.failWith(fault)
 
                 await service.executeSendEmail(invocation)
 
@@ -616,9 +593,7 @@ describe('EmailService', () => {
             })
 
             it('still fails the job for non-throttle SES errors', async () => {
-                sendEmailSpy.mockRejectedValueOnce(
-                    new MessageRejected({ $metadata: {}, message: 'something else broke' })
-                )
+                ses.failWith({ status: 400, type: 'MessageRejected', message: 'something else broke' })
 
                 const result = await service.executeSendEmail(invocation)
 
@@ -681,7 +656,6 @@ describe('EmailService', () => {
         describe('workflow sending rate limit', () => {
             let claimOrReserve: jest.Mock
             let limitedService: EmailService
-            let limitedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
                 claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
@@ -706,8 +680,6 @@ describe('EmailService', () => {
                     undefined,
                     { claimOrReserve } as unknown as RateLimiterService
                 )
-                limitedSendSpy = jest.spyOn(limitedService.sesV2Client!, 'send') as any
-                limitedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.hogFunction.metadata = {
                     email_sending_rate_limit: { count: 120, period: 'minute' },
                 }
@@ -740,7 +712,7 @@ describe('EmailService', () => {
                 const result = await limitedService.executeSendEmail(invocation)
                 const after = Date.now()
 
-                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
@@ -774,7 +746,7 @@ describe('EmailService', () => {
                 const result = await limitedService.executeSendEmail(invocation)
 
                 expect(claimOrReserve).not.toHaveBeenCalled()
-                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result).toMatchObject({ finished: true, error: expect.stringMatching(/^attachments_missing: /) })
                 expect(result.invocation.queueScheduledAt).toBeFalsy()
             })
@@ -835,7 +807,7 @@ describe('EmailService', () => {
                     60 * 60 * 1000
                 )
                 expect(result.finished).toBe(true)
-                expect(limitedSendSpy).toHaveBeenCalled()
+                expect(ses.sent).toHaveLength(1)
             })
 
             it.each([
@@ -852,7 +824,7 @@ describe('EmailService', () => {
 
                 expect(claimOrReserve).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
-                expect(limitedSendSpy).toHaveBeenCalled()
+                expect(ses.sent).toHaveLength(1)
             })
 
             it('skips the limit for test sends', async () => {
@@ -862,7 +834,7 @@ describe('EmailService', () => {
 
                 expect(claimOrReserve).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
-                expect(limitedSendSpy).toHaveBeenCalled()
+                expect(ses.sent).toHaveLength(1)
             })
         })
 
@@ -902,8 +874,6 @@ describe('EmailService', () => {
                     undefined,
                     new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
                 )
-                const realSendSpy = jest.spyOn(realLimitedService.sesV2Client!, 'send') as any
-                realSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 // 6/minute: refill 0.1 tokens/s, burst capacity 1. Slow enough that the test's
                 // own wall-clock time cannot refill a token between the denials below.
@@ -937,7 +907,7 @@ describe('EmailService', () => {
                 const otherResult = await realLimitedService.executeSendEmail(other)
 
                 expect(otherResult.finished).toBe(true)
-                expect(realSendSpy).toHaveBeenCalledTimes(2)
+                expect(ses.sent).toHaveLength(2)
             })
         })
 
@@ -959,7 +929,6 @@ describe('EmailService', () => {
             let claimAllOrNothing: jest.Mock
             let claimUpTo: jest.Mock
             let cappedService: EmailService
-            let cappedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
                 claimAllOrNothing = jest.fn()
@@ -990,8 +959,6 @@ describe('EmailService', () => {
                     null,
                     { claimAllOrNothing, claimUpTo } as unknown as RateLimiterService
                 )
-                cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
-                cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             })
 
             afterEach(() => {
@@ -1001,7 +968,7 @@ describe('EmailService', () => {
             const buildEnforcedService = (
                 name: string,
                 dailyCap: number
-            ): { service: EmailService; sendSpy: jest.SpyInstance; limiter: RateLimiterService } => {
+            ): { service: EmailService; limiter: RateLimiterService } => {
                 const redis = createRedisV2PoolFromConfig({
                     connection: hub.CDP_REDIS_HOST
                         ? {
@@ -1039,9 +1006,7 @@ describe('EmailService', () => {
                     null,
                     limiter
                 )
-                const sendSpy = jest.spyOn(service.sesV2Client!, 'send') as any
-                sendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-                return { service, sendSpy, limiter }
+                return { service, limiter }
             }
 
             it.each([
@@ -1063,7 +1028,7 @@ describe('EmailService', () => {
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
 
-                expect(cappedSendSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
                 // The reschedule must carry the email payload forward, same as the workflow limit.
@@ -1087,7 +1052,7 @@ describe('EmailService', () => {
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
 
-                expect(cappedSendSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.finished).toBe(false)
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 5 * 60 * 1000)
@@ -1105,7 +1070,7 @@ describe('EmailService', () => {
                 const result = await cappedService.executeSendEmail(invocation)
 
                 expect(result.finished).toBe(true)
-                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
                 expect(result.invocation.queueScheduledAt).toBeUndefined()
                 expect(claimAllOrNothing).not.toHaveBeenCalled()
                 expect(claimUpTo).toHaveBeenCalledTimes(1)
@@ -1122,7 +1087,7 @@ describe('EmailService', () => {
                 // shared-horizon wakes and a denied backlog re-herds.
                 expect(claimAllOrNothing).toHaveBeenCalledWith(expect.anything(), 60 * 60 * 1000)
                 expect(result.finished).toBe(true)
-                expect(cappedSendSpy).toHaveBeenCalled()
+                expect(ses.sent).toHaveLength(1)
             })
 
             // A team over its tier cap must not slow anyone else down: its denied sends get
@@ -1130,11 +1095,7 @@ describe('EmailService', () => {
             // goes straight out. Runs against the real limiter.
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const dailyCap = 8640
-                const {
-                    service: enforcedService,
-                    sendSpy: enforcedSendSpy,
-                    limiter,
-                } = buildEnforcedService('team-email-cap-test', dailyCap)
+                const { service: enforcedService, limiter } = buildEnforcedService('team-email-cap-test', dailyCap)
 
                 // Drain the capped team's bucket so every send below is a denial. The
                 // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
@@ -1176,18 +1137,17 @@ describe('EmailService', () => {
                 const otherResult = await enforcedService.executeSendEmail(other)
 
                 expect(otherResult.finished).toBe(true)
-                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
             })
 
             // Enforce mode has only ever issued claimAllOrNothing against real Valkey, so
             // transactional through claimUpTo has never run there. Real limiter.
             it('charges a transactional send against the real bucket without delaying it', async () => {
                 const dailyCap = 50
-                const {
-                    service: enforcedService,
-                    sendSpy: enforcedSendSpy,
-                    limiter,
-                } = buildEnforcedService('team-email-cap-transactional-test', dailyCap)
+                const { service: enforcedService, limiter } = buildEnforcedService(
+                    'team-email-cap-transactional-test',
+                    dailyCap
+                )
 
                 // A team of its own, so the buckets start cold whatever else touched Valkey.
                 const capTeam = (await createTestTeamFixture(hub.postgres)).team
@@ -1221,18 +1181,18 @@ describe('EmailService', () => {
                 // The charge: this send takes the last token rather than riding past the bucket.
                 const charged = await enforcedService.executeSendEmail(sendFor('charged', true))
                 expect(charged.finished).toBe(true)
-                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
 
                 // Control: the cap really is closed now, so a marketing send parks.
                 const marketing = await enforcedService.executeSendEmail(sendFor('marketing', false))
                 expect(marketing.finished).toBe(false)
-                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
 
                 // The exemption: a transactional send still goes out against the closed cap.
                 const transactional = await enforcedService.executeSendEmail(sendFor('transactional', true))
                 expect(transactional.finished).toBe(true)
                 expect(transactional.invocation.queueScheduledAt).toBeUndefined()
-                expect(enforcedSendSpy).toHaveBeenCalledTimes(2)
+                expect(ses.sent).toHaveLength(2)
             })
         })
     })
@@ -1300,7 +1260,6 @@ describe('EmailService', () => {
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
-        let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
@@ -1325,11 +1284,14 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
             })
-            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
         })
 
         it('should error if not verified', async () => {
-            sendEmailSpy.mockRejectedValue(new Error('Email address not verified "Test User" <test@posthog-test.com>'))
+            ses.failWith({
+                status: 400,
+                type: 'MessageRejected',
+                message: 'Email address not verified "Test User" <test@posthog-test.com>',
+            })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toEqual(
                 'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
@@ -1337,64 +1299,45 @@ describe('EmailService', () => {
         })
 
         it.each([
-            [
-                'an ordinary template',
-                {},
-                '$pageview',
-                [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
-            ],
+            ['an ordinary template', {}, '$pageview', { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
             [
                 'a sensitive template',
                 { sensitive: true },
                 '$pageview',
-                [
-                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
-                    { Name: 'ph_sensitive', Value: 'true' },
-                ],
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_sensitive: 'true' },
             ],
             [
                 'a transactional email run',
                 {},
                 TRANSACTIONAL_EMAIL_EVENT,
-                [
-                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
-                    { Name: 'ph_email_status', Value: 'true' },
-                ],
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
-            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
             // rides in the header.
-            expect(sentCommand.input).toMatchObject({
-                ConfigurationSetName: 'posthog-messaging',
-                Content: {
-                    Simple: {
-                        Body: {
-                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
-                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
-                        },
-                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
-                    },
-                },
-                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: expectedTags,
-                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
-                FromEmailAddress: '"Test User" <test@posthog-test.com>',
-            })
+            expect(ses.sent).toEqual([
+                expect.objectContaining({
+                    configurationSet: 'posthog-messaging',
+                    html: 'Test HTML',
+                    text: 'Test Text',
+                    subject: 'Test Subject',
+                    charsets: { subject: 'UTF-8', text: 'UTF-8', html: 'UTF-8' },
+                    to: ['"Test User" <test@example.com>'],
+                    tags: expectedTags,
+                    feedbackForwardingAddress: 'test@posthog-test.com',
+                    from: '"Test User" <test@posthog-test.com>',
+                }),
+            ])
         })
 
-        const sesAccepts = (): void => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-        }
+        const sesAccepts = (): void => {}
         const sesRejects = (): void => {
-            sendEmailSpy.mockRejectedValue(new Error('SES error'))
+            ses.failWith({ status: 400, type: 'MessageRejected', message: 'SES error' })
         }
         const teamSuspended = (): void => {
             sesAccepts()
@@ -1430,7 +1373,7 @@ describe('EmailService', () => {
 
             const result = await service.executeSendEmail(invocation)
 
-            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(ses.sent).toEqual([])
             expect(result.finished).toBe(true)
             expect(result.error).toMatch(/^attachments_missing: /)
         })
@@ -1498,11 +1441,8 @@ describe('EmailService', () => {
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
         ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
-            const produce = jest.fn().mockResolvedValue(undefined)
-            const emailStatusService = new EmailStatusService(
-                { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
-                { EMAIL_STATUS_ENABLED: true }
-            )
+            const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+            const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
             invocation.id = new UUIDT().toString()
             invocation.state.globals.event.event = triggerEvent
@@ -1511,7 +1451,7 @@ describe('EmailService', () => {
             await service.executeSendEmail(invocation, isTest)
             await emailStatusService.flush()
 
-            const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+            const rows = kafka.produced(EMAIL_STATUS_OUTPUT)
             const sendingDomain =
                 status === 'sent' || reason === 'provider_error' || reason === 'attachments_missing'
                     ? 'posthog-test.com'
@@ -1532,8 +1472,6 @@ describe('EmailService', () => {
         })
 
         it('records a send-time metric for normal sends but not for test sends', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-
             const normal = await service.executeSendEmail(invocation)
             expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
 
@@ -1550,12 +1488,11 @@ describe('EmailService', () => {
                 const isSuppressedSpy = jest
                     .spyOn(service['emailSuppressionService'], 'isSuppressed')
                     .mockResolvedValue(true)
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
                 expect(isSuppressedSpy).toHaveBeenCalled()
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_suppressed')
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
             })
@@ -1565,7 +1502,6 @@ describe('EmailService', () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockImplementation((_teamId, email) =>
                     Promise.resolve(suppressed.has(email))
                 )
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
                     cc: '"Bounced" <cc-bounced@example.com>, cc-1@example.com, cc-2@example.com',
@@ -1574,11 +1510,8 @@ describe('EmailService', () => {
 
                 const result = await service.executeSendEmail(invocation)
 
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.Destination).toEqual({
-                    ToAddresses: ['cc-1@example.com'],
-                    CcAddresses: ['cc-2@example.com'],
-                })
+                const [sent] = ses.sent
+                expect(sent).toMatchObject({ to: ['cc-1@example.com'], cc: ['cc-2@example.com'], bcc: undefined })
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
                 expect(result.logs.map((l) => l.message).join(' ')).toContain(
                     'test@example.com, cc-bounced@example.com, bcc-bounced@example.com'
@@ -1599,14 +1532,13 @@ describe('EmailService', () => {
                             ? Promise.reject(new Error('column "hard_bounced_at" does not exist'))
                             : query(target, sql, values, tag)
                     )
-                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                     const held = { ...invocation, queueMetadata: { suppressionLookupAttempts: priorAttempts } }
 
                     const before = Date.now()
                     const result = await service.executeSendEmail(held, isTest)
                     const after = Date.now()
 
-                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(ses.sent).toEqual([])
                     expect(result.metrics).toEqual([])
                     if (isTest) {
                         expect(result.finished).toBe(true)
@@ -1624,11 +1556,10 @@ describe('EmailService', () => {
 
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
         })
@@ -1644,11 +1575,10 @@ describe('EmailService', () => {
                 from: { integrationId: 1 },
                 to: { email: email as string, name: 'Test User' },
             })
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
 
-            expect(sendEmailSpy).not.toHaveBeenCalled()
+            expect(ses.sent).toEqual([])
             expect(result.error).toBeUndefined()
             expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_missing_recipient'])
             expect(result.skipped).toBe(true)
@@ -1688,23 +1618,19 @@ describe('EmailService', () => {
 
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-
                 const result = await service.executeSendEmail(invocation)
 
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+                const [sent] = ses.sent
+                expect(sent.tenant).toEqual(`team-${team.id}`)
             })
 
             it('attributes test-panel sends too — they are real SES sends', async () => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-
                 const result = await service.executeSendEmail(invocation, true)
 
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+                const [sent] = ses.sent
+                expect(sent.tenant).toEqual(`team-${team.id}`)
             })
         })
 
@@ -1728,11 +1654,10 @@ describe('EmailService', () => {
 
             it('does not call SES while the team is suspended and records email_suspended', async () => {
                 await suspendTeam()
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
                 expect(result.emailSendResult).toEqual({
                     status: 'skipped',
@@ -1743,11 +1668,10 @@ describe('EmailService', () => {
 
             it('blocks editor test sends while suspended without recording metrics', async () => {
                 await suspendTeam()
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation, true)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.metrics).toEqual([])
             })
 
@@ -1758,11 +1682,10 @@ describe('EmailService', () => {
                     email_sending_paused_at: '2026-01-01T00:00:00Z',
                     email_sending_paused_reason: 'Spam complaints reached 2% of the 400 emails sent.',
                 }
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
                 expect(result.emailSendResult?.status).toBe('skipped')
                 expect(result.emailSendResult?.reason).toContain('Resume it from the workflow page')
@@ -1779,11 +1702,10 @@ describe('EmailService', () => {
                         "PostHog staff paused this workflow's email to protect delivery for everyone.",
                     email_sending_paused_by: 'staff',
                 }
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 const messages = result.logs.map((l) => l.message).join(' ')
                 expect(messages).toContain('Contact support')
                 expect(messages).not.toContain('Resume it from the workflow page')
@@ -1791,11 +1713,10 @@ describe('EmailService', () => {
 
             it('blocks editor test sends while the workflow is paused without recording metrics', async () => {
                 invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation, true)
 
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
                 expect(result.metrics).toEqual([])
             })
 
@@ -1804,11 +1725,10 @@ describe('EmailService', () => {
                     email_sending_paused_at: null,
                     email_sending_paused_reason: null,
                 }
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
 
@@ -1834,12 +1754,11 @@ describe('EmailService', () => {
                 ['DISABLED', 0, 'email_suspended'],
                 ['REINSTATED', 1, 'email_sent'],
             ])('provider tenant status %s: %i SES calls, records %s', async (status, sesCalls, metricName) => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await setProviderTenantStatus(status as string)
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).toHaveBeenCalledTimes(sesCalls as number)
+                expect(ses.sent).toHaveLength(sesCalls as number)
                 expect(result.metrics.map((m) => m.metric_name)).toContain(metricName)
             })
 
@@ -1882,53 +1801,48 @@ describe('EmailService', () => {
                 // The config lookup rejecting must never block a legitimate send. Rejects once:
                 // the suspension check is the first config read; later reads use the real loader.
                 jest.spyOn(service['teamWorkflowsConfigService'], 'get').mockRejectedValueOnce(new Error('pg down'))
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(ses.sent).toHaveLength(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
         })
 
         it('should include cc addresses in SES destination', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 cc: 'cc1@example.com, cc2@example.com',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toEqual(['cc1@example.com', 'cc2@example.com'])
+            const [sent] = ses.sent
+            expect(sent.cc).toEqual(['cc1@example.com', 'cc2@example.com'])
         })
 
         it('should include bcc addresses in SES destination', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 bcc: 'bcc@example.com',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.BccAddresses).toEqual(['bcc@example.com'])
+            const [sent] = ses.sent
+            expect(sent.bcc).toEqual(['bcc@example.com'])
         })
 
         it('should not include cc/bcc in SES destination when not provided', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toBeUndefined()
-            expect(sentCommand.input.Destination.BccAddresses).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.cc).toBeUndefined()
+            expect(sent.bcc).toBeUndefined()
         })
 
         it('should not include cc/bcc in SES destination when empty strings', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 cc: '',
@@ -1936,44 +1850,41 @@ describe('EmailService', () => {
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Destination.CcAddresses).toBeUndefined()
-            expect(sentCommand.input.Destination.BccAddresses).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.cc).toBeUndefined()
+            expect(sent.bcc).toBeUndefined()
         })
 
         it('should not include replyTo if not in params', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.replyTo).toBeUndefined()
         })
 
         it('should include single replyTo address if in params', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 replyTo: 'Customer Service <reply@example.com>',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toEqual(['Customer Service <reply@example.com>'])
+            const [sent] = ses.sent
+            expect(sent.replyTo).toEqual(['Customer Service <reply@example.com>'])
         })
 
         it('should split multiple comma-separated replyTo addresses', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 replyTo: 'reply1@example.com, reply2@example.com, Customer Service <reply3@example.com>',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toEqual([
+            const [sent] = ses.sent
+            expect(sent.replyTo).toEqual([
                 'reply1@example.com',
                 'reply2@example.com',
                 'Customer Service <reply3@example.com>',
@@ -1997,43 +1908,52 @@ describe('EmailService', () => {
                     reply_to: 'support@posthog-test.com',
                 },
             })
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({ from: { integrationId: 2 }, replyTo })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toEqual(expected)
+            const [sent] = ses.sent
+            expect(sent.replyTo).toEqual(expected)
         })
 
         it.each([
-            ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
-            ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
-            ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],
+            [
+                'text only',
+                { html: '', text: 'Hello, this is a plain text email.' },
+                { text: 'Hello, this is a plain text email.', html: undefined },
+            ],
+            [
+                'html only, no text',
+                { html: '<p>Hello</p>', text: undefined },
+                { text: undefined, html: expect.any(String) },
+            ],
+            [
+                'html only, empty text',
+                { html: '<p>Hello</p>', text: '' },
+                { text: undefined, html: expect.any(String) },
+            ],
         ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
             )
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(Object.keys(sentCommand.input.Content.Simple.Body)).toEqual(expectedParts)
+            const [sent] = ses.sent
+            expect(sent).toMatchObject(expectedParts)
             if (content.text) {
-                expect(sentCommand.input.Content.Simple.Body.Text).toEqual({ Data: content.text, Charset: 'UTF-8' })
+                expect(sent.charsets.text).toEqual('UTF-8')
             }
         })
 
         it('should not include preheader span if not in params', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 html: '<tbody>Test email content</tbody>',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
+            const [sent] = ses.sent
+            const htmlData = sent.html
             expect(htmlData).not.toContain('mso-hide:all')
         })
 
@@ -2045,7 +1965,6 @@ describe('EmailService', () => {
             ],
             ['a fragment without tbody', '<p>Hi</p>', /^<span style=".*">This is a preview text<\/span><p>Hi<\/p>$/],
         ])('should include preheader at the start of the body of %s', async (_name, html, expected) => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 html,
@@ -2053,8 +1972,8 @@ describe('EmailService', () => {
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Body.Html.Data).toMatch(expected)
+            const [sent] = ses.sent
+            expect(sent.html).toMatch(expected)
         })
 
         it.each([
@@ -2086,7 +2005,6 @@ describe('EmailService', () => {
         ])(
             'includes unsubscribe headers for $name, attributed to the email it came from',
             async ({ fromHogFlow, parentRunId, expectedSource }) => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.hogFunction.metadata = { message_category_type: 'marketing' }
                 if (fromHogFlow) {
                     Object.assign(invocation, { hogFlow: { id: 'function-1', version: 1 }, parentRunId })
@@ -2095,16 +2013,14 @@ describe('EmailService', () => {
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                const headers = sentCommand.input.Content.Simple.Headers
-                expect(headers).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({ Name: 'List-Unsubscribe' }),
-                        expect.objectContaining({ Name: 'List-Unsubscribe-Post' }),
-                    ])
+                const [sent] = ses.sent
+                expect(sent.headers).toEqual(
+                    expect.objectContaining({
+                        'List-Unsubscribe': expect.any(String),
+                        'List-Unsubscribe-Post': expect.any(String),
+                    })
                 )
-                const unsubscribeUrl = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
-                const token = unsubscribeUrl.match(/messaging-preferences\/([^/]+)\//)[1]
+                const token = sent.headers['List-Unsubscribe'].match(/messaging-preferences\/([^/]+)\//)![1]
                 const validated = new RecipientTokensService(
                     hub.ENCRYPTION_SALT_KEYS,
                     hub.SITE_URL
@@ -2122,7 +2038,6 @@ describe('EmailService', () => {
             const flowId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
             const actionId = 'action_email_0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'
             const longAddress = `${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.example.com`
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'marketing' }
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
@@ -2140,10 +2055,9 @@ describe('EmailService', () => {
             const result = await service.executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
-            const headers = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Headers
-            const unsubscribeValue = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
+            const unsubscribeValue = ses.sent[0].headers['List-Unsubscribe']
             expect(unsubscribeValue.length).toBeLessThanOrEqual(870)
-            const token = unsubscribeValue.match(/messaging-preferences\/([^/]+)\//)[1]
+            const token = unsubscribeValue.match(/messaging-preferences\/([^/]+)\//)![1]
             expect(
                 new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
             ).toEqual({
@@ -2156,12 +2070,11 @@ describe('EmailService', () => {
         })
 
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const headerNames = (sentCommand.input.Content.Simple.Headers ?? []).map((h: { Name: string }) => h.Name)
+            const [sent] = ses.sent
+            const headerNames = Object.keys(sent.headers)
             expect(headerNames).not.toContain('List-Unsubscribe')
             expect(headerNames).not.toContain('List-Unsubscribe-Post')
             expect(headerNames).toContain('X-PostHog-Tracking-Code')
@@ -2172,14 +2085,11 @@ describe('EmailService', () => {
             async (categoryType) => {
                 // Without this an autoresponder answers the workflow, and when the address it
                 // answers is a support inbox the reply re-enters the same workflow as a new ticket.
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.hogFunction.metadata = { message_category_type: categoryType }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.Content.Simple.Headers).toEqual(
-                    expect.arrayContaining([{ Name: 'Auto-Submitted', Value: 'auto-generated' }])
-                )
+                const [sent] = ses.sent
+                expect(sent.headers['Auto-Submitted']).toEqual('auto-generated')
             }
         )
 
@@ -2187,20 +2097,17 @@ describe('EmailService', () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
             // regardless of transactional vs. marketing category.
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const trackingHeader = sentCommand.input.Content.Simple.Headers.find(
-                (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
-            )
-            expect(trackingHeader).toBeDefined()
-            expect(typeof trackingHeader.Value).toBe('string')
-            expect(trackingHeader.Value.length).toBeGreaterThan(0)
+            const [sent] = ses.sent
+            const trackingCode = sent.headers['X-PostHog-Tracking-Code']
+            expect(typeof trackingCode).toBe('string')
+            expect(trackingCode.length).toBeGreaterThan(0)
             // The SES EmailTag carries a *different* (shorter, unsigned) code so it stays under the
             // 256-char tag-value limit even when distinct_id is long.
-            expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
+            expect(sent.tags.ph_id).toEqual(expect.any(String))
+            expect(sent.tags.ph_id).not.toEqual(trackingCode)
         })
 
         describe('per-send tracking gate (tracking_enabled)', () => {
@@ -2208,22 +2115,52 @@ describe('EmailService', () => {
             const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
 
             beforeEach(() => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging-untracked')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-                // Delivery/bounce attribution must survive tracking-off: the untracked configuration
-                // set still emits delivery events, and the webhook needs this header to attribute them.
-                const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
-                expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            it.each([
+                {
+                    case: 'delivers tracking-off mail without open or click tracking',
+                    trackingEnabled: false,
+                    untrackedSet: 'posthog-messaging-untracked',
+                    error: undefined,
+                    sent: [
+                        expect.objectContaining({
+                            to: ['"Test User" <test@example.com>'],
+                            html: trackableHtml,
+                            tracked: false,
+                        }),
+                    ],
+                },
+                {
+                    case: 'fails tracking-off mail instead of sending it tracked when no untracked set is named',
+                    trackingEnabled: false,
+                    untrackedSet: '',
+                    error: expect.stringContaining('SES_UNTRACKED_CONFIGURATION_SET is empty'),
+                    sent: [],
+                },
+                {
+                    case: 'delivers tracked mail when no untracked set is named',
+                    trackingEnabled: true,
+                    untrackedSet: '',
+                    error: undefined,
+                    sent: [
+                        expect.objectContaining({
+                            to: ['"Test User" <test@example.com>'],
+                            html: expect.stringContaining('Click me'),
+                            tracked: true,
+                        }),
+                    ],
+                },
+            ])('$case', async ({ trackingEnabled, untrackedSet, error, sent }) => {
+                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
+                const sesService = createService({ sesUntrackedConfigurationSet: untrackedSet })
+
+                const result = await sesService.executeSendEmail(invocation)
+
+                expect(result.error).toEqual(error)
+                expect(ses.sent).toEqual(sent)
             })
 
             it.each([
@@ -2255,21 +2192,19 @@ describe('EmailService', () => {
                     hog_flow_name: 'Spring sale',
                     hog_flow_action_name: 'Welcome',
                 }
-                const messageAssets = new MessageAssetsService({
-                    produce: jest.fn().mockResolvedValue(undefined),
-                } as unknown as IngestionOutputs<'message_assets'>)
-                const buildRowForEmail = jest.spyOn(messageAssets, 'buildRowForEmail').mockReturnValue(null)
+                invocation.state.actionId = 'action-email'
+                const kafka = createRecordingIngestionOutputs([MESSAGE_ASSETS_OUTPUT])
+                const messageAssets = new MessageAssetsService(kafka.outputs)
                 service['messageAssetsService'] = messageAssets
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                messageAssets.queueInvocationResults([result])
+                await messageAssets.flush()
+                const [sent] = ses.sent
                 const taggedHtml = `<body>Hi! <a href="https://example.com?${query}">Click me</a></body>`
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(taggedHtml)
+                expect(sent.html).toEqual(taggedHtml)
                 // The stored copy behind "View email" shows the links the recipient got.
-                expect(buildRowForEmail).toHaveBeenCalledWith(
-                    expect.anything(),
-                    expect.objectContaining({ html: taggedHtml })
-                )
+                expect(kafka.produced(MESSAGE_ASSETS_OUTPUT)).toEqual([expect.objectContaining({ html: taggedHtml })])
             })
 
             it.each([
@@ -2291,8 +2226,8 @@ describe('EmailService', () => {
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
+                const [sent] = ses.sent
+                expect(sent.html).toEqual(
                     fixedScanner
                         ? '<body><a href="https://example.com/pricing?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome">Click me</a></body>'
                         : '<body><a href=https://example.com/pricing>Click me</a></body>'
@@ -2346,8 +2281,6 @@ describe('EmailService', () => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
-                    const send = jest.spyOn(taggingService.sesV2Client!, 'send') as jest.SpyInstance
-                    send.mockResolvedValue({ MessageId: 'test-message-id' })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
@@ -2355,21 +2288,12 @@ describe('EmailService', () => {
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
-                    const sentHtml: string = (send.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
-                        .Data
+                    const sentHtml = ses.sent[0].html!
                     expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
                         tagged ? ['ph_workflow_run=invocation-1'] : []
                     )
                 }
             )
-
-            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
@@ -2424,7 +2348,6 @@ describe('EmailService', () => {
             }
 
             beforeEach(() => {
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
                 invocation.hogFunction.metadata = { message_category_type: 'marketing' }
             })
@@ -2441,8 +2364,7 @@ describe('EmailService', () => {
                     setConsentState(mode, storedConsent)
                     const result = await service.executeSendEmail(invocation)
                     expect(result.error).toBeUndefined()
-                    const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
-                        .Data
+                    const sentHtml = ses.sent[0].html
                     if (expectTracked) {
                         // SES sends tag each anchor and let SES report the click, instead of
                         // rewriting the href to a redirect URL. The open pixel is unchanged.
@@ -2459,7 +2381,7 @@ describe('EmailService', () => {
                 setConsentState('opt_in', null)
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                const sentHtml = ses.sent[0].html
                 expect(sentHtml).toContain('ses:tags="phl:')
                 expect(sentHtml).toContain('ph_id=')
             })
@@ -2469,7 +2391,7 @@ describe('EmailService', () => {
                 setConsentState('opt_in', 'OPTED_IN')
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                const sentHtml = ses.sent[0].html
                 expect(sentHtml).toEqual(trackableHtml)
             })
 
@@ -2481,7 +2403,7 @@ describe('EmailService', () => {
                 jest.spyOn((service as any).recipientsManager, 'get').mockRejectedValue(new Error('db down'))
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                const sentHtml = ses.sent[0].html
                 expect(sentHtml).toEqual(trackableHtml)
             })
 
@@ -2492,7 +2414,7 @@ describe('EmailService', () => {
                 ).mockRejectedValue(new Error('db down'))
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                const sentHtml = ses.sent[0].html
                 expect(sentHtml).toEqual(trackableHtml)
             })
 
@@ -2525,13 +2447,14 @@ describe('EmailService', () => {
                 )
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
-                const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
+                const sentHtml = ses.sent[0].html
                 expect(sentHtml).toEqual(trackableHtml)
             })
         })
 
         it('should report a missing message id', async () => {
-            sendEmailSpy.mockResolvedValue({})
+            // SES always answers a send with a message id, so only a stub can produce this fault.
+            jest.spyOn(service.sesV2Client!, 'send').mockResolvedValue({} as never)
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
@@ -2551,7 +2474,6 @@ describe('EmailService', () => {
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
-                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(result.capturedPostHogEvents).toHaveLength(1)
@@ -2563,7 +2485,7 @@ describe('EmailService', () => {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
                         $workflow_invocation_id: 'invocation-1',
-                        $email_message_id: 'test-message-id',
+                        $email_message_id: ses.sent[0].messageId,
                         $email_to: 'test@example.com',
                         $email_tracking_enabled: true,
                     },
@@ -2580,7 +2502,6 @@ describe('EmailService', () => {
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
             // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
@@ -2590,7 +2511,7 @@ describe('EmailService', () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
             )
-            sendEmailSpy.mockRejectedValue(new Error('SES error'))
+            ses.failWith({ status: 400, type: 'MessageRejected', message: 'SES error' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeDefined()
             expect(result.capturedPostHogEvents).toHaveLength(1)

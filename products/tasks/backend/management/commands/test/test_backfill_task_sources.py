@@ -94,6 +94,10 @@ class TestBackfillTaskSources(TestCase):
         self.assertEqual(list(backfill_task_sources(dry_run=True)), [])
 
     def test_fills_the_source_of_a_legacy_loop_task(self) -> None:
+        with connection.cursor() as cursor:
+            # Untracked columns survive migrations but aren't created from the current models.
+            # TestCase rolls this legacy schema setup back with the rest of the fixture.
+            cursor.execute("ALTER TABLE posthog_task ADD COLUMN IF NOT EXISTS loop_id uuid")
         task = self._task()
         with connection.cursor() as cursor:
             # Production keeps the untracked loop_id column, but a database built from the squashed

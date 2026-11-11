@@ -1,6 +1,5 @@
 import json
 import datetime
-from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Union
 from zoneinfo import ZoneInfo
@@ -233,7 +232,6 @@ def list_groups(
     *,
     group_key_contains: str = "",
     search: str = "",
-    search_excluded_property_keys: Collection[str] = (),
     restricted_properties: set["RestrictedProperty"] | None = None,
     cursor_created_at_us: int = 0,
     cursor_group_key: str = "",
@@ -246,9 +244,9 @@ def list_groups(
     consistent. ``search`` matches a substring of the latest raw properties JSON or the group key
     exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
-    ``search_excluded_property_keys`` are dot paths left out of the properties ``search`` matches against, with any
-    top-level key that holds one.
-    ``restricted_properties`` replaces the team-default property restrictions HogQL applies to the query.
+    ``restricted_properties`` replaces the team-default property restrictions HogQL applies to the query. HogQL
+    masks every read of ``properties`` with them, the ``search`` match included, so ``search`` only sees the
+    property values the caller can read.
 
     Dedup runs in two phases, so memory does not grow with the group type's total property volume.
     The first phase picks the page's keys and aggregates only ``created_at`` and the search match
@@ -279,23 +277,13 @@ def list_groups(
     # Filters on versioned columns must see only the latest version, so they apply after the dedup.
     having_exprs: list[ast.Expr] = []
     if search:
-        pattern = ast.Constant(value=f"%{_escape_clickhouse_like(search)}%")
-        if search_excluded_property_keys:
-            properties_match = parse_expr(
-                "arrayExists(kv -> NOT arrayExists(name -> kv.1 = name OR startsWith(kv.1, concat(name, '.'))"
-                " OR startsWith(name, concat(kv.1, '.')), {excluded}) AND (kv.1 ILIKE {pattern} OR kv.2 ILIKE {pattern}),"
-                " JSONExtractKeysAndValuesRaw(toString(properties)))",
-                placeholders={
-                    "excluded": ast.Array(exprs=[ast.Constant(value=k) for k in sorted(search_excluded_property_keys)]),
-                    "pattern": pattern,
-                },
-            )
-        else:
-            properties_match = parse_expr("toString(properties) ILIKE {pattern}", placeholders={"pattern": pattern})
         having_exprs.append(
             parse_expr(
-                "argMax({properties_match}, updated_at) OR lower(toString(key)) = lower({search})",
-                placeholders={"properties_match": properties_match, "search": ast.Constant(value=search)},
+                "argMax(toString(properties) ILIKE {pattern}, updated_at) OR lower(toString(key)) = lower({search})",
+                placeholders={
+                    "pattern": ast.Constant(value=f"%{_escape_clickhouse_like(search)}%"),
+                    "search": ast.Constant(value=search),
+                },
             )
         )
     if cursor_created_at_us > 0:

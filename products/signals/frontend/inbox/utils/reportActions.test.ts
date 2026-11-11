@@ -1,5 +1,7 @@
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
+
 import { SignalReport, SignalReportStatus } from '../types'
-import { canCreateImplementationPr, canMonitorReport, canResolveReport } from './reportActions'
+import { canCreateImplementationPr, canMonitorReport } from './reportActions'
 
 describe('reportActions', () => {
     it.each([
@@ -13,6 +15,7 @@ describe('reportActions', () => {
         [SignalReportStatus.IN_PROGRESS, false],
         [SignalReportStatus.RESOLVED, false],
         [SignalReportStatus.SUPPRESSED, false],
+        [SignalReportStatus.DELETED, false],
     ] as const)('allows resolution for %s: %s', (status, expected) => {
         expect(canResolveReport({ status } as SignalReport)).toBe(expected)
     })

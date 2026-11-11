@@ -547,7 +547,6 @@ product_analytics.Insight products.alerts.backend.max_tools passed-as-class(cast
 product_analytics.Insight products.alerts.backend.max_tools write(create) 1
 product_analytics.Insight products.alerts.backend.presentation.views.alert drf-field-queryset 2
 product_analytics.Insight products.alerts.backend.presentation.views.alert instance-many(filter) 1
-product_analytics.Insight products.annotations.backend.api.annotation drf-field-queryset 1
 product_analytics.Insight products.dashboards.backend.api.dashboard drf-model-serializer 1
 product_analytics.Insight products.dashboards.backend.api.dashboard instance-many(distinct) 1
 product_analytics.Insight products.dashboards.backend.api.dashboard instance-many(select_related) 1

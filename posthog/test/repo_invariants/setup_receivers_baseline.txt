@@ -233,6 +233,7 @@ post_save:products.cohorts.backend.models.dependencies.cohort_person_shape_chang
 post_save:products.cohorts.backend.models.dependencies.cohort_person_shape_changed_supersede
 post_save:products.commands.backend.receivers.on_task_run_saved
 post_save:products.conversations.backend.signals.emit_ticket_created_event
+post_save:products.conversations.backend.signals.emit_ticket_tag_added_event
 post_save:products.conversations.backend.signals.post_github_reply_on_team_message
 post_save:products.conversations.backend.signals.post_slack_reply_on_team_message
 post_save:products.conversations.backend.signals.post_teams_reply_on_team_message
@@ -283,6 +284,7 @@ post_save:products.signals.backend.receivers.push_report_to_reviewers_when_first
 post_save:products.signals.backend.receivers.reconcile_report_embedding_on_verdict_saved
 post_save:products.signals.backend.receivers.requeue_report_checks_on_scout_resume
 post_save:products.signals.backend.receivers.roll_up_plan_parents_when_report_closes
+post_save:products.signals.backend.receivers.schedule_github_writeback_on_status_change
 post_save:products.signals.backend.receivers.schedule_handover_for_report_change
 post_save:products.signals.backend.receivers.schedule_handover_for_work_change
 post_save:products.signals.backend.receivers.schedule_implementation_handover

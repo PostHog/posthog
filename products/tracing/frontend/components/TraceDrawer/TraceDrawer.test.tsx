@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import { getChart, setupChartTests } from '@posthog/quill-charts/testing'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -253,6 +255,13 @@ describe('TraceDrawer', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: on })
         }
 
+        setupChartTests()
+        // The flame graph's rows are 22px tall and the chart is 800px wide in jsdom.
+        const flameRow = (depth: number): { clientX: number; clientY: number } => ({
+            clientX: 400,
+            clientY: depth * 22 + 11,
+        })
+
         beforeEach(() => {
             // jsdom lays nothing out, so the virtualized span tree needs a size to render rows into.
             jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
@@ -263,10 +272,7 @@ describe('TraceDrawer', () => {
             jest.restoreAllMocks()
         })
 
-        // The toggle swaps one view for the other, so a regression that renders both, or neither, fails here. The
-        // call tree draws the two cache GET spans under POST /orders as one bar with its count. The third runs under
-        // SELECT orders, so it gets a bar of its own: a tree that merges an operation across its callers labels both
-        // bars cache GET ×3. A click on the selected option also calls onChange, and must not count as a change.
+        // Four bars: the third cache GET runs under a different caller, so it is not merged with the other two.
         it('switches the left pane to the call tree, and captures the change once', () => {
             renderDrawer({
                 spans: [
@@ -281,22 +287,18 @@ describe('TraceDrawer', () => {
             const callTreeOption = (): HTMLElement =>
                 document.querySelector<HTMLElement>('[data-attr="tracing-trace-view-calltree"]')!
             expect(spanRow()).not.toBeNull()
-            expect(screen.queryByText('cache GET ×2')).toBeNull()
+            expect(() => getChart()).toThrow()
 
             fireEvent.click(callTreeOption())
             fireEvent.click(callTreeOption())
 
             expect(spanRow()).toBeNull()
-            expect(screen.getByText('cache GET ×2')).toBeInTheDocument()
-            expect(screen.getByText('cache GET')).toBeInTheDocument()
-            expect(screen.queryByText('cache GET ×3')).toBeNull()
+            expect(getChart().canvas.getAttribute('aria-label')).toBe('Flame graph with 4 nodes')
             expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([
                 ['tracing trace view changed', { view: 'calltree', surface: 'drawer' }],
             ])
         })
 
-        // With the flag off nothing may offer the call tree, and a call tree that the person picked while the flag was
-        // on must not hide the span tree with no toggle to get it back.
         it('with the flag off, shows no toggle and keeps the span tree for a stored call tree', () => {
             setCallTreeFlag(false)
             tracingConfigLogic.mount()
@@ -308,10 +310,7 @@ describe('TraceDrawer', () => {
             expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([])
         })
 
-        // Two services each run GET /x. A focus that matches on the name alone opens the first one, under which only
-        // web-only runs. A switch to another inspector tab clears the highlight, and must not undo the person's drill
-        // back to the root, where web-only shows again. The focus event counts only the person's own drill, so the
-        // highlight's focus and its clearing send nothing.
+        // Two services run GET /x, so a focus that matches on the name alone opens the wrong one.
         it('focuses the highlighted operation of its own service, keeps a drill when the highlight clears, and captures only clicked focus changes', () => {
             tracingConfigLogic.mount()
             tracingConfigLogic.actions.setTraceViewMode('calltree', 'drawer')
@@ -331,15 +330,16 @@ describe('TraceDrawer', () => {
                 )
             })
 
-            expect(screen.getByText('api-only')).toBeInTheDocument()
-            expect(screen.queryByText('web-only')).toBeNull()
+            const chart = getChart()
+            expect(chart.flame.breadcrumb()).toEqual(['All', 'POST /orders', 'GET /x'])
 
-            fireEvent.click(screen.getByText('api-only'))
+            fireEvent.click(chart.element, flameRow(2))
+            expect(chart.flame.breadcrumb()).toEqual(['All', 'POST /orders', 'GET /x', 'api-only'])
             act(() => {
                 traceViewLogic({ id: 'trace-drawer-test' }).actions.setInspectorTab('logs')
             })
-            expect(screen.queryByText('web-only')).toBeNull()
-            fireEvent.click(screen.getByText('Root'))
+            expect(getChart().flame.breadcrumb()).toEqual(['All', 'POST /orders', 'GET /x', 'api-only'])
+            fireEvent.click(getChart().flame.resetButton()!)
 
             expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace call tree focused')).toEqual([
                 ['tracing trace call tree focused', { direction: 'in', depth: 3, surface: 'drawer' }],

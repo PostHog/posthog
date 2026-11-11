@@ -14,7 +14,6 @@ from rest_framework import status
 
 from posthog.schema import EventsQuery
 
-from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
@@ -22,6 +21,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -394,7 +394,19 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
 
-    def test_roll_api_key(self):
+    @parameterized.expand(
+        [("no_policy",), ("unscoped",), ("team",), ("organization",), ("mixed",), ("allowed",), ("unrelated",)]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_roll_api_key(self, policy):
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy != "no_policy":
+            OrganizationIPRestrictions.objects.create(
+                organization=restricted_org, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
         original_value = generate_random_token_personal()
         original_key = PersonalAPIKey.objects.create(
             label="Test roll",
@@ -405,10 +417,27 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             ],
         )
 
+        if policy in ("team", "mixed"):
+            original_key.scoped_teams = [restricted_team.id]
+        if policy == "organization":
+            original_key.scoped_organizations = [str(restricted_org.id)]
+        elif policy in ("mixed", "unrelated"):
+            original_key.scoped_organizations = [str(self.organization.id)]
+        original_key.save()
+        original_hash = original_key.secure_value
+
         response = self.client.post(
             f"/api/personal_api_keys/{original_key.id}/roll",
             {},
+            REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
+        if policy in ("unscoped", "team", "organization", "mixed"):
+            assert response.status_code == 403
+            original_key.refresh_from_db()
+            assert original_key.secure_value == original_hash
+            assert original_key.last_rolled_at is None
+            assert "value" not in response.json()
+            return
         assert response.status_code == 200
         data = response.json()
 
@@ -426,6 +455,100 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["value"].startswith("phx_")  # Personal API key prefix
         assert data["last_rolled_at"] is not None
         assert data["mask_value"] != original_key.mask_value
+
+    @parameterized.expand(
+        [
+            (operation, scope, selected_blocked, allowed_ip)
+            for operation in ("create", "roll", "rescope", "partial_rescope", "expiry")
+            for scope in ("organization", "team", "mixed", "unscoped", "unrelated", "legacy_unscoped", "narrow")
+            for selected_blocked in (False, True)
+            for allowed_ip in (False, True)
+            if scope != "legacy_unscoped" or operation == "roll"
+            if scope != "narrow" or (operation == "rescope" and not allowed_ip)
+            if operation != "partial_rescope" or (scope == "organization" and not selected_blocked)
+            if operation != "expiry" or (scope == "organization" and not selected_blocked)
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_key_mutations_check_reachable_organization_policies(
+        self, operation: str, scope: str, selected_blocked: bool, allowed_ip: bool
+    ) -> None:
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        OrganizationIPRestrictions.objects.create(
+            organization=restricted_org, enabled=True, ip_restrictions=["203.0.113.0/24"]
+        )
+        self.user.current_organization = restricted_org if selected_blocked else self.organization
+        self.user.current_team = restricted_team if selected_blocked else self.team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        organization_ids = (
+            [str(restricted_org.id)]
+            if scope == "organization"
+            else [str(self.organization.id)]
+            if scope in ("mixed", "unrelated", "narrow")
+            else []
+        )
+        team_ids = [restricted_team.id] if scope in ("team", "mixed") else []
+        value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped credential test",
+            secure_value=hash_key_value(value),
+            mask_value=mask_key_value(value),
+            scopes=["insight:read"],
+            expires_at=timezone.now() - timedelta(hours=1) if operation == "expiry" else None,
+            scoped_organizations=None
+            if scope == "legacy_unscoped"
+            else [str(restricted_org.id)]
+            if operation in ("partial_rescope", "expiry") or scope == "narrow"
+            else [str(self.organization.id)]
+            if operation != "roll"
+            else organization_ids,
+            scoped_teams=None if scope == "legacy_unscoped" else [] if operation != "roll" else team_ids,
+        )
+        original_hash = key.secure_value
+        original_expiry = key.expires_at
+        original_organizations = key.scoped_organizations
+        original_teams = key.scoped_teams
+        original_count = PersonalAPIKey.objects.count()
+        ip = "203.0.113.7" if allowed_ip else "198.51.100.7"
+        payload: dict[str, object] = {"expires_at": None} if operation == "expiry" else {"scopes": ["insight:read"]}
+        if operation not in ("partial_rescope", "expiry"):
+            payload.update(scoped_organizations=organization_ids, scoped_teams=team_ids)
+        if operation == "create":
+            response = self.client.post(
+                "/api/personal_api_keys/", {"label": "New scoped key", **payload}, format="json", REMOTE_ADDR=ip
+            )
+        elif operation == "roll":
+            response = self.client.post(f"/api/personal_api_keys/{key.id}/roll/", REMOTE_ADDR=ip)
+        else:
+            response = self.client.patch(f"/api/personal_api_keys/{key.id}/", payload, format="json", REMOTE_ADDR=ip)
+
+        denied = not allowed_ip and scope not in ("unrelated", "narrow")
+        self.assertEqual(
+            response.status_code, 403 if denied else 201 if operation == "create" else 200, response.content
+        )
+        key.refresh_from_db()
+        if denied:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            self.assertNotIn("value", response.json())
+            self.assertEqual(PersonalAPIKey.objects.count(), original_count)
+            self.assertEqual(key.secure_value, original_hash)
+            self.assertEqual(key.expires_at, original_expiry)
+            self.assertIsNone(key.last_rolled_at)
+            self.assertEqual(key.scoped_organizations, original_organizations)
+            self.assertEqual(key.scoped_teams, original_teams)
+        elif operation == "roll":
+            self.assertNotEqual(key.secure_value, original_hash)
+            self.assertEqual(key.secure_value, hash_key_value(response.json()["value"]))
+        elif operation == "create":
+            self.assertEqual(PersonalAPIKey.objects.count(), original_count + 1)
+            self.assertTrue(response.json()["value"])
+        else:
+            self.assertEqual(key.scoped_organizations, organization_ids)
+            self.assertEqual(key.scoped_teams, team_ids)
+            if operation == "expiry":
+                self.assertIsNone(key.expires_at)
+                self.assertEqual(key.secure_value, original_hash)
 
     @parameterized.expand(
         [
@@ -1244,19 +1367,14 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
     def setUp(self):
         super().setUp()
 
-        # Create a mock request context
-        class MockRequest:
-            def __init__(self, user):
-                self.user = user
-
-        # Create the key using the serializer
-        serializer = PersonalAPIKeySerializer(
-            data={"label": "Test key", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
-            context={"request": MockRequest(self.user)},
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "Test key", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
+            format="json",
         )
-        serializer.is_valid(raise_exception=True)
-        self.personal_api_key = serializer.save()
-        self.api_key_value = self.personal_api_key._value  # This will contain the raw key value
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.personal_api_key = PersonalAPIKey.objects.get(id=response.json()["id"])
+        self.api_key_value = response.json()["value"]
 
     def _get_auth_headers(self, key: str):
         return {"HTTP_AUTHORIZATION": f"Bearer {key}"}

@@ -169,6 +169,7 @@ export function ClassicChatScreen({
                             </ScrollView>
                         ) : (
                             <SessionThread
+                                feedbackContext={chat.id ? { sessionId: chat.id, runtime: 'langgraph' } : undefined}
                                 session={thread}
                                 onRetryHistory={() => void chat.reload()}
                                 topInset={insets.top + CHAT_HEADER_HEIGHT}

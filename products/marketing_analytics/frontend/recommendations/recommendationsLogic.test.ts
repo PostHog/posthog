@@ -36,9 +36,7 @@ describe('recommendationsLogic', () => {
     let logic: ReturnType<typeof recommendationsLogic.build>
 
     beforeEach(() => {
-        useMocks({
-            get: { '/api/environments/:team_id/external_data_sources/': { results: [] } },
-        })
+        useMocks({ get: { '/api/environments/:team_id/external_data_sources/': { results: [] } } })
         initKeaTests()
         logic = recommendationsLogic()
         logic.mount()
