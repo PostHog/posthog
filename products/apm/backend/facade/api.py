@@ -60,6 +60,13 @@ from products.apm.backend.logic.health.sources import (
     list_endpoints_health as _list_endpoints_health,
     list_services_health as _list_services_health,
 )
+from products.apm.backend.logic.usage import (
+    ServiceUsage,
+    ServiceUsageResult,
+    UsageSignal,
+    UsageTotals,
+    list_service_usage as _list_service_usage,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -74,8 +81,13 @@ __all__ = [
     "ServiceHealth",
     "ServiceMapResult",
     "ServicesHealthResult",
+    "ServiceUsage",
+    "ServiceUsageResult",
+    "UsageSignal",
+    "UsageTotals",
     "get_service_map",
     "list_endpoints_health",
+    "list_service_usage",
     "list_services_health",
     "rank_services",
     "status_of",
@@ -131,3 +143,8 @@ def list_endpoints_health(
 def get_service_map(*, team: "Team", date_from: "datetime", date_to: "datetime", environment: str) -> ServiceMapResult:
     """Service-to-service call edges in the environment and window, from a bounded sample of traces."""
     return _get_service_map(team=team, date_from=date_from, date_to=date_to, environment=environment)
+
+
+def list_service_usage(*, team: "Team", date_from: "datetime", date_to: "datetime") -> ServiceUsageResult:
+    """One usage row per service across logs, traces, and metrics in the window, largest logs size first."""
+    return _list_service_usage(team=team, date_from=date_from, date_to=date_to)
