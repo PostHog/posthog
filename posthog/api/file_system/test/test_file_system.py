@@ -2462,6 +2462,31 @@ class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
     # ------------------------------------------------------------------ #
     #  TEST
     # ------------------------------------------------------------------ #
+    def test_move_item_moves_its_other_entry_on_the_same_surface(self):
+        legacy = FileSystem.objects.create(
+            team=self.team, path="Unfiled/Insights/Weekly signups", depth=3, type="insight", ref="abc123", surface=None
+        )
+        web = FileSystem.objects.create(
+            team=self.team, path="Unfiled/Insights/Weekly signups", depth=3, type="insight", ref="abc123", surface="web"
+        )
+        desktop = FileSystem.objects.create(
+            team=self.team, path="Desk/Weekly signups", depth=2, type="insight", ref="abc123", surface="desktop"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{web.id}/move",
+            {"new_path": "Experiments/Q4/Weekly signups"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        for entry, expected_path in [
+            (legacy, "Experiments/Q4/Weekly signups"),
+            (web, "Experiments/Q4/Weekly signups"),
+            (desktop, "Desk/Weekly signups"),
+        ]:
+            entry.refresh_from_db()
+            self.assertEqual(entry.path, expected_path)
+
     def test_move_recreates_folder_for_leftover_items(self):
         move_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/move"
         response = self.client.post(move_url, {"new_path": "SharedRenamed"})

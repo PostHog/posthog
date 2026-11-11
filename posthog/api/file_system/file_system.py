@@ -1325,9 +1325,28 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.save()
 
         else:
-            instance.path = new_path
-            instance.depth = len(split_path(instance.path))
-            instance.save()
+            with transaction.atomic():
+                instance.path = new_path
+                instance.depth = len(split_path(instance.path))
+                instance.save()
+                if instance.ref:
+                    # The default surface matches both NULL and "web" rows, so one item can have two entries.
+                    # Moving only this one would leave the item listed in two folders.
+                    folder_segments = split_path(new_path)[:-1]
+                    other_entries = (
+                        FileSystem.objects.filter(
+                            surface_q(self.file_system_surface),
+                            team_id=instance.team_id,
+                            type=instance.type,
+                            ref=instance.ref,
+                        )
+                        .exclude(id=instance.id)
+                        .exclude(shortcut=True)
+                    )
+                    for entry in other_entries:
+                        entry.path = join_path([*folder_segments, split_path(entry.path)[-1]])
+                        entry.depth = len(folder_segments) + 1
+                        entry.save(update_fields=["path", "depth"])
 
         # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
         leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
