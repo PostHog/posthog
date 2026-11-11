@@ -1221,7 +1221,7 @@ class MessageTemplatesViewSet(
         responses={200: MessageTemplatePlacementSerializer},
         description="Read where the template sits in the project tree, so an undo of its delete can put it back.",
     )
-    @action(detail=True, methods=["GET"], pagination_class=None)
+    @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
     def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
         path = template_file_path(self.team_id, template.id)

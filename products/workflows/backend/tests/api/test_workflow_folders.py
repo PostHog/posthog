@@ -344,6 +344,23 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
+    @parameterized.expand([("hog_flow_read", ["hog_flow:read"], 200), ("other_scope", ["feature_flag:read"], 403)])
+    def test_a_template_placement_reads_with_a_key_that_holds_the_workflow_read_scope(
+        self, _name, scopes, expected_status
+    ) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email", "_create_in_folder": "Campaigns"}, format="json"
+        ).json()
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.get(f"{templates_url}{filed['id']}/placement/", HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json(), {"path": "Campaigns/Synthetic email"})
+
     def test_a_folder_delete_lists_the_team_surfaces_once_however_many_types_it_holds(self) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
 
