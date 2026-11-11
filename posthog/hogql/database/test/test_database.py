@@ -1071,8 +1071,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
+        assert serialized["pull_requests"].id == str(newer.id)
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
@@ -1103,7 +1105,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -1137,7 +1139,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
