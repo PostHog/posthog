@@ -807,7 +807,7 @@ class TestBuildAITeamsCard:
 
         report = next(block["text"] for block in body if "Signup" in block.get("text", ""))
         assert report.startswith("- **Signup conversion** fell **▼ 12%** to **31%** on _November 10_.")
-        assert "```" in report
+        assert "```\nraw `x`\n```" in report
 
     def test_external_links_in_the_report_are_stripped(self) -> None:
         body = self._body("See [the docs](https://evil.example.com/x) for more.")

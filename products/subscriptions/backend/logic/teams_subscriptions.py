@@ -43,9 +43,23 @@ TEAMS_CARD_TEXT_BUDGET = 20000
 _INLINE_CODE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 
 
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
 def bold_inline_code(markdown: str) -> str:
-    """Teams TextBlocks render no inline code, so summary and report code spans would show their backticks."""
-    return _INLINE_CODE.sub(r"**\1**", markdown)
+    """Teams TextBlocks render no inline code, so summary and report code spans would show their backticks.
+
+    Lines inside a fenced code block stay as written, so a code example keeps its backticks.
+    """
+    lines = markdown.split("\n")
+    fence = ""
+    for index, line in enumerate(lines):
+        opening = _FENCE.match(line)
+        if opening and (not fence or opening.group(1).startswith(fence)):
+            fence = "" if fence else opening.group(1)
+        elif not fence:
+            lines[index] = _INLINE_CODE.sub(r"**\1**", line)
+    return "\n".join(lines)
 
 
 def teams_byte_size(text: str) -> int:

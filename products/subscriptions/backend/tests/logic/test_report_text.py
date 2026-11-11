@@ -64,8 +64,9 @@ def _visual(text: str) -> ReportText:
         (["| Alert type | Orgs |", "| --- | --- |", "| Trends threshold | 503 |", "| Logs threshold | 51 |"], [3]),
         (["| Alert type | Orgs |\n\n| --- | --- |\n\n| Trends threshold | 503 |"], [2]),
         (["| A | B |", "| --- | --- |", "| 1 | 2 |", "| C | D |", "| --- | --- |", "| 3 | 4 |"], [2, 2]),
+        (["| A | B |", "| - | - |", "| 1 | 2 |", "| C | D |", "| :-- | -: |", "| 3 | 4 |"], [2, 2]),
     ],
-    ids=["one_visual_per_row", "blank_lines_inside_one_visual", "two_tables_stay_apart"],
+    ids=["one_visual_per_row", "blank_lines_inside_one_visual", "two_tables_stay_apart", "short_separators"],
 )
 def test_table_visuals_render_as_markdown_tables(visuals: list[str], table_rows: list[int]) -> None:
     section = ReportSection(

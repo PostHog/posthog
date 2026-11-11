@@ -29,7 +29,7 @@ class ReportChangeItem(BaseModel):
     direction: Literal["increase", "decrease"]
 
 
-_TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$")
+_TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
 
 
 def _is_table_row(line: str) -> bool:
