@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
-import { makeFeedback, makeFeedbackScore, makeFeedbackText } from '../testFixtures'
+import { makeFeedback, makeFeedbackScore, makeFeedbackText, makeSurveyResponse } from '../testFixtures'
 import { FeedbackStepContext } from '../types'
 import { TraceFeedbackView } from './TraceFeedbackView'
 
@@ -59,5 +59,19 @@ describe('TraceFeedbackView', () => {
         render(<TraceFeedbackView feedback={null} failed steps={steps()} onSelectStep={() => {}} onRetry={() => {}} />)
 
         expect(screen.getByText("Feedback couldn't load.")).toBeTruthy()
+    })
+
+    it('shows survey answers among the feedback', () => {
+        render(
+            <TraceFeedbackView
+                feedback={makeFeedback({ scores: [], responses: [makeSurveyResponse()] })}
+                failed={false}
+                steps={steps()}
+                onSelectStep={() => {}}
+            />
+        )
+
+        expect(screen.getByText('Answer quality')).toBeTruthy()
+        expect(screen.getByText('Thumbs up')).toBeTruthy()
     })
 })

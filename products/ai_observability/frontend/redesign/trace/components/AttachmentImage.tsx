@@ -1,6 +1,6 @@
 import { AIImage } from '../../../components/AIImage'
-import { AttachmentLink } from '../components/AttachmentLink'
-import { classifyAttachmentUrl } from '../components/attachmentUrl'
+import { AttachmentLink } from './AttachmentLink'
+import { classifyAttachmentUrl } from './attachmentUrl'
 
 export interface AttachmentImageProps {
     url: string

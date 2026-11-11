@@ -639,7 +639,7 @@ def plan_insight_tile_placement(
         # The dashboard's public link or subscription must not expose a query the editor can't run.
         from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -676,7 +676,7 @@ def _place_insight_tile(
     # The dashboard's public link or subscription must not expose a query the editor can't run.
     from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-    check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+    check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
 
     insight_lookup: dict[str, Any] = (
         {"insight": loaded_insight} if loaded_insight is not None else {"insight_id": insight_id}

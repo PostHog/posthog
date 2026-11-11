@@ -1323,6 +1323,7 @@ export namespace Schemas {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1451,6 +1452,7 @@ export namespace Schemas {
       Action: 'action',
       AccessControl: 'access_control',
       Account: 'account',
+      AccountNote: 'account_note',
       ActivityLog: 'activity_log',
       Alert: 'alert',
       Annotation: 'annotation',
@@ -1579,6 +1581,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -1830,6 +1833,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2035,6 +2039,7 @@ export namespace Schemas {
 
     /**
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -2095,6 +2100,7 @@ export namespace Schemas {
 
     export const RuleResourceEnum = {
       Account: 'account',
+      AccountNote: 'account_note',
       Action: 'action',
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
@@ -2158,6 +2164,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -2247,6 +2254,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2431,6 +2439,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -2519,6 +2528,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -38118,6 +38128,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
@@ -38167,6 +38179,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
@@ -46038,7 +46052,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -47611,7 +47625,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -49138,7 +49152,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -68950,6 +68964,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -85042,6 +85057,8 @@ export namespace Schemas {
       stage?: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
@@ -85882,7 +85899,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -85966,7 +85983,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -118806,6 +118823,49 @@ export namespace Schemas {
       content: TraceNodeContent;
     }
 
+    export type TraceParserTestErrorSourceEnum = typeof TraceParserTestErrorSourceEnum[keyof typeof TraceParserTestErrorSourceEnum];
+
+
+    export const TraceParserTestErrorSourceEnum = {
+      ExistingRecipes: 'existing_recipes',
+      Candidate: 'candidate',
+    } as const;
+
+    export interface TraceParserTestError {
+      /** Whose parsers failed on the side: the project's saved ones, so the side fails with or without the parser under test, or the parser under test. */
+      source: TraceParserTestErrorSourceEnum;
+      /** Why the parsers stopped, such as running out of time or work budget. */
+      message: string;
+    }
+
+    export interface TraceParserTestSide {
+      /** The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON or as one message holding its JSON. */
+      neededFixing: boolean;
+      /** The side needed fixing, and the parser under test makes it recognized. */
+      fixed: boolean;
+      /** The project's saved parsers parse the side, and with the parser under test added it is no longer parsed, for example because the parser uses up the time the side needed. */
+      broken: boolean;
+      /** Set when parsing the side failed instead of finishing. */
+      error: TraceParserTestError | null;
+    }
+
+    export interface TraceNodeParserTest {
+      /** The node's input and output as they would render with the parser under test saved. */
+      content: TraceNodeContent;
+      input: TraceParserTestSide;
+      output: TraceParserTestSide;
+      /** At least one side needed fixing, the parser under test fixes every side that did, and it breaks no side. Nothing is saved either way. */
+      passed: boolean;
+    }
+
+    export interface TraceNodeParserTestRequest {
+      /**
+         * The parser recipe to test, as raw YAML in the custom parser DSL.
+         * @maxLength 100000
+         */
+      source: string;
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -118916,6 +118976,8 @@ export namespace Schemas {
       reason: TraceSummaryFailureReasonEnum;
       /** Why the summary failed, ready to show to the user. */
       message: string;
+      /** Whether a new request could succeed; false when it would fail the same way. */
+      retryable: boolean;
     }
 
     export interface TraceSummary {
@@ -124107,6 +124169,17 @@ export namespace Schemas {
       names: string[];
     }
 
+    export interface _MetricClassicHistogram {
+      /** The histogram's name without a suffix. */
+      base_name: string;
+      /** The `_bucket` name, with the `le` label. PromQL reads this one. */
+      bucket: string;
+      /** The `_sum` name: the total of the observed values. */
+      sum: string;
+      /** The `_count` name: the number of observations. */
+      count: string;
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -124241,6 +124314,13 @@ export namespace Schemas {
       last_seen?: string | null;
       /** A small downsampled series of the metric's recent shape, for a sparkline. */
       sparkline?: number[];
+      /**
+         * Start of the earliest hour this metric arrived in, within retention, ISO 8601. Only present when `first_seen` was requested.
+         * @nullable
+         */
+      first_seen?: string | null;
+      /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
+      classic_histogram?: _MetricClassicHistogram;
     }
 
     export interface _MetricNamesResponse {
@@ -128244,6 +128324,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint: string;
+    };
+
+    export type AiObservabilityTracesNodesParserTestCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
     };
 
     export type AiObservabilityTracesNodesRawRetrieveParams = {
@@ -137568,22 +137655,52 @@ export namespace Schemas {
 
     export type MetricsValuesRetrieveParams = {
     /**
+     * Add `first_seen`: the earliest hour each name arrived in, within retention.
+     */
+    first_seen?: boolean;
+    /**
+     * Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page.
+     */
+    fold_histograms?: boolean;
+    /**
      * Max number of names to return. Defaults to 100; maximum 1000.
      * @minimum 1
      * @maximum 1000
      */
     limit?: number;
     /**
+     * How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.
+     *
+     * * `substring` - substring
+     * * `prefix` - prefix
+     * * `regex` - regex
+     * @minLength 1
+     */
+    match?: MetricsValuesRetrieveMatch;
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
     service?: string;
     /**
-     * Substring filter (case-insensitive) applied to metric names.
+     * Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.
+     */
+    sparklines?: boolean;
+    /**
+     * Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.
      * @maxLength 255
      */
     value?: string;
     };
+
+    export type MetricsValuesRetrieveMatch = typeof MetricsValuesRetrieveMatch[keyof typeof MetricsValuesRetrieveMatch];
+
+
+    export const MetricsValuesRetrieveMatch = {
+      Substring: 'substring',
+      Prefix: 'prefix',
+      Regex: 'regex',
+    } as const;
 
     export type ReusableWidgetsListParams = {
     limit?: number;

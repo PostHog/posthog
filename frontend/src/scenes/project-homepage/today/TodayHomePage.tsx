@@ -13,6 +13,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayPromoBanner } from './TodayPromoBanner'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
@@ -105,6 +106,7 @@ export function TodayHomePage(): JSX.Element {
     return (
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
+            <TodayPromoBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
