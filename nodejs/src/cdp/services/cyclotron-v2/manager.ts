@@ -73,13 +73,33 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         if (newCounter === undefined) {
             throw new Error(`No email counter for team ${teamId} after the UPSERT`)
         }
-        const startCounter = newCounter - BigInt(indices.length) + 1n
-        const teamIdBigInt = BigInt(teamId)
-        for (let k = 0; k < indices.length; k++) {
-            dequeueSeqs[indices[k]] = ((startCounter + BigInt(k)) * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
-        }
+        teamDequeueSeqs(teamId, newCounter, indices.length).forEach((dequeueSeq, k) => {
+            dequeueSeqs[indices[k]] = dequeueSeq
+        })
     }
     return dequeueSeqs
+}
+
+function teamDequeueSeqs(teamId: number, newCounter: bigint, count: number): string[] {
+    const startCounter = newCounter - BigInt(count) + 1n
+    const teamIdBigInt = BigInt(teamId)
+    return Array.from({ length: count }, (_, k) =>
+        ((startCounter + BigInt(k)) * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
+    )
+}
+
+async function allocateTeamEmailDequeueSeqs(pool: Pool, teamId: number, count: number): Promise<string[]> {
+    const updated = await pool.query<{ counter: string }>(
+        `UPDATE cyclotron_email_team_seq
+         SET counter = counter + $2
+         WHERE team_id = $1
+         RETURNING counter`,
+        [teamId, count]
+    )
+    if (updated.rows.length === 0) {
+        return allocateEmailDequeueSeqs(pool, new Array(count).fill(teamId))
+    }
+    return teamDequeueSeqs(teamId, BigInt(updated.rows[0].counter), count)
 }
 
 export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
@@ -87,10 +107,7 @@ export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<s
     let waitersByTeam = new Map<number, Waiter[]>()
     const allocateForTeam = async (teamId: number, waiters: Waiter[]): Promise<void> => {
         try {
-            const dequeueSeqs = await allocateEmailDequeueSeqs(
-                pool,
-                waiters.map(() => teamId)
-            )
+            const dequeueSeqs = await allocateTeamEmailDequeueSeqs(pool, teamId, waiters.length)
             waiters.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
         } catch (error) {
             waiters.forEach(({ reject }) => reject(error))
