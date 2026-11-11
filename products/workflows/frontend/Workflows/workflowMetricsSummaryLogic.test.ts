@@ -468,6 +468,16 @@ describe('workflowMetricsSummaryLogic', () => {
         expect(queries.filter((q) => q.includes('email_link_clicked_by_link')).join()).toContain('LIMIT 1000')
     })
 
+    it.each(['constructor', '__proto__'])('totals an email step whose id is %s', async (id) => {
+        serveAppMetrics([
+            { instanceId: id, metricName: 'email_sent', count: 10 },
+            { instanceId: id, metricName: 'email_sandbox_sent', count: 2 },
+        ])
+        const logic = await mountMetrics(makeWorkflow([step(id, 'function_email')]))
+
+        expect(logic.values.emailMetricsRows).toEqual([expect.objectContaining({ id, sent: 12, delivered: 12 })])
+    })
+
     it.each([
         {
             name: 'only sandbox steps',

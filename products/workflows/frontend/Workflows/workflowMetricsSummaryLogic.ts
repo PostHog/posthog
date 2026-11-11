@@ -1513,7 +1513,7 @@ export function buildPushMetricRows(
 }
 
 function mapEmailMetricsToActions(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailTotals> {
-    const bySender: Record<string, { own: EmailTotals; sandbox: EmailTotals }> = {}
+    const bySender = new Map<string, { own: EmailTotals; sandbox: EmailTotals }>()
 
     Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
         const [instanceId, recordedName] = breakdowns
@@ -1522,16 +1522,14 @@ function mapEmailMetricsToActions(totalsResponse: AppMetricsTotalsResponse): Rec
             return
         }
 
-        bySender[instanceId] = bySender[instanceId] || { own: {}, sandbox: {} }
-        const totals = bySender[instanceId][recordedName in SANDBOX_EMAIL_METRICS ? 'sandbox' : 'own']
+        const senders = bySender.get(instanceId) ?? { own: {}, sandbox: {} }
+        bySender.set(instanceId, senders)
+        const totals = senders[recordedName in SANDBOX_EMAIL_METRICS ? 'sandbox' : 'own']
         totals[metricName] = (totals[metricName] ?? 0) + total
     })
 
     return Object.fromEntries(
-        Object.entries(bySender).map(([instanceId, senders]) => [
-            instanceId,
-            combineSenders(senders.own, senders.sandbox),
-        ])
+        [...bySender].map(([instanceId, senders]) => [instanceId, combineSenders(senders.own, senders.sandbox)])
     )
 }
 
