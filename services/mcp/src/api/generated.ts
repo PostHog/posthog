@@ -124445,6 +124445,18 @@ export namespace Schemas {
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
+      /**
+         * Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.
+         * @nullable
+         */
+      dropEmptySeries?: boolean | null;
+      /**
+         * Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.
+         * @minimum 1
+         * @maximum 100
+         * @nullable
+         */
+      limit?: number | null;
     }
 
     export interface _MetricQueryCount {
@@ -124471,6 +124483,10 @@ export namespace Schemas {
       results: _MetricSeries[];
       /** Set only when the query returned no points: what to check before querying again. */
       hint?: string;
+      /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
+      omitted_empty_series?: number;
+      /** Number of series left out by 'limit'. Set only when it left some out. */
+      omitted_by_limit?: number;
     }
 
     export interface _MetricSamplesBody {
