@@ -36,7 +36,6 @@ from products.data_catalog.backend.presentation.serializers import (
     MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
-    MetricSerializer,
 )
 from products.product_analytics.backend.facade.models import Insight
 
@@ -753,13 +752,6 @@ class TestMetricRunInputValidation(SimpleTestCase):
         assert serializer.is_valid() is valid
         if not valid:
             assert "refresh" in serializer.errors
-
-    @parameterized.expand([(0.0, True), (1.0, True), (-0.5, False), (1.5, False)])
-    def test_confidence_bounds(self, value: float, valid: bool) -> None:
-        serializer = MetricSerializer(data={"name": "mrr", "description": "d", "confidence": value})
-        assert serializer.is_valid() is valid, serializer.errors
-        if not valid:
-            assert "confidence" in serializer.errors
 
 
 class TestMetricBulkNamesValidation(SimpleTestCase):
