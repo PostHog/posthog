@@ -5,18 +5,19 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 
@@ -30,6 +31,13 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        user = cast(User, request.user)
+        email = None if user.anonymize_data else user.email
+        if not api.releases_enabled(self.team_id, distinct_id=str(user.distinct_id), email=email):
+            raise PermissionDenied("Releases are not enabled for this project.")
 
     def _flag_visibility(self, flag_ids: list[int]) -> contracts.FlagVisibility:
         access_control = self.user_access_control

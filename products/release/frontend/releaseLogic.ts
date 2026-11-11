@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -30,6 +32,8 @@ import { ReleaseRow, ReleaseStage, buildReleaseIndex, buildReleaseRow } from './
 
 interface ReleaseLogicValues {
     currentProjectId: number | null
+    featureFlags: FeatureFlagsSet
+    releasesEnabled: boolean
     user: UserType | null
     releases: ReleaseDTOApi[]
     releasesLoading: boolean
@@ -180,7 +184,7 @@ async function allPages<T>(fetchPage: (offset: number) => Promise<ListPage<T>>):
 export const releaseLogic = kea<releaseLogicType>([
     path(['products', 'release', 'frontend', 'releaseLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
+        values: [projectLogic, ['currentProjectId'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         reload: (force?: boolean) => ({ force: !!force }),
@@ -405,6 +409,10 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        releasesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],
+        ],
         canEditReleases: [
             () => [],
             (): boolean => userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
@@ -483,6 +491,9 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         reload: ({ force }) => {
+            if (!values.releasesEnabled) {
+                return
+            }
             const now = Date.now()
             if (!force && cache.lastReloadAt && now - cache.lastReloadAt < RELOAD_WINDOW_MS) {
                 return

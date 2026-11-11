@@ -11,6 +11,7 @@ import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFil
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
+import { ReleasesGate } from './ReleasesGate'
 import { ReleaseTimeline } from './ReleaseTimeline'
 
 export const scene: SceneExport = {
@@ -18,7 +19,7 @@ export const scene: SceneExport = {
     logic: releaseLogic,
 }
 
-export function ReleaseCalendar(): JSX.Element {
+function ReleaseCalendarContent(): JSX.Element {
     const { loadFailed } = useValues(releaseLogic)
     return (
         <SceneContent>
@@ -39,5 +40,13 @@ export function ReleaseCalendar(): JSX.Element {
                 <NewReleaseDialog />
             </div>
         </SceneContent>
+    )
+}
+
+export function ReleaseCalendar(): JSX.Element {
+    return (
+        <ReleasesGate>
+            <ReleaseCalendarContent />
+        </ReleasesGate>
     )
 }

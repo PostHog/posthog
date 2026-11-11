@@ -15,6 +15,7 @@ from uuid import UUID
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
+from .. import feature_flags
 from ..logic import releases as logic
 from ..models import Release
 from . import contracts
@@ -77,6 +78,10 @@ def update(
         kept = [flag_id for flag_id in linked if flag_id in hidden and flag_id not in submitted]
         changes = {**changes, "feature_flag_ids": [*changes["feature_flag_ids"], *kept]}
     return _visible_dto(logic.update_release(team_id, release_id, changes), flag_visibility)
+
+
+def releases_enabled(team_id: int, *, distinct_id: str, email: str | None) -> bool:
+    return feature_flags.is_releases_enabled(team_id, distinct_id=distinct_id, email=email)
 
 
 def delete(team_id: int, release_id: UUID) -> None:

@@ -17,6 +17,7 @@ import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFil
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
+import { ReleasesGate } from './ReleasesGate'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 
 export const scene: SceneExport = {
@@ -116,7 +117,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
     },
 ]
 
-export function ReleaseList(): JSX.Element {
+function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed } = useValues(releaseLogic)
 
     return (
@@ -158,5 +159,13 @@ export function ReleaseList(): JSX.Element {
                 <NewReleaseDialog />
             </div>
         </SceneContent>
+    )
+}
+
+export function ReleaseList(): JSX.Element {
+    return (
+        <ReleasesGate>
+            <ReleaseListContent />
+        </ReleasesGate>
     )
 }

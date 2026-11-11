@@ -28,6 +28,7 @@ import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
+import { ReleasesGate } from './ReleasesGate'
 import { ReleaseStatusCard } from './ReleaseStatusCard'
 import { ReleaseSuggestions } from './ReleaseSuggestions'
 
@@ -59,7 +60,7 @@ function ReleaseSkeleton(): JSX.Element {
     )
 }
 
-export function Release({ id }: ReleaseSceneProps): JSX.Element {
+function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
     const { rows, dataLoading, loadFailed, canEditReleases } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
     const row = rows.find((item) => item.id === id)
@@ -130,5 +131,13 @@ export function Release({ id }: ReleaseSceneProps): JSX.Element {
                 <ReleaseScheduleDialog />
             </div>
         </SceneContent>
+    )
+}
+
+export function Release({ id }: ReleaseSceneProps): JSX.Element {
+    return (
+        <ReleasesGate>
+            <ReleaseContent id={id} />
+        </ReleasesGate>
     )
 }

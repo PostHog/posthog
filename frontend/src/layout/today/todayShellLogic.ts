@@ -216,6 +216,7 @@ export interface todayShellLogicValues {
     phoneLayout: boolean
     phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
+    railPanes: TodayRailPane[]
     routePane: TodayRailPane | null
     sidebarBreadcrumbShown: boolean
     sidebarOpen: boolean
@@ -297,7 +298,11 @@ export interface todayShellLogicActions {
 export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
-        activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
+        activePane: (
+            pickedPane: TodayRailPane | null,
+            routePane: TodayRailPane | null,
+            featureFlags: FeatureFlagsSet
+        ) => TodayRailPane
         paneHasSidebar: (activePane: TodayRailPane) => boolean
         currentView: (
             location: {
@@ -322,6 +327,7 @@ export interface todayShellLogicMeta {
             paneHasSidebar: boolean
         ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        railPanes: (featureFlags: FeatureFlagsSet) => TodayRailPane[]
         peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
         phoneHeaderHidden: (
@@ -450,9 +456,15 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (location: { pathname: string }): TodayRailPane | null => railPaneForPath(location.pathname),
         ],
         activePane: [
-            (s) => [s.pickedPane, s.routePane],
-            (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null): TodayRailPane =>
-                pickedPane ?? routePane ?? 'home',
+            (s) => [s.pickedPane, s.routePane, s.featureFlags],
+            (
+                pickedPane: TodayRailPane | null,
+                routePane: TodayRailPane | null,
+                featureFlags: FeatureFlagsSet
+            ): TodayRailPane => {
+                const pane = pickedPane ?? routePane ?? 'home'
+                return pane === 'release' && !featureFlags[FEATURE_FLAGS.RELEASES_AREA] ? 'home' : pane
+            },
         ],
         paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
         currentView: [
@@ -492,6 +504,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
         todayRailEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        ],
+        railPanes: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): TodayRailPane[] =>
+                TODAY_RAIL_PANES.filter((pane) => pane !== 'release' || !!featureFlags[FEATURE_FLAGS.RELEASES_AREA]),
         ],
         // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [

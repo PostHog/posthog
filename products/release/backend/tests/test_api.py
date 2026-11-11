@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,8 +7,16 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 
+FLAG_PATCH = "products.release.backend.facade.api.releases_enabled"
+
 
 class TestReleaseAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(FLAG_PATCH, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/releases/{suffix}"
 
@@ -95,6 +104,15 @@ class TestReleaseAPI(APIBaseTest):
 
         assert listed == [visible_id, deleted_id]
         assert kept == [hidden_id]
+
+    @parameterized.expand(
+        [("list", "get", ""), ("create", "post", ""), ("update", "patch", "00000000-0000-0000-0000-000000000000/")]
+    )
+    def test_every_action_is_closed_without_the_flag(self, _name: str, method: str, suffix: str) -> None:
+        with patch(FLAG_PATCH, return_value=False):
+            response = getattr(self.client, method)(self._url(suffix), {"name": "Dark mode"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
