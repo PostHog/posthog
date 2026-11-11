@@ -140,6 +140,20 @@ class Page:
         return self
 
 
+@frozen
+class Download:
+    """A file a tool hands staff, for example a certificate as JSON. The console serves it as an attachment."""
+
+    filename: str
+    content_type: str
+    content: str | bytes
+
+    def __post_init__(self) -> None:
+        # The name goes into the Content-Disposition header, so a quote or a line break would break the header.
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", self.filename):
+            raise ValueError(f"Download name {self.filename!r} must use only letters, digits, dots, dashes and _")
+
+
 class ToolOperationHandler(Protocol):
     """Returns None when done, and the console sends staff back to the tool with the messages the handler added.
 
@@ -207,4 +221,8 @@ class ConsoleTool:
 
     def live(self, request: "HttpRequest", key: str) -> Live | None:
         """The live block with this key, for the page's refreshes. None when the tool has no such block."""
+        return None
+
+    def download(self, request: "HttpRequest", key: str) -> Download | None:
+        """The file with this key, for a link on the page. It only reads, like `page`. None when there is no such file."""
         return None
