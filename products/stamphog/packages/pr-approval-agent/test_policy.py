@@ -21,6 +21,7 @@ from familiarity import AuthorFamiliarity  # noqa: E402
 from github import PRData  # noqa: E402
 from policy import (  # noqa: E402
     Attestation,
+    BotAuthor,
     EffectivePolicy,
     PolicyError,
     ScopeBudget,
@@ -1017,3 +1018,32 @@ def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monk
     finally:
         monkeypatch.delenv("STAMPHOG_REPO_ROOT")
         policy.repo_root.cache_clear()
+
+
+_BOT_AUTHOR = {"name": "renovate", "login": "renovate[bot]", "id": 29139614}
+
+
+@pytest.mark.parametrize(
+    "entries, error",
+    [
+        pytest.param([_BOT_AUTHOR], None, id="valid"),
+        pytest.param([{**_BOT_AUTHOR, "login": "renovate"}], r"login: must end with \[bot\]", id="not-an-app-login"),
+        pytest.param([{"name": "renovate", "login": "renovate[bot]"}], "keys must be", id="missing-id"),
+        pytest.param([{**_BOT_AUTHOR, "id": 0}], r"\.id", id="zero-id"),
+        pytest.param(
+            [_BOT_AUTHOR, {**_BOT_AUTHOR, "name": "again"}], "duplicate 'renovate\\[bot\\]'", id="duplicate-login"
+        ),
+    ],
+)
+def test_bot_authors_name_one_app_account_each(tmp_path: Path, entries: list[dict], error: str | None) -> None:
+    data = _valid_policy_dict()
+    data["bot_authors"] = entries
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.bot_authors == (BotAuthor(name="renovate", login="renovate[bot]", id=29139614),)
