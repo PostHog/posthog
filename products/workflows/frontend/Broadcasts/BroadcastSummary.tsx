@@ -414,6 +414,7 @@ export function BroadcastSummary(): JSX.Element {
     ]
 
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
+    const workflowEditorUrl = urls.workflow(broadcastId ?? '', 'workflow')
     const actionItems = summaryActions({
         userAccessLevel: broadcast?.user_access_level,
         canMoveToDraft,
@@ -422,7 +423,7 @@ export function BroadcastSummary(): JSX.Element {
         batchJobStatuses: hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null,
         onMoveToDraft: confirmMoveToDraft,
         onSendAgain: duplicateBroadcast,
-        onOpenWorkflow: () => router.actions.push(urls.workflow(broadcastId ?? '', 'workflow')),
+        onOpenWorkflow: () => router.actions.push(workflowEditorUrl),
         onRestore: restoreBroadcast,
         onArchive: archiveBroadcast,
         onDelete: deleteBroadcast,
@@ -475,7 +476,7 @@ export function BroadcastSummary(): JSX.Element {
                         type="info"
                         action={{
                             children: 'Open in workflow editor',
-                            to: urls.workflow(broadcastId ?? '', 'workflow'),
+                            to: workflowEditorUrl,
                             'data-attr': 'broadcast-draft-open-in-workflow-editor',
                         }}
                     >
