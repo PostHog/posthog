@@ -1,4 +1,5 @@
 import time
+import tempfile
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
@@ -9,13 +10,14 @@ from unittest.mock import patch
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 
+import jwt
 import requests
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.integrations.backend import DjangoBackend, configured_backend, service_backend, use_backend
 from posthog.integrations.backend.fake_backend import FakeBackend
-from posthog.integrations.backend.protocol import RowFilter, RowScope, SourceRows
+from posthog.integrations.backend.protocol import KindScope, RowFilter, RowScope, SourceRows
 from posthog.integrations.backend.service_backend import (
     IntegrationServiceError,
     IntegrationServiceUnavailable,
@@ -27,10 +29,9 @@ from posthog.integrations.contracts import (
     IntegrationNotFound,
     UnsupportedAuthType,
 )
-from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, response
+from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, response, write_signing_key
 from posthog.models.integration import UndecryptedIntegrationSecretError
 
-KEY = "test-signing-key-not-a-secret"
 URL = "http://credentials-service.test"
 TEAM = 2
 OTHER_TEAM = 3
@@ -68,10 +69,16 @@ class TestServiceBackend(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.fake = FakeBackend()
-        self.stub = CredentialsServiceStub(self.fake, KEY)
+        self.key_path, self.public_key = write_signing_key(self.enterContext(tempfile.TemporaryDirectory()))
+        self.stub = CredentialsServiceStub(self.fake, self.public_key)
         self.offset = 0.0
-        # The stub signs with the first key only, so a token signed with the old key fails.
-        self.enterContext(override_settings(CREDENTIALS_SERVICE_URL=URL, CREDENTIALS_SERVICE_JWT_SECRET=f"{KEY},old"))
+        self.enterContext(
+            override_settings(
+                CREDENTIALS_SERVICE_URL=URL,
+                CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=self.key_path,
+                CREDENTIALS_SERVICE_JWT_SECRET="",
+            )
+        )
         self.backend = self._use(self.stub)
 
     def _use(self, session: Any) -> ServiceBackend:
@@ -256,11 +263,78 @@ class TestServiceBackend(SimpleTestCase):
         session = _CannedSession(response(200, {}))
         self._use(session)
 
-        with override_settings(CREDENTIALS_SERVICE_URL="", CREDENTIALS_SERVICE_JWT_SECRET=""):
+        with override_settings(CREDENTIALS_SERVICE_URL="", CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=""):
             with self.assertRaises(IntegrationServiceError) as raised:
                 IntegrationManager.github.oauth.get(TEAM, 1)
 
         assert (raised.exception.code, session.calls) == ("unconfigured", 0)
+
+    def test_a_missing_key_file_is_a_configuration_error(self) -> None:
+        session = _CannedSession(response(200, {}))
+        self._use(session)
+
+        with override_settings(CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=f"{self.key_path}.missing"):
+            with self.assertRaises(IntegrationServiceError) as raised:
+                IntegrationManager.github.oauth.get(TEAM, 1)
+
+        assert (raised.exception.code, session.calls) == ("unconfigured", 0)
+        assert "CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH" in str(raised.exception)
+
+    def test_a_key_file_that_is_not_ed25519_is_a_configuration_error(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".pem") as bad_key:
+            bad_key.write("not a key")
+            bad_key.flush()
+            with override_settings(CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=bad_key.name):
+                with self.assertRaises(IntegrationServiceError) as raised:
+                    IntegrationManager.github.oauth.get(TEAM, 1)
+
+        assert raised.exception.code == "unconfigured"
+
+    def test_tokens_use_eddsa_and_never_hs256(self) -> None:
+        IntegrationManager.github.oauth.get(TEAM, self._seed("a"))
+
+        assert self.stub.calls
+        for _method, _path, _claims, headers in self.stub.calls:
+            token = headers["Authorization"].removeprefix("Bearer ")
+            assert jwt.get_unverified_header(token)["alg"] == "EdDSA"
+            audience = "posthog:credentials_service:integrations"
+            jwt.decode(token, self.public_key, audience=audience, algorithms=["EdDSA"])
+            # The shared platform secret must not verify a token of this audience.
+            with self.assertRaises(jwt.PyJWTError):
+                jwt.decode(token, "any-shared-secret", audience=audience, algorithms=["HS256"])
+
+    def test_a_token_signed_with_hs256_is_refused(self) -> None:
+        forged = jwt.encode(
+            {"aud": "posthog:credentials_service:integrations", "iat": 1, "exp": 2, "jti": "x", "ops": ["read"]},
+            "any-shared-secret",
+            algorithm="HS256",
+        )
+
+        answer = self.stub.request(
+            "GET", f"{URL}/v1/integrations", params={}, headers={"Authorization": f"Bearer {forged}"}
+        )
+
+        assert answer.status_code == 401
+
+    def test_a_read_across_teams_sends_one_request_for_each_team(self) -> None:
+        mine, theirs = self._seed("a"), self._seed("b", team_id=OTHER_TEAM)
+        scope = RowScope(kinds=(KindScope(kind="github"),), source_rows=SourceRows.INCLUDE)
+
+        records = self.backend.list(scope, RowFilter(team_ids=(TEAM, OTHER_TEAM)))
+
+        assert {record.id for record in records} == {mine, theirs}
+        resolves = [claims for _method, path, claims, _headers in self.stub.calls if path == "/resolve"]
+        assert sorted((claims["owner"]["id"], claims["refs"]) for claims in resolves) == [
+            (TEAM, [str(mine)]),
+            (OTHER_TEAM, [str(theirs)]),
+        ]
+        assert all(set(claims["ops"]) & {"list_across_teams"} == set() for claims in resolves)
+
+    def test_a_token_has_one_owner_or_none(self) -> None:
+        with self.assertRaises(ValueError):
+            self.backend._token("get", team_id=None)
+        with self.assertRaises(ValueError):
+            self.backend._token("list_across_teams", team_id=TEAM)
 
     @parameterized.expand(
         [

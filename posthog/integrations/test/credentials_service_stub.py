@@ -9,12 +9,15 @@ import json
 import uuid
 import hashlib
 import datetime as dt
+import tempfile
 from collections.abc import Mapping
 from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import jwt
 import requests
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 from posthog.integrations.backend.fake_backend import FakeBackend
 from posthog.integrations.backend.protocol import KindScope, NewIntegration, RowFilter, RowScope, SourceRows
@@ -52,6 +55,15 @@ STATUS = {
 }
 
 
+def write_signing_key(directory: str) -> tuple[str, Ed25519PublicKey]:
+    """Writes a new Ed25519 private key as a PEM file in `directory`. Returns its path and the public key."""
+    private_key = Ed25519PrivateKey.generate()
+    pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+    with tempfile.NamedTemporaryFile("wb", dir=directory, suffix=".pem", delete=False) as key_file:
+        key_file.write(pem)
+    return key_file.name, private_key.public_key()
+
+
 class StubError(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -80,9 +92,9 @@ def _ordered(rows: list[FrozenIntegrationRecord], newest_first: bool = False) ->
 class CredentialsServiceStub:
     """A `requests.Session` look-alike. Every answer comes from `fake`."""
 
-    def __init__(self, fake: FakeBackend, signing_key: str) -> None:
+    def __init__(self, fake: FakeBackend, public_key: Ed25519PublicKey) -> None:
         self.fake = fake
-        self._signing_key = signing_key
+        self._public_key = public_key
         self._versions: dict[int, int] = {}
         self._jtis: set[str] = set()
         self._idempotency: dict[tuple[int, str], tuple[str, int]] = {}
@@ -133,9 +145,9 @@ class CredentialsServiceStub:
         try:
             claims = jwt.decode(
                 token,
-                self._signing_key,
+                self._public_key,
                 audience=AUDIENCE,
-                algorithms=["HS256"],
+                algorithms=["EdDSA"],
                 options={"require": ["exp", "iat"]},
             )
         except jwt.PyJWTError:
@@ -151,7 +163,9 @@ class CredentialsServiceStub:
             raise StubError("forbidden_op")
         if "kinds" in claims and kinds is not None and not set(kinds) <= set(claims["kinds"]):
             raise StubError("forbidden_kind")
-        if "refs" in claims and (not refs or not set(refs) <= set(claims["refs"])):
+        if refs and ("refs" not in claims or not set(refs) <= set(claims["refs"])):
+            raise StubError("forbidden_ref")
+        if "refs" in claims and not refs:
             raise StubError("forbidden_ref")
         self.calls.append((method, path, claims, headers))
         return claims

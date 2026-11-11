@@ -1,4 +1,5 @@
 import time
+import tempfile
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, cast
@@ -17,14 +18,13 @@ from posthog.integrations.backend.fake_backend import FakeBackend
 from posthog.integrations.backend.service_backend import ServiceBackend
 from posthog.integrations.contracts import IntegrationConflict, IntegrationInUse, IntegrationNotFound, IntegrationUsage
 from posthog.integrations.references import IntegrationReference
-from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub
+from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, write_signing_key
 from posthog.integrations.testing import fake_integrations_backend
 from posthog.models import Team
 from posthog.models.integration import ANY, Integration, UndecryptedIntegrationSecretError
 from posthog.models.integration.oauth import OauthIntegration
 
 MARKER = "warehouse_source_type"
-SERVICE_SIGNING_KEY = "test-signing-key-not-a-secret"
 
 # name -> (kind, config). The name is also the external id.
 ROWS: dict[str, tuple[str, dict[str, Any]]] = {
@@ -59,14 +59,15 @@ class TestBackendsBehaveTheSame(BaseTest):
             self.fake = self.enterContext(fake_integrations_backend(token_refresher=self._count_refresh))
         elif self.backend == "service":
             self.fake = FakeBackend(token_refresher=self._count_refresh)
+            key_path, public_key = write_signing_key(self.enterContext(tempfile.TemporaryDirectory()))
             self.enterContext(
                 override_settings(
                     CREDENTIALS_SERVICE_URL="http://credentials-service.test",
-                    CREDENTIALS_SERVICE_JWT_SECRET=SERVICE_SIGNING_KEY,
+                    CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=key_path,
                 )
             )
             self.enterContext(
-                use_backend(ServiceBackend(session=cast(Any, CredentialsServiceStub(self.fake, SERVICE_SIGNING_KEY))))
+                use_backend(ServiceBackend(session=cast(Any, CredentialsServiceStub(self.fake, public_key))))
             )
         else:
             self.enterContext(

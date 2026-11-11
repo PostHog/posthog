@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 import builtins
+import functools
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import field
@@ -24,9 +25,10 @@ from django.conf import settings
 import jwt
 import requests
 from cachetools import TTLCache
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.client import credentials_service_signing_keys
 from posthog.dataclasses import frozen
 from posthog.integrations.backend.protocol import (
     KindScope,
@@ -46,12 +48,14 @@ from posthog.integrations.contracts import (
     IntegrationRecord,
     UnsupportedAuthType,
 )
-from posthog.jwt import JWT_ALGORITHM, PosthogJwtAudience
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.integration.auth_types import effective_auth_type
 from posthog.models.integration.model import Integration, UndecryptedIntegrationSecretError
 from posthog.security.outbound_proxy import internal_requests
 
 INTEGRATIONS_PATH = "/v1/integrations"
+# Integrations tokens use an asymmetric algorithm, so the service holds only the public key.
+TOKEN_ALGORITHM = "EdDSA"
 # The service rejects a token that lives longer than 60 seconds.
 TOKEN_LIFETIME_SECONDS = 60
 REQUEST_TIMEOUT_SECONDS = 5
@@ -100,6 +104,11 @@ _OPS: dict[str, tuple[ServiceOp, ...]] = {
 }
 
 
+_CROSS_TEAM_OPS = frozenset(
+    {"list_across_teams", "read_by_external_id", "write_by_external_id", "delete_by_external_id"}
+)
+
+
 def _ops_for(operation: str) -> tuple[ServiceOp, ...]:
     """The service ops that the token of one step of an SDK operation holds. Each token allows only these."""
     return _OPS[operation]
@@ -115,6 +124,24 @@ class IntegrationServiceError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
+
+
+@functools.cache
+def _load_signing_key(path: str) -> Ed25519PrivateKey:
+    """Reads the Ed25519 private key of this deployment from a mounted file, once per process."""
+    try:
+        with open(path, "rb") as key_file:
+            key = load_pem_private_key(key_file.read(), password=None)
+    except (OSError, ValueError, TypeError) as error:
+        raise IntegrationServiceError(
+            "unconfigured",
+            f"CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH must name a readable PEM Ed25519 private key file ({type(error).__name__})",
+        ) from error
+    if not isinstance(key, Ed25519PrivateKey):
+        raise IntegrationServiceError(
+            "unconfigured", "CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH must hold an Ed25519 private key"
+        )
+    return key
 
 
 class IntegrationServiceUnavailable(IntegrationServiceError):
@@ -361,15 +388,19 @@ class ServiceBackend:
         user_id: int | None = None,
     ) -> Callable[[], str]:
         ops = builtins.list(_ops_for(operation))
+        # Each token has one owner. Only a cross-team token has none.
+        if (team_id is None) != _CROSS_TEAM_OPS.issuperset(ops):
+            raise ValueError(f"Operation {operation!r} and team_id={team_id!r} do not match")
         kind_claim = None if kinds is None else sorted(set(kinds))
         ref_claim = None if refs is None else sorted(set(refs))
 
         def mint() -> str:
-            signing_keys = credentials_service_signing_keys()
-            if not settings.CREDENTIALS_SERVICE_URL or not signing_keys:
+            if not settings.CREDENTIALS_SERVICE_URL or not settings.CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH:
                 raise IntegrationServiceError(
-                    "unconfigured", "Set CREDENTIALS_SERVICE_URL and CREDENTIALS_SERVICE_JWT_SECRET"
+                    "unconfigured",
+                    "Set CREDENTIALS_SERVICE_URL and CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH",
                 )
+            signing_key = _load_signing_key(settings.CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH)
             issued_at = int(time.time())
             claims: dict[str, Any] = {
                 "aud": PosthogJwtAudience.CREDENTIALS_SERVICE_INTEGRATIONS.value,
@@ -388,7 +419,7 @@ class ServiceBackend:
                 claims["refs"] = ref_claim
             if user_id is not None:
                 claims["user_id"] = user_id
-            return jwt.encode(claims, signing_keys[0], algorithm=JWT_ALGORITHM)
+            return jwt.encode(claims, signing_key, algorithm=TOKEN_ALGORITHM)
 
         return mint
 

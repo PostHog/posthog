@@ -174,7 +174,7 @@ The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFi
 
 `ServiceBackend` notes:
 
-- It signs a token for each request (`_ops_for` names the operations), with the `CREDENTIALS_SERVICE_URL` and `CREDENTIALS_SERVICE_JWT_SECRET` settings of the credentials client.
+- It signs a token for each request (`_ops_for` names the operations), with EdDSA (Ed25519). The private key comes from the file at `CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH`, read once per process. `CREDENTIALS_SERVICE_URL` is the service address. A single-ref call names exactly that ref, and each token has one owner. A cross-team token has none.
 - A plain read of the service returns no secrets. A team read gets the secrets of its rows from `POST /resolve`, and keeps them in memory for at most 60 seconds, never past the expiry of the access token. A write in the same process clears the entry. A write in another process can stay hidden for up to 60 seconds.
 - `list_across_teams` returns rows without secrets. A read of their secrets raises `IntegrationServiceError`. Read the row with `get`.
 - `change_external_id` and `refresh_access_token` raise `NotImplementedError` until the service has routes for them.
