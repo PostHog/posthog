@@ -147,8 +147,8 @@ describe('todayProductsLogic', () => {
                 .filter(([name]) => name === 'today all products toggled')
                 .map(([, properties]) => properties)
             expect(toggles).toEqual([
-                { open: true, from_default: true, starred_count: 1, searching: false },
-                { open: false, from_default: false, starred_count: 1, searching: false },
+                { open: true, starred_count: 1, searching: false },
+                { open: false, starred_count: 1, searching: false },
             ])
         })
 

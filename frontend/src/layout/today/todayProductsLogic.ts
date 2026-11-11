@@ -251,7 +251,6 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('today all products toggled', {
                 open,
-                from_default: values.allProductsOpen === null,
                 starred_count: values.starredHrefs.size,
                 searching: !!values.search.trim(),
             })
