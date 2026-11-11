@@ -1,5 +1,5 @@
 export class Semaphore {
-    private waiting: Array<() => void> = []
+    private waiting = new Set<() => void>()
 
     constructor(private permits: number) {}
 
@@ -11,7 +11,7 @@ export class Semaphore {
         signal?.throwIfAborted()
         return new Promise<void>((resolve, reject) => {
             const onAbort = (): void => {
-                this.waiting = this.waiting.filter((waiter) => waiter !== grant)
+                this.waiting.delete(grant)
                 reject(signal!.reason)
             }
             const grant = (): void => {
@@ -19,19 +19,18 @@ export class Semaphore {
                 resolve()
             }
             signal?.addEventListener('abort', onAbort, { once: true })
-            this.waiting.push(grant)
+            this.waiting.add(grant)
         })
     }
 
     private release(): void {
-        if (this.waiting.length > 0) {
-            const next = this.waiting.shift()
-            if (next) {
-                next()
-            }
-        } else {
+        const next = this.waiting.values().next()
+        if (next.done) {
             this.permits++
+            return
         }
+        this.waiting.delete(next.value)
+        next.value()
     }
 
     async run<T>(func: () => Promise<T>, signal?: AbortSignal): Promise<T> {
