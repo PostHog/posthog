@@ -1,7 +1,7 @@
 import socket
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -628,6 +628,7 @@ class TestConnectDialsTheValidatedAddress:
                 ["52.1.2.3"],
                 "ws.sql.azuresynapse.usgovcloudapi.net",
             ),
+            ("azure_synapse_china", "ws.sql.azuresynapse.azure.cn", ["52.1.2.3"], "ws.sql.azuresynapse.azure.cn"),
             ("azure_zone_mid_name", "myserver.database.windows.net.example.com", ["52.1.2.3"], "52.1.2.3"),
             ("azure_zone_without_dot", "evildatabase.windows.net", ["52.1.2.3"], "52.1.2.3"),
         ]
@@ -658,6 +659,35 @@ class TestConnectDialsTheValidatedAddress:
                     pass
 
         mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "unreachable_address_falls_over",
+                pymssql.OperationalError(
+                    20009, b"Unable to connect: Adaptive Server is unavailable or does not exist (52.1.2.3)"
+                ),
+                ["52.1.2.3", "52.1.2.4"],
+                None,
+            ),
+            (
+                "login_failure_stops",
+                pymssql.OperationalError(18456, b"Login failed for user 'u'."),
+                ["52.1.2.3"],
+                pymssql.OperationalError,
+            ),
+        ]
+    )
+    def test_tries_the_next_validated_address_only_when_one_is_unreachable(
+        self, _name, first_error, expected_servers, expected_error
+    ):
+        with _direct_connect_on_cloud(["52.1.2.3", "52.1.2.4"]) as mock_connect:
+            mock_connect.side_effect = [first_error, MagicMock()]
+            with pytest.raises(expected_error) if expected_error else nullcontext():
+                with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert [call.kwargs["server"] for call in mock_connect.call_args_list] == expected_servers
 
     def test_a_tunnel_loopback_is_dialled_without_a_lookup(self):
         with _direct_connect_on_cloud(
