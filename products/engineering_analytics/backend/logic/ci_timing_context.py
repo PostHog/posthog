@@ -45,15 +45,12 @@ logger = structlog.get_logger(__name__)
 
 WINDOW_DAYS = 7
 _RECENT_SAMPLES = 3
-# The answer changes only when a new default-branch run syncs, and a person can open the same
-# selection many times in a row.
 _CACHE_SECONDS = 5 * 60
-# A repository's default branch almost never changes, and reading it scans the pull request snapshot.
+# Reading the default branch scans the pull request snapshot.
 _DEFAULT_BRANCH_CACHE_SECONDS = 60 * 60
 # Part of the cache key. Raise it when the matching rules or the cached shape change.
 _CACHE_VERSION = 1
 
-# A skipped or neutral job did no work, so it is not part of the workload that a run executed.
 _NOT_EXECUTED_CONCLUSIONS = frozenset({"skipped", "neutral"})
 # A cancelled job stopped early, so its duration says nothing about how long the work takes.
 _NOT_SAMPLED_CONCLUSIONS = _NOT_EXECUTED_CONCLUSIONS | {"cancelled"}
@@ -63,8 +60,6 @@ _SPANS_JOBS = frozenset({CITimingKind.WORKFLOW, CITimingKind.MATRIX})
 
 @frozen
 class _JobSignature:
-    """What makes two jobs the same work: the job name and the runner tier it ran on."""
-
     name: str
     runner_label: str
 
@@ -72,19 +67,18 @@ class _JobSignature:
 @frozen
 class TimingSelection:
     kind: CITimingKind
-    # Every job the current run attempt executed. A workflow or matrix sample must repeat this set.
+    # A workflow or matrix sample must repeat this whole set.
     executed: list[WorkflowJob]
     selected: list[WorkflowJob]
-    # Set for a step selection only. Steps match by name, because a workflow edit renumbers them.
+    # Steps match by name, because a workflow edit renumbers them.
     step_name: str | None = None
 
 
 def select_timing_jobs(
     jobs: Sequence[WorkflowJob], *, kind: CITimingKind, job_ids: Sequence[int], step_number: int | None
 ) -> TimingSelection | None:
-    """The selection among one run attempt's ``jobs``, or None when none of the selected jobs ran.
-    Raises ValueError when a job id is not in the attempt, when a job or step selection does not name
-    exactly one job, or when the job has no such step."""
+    """Return None when none of the selected jobs ran. Raises ValueError for a selection the
+    run attempt's ``jobs`` cannot satisfy."""
     if kind is CITimingKind.WORKFLOW:
         named = list(jobs)
     else:
@@ -110,8 +104,8 @@ def select_timing_jobs(
 def match_timing_sample(
     run: TimingCandidateRun, jobs: Sequence[WorkflowJob], selection: TimingSelection
 ) -> CITimingSample | None:
-    """The sample that ``run`` gives for ``selection``, or None when it did not run the same work.
-    ``jobs`` is the job list of the run's latest attempt."""
+    """Return None when ``run`` did not run the same work as ``selection``. ``jobs`` must be the
+    job list of the run's latest attempt."""
     sampled = [
         job
         for job in jobs
@@ -257,7 +251,6 @@ def _timing_context(
         ci_engine=ci_engine,
         run_attempts={candidate.run_id: candidate.run_attempt for candidate in candidates.runs},
         earliest_run_started_at=min(candidate.run_started_at for candidate in candidates.runs),
-        # A job or step sample reads one job of each run, so the other jobs and their steps stay unread.
         job_name=selection.selected[0].name if one_job else None,
         include_steps=kind is CITimingKind.STEP,
     )
@@ -319,8 +312,7 @@ def _default_branch(curated: CuratedGitHubSource, repo: RepoRef) -> str | None:
 
 
 def _cache_prefix(curated: CuratedGitHubSource, owner: str, name: str) -> str:
-    # The key holds what the handle resolved for this caller, not only what the request named. Two callers
-    # share an entry only when they read the same repository through the same tables.
+    # Two callers must share an entry only when they read the same repository through the same tables.
     scope = hashlib.sha256(
         f"{curated.repository.casefold()}|{curated.ci_read_scope()}|{owner.casefold()}/{name.casefold()}".encode()
     ).hexdigest()

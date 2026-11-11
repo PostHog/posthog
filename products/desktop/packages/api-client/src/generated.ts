@@ -19294,6 +19294,7 @@ export namespace Endpoints {
                 excluded_properties: string;
                 excluded_tags: string;
                 has_evaluation_contexts: "false" | "true";
+                ids: string;
                 key: string;
                 limit: number;
                 offset: number;

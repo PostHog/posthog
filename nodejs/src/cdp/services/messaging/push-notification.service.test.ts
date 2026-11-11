@@ -85,6 +85,7 @@ describe('PushNotificationService', () => {
     beforeEach(() => {
         integrationManager = {
             get: jest.fn().mockResolvedValue(firebaseIntegration),
+            getDecryptFailures: jest.fn().mockResolvedValue({}),
         } as any
 
         fetchUtils = {
@@ -676,6 +677,22 @@ describe('PushNotificationService', () => {
 
             expect(result.error).toBeTruthy()
             expect(result.logs.map((log) => log.message)).toContain('Push notification integration not found')
+        })
+
+        it('does not send a push with an undecryptable integration', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            ;(integrationManager.getDecryptFailures as jest.Mock).mockResolvedValue({
+                '1': [{ path: 'access_token', reason: 'undecryptable' }],
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs.map((log) => log.message)).toContain(
+                'The push notification integration could not be decrypted. Reconnect the integration.'
+            )
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
         })
 
         it('handles missing person properties gracefully', async () => {
