@@ -15,10 +15,12 @@ from uuid import UUID
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertEventKind,
     AlertReceiverEdit,
     AlertRouteEdit,
     ControlChangeKind,
     DestinationSend,
+    DestinationType,
     HandbackRefusal,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
@@ -558,6 +560,15 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     """Whether an alert whose destinations the platform owns has an enabled incident manager."""
     return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+
+
+def destination_hears_kind(
+    *, team_id: int, configuration_id: UUID, destination_type: DestinationType, event_kind: AlertEventKind
+) -> bool:
+    """Whether an enabled destination of this type that the platform keeps for the alert sends this kind."""
+    return alert_destinations.hears_kind(
+        team_id=team_id, configuration_id=configuration_id, destination_type=destination_type, event_kind=event_kind
+    )
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
