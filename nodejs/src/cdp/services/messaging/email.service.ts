@@ -15,6 +15,7 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { isTransientError, transientLookupRetryCounter } from '~/cdp/utils/transient-retry'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
@@ -601,7 +602,21 @@ export class EmailService {
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
-        const integration = await this.integrationManager.get(integrationId)
+        let integration: IntegrationType | null
+        try {
+            integration = await this.integrationManager.get(integrationId)
+        } catch (error) {
+            if (isTest || !isTransientError(error)) {
+                throw error
+            }
+            transientLookupRetryCounter.inc({ lookup: 'email_sender', outcome: 'retried' })
+            return this.retryLookupLater(
+                invocation,
+                result,
+                'senderLookupAttempts',
+                `Could not load the sender of this email (${error.message}), so this email is waiting.`
+            )
+        }
 
         let success: boolean = false
         let rescheduled: boolean = false
@@ -948,16 +963,12 @@ export class EmailService {
                 )
             } else if (error instanceof SuppressionLookupError && !isTest) {
                 // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
-                const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
-                const retryAfterMs = suppressionRetryDelayMs(attempt)
                 rescheduled = true
-                result.finished = false
-                result.invocation.queueParameters = params
-                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
-                addLog(
-                    'warn',
-                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                this.retryLookupLater(
+                    invocation,
+                    result,
+                    'suppressionLookupAttempts',
+                    'Could not check the suppression list, so this email is waiting.'
                 )
             } else {
                 const attachmentFailure = describeAttachmentFailure(error, attachmentLoadRetries(invocation) + 1)
@@ -1225,6 +1236,25 @@ export class EmailService {
             })
             return false
         }
+    }
+
+    private retryLookupLater(
+        invocation: CyclotronJobInvocationHogFunction,
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        attemptsKey: 'suppressionLookupAttempts' | 'senderLookupAttempts',
+        reason: string
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const attempt = (invocation.queueMetadata?.[attemptsKey] ?? 0) + 1
+        const retryAfterMs = suppressionRetryDelayMs(attempt)
+        result.finished = false
+        result.invocation.queueParameters = invocation.queueParameters
+        result.invocation.queueMetadata = { ...invocation.queueMetadata, [attemptsKey]: attempt }
+        result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+        createAddLogFunction(result.logs)(
+            'warn',
+            `${reason} Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+        )
+        return result
     }
 
     private resolveFromSender(

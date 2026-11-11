@@ -19,11 +19,14 @@ import {
 import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
+import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
 import {
     InFlightLimits,
@@ -248,6 +251,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let posthogDb: Pool
     let workflowTableHolders: Client[]
     let routers: PostgresRouter[]
+    let proxies: { close: () => Promise<void> }[]
 
     const roomFor = (sends: number): InFlightLimits => ({
         budgetBytes: sends * estimateSend(invoice.metadata.sizeBytes).reservedBytes,
@@ -272,6 +276,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         workers = []
         workflowTableHolders = []
         routers = []
+        proxies = []
         team = (await createTestTeamFixture(hub.postgres)).team
         ses = await startFakeSes({
             [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
@@ -322,6 +327,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         bucket.release('refuse')
         await Promise.all(workers.map((worker) => worker.stop()))
         await Promise.all(routers.map((router) => router.end()))
+        await Promise.all(proxies.map((proxy) => proxy.close()))
         await producer.stopProducer()
         await Promise.all([bucket.close(), ses.close(), cyclotron.close()])
         await db.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1 OR queue_name LIKE $2', [
@@ -383,7 +389,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     async function startWorker(
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
-        postgres: PostgresRouter = hub.postgres
+        postgres: PostgresRouter = hub.postgres,
+        integrationManager: IntegrationManagerService = hub.integrationManager
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -396,7 +403,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
-            { ...createCdpConsumerDeps(hub), postgres },
+            { ...createCdpConsumerDeps(hub), postgres, integrationManager },
             new EmailQueueOfOneTest(queueName, config),
             new InFlightRegistry(limits, () => 0)
         )
@@ -956,6 +963,43 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             expect(delivered()).toEqual([['invoice.pdf']])
         }
     )
+
+    it('sends an email whose sender lookup failed on a dropped connection, once the lookup recovers', async () => {
+        let lookupFails = true
+        const integrationsDb = await postgresThatDropsConnections(
+            hub.DATABASE_URL,
+            (message) => lookupFails && message.toString('latin1').includes('fetchIntegrations')
+        )
+        proxies.push(integrationsDb)
+        await startWorker(
+            null,
+            sesClientFor(ses),
+            hub.postgres,
+            new IntegrationManagerService(
+                hub.pubSub,
+                new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
+            )
+        )
+        const [id] = await enqueue(transactionalSend(null))
+
+        const waiting = await waitForExpect(
+            async () => {
+                const row = await jobRow(id)
+                expect(row).toMatchObject({ status: 'available', queueMetadata: { senderLookupAttempts: 1 } })
+                return row
+            },
+            15_000,
+            50
+        )
+        expect(waiting.scheduled.getTime()).toBeGreaterThan(Date.now() + 10_000)
+        expect(delivered()).toEqual([])
+
+        lookupFails = false
+        await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
+
+        expect(await ended(id, 15_000)).toBe('completed')
+        expect(delivered()).toEqual([[]])
+    })
 
     it('runs a resumed send with files on the workflow its admission checked, when that workflow changes during the lookup', async () => {
         hogFlow = await insertEmailFlow('3s')

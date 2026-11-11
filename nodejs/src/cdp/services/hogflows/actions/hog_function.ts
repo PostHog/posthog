@@ -2,6 +2,7 @@ import { DateTime, Duration } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { isTransientError, transientLookupRetryCounter, transientRetryAt } from '~/cdp/utils/transient-retry'
 import {
     buildWorkflowStepDispatchKey,
     workflowStepDispatchKeyFromInvocation,
@@ -29,6 +30,13 @@ import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
+
+class StepInputsUnavailableError extends Error {
+    constructor(readonly reason: Error) {
+        super(reason.message)
+        this.name = 'StepInputsUnavailableError'
+    }
+}
 
 /** The run's recorded opt-outs after a step that succeeded, adding the one an "Opt out of messages" step made. */
 export function messageOptOutsAfterStep(
@@ -192,7 +200,16 @@ export class HogFunctionHandler implements ActionHandler {
             observeMissingVariableReferences(invocation, action, result)
         }
 
-        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        let functionResult: Awaited<ReturnType<HogFunctionHandler['executeHogFunction']>>
+        try {
+            functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        } catch (error) {
+            if (error instanceof StepInputsUnavailableError) {
+                return this.retryOrFailInputs(result, action, error.reason)
+            }
+            throw error
+        }
+        delete result.invocation.state.currentAction?.inputsLookupAttempts
 
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
@@ -341,6 +358,31 @@ export class HogFunctionHandler implements ActionHandler {
         }
     }
 
+    private retryOrFailInputs(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: Action,
+        error: Error
+    ): ActionHandlerResult {
+        const currentAction = result.invocation.state.currentAction
+        const attempts = (currentAction?.inputsLookupAttempts ?? 0) + 1
+        const policy = this.hogFlowFunctionsService.transientRetryPolicy()
+        const retryAt = currentAction ? transientRetryAt(attempts, policy) : null
+
+        if (!currentAction || !retryAt) {
+            transientLookupRetryCounter.inc({ lookup: 'workflow_step_inputs', outcome: 'failed' })
+            throw error
+        }
+
+        currentAction.inputsLookupAttempts = attempts
+        transientLookupRetryCounter.inc({ lookup: 'workflow_step_inputs', outcome: 'retried' })
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} Could not load the inputs of this step, because a service was temporarily unavailable (${error.message}). Retrying in ${Math.ceil(retryAt.diffNow().as('seconds'))}s (attempt ${attempts} of ${policy.retries}).`,
+        })
+        return { scheduledAt: retryAt }
+    }
+
     private isBillable(functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): boolean {
         if (this.hogFlowActionBillingType === 'email') {
             return functionResult.emailSendResult?.status === 'accepted'
@@ -472,7 +514,9 @@ export class HogFunctionHandler implements ActionHandler {
                     groups: invocation.groups,
                     variables: invocation.state.variables,
                 })
-        )
+        ).catch((error) => {
+            throw isTransientError(error) ? new StepInputsUnavailableError(error) : error
+        })
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },

@@ -28,6 +28,12 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
+import {
+    TransientRetryPolicy,
+    isTransientError,
+    transientLookupRetryCounter,
+    transientRetryAt,
+} from '../utils/transient-retry'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
 import {
@@ -200,9 +206,10 @@ export class HogExecutorAsyncService {
                 // Finish execution, carrying forward previous execResult
                 // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
                 const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
-                result = await this.execute(
+                result = await this.executeRetryingInputs(
                     nextInvocation,
-                    options,
+                    invocation,
+                    options ?? {},
                     previousResultWithoutMetrics,
                     consumeInlineAsyncBudget
                 )
@@ -243,54 +250,74 @@ export class HogExecutorAsyncService {
         // run at most one async step per execute() call already, so a no-op budget is safe there.
         consumeInlineAsyncBudget: () => void = () => {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.executeRetryingInputs(invocation, invocation, options, previousResult, consumeInlineAsyncBudget)
+    }
+
+    public transientRetryPolicy(maxRetries?: number): TransientRetryPolicy {
+        return {
+            retries: maxRetries ?? this.config.fetchRetries,
+            backoffBaseMs: this.config.fetchBackoffBaseMs,
+            backoffMaxMs: this.config.fetchBackoffMaxMs,
+        }
+    }
+
+    private async executeRetryingInputs(
+        invocation: CyclotronJobInvocationHogFunction,
+        queuedAs: CyclotronJobInvocationHogFunction,
+        options: HogExecutorExecuteAsyncOptions,
+        previousResult: HogExecutorPreviousResult,
+        consumeInlineAsyncBudget: () => void
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         try {
             const result = await this.executeHog(invocation, options, previousResult, consumeInlineAsyncBudget)
             result.invocation.state.attempts = 0
             return result
         } catch (error) {
-            if (error?.isRetriable !== true) {
+            if (!isTransientError(error)) {
                 throw error
             }
-            return this.retryInputsLater(invocation, previousResult, options)
+            const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+                invocation,
+                {
+                    queuePriority: queuedAs.queuePriority,
+                    queueMetadata: queuedAs.queueMetadata,
+                    queueParameters: invocation.queueParameters,
+                },
+                { ...previousResult, finished: false }
+            )
+            return this.retryLookupLater(result, error, 'inputs', 'the inputs of this function', options)
         }
     }
 
-    private retryInputsLater(
-        invocation: CyclotronJobInvocationHogFunction,
-        previousResult: HogExecutorPreviousResult,
-        options: HogExecutorExecuteAsyncOptions
+    private retryLookupLater(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        error: Error,
+        lookup: string,
+        subject: string,
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
-            invocation,
-            {
-                queuePriority: invocation.queuePriority,
-                queueMetadata: invocation.queueMetadata,
-                queueParameters: invocation.queueParameters,
-            },
-            { ...previousResult, finished: false }
-        )
-        const attempts = invocation.state.attempts + 1
+        const attempts = result.invocation.state.attempts + 1
         result.invocation.state.attempts = attempts
-        const maxRetries = options.maxFetchRetries ?? this.config.fetchRetries
+        const policy = this.transientRetryPolicy(options?.maxFetchRetries)
+        const retryAt = transientRetryAt(attempts, policy)
         const addLog = createAddLogFunction(result.logs)
 
-        if (attempts >= maxRetries) {
-            const message = `Could not load the inputs of this function after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}, because a service was temporarily unavailable. Rerun the invocation once the service recovers.`
+        if (!retryAt) {
+            transientLookupRetryCounter.inc({ lookup, outcome: 'failed' })
+            const message = `Could not load ${subject} after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}, because a service was temporarily unavailable (${error.message}). Rerun the invocation once the service recovers.`
             addLog('error', message)
             result.error = message
             result.finished = true
             return result
         }
 
-        const backoffMs = Math.min(
-            this.config.fetchBackoffBaseMs * attempts + Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-            this.config.fetchBackoffMaxMs
-        )
+        transientLookupRetryCounter.inc({ lookup, outcome: 'retried' })
         addLog(
             'warn',
-            `Could not load the inputs of this function, because a service was temporarily unavailable. Retrying in ${Math.ceil(backoffMs / 1000)}s (attempt ${attempts} of ${maxRetries}).`
+            `Could not load ${subject}, because a service was temporarily unavailable (${error.message}). Retrying in ${Math.ceil(retryAt.diffNow().as('seconds'))}s (attempt ${attempts} of ${policy.retries}).`
         )
-        result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+        result.finished = false
+        result.invocation.queueScheduledAt = retryAt
         return result
     }
 
@@ -459,7 +486,23 @@ export class HogExecutorAsyncService {
             headers['developer-token'] = this.config.googleAdwordsDeveloperToken
         }
 
-        const tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        let tokenReplacements: [string, string][]
+        try {
+            tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        } catch (error) {
+            if (!isTransientError(error)) {
+                throw error
+            }
+            result.invocation.queueParameters = params
+            result.invocation.queuePriority = invocation.queuePriority + 1
+            return this.retryLookupLater(
+                result,
+                error,
+                'fetch_integrations',
+                'the integrations for this request',
+                options
+            )
+        }
         const replaceTokens = (value: string): string =>
             tokenReplacements.reduce((acc, [placeholder, token]) => acc.replaceAll(placeholder, token), value)
 

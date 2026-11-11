@@ -1,10 +1,13 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
+import { HOG_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
+import { HogInputsService } from '~/cdp/services/hog-inputs.service'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
@@ -87,6 +90,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         worker = undefined
         team = (await createTestTeamFixture(hub.postgres)).team
         mockProducerObserver.resetKafkaProducer()
+        mockFetch.mockClear()
         lookupFails = false
         droppedLookups = 0
         integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) => {
@@ -153,6 +157,33 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         return invocation.id
     }
 
+    async function queueFetchWithAccessToken(): Promise<string> {
+        const integration = await insertIntegration(hub.postgres, team.id, {
+            kind: 'oauth',
+            config: {},
+            sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-access-token-value') },
+        })
+        const hogFunction = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            inputs: { oauth: { value: integration.id } },
+            inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+        })
+        const resolved = await new HogInputsService(
+            hub.integrationManager,
+            undefined,
+            hub.encryptedFields
+        ).loadIntegrationInputs(hogFunction)
+        const invocation = createExampleInvocation(hogFunction)
+        invocation.state.globals.inputs = {
+            url: 'https://example.com/hook',
+            method: 'POST',
+            body: '{}',
+            headers: { Authorization: `Bearer ${(resolved.oauth.value as Record<string, string>).access_token}` },
+        }
+        await producer.queueInvocations([invocation])
+        return invocation.id
+    }
+
     async function jobRow(id: string): Promise<JobRow> {
         const { rows } = await db.query('SELECT status, scheduled, state FROM cyclotron_jobs WHERE id = $1', [id])
         const [row] = rows
@@ -184,6 +215,38 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
 
         await waitForExpect(async () => expect((await jobRow(id)).status).toBe('completed'), 15_000, 50)
+    })
+
+    it('retries a fetch whose access token lookup fails on a dropped connection, then sends it with the token', async () => {
+        const id = await queueFetchWithAccessToken()
+        lookupFails = true
+        await startWorker()
+
+        const retried = await waitForExpect(
+            async () => {
+                const row = await jobRow(id)
+                expect(row).toMatchObject({ status: 'available', attempts: 1 })
+                return row
+            },
+            15_000,
+            50
+        )
+        expect(droppedLookups).toBeGreaterThan(0)
+        expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
+        expect(mockFetch).not.toHaveBeenCalled()
+
+        lookupFails = false
+        await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
+
+        await waitForExpect(async () => expect((await jobRow(id)).status).toBe('completed'), 15_000, 50)
+        expect(mockFetch.mock.calls).toEqual([
+            [
+                'https://example.com/hook',
+                expect.objectContaining({
+                    headers: expect.objectContaining({ Authorization: 'Bearer fake-access-token-value' }),
+                }),
+            ],
+        ])
     })
 
     it('fails a job once its integration lookup has used its last retry', async () => {

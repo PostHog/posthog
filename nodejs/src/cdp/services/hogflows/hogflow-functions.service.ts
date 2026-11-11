@@ -6,6 +6,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '~/cdp/types'
+import { TransientRetryPolicy } from '~/cdp/utils/transient-retry'
 
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
@@ -20,6 +21,10 @@ export class HogFlowFunctionsService {
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
         private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
+
+    transientRetryPolicy(): TransientRetryPolicy {
+        return this.hogFunctionExecutor.transientRetryPolicy()
+    }
 
     async buildHogFunction(
         hogFlow: HogFlow,

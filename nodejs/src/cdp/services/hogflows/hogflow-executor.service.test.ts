@@ -35,6 +35,8 @@ import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { PostgresIntegrationSource } from '../managers/postgres-integration-source'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import {
@@ -245,10 +247,11 @@ describe('Hogflow Executor', () => {
     }
 
     const createExecutor = (
-        emailService: EmailService
+        emailService: EmailService,
+        integrationManager: IntegrationManagerService = hub.integrationManager
     ): { executor: HogFlowExecutorService; hogFlowFunctionsService: HogFlowFunctionsService } => {
         const hogInputsService = new HogInputsService(
-            hub.integrationManager,
+            integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             hub.encryptedFields
         )
@@ -3260,6 +3263,83 @@ describe('Hogflow Executor', () => {
 
             expect(result.invocation.state.variables?.task).toEqual({ id: 'task-1234', run_id: 'run-5678' })
             expect(result.logs.some((l) => l.message.includes('task = [Task:task-1234|run-5678]'))).toBe(true)
+        })
+    })
+
+    describe('a step whose integration lookup fails on a dropped connection', () => {
+        it('waits on the step instead of taking its on_error path, then runs it once the lookup recovers', async () => {
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: {},
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-access-token-value') },
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-test-hogflow-executor-integration',
+                name: 'Test integration template',
+                code: `fetch('https://example.com/hook', {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})`,
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+            })
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        function_id_1: {
+                            type: 'function',
+                            on_error: 'continue',
+                            config: {
+                                template_id: 'template-test-hogflow-executor-integration',
+                                inputs: { oauth: { value: integration.id } },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_id_1', type: 'continue' },
+                        { from: 'function_id_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            let lookupFails = true
+            const integrationsDb = await postgresThatDropsConnections(
+                hub.DATABASE_URL,
+                (message) => lookupFails && message.toString('latin1').includes('fetchIntegrations')
+            )
+            const { executor: runner } = createExecutor(
+                createEmailService(),
+                new IntegrationManagerService(
+                    hub.pubSub,
+                    new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
+                )
+            )
+
+            try {
+                const held = await runner.execute(createExampleHogFlowInvocation(hogFlow))
+                expect({ finished: held.finished, action: held.invocation.state.currentAction?.id }).toEqual({
+                    finished: false,
+                    action: 'function_id_1',
+                })
+                expect(held.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                expect(mockFetch).not.toHaveBeenCalled()
+
+                lookupFails = false
+                const result = await runner.execute(held.invocation)
+
+                expect(result.finished).toBe(true)
+                expect(mockFetch.mock.calls).toEqual([
+                    [
+                        'https://example.com/hook',
+                        expect.objectContaining({
+                            headers: expect.objectContaining({ Authorization: 'Bearer fake-access-token-value' }),
+                        }),
+                    ],
+                ])
+            } finally {
+                await integrationsDb.close()
+            }
         })
     })
 

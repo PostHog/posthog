@@ -902,6 +902,7 @@ export class RerunPaginatorService {
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
+                inputsLookupAttempts: _inputsLookupAttempts,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 
