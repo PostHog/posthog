@@ -220,7 +220,7 @@ function DebugHintBanner(): JSX.Element | null {
                 debugMode
                     ? undefined
                     : {
-                          children: 'Open Debug',
+                          children: 'Turn on dev mode',
                           center: true,
                           'data-attr': 'player-debug-hint-open',
                           onClick: () => {
@@ -231,8 +231,8 @@ function DebugHintBanner(): JSX.Element | null {
                       }
             }
         >
-            Looking for the inspector, network waterfall or linked issues? They are under the Watch / Debug toggle above
-            the player now.
+            Looking for the inspector, network waterfall or linked issues? They are under the Dev mode button above the
+            player now.
         </LemonBanner>
     )
 }
