@@ -88,16 +88,25 @@ const runnerOf = (entry: ProcEntry): string | undefined =>
 
 const listed = (entries: ProcEntry[]): string => entries.map((entry) => `${entry.pid} (${entry.cmdline})`).join(', ')
 
-export function strangerConflict(strangers: ProcEntry[]): StackConflictError {
+export async function strangerConflict(strangers: ProcEntry[]): Promise<StackConflictError> {
     const runners = [...new Set(strangers.flatMap((entry) => runnerOf(entry) ?? []))]
-    const unmarked = strangers.filter((entry) => runnerOf(entry) === undefined)
-    const sentences = runners.map((runner) => {
-        const roles = strangers.filter((entry) => runnerOf(entry) === runner)
-        return `Roles of the scenario runner that uses ${runner} are running: ${listed(roles)}. That runner restarts roles that are killed, so stop it`
-    })
-    if (unmarked.length > 0) {
+    const held = (
+        await Promise.all(
+            runners.map(async (runner) => {
+                const address = lockAddress(runner)
+                const pid = (await holderOf(address)) || listenerOf(address)
+                return pid ? [{ runner, pid }] : []
+            })
+        )
+    ).flat()
+    const sentences = held.map(
+        ({ runner, pid }) =>
+            `Roles of scenario runner ${pid}, which uses ${runner}, are running: ${listed(strangers.filter((entry) => runnerOf(entry) === runner))}. That runner restarts roles that are killed, so run \`kill ${pid}\``
+    )
+    const killable = strangers.filter((entry) => !held.some(({ runner }) => runner === runnerOf(entry)))
+    if (killable.length > 0) {
         sentences.push(
-            `CDP processes the scenario runner did not start are running: ${listed(unmarked)}. Use \`hogli down\` if hogli started them. Run \`kill ${unmarked.map((entry) => entry.pid).join(' ')}\``
+            `CDP processes the scenario runner did not start are running: ${listed(killable)}. Use \`hogli down\` if hogli started them. Run \`kill ${killable.map((entry) => entry.pid).join(' ')}\``
         )
     }
     return new StackConflictError(`${sentences.join('. ')}, then run the scenario again.`)
