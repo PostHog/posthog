@@ -65,6 +65,7 @@ from products.signals.backend.activity_summary.queue import (
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
 from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.personal_ranking_tasks import start_first_summary_build
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 
 logger = structlog.get_logger(__name__)
@@ -404,6 +405,14 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
     except Exception:
         # The pair stays due, so the next tick picks it, skips it as not eligible yet, and syncs it then.
         logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
+    if update.status == UpdateStatus.OK and update.new_summary:
+        try:
+            start_first_summary_build(input.team_id, input.user_id)
+        except Exception:
+            # The personal ranking tick builds the first list later, because the pair still has no list.
+            logger.exception(
+                "activity_summary_first_ranking_build_failed", team_id=input.team_id, user_id=input.user_id
+            )
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id, emit_profile=input.emit_profile_embeddings)

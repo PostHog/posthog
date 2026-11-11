@@ -53,6 +53,7 @@ from posthog.admin.console.results import (
 from posthog.admin.console.tools import (
     Cell,
     ConsoleTool,
+    Download,
     FieldGroup,
     Filters,
     Link,
@@ -469,6 +470,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "download_name_that_would_break_the_header",
+                lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
+                "only letters",
             ),
         ]
     )
