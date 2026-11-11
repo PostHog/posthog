@@ -39,6 +39,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
+from products.alerts.backend.tasks.tasks import remove_departed_subscriber
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
@@ -540,6 +541,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             OrganizationMembership.objects.get(user=other, organization=self.organization).delete()
         assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
         assert copied(handed_over.id) == {}
+        assert copied(native.id) == {native.id: (self.user.id,)}
+        # A cleanup that runs after the user is a member again, such as a retry, leaves them subscribed.
+        remove_departed_subscriber(organization_id=str(self.organization.id), user_id=self.user.id)
         assert copied(native.id) == {native.id: (self.user.id,)}
 
         cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
