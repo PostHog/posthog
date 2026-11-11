@@ -103,3 +103,28 @@ export const dropInjectedScriptReferenceErrors = dropExceptionsWhen(
                 UNKNOWN_IDENTIFIER_REFERENCE_ERROR.test(exception.value)
         )
 )
+
+/**
+ * Start of the message the query API sends when the concurrent-query limiter rejects a request. Keep
+ * in sync with `CONCURRENCY_LIMIT_USER_MESSAGE` in posthog/api/query.py. DRF appends "Expected
+ * available in N seconds.", so the match is on the prefix.
+ */
+const CONCURRENCY_LIMIT_MESSAGE_PREFIX = 'Too many queries are running right now'
+
+export const CONCURRENCY_LIMIT_FINGERPRINT = 'query-concurrency-limit-exceeded'
+
+/**
+ * Groups every rejection from the concurrent-query limiter into one issue. The default fingerprint
+ * uses the stack, so each logic that loads a query files its own issue, and each new one fires a
+ * "new issue" alert for the same throttle.
+ */
+export const fingerprintConcurrencyLimitExceptions: BeforeSendFn = (event) => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    const exceptions: CapturedException[] = event.properties?.$exception_list ?? []
+    if (!exceptions.some((exception) => exception?.value?.startsWith(CONCURRENCY_LIMIT_MESSAGE_PREFIX))) {
+        return event
+    }
+    return { ...event, properties: { ...event.properties, $exception_fingerprint: CONCURRENCY_LIMIT_FINGERPRINT } }
+}

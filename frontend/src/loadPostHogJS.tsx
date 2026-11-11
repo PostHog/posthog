@@ -9,6 +9,7 @@ import {
     dropInjectedScriptReferenceErrors,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
+    fingerprintConcurrencyLimitExceptions,
 } from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
@@ -169,6 +170,7 @@ export function loadPostHogJS(): void {
                 dropUnactionableNetworkExceptions,
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,
+                fingerprintConcurrencyLimitExceptions,
                 redactMetricVariableUrls,
                 redactDestinationSecretsInReplay,
                 suppressPassiveTelemetryLastSeen,

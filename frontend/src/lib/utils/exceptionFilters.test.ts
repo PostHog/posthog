@@ -3,10 +3,12 @@ import { CaptureResult } from 'posthog-js'
 import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 
 import {
+    CONCURRENCY_LIMIT_FINGERPRINT,
     dropHandledAuthGateExceptions,
     dropInjectedScriptReferenceErrors,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
+    fingerprintConcurrencyLimitExceptions,
 } from './exceptionFilters'
 
 const exceptionEvent = (exceptions: Record<string, unknown>[], event = '$exception'): CaptureResult => ({
@@ -28,6 +30,7 @@ describe('exceptionFilters', () => {
         ['dropHandledAuthGateExceptions', dropHandledAuthGateExceptions],
         ['dropUnactionableNetworkExceptions', dropUnactionableNetworkExceptions],
         ['dropInjectedScriptReferenceErrors', dropInjectedScriptReferenceErrors],
+        ['fingerprintConcurrencyLimitExceptions', fingerprintConcurrencyLimitExceptions],
     ])('%s passes through non-exception events and exceptions with no list', (_, filter) => {
         const pageview = exceptionEvent([{ type: 'Error', value: 'Project not found.' }], '$pageview')
         const bare: CaptureResult = { uuid: 'example-uuid', event: '$exception', properties: {} }
@@ -213,6 +216,31 @@ describe('exceptionFilters', () => {
             const event = exceptionEvent(exceptions)
 
             expect(dropInjectedScriptReferenceErrors(event)).toBe(kept ? event : null)
+        })
+    })
+
+    describe('fingerprintConcurrencyLimitExceptions', () => {
+        it.each([
+            [
+                'a query API rejection',
+                [
+                    'Too many queries are running right now — please try again in a moment. Expected available in 5 seconds.',
+                ],
+                true,
+            ],
+            ['a dashboard tile rejection', ['Too many queries are running right now.'], true],
+            [
+                'a rejection wrapped as a cause',
+                ['Failed to load', 'Too many queries are running right now — please try again in a moment.'],
+                true,
+            ],
+            ['an unrelated exception', ['Too many requests'], false],
+        ])('handles %s', (_, values, grouped) => {
+            const event = exceptionEvent(values.map((value) => ({ type: 'Error', value })))
+
+            expect(fingerprintConcurrencyLimitExceptions(event)?.properties?.$exception_fingerprint).toBe(
+                grouped ? CONCURRENCY_LIMIT_FINGERPRINT : undefined
+            )
         })
     })
 })
