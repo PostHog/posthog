@@ -972,16 +972,19 @@ class TestSQLV2Run(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("python", "python", "scores", 200),
-            ("sql_cell", "hogql", "scores", 400),
-            ("taken_name", "python", "events", 400),
+            ("python", "python", "scores", True, 200),
+            ("flag_disabled", "python", "scores", False, 404),
+            ("sql_cell", "hogql", "scores", True, 400),
+            ("taken_name", "python", "events", True, 400),
         ]
     )
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled")
     def test_run_stores_the_warehouse_table_name(
-        self, _name, node_type, table_name, expected_status, _mock_enabled, mock_start
+        self, _name, node_type, table_name, flag_enabled, expected_status, mock_save_enabled, _mock_enabled, mock_start
     ):
+        mock_save_enabled.return_value = flag_enabled
         response = self.client.post(
             self.run_url,
             data={"node_id": "py", "node_type": node_type, "code": "1", "warehouse_table_name": table_name},
@@ -1002,8 +1005,12 @@ class TestSQLV2Run(APIBaseTest):
     )
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled",
+        return_value=True,
+    )
     def test_token_needs_warehouse_write_scope_to_save_a_table(
-        self, _name, scopes, expected_status, _mock_enabled, mock_start
+        self, _name, scopes, expected_status, _mock_save_enabled, _mock_enabled, mock_start
     ):
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -2056,6 +2063,28 @@ class TestNotebookFlagResolution(SimpleTestCase):
                 flag == "revamped-py-notebooks" and python_enabled
             )
             assert is_sql_v2_enabled(user) is expected
+
+    def test_warehouse_table_save_flag_targets_the_users_organization(self) -> None:
+        from products.notebooks.backend.sql_v2 import (
+            NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE_FLAG,
+            is_notebook_warehouse_table_save_enabled,
+        )
+
+        organization_id = "example-organization"
+        user: Any = SimpleNamespace(distinct_id="example-user", organization=SimpleNamespace(id=organization_id))
+        with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
+            feature_enabled.return_value = True
+            assert is_notebook_warehouse_table_save_enabled(user)
+
+        feature_enabled.assert_called_once_with(
+            NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE_FLAG,
+            "example-user",
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+        )
+        assert NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE_FLAG == "notebook-save-as-warehouse-table"
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_frame_store_flag_is_its_own_flag(self, _name, flag_value):

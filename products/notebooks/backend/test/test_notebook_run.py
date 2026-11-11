@@ -92,6 +92,12 @@ class TestRunPlanCellShapes(APIBaseTest):
 class TestNotebookRunEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.save_table_flag = patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled",
+            return_value=True,
+        )
+        self.save_table_flag.start()
+        self.addCleanup(self.save_table_flag.stop)
         self.notebook = Notebook.objects.create(
             team=self.team, short_id="nbrunapi", content=markdown_content(_RUN_CELLS)
         )
@@ -148,6 +154,23 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert mock_start.called == (expected_status == 200)
         runs = NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook)
         assert runs.exists() == (expected_status == 200)
+
+    def test_flag_disabled_refuses_a_notebook_run_that_saves_a_table(self, mock_start, _flag) -> None:
+        self.notebook.content = markdown_content(
+            '<PythonV2 nodeId="p1" code="df = 1" returnVariable="df" '
+            'saveToWarehouse={true} warehouseTableName="scores" />'
+        )
+        self.notebook.save(update_fields=["content"])
+
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(self.runs_url, data={}, format="json")
+
+        assert response.status_code == 404
+        mock_start.assert_not_called()
+        assert not NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
     def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start, _flag) -> None:
         notebook = Notebook.objects.create(

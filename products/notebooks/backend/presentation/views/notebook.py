@@ -170,6 +170,7 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
     introspect_in_kernel,
+    is_notebook_warehouse_table_save_enabled,
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
@@ -2033,6 +2034,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
         if serializer.validated_data["warehouse_table_name"]:
+            if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
+                raise Http404()
             self._require_warehouse_write_scope()
 
         node_type = serializer.validated_data["node_type"]
@@ -2139,6 +2142,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 # Checked on the plan the run froze, not on a separate read of the notebook, so
                 # an edit that lands between the two can't add a save the token may not make.
                 if start.saves_warehouse_tables:
+                    if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
+                        raise Http404()
                     self._require_warehouse_write_scope()
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
             return Response({"detail": str(e)}, status=400)

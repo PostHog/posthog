@@ -83,6 +83,7 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        canSaveWarehouseTables,
         result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
@@ -139,16 +140,17 @@ const Component = ({
         return null
     }
 
-    const warehouseTableToggle = (compact: boolean): JSX.Element => (
-        <NotebookWarehouseTableToggle
-            saveToWarehouse={!!attributes.saveToWarehouse}
-            warehouseTableName={attributes.warehouseTableName ?? ''}
-            defaultTableName={attributes.returnVariable ?? ''}
-            onChange={updateAttributes}
-            lastSave={result?.warehouse_table}
-            compact={compact}
-        />
-    )
+    const warehouseTableToggle = (compact: boolean): JSX.Element | null =>
+        canSaveWarehouseTables ? (
+            <NotebookWarehouseTableToggle
+                saveToWarehouse={!!attributes.saveToWarehouse}
+                warehouseTableName={attributes.warehouseTableName ?? ''}
+                defaultTableName={attributes.returnVariable ?? ''}
+                onChange={updateAttributes}
+                lastSave={result?.warehouse_table}
+                compact={compact}
+            />
+        ) : null
 
     if (isJupyterMode) {
         return (
