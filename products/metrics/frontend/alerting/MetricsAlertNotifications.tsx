@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
@@ -18,12 +20,13 @@ export function MetricsAlertNotifications({ alertId }: { alertId?: string }): JS
     const {
         destinations,
         destinationsLoading,
+        destinationsLoadFailed,
         deletingDestinationIds,
         pendingDestinations,
         integrationsLoading,
         integrationsFailed,
         slackIntegrations,
-        firstSlackIntegration,
+        slackIntegration,
         selectedType,
         slackChannelValue,
         webhookUrl,
@@ -44,16 +47,18 @@ export function MetricsAlertNotifications({ alertId }: { alertId?: string }): JS
         setPagerDutySeverity,
         setPagerDutyRegion,
         loadIntegrations,
+        loadDestinations,
+        setSelectedSlackIntegrationId,
     } = useActions(logic)
 
-    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
+    const slackLogic = slackIntegrationLogic({ id: slackIntegration?.id ?? 0 })
     const { loadAllSlackChannels } = useActions(slackLogic)
 
     useEffect(() => {
-        if (firstSlackIntegration) {
+        if (slackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
+    }, [slackIntegration?.id, loadAllSlackChannels, slackIntegration])
 
     const existing: AlertNotificationDestinationView[] = destinations.map((destination) => ({
         key: destination.id,
@@ -70,44 +75,54 @@ export function MetricsAlertNotifications({ alertId }: { alertId?: string }): JS
     }))
 
     return (
-        <AlertNotificationDestinationEditor
-            description="Each destination gets a notification when the alert fires, resolves, errors, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves."
-            destinations={{
-                showExisting: !!alertId,
-                existingLoading: destinationsLoading,
-                existing,
-                pending,
-                pendingTooltip: 'Added when you create the alert',
-            }}
-            notificationType={{
-                options: DESTINATION_TYPE_OPTIONS,
-                value: selectedType,
-                onChange: setSelectedType,
-            }}
-            slack={{
-                notificationType: PlatformAlertDestinationTypeEnumApi.Slack,
-                integrationsLoading,
-                integrationsFailed,
-                onRetryIntegrations: loadIntegrations,
-                integrations: slackIntegrations,
-                integration: firstSlackIntegration,
-                channelValue: slackChannelValue,
-                onChannelValueChange: setSlackChannelValue,
-            }}
-            url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
-            pagerduty={
-                selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty
-                    ? {
-                          routingKey: pagerDutyRoutingKey,
-                          onRoutingKeyChange: setPagerDutyRoutingKey,
-                          severity: pagerDutySeverity,
-                          onSeverityChange: setPagerDutySeverity,
-                          region: pagerDutyRegion,
-                          onRegionChange: setPagerDutyRegion,
-                      }
-                    : undefined
-            }
-            add={{ onClick: addSelectedDestination, disabledReason: addDisabledReason }}
-        />
+        <div className="space-y-2">
+            {destinationsLoadFailed ? (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadDestinations() }}>
+                    Could not load this alert's destinations. Retry before you add or remove any.
+                </LemonBanner>
+            ) : null}
+            <AlertNotificationDestinationEditor
+                description="Each destination gets a notification when the alert fires, resolves, errors, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves."
+                destinations={{
+                    showExisting: !!alertId,
+                    existingLoading: destinationsLoading,
+                    existing,
+                    pending,
+                    pendingTooltip: alertId
+                        ? 'Could not be added. Remove it and add it again.'
+                        : 'Added when you create the alert',
+                }}
+                notificationType={{
+                    options: DESTINATION_TYPE_OPTIONS,
+                    value: selectedType,
+                    onChange: setSelectedType,
+                }}
+                slack={{
+                    notificationType: PlatformAlertDestinationTypeEnumApi.Slack,
+                    integrationsLoading,
+                    integrationsFailed,
+                    onRetryIntegrations: loadIntegrations,
+                    integrations: slackIntegrations,
+                    integration: slackIntegration,
+                    onIntegrationChange: setSelectedSlackIntegrationId,
+                    channelValue: slackChannelValue,
+                    onChannelValueChange: setSlackChannelValue,
+                }}
+                url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                pagerduty={
+                    selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty
+                        ? {
+                              routingKey: pagerDutyRoutingKey,
+                              onRoutingKeyChange: setPagerDutyRoutingKey,
+                              severity: pagerDutySeverity,
+                              onSeverityChange: setPagerDutySeverity,
+                              region: pagerDutyRegion,
+                              onRegionChange: setPagerDutyRegion,
+                          }
+                        : undefined
+                }
+                add={{ onClick: addSelectedDestination, disabledReason: addDisabledReason }}
+            />
+        </div>
     )
 }

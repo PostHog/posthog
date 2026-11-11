@@ -9,15 +9,17 @@ import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDef
 import { MetricsPlatformAlertConditionKindEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
-import { MetricsAlertFormErrors, OPERATOR_OPTIONS } from './metricsAlertUtils'
+import { MetricsAlertFormErrors, OPERATOR_OPTIONS, finiteOrNull } from './metricsAlertUtils'
 
 export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?: string }): JSX.Element {
     const { alertForm, alertFormErrors } = useValues(metricsAlertFormLogic)
     const { setAlertFormValue } = useActions(metricsAlertFormLogic)
     const isThreshold = alertForm.conditionKind === MetricsPlatformAlertConditionKindEnumApi.Threshold
+    // kea-forms fills these only after a save attempt.
+    const errors = alertFormErrors as MetricsAlertFormErrors
     const enabledAdvancedOptionsCount =
-        Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
-        Number(alertForm.cooldownMinutes > 0)
+        Number((alertForm.evaluationPeriods ?? 1) > 1 || (alertForm.datapointsToAlarm ?? 1) > 1) +
+        Number((alertForm.cooldownMinutes ?? 0) > 0)
 
     return (
         <div className="space-y-4">
@@ -52,7 +54,7 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                         <LemonInput
                             type="number"
                             value={alertForm.threshold ?? undefined}
-                            onChange={(value) => setAlertFormValue('threshold', value ?? null)}
+                            onChange={(value) => setAlertFormValue('threshold', finiteOrNull(value))}
                             className="w-32"
                             size="small"
                             status={thresholdError ? 'danger' : undefined}
@@ -81,15 +83,15 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                 <LemonField.Pure
                     label="Reduce noise"
                     help="Require the condition on several checks before the alert fires. The alert resolves once the condition stops matching."
-                    error={(alertFormErrors as MetricsAlertFormErrors).datapointsToAlarm}
+                    error={errors.datapointsToAlarm ?? errors.evaluationPeriods}
                 >
                     <div className="flex items-center gap-2 flex-wrap">
                         <LemonInput
                             type="number"
                             min={1}
-                            max={alertForm.evaluationPeriods}
-                            value={alertForm.datapointsToAlarm}
-                            onChange={(value) => setAlertFormValue('datapointsToAlarm', value ?? 1)}
+                            max={alertForm.evaluationPeriods ?? 10}
+                            value={alertForm.datapointsToAlarm ?? undefined}
+                            onChange={(value) => setAlertFormValue('datapointsToAlarm', finiteOrNull(value))}
                             className="w-16"
                             size="small"
                         />
@@ -98,11 +100,11 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                             type="number"
                             min={1}
                             max={10}
-                            value={alertForm.evaluationPeriods}
+                            value={alertForm.evaluationPeriods ?? undefined}
                             onChange={(value) => {
-                                const periods = value ?? 1
+                                const periods = finiteOrNull(value)
                                 setAlertFormValue('evaluationPeriods', periods)
-                                if (alertForm.datapointsToAlarm > periods) {
+                                if (periods !== null && (alertForm.datapointsToAlarm ?? 0) > periods) {
                                     setAlertFormValue('datapointsToAlarm', periods)
                                 }
                             }}
@@ -115,13 +117,14 @@ export function MetricsAlertTriggerFields({ thresholdError }: { thresholdError?:
                 <LemonField.Pure
                     label="Notification cooldown"
                     help="Minimum time between notifications. Set to 0 for no minimum."
+                    error={errors.cooldownMinutes}
                 >
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="number"
                             min={0}
-                            value={alertForm.cooldownMinutes}
-                            onChange={(value) => setAlertFormValue('cooldownMinutes', value ?? 0)}
+                            value={alertForm.cooldownMinutes ?? undefined}
+                            onChange={(value) => setAlertFormValue('cooldownMinutes', finiteOrNull(value))}
                             className="w-24"
                             size="small"
                         />

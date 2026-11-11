@@ -41,14 +41,17 @@ export interface metricsAlertDestinationsLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     addDisabledReason: string | undefined
     deletingDestinationIds: Set<string>
+    destinationsLoadFailed: boolean
     destinations: PlatformAlertDestinationApi[]
     destinationsLoading: boolean
-    firstSlackIntegration: IntegrationType | undefined
+    slackIntegration: IntegrationType | undefined
     integrationsFailed: boolean
     pagerDutyRegion: AlertPagerDutyRegion
     pagerDutyRoutingKey: string
     pagerDutySeverity: AlertPagerDutySeverity
     pendingDestinations: PlatformAlertCreateDestinationApi[]
+    savingDestinations: boolean
+    selectedSlackIntegrationId: number | null
     selectedType: PlatformAlertDestinationTypeEnumApi
     slackChannelValue: string | null
     urlInput: AlertNotificationUrlInput | undefined
@@ -121,6 +124,12 @@ export interface metricsAlertDestinationsLogicActions {
     setPendingDestinations: (destinations: PlatformAlertCreateDestinationApi[]) => {
         destinations: PlatformAlertCreateDestinationApi[]
     }
+    setSavingDestinations: (saving: boolean) => {
+        saving: boolean
+    }
+    setSelectedSlackIntegrationId: (integrationId: number | null) => {
+        integrationId: number | null
+    }
     setSelectedType: (selectedType: PlatformAlertDestinationTypeEnumApi) => {
         selectedType: PlatformAlertDestinationTypeEnumApi
     }
@@ -162,6 +171,8 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
         createPendingDestinations: (alertId: string) => ({ alertId }),
         deleteDestination: (destination: PlatformAlertDestinationApi) => ({ destination }),
         setDeletingDestinationId: (id: string, deleting: boolean) => ({ id, deleting }),
+        setSelectedSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
+        setSavingDestinations: (saving: boolean) => ({ saving }),
     }),
 
     loaders(({ props, values }) => ({
@@ -185,7 +196,11 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
         ],
         slackChannelValue: [
             null as string | null,
-            { setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue },
+            {
+                setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
+                // A channel belongs to one workspace.
+                setSelectedSlackIntegrationId: () => null,
+            },
         ],
         webhookUrl: ['', { setWebhookUrl: (_, { webhookUrl }) => webhookUrl }],
         pagerDutyRoutingKey: ['', { setPagerDutyRoutingKey: (_, { pagerDutyRoutingKey }) => pagerDutyRoutingKey }],
@@ -212,6 +227,20 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                     deleting ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
             },
         ],
+        selectedSlackIntegrationId: [
+            null as number | null,
+            { setSelectedSlackIntegrationId: (_, { integrationId }) => integrationId },
+        ],
+        savingDestinations: [false, { setSavingDestinations: (_, { saving }) => saving }],
+        // The list stays empty on a failed load, so the editor needs this to tell it apart from no destinations.
+        destinationsLoadFailed: [
+            false,
+            {
+                loadDestinations: () => false,
+                loadDestinationsSuccess: () => false,
+                loadDestinationsFailure: () => true,
+            },
+        ],
         integrationsFailed: [
             false,
             {
@@ -223,9 +252,14 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
     }),
 
     selectors({
-        firstSlackIntegration: [
-            (s) => [s.slackIntegrations],
-            (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
+        slackIntegration: [
+            (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                selectedSlackIntegrationId: number | null
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId) ??
+                slackIntegrations?.[0],
         ],
         urlInput: [
             (s) => [s.selectedType],
@@ -233,19 +267,30 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                 urlInputFor(selectedType),
         ],
         addDisabledReason: [
-            (s) => [s.selectedType, s.firstSlackIntegration, s.slackChannelValue, s.webhookUrl, s.pagerDutyRoutingKey],
+            (s) => [
+                s.savingDestinations,
+                s.selectedType,
+                s.slackIntegration,
+                s.slackChannelValue,
+                s.webhookUrl,
+                s.pagerDutyRoutingKey,
+            ],
             (
+                savingDestinations: boolean,
                 selectedType: PlatformAlertDestinationTypeEnumApi,
-                firstSlackIntegration: IntegrationType | undefined,
+                slackIntegration: IntegrationType | undefined,
                 slackChannelValue: string | null,
                 webhookUrl: string,
                 pagerDutyRoutingKey: string
             ): string | undefined => {
+                if (savingDestinations) {
+                    return 'Saving the last destination'
+                }
                 if (selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty) {
                     return pagerDutyRoutingKeyError(pagerDutyRoutingKey)
                 }
                 if (selectedType === PlatformAlertDestinationTypeEnumApi.Slack) {
-                    if (!firstSlackIntegration) {
+                    if (!slackIntegration) {
                         return 'Connect Slack first'
                     }
                     return slackChannelValue ? undefined : 'Select a Slack channel'
@@ -265,7 +310,7 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                 const [channelId, channelLabel] = (values.slackChannelValue ?? '').split('|')
                 actions.addPendingDestination({
                     type,
-                    slack_workspace_id: values.firstSlackIntegration?.id,
+                    slack_workspace_id: values.slackIntegration?.id,
                     slack_channel_id: channelId,
                     slack_channel_name: channelLabel?.replace('#', '') || channelId,
                 })
@@ -294,9 +339,14 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
             }
         },
         createPendingDestinations: async ({ alertId }) => {
+            if (values.savingDestinations) {
+                return
+            }
+            actions.setSavingDestinations(true)
             const projectId = String(values.currentTeamId)
+            const batch = values.pendingDestinations
             const failed: PlatformAlertCreateDestinationApi[] = []
-            for (const destination of values.pendingDestinations) {
+            for (const destination of batch) {
                 try {
                     await platformAlertsDestinationsCreate(projectId, alertId, destination)
                     posthog.capture('metrics alert destination added', { destination_type: destination.type })
@@ -304,11 +354,12 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                     failed.push(destination)
                 }
             }
-            actions.setPendingDestinations(failed)
-            if (failed.length > 0) {
-                lemonToast.error('Could not add every notification destination. Check them and try again.')
-            }
+            actions.setPendingDestinations([...failed, ...values.pendingDestinations.slice(batch.length)])
+            actions.setSavingDestinations(false)
             if (props.alertId) {
+                if (failed.length > 0) {
+                    lemonToast.error('Could not add every notification destination. Check them and try again.')
+                }
                 actions.loadDestinations()
             }
         },
@@ -330,7 +381,7 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
             }
         },
         loadIntegrationsSuccess: () => {
-            if (!values.firstSlackIntegration && values.selectedType === PlatformAlertDestinationTypeEnumApi.Slack) {
+            if (!values.slackIntegration && values.selectedType === PlatformAlertDestinationTypeEnumApi.Slack) {
                 actions.setSelectedType(PlatformAlertDestinationTypeEnumApi.Webhook)
             }
         },

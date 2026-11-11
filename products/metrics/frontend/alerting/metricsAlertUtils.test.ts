@@ -27,6 +27,15 @@ describe('toWritePayload', () => {
                 grouping: { mode: 'by_result_labels', keys: ['service_name'] },
             },
         },
+        {
+            // An edit that leaves the limit out resets it to the default of 100.
+            case: 'saved grouping limit kept',
+            form: { ...base, groupByLabels: ['service_name'], maxInstances: 10 },
+            expected: {
+                condition: { kind: 'threshold', operator: 'gte', threshold: 5 },
+                grouping: { mode: 'by_result_labels', keys: ['service_name'], max_instances: 10 },
+            },
+        },
     ])('$case', ({ form, expected }) => {
         const payload = toWritePayload(form)
 

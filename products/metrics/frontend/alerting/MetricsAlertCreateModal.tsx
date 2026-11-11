@@ -32,9 +32,11 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
         query: queryError,
         threshold: thresholdError,
         datapointsToAlarm: datapointsError,
+        evaluationPeriods: periodsError,
+        cooldownMinutes: cooldownError,
     } = validateForm(alertForm)
     const configureCannotAdvanceReason = nameError ?? queryError
-    const triggerCannotAdvanceReason = thresholdError ?? datapointsError
+    const triggerCannotAdvanceReason = thresholdError ?? datapointsError ?? periodsError ?? cooldownError
     const payload = toWritePayload(alertForm)
 
     const steps: AlertWizardStep[] = [

@@ -47,6 +47,19 @@ function pagerDutyDetail(severity?: string, region?: string): string {
     return [severityLabel ?? severity, regionLabel ?? region].filter(Boolean).join(' · ')
 }
 
+// The path and query of a webhook URL carry its secret, so only the scheme and host are shown, as the API
+// does for saved destinations.
+export function redactedUrl(url: string | undefined): string | undefined {
+    if (!url) {
+        return undefined
+    }
+    try {
+        return new URL(url).origin
+    } catch {
+        return undefined
+    }
+}
+
 export interface DestinationDescription {
     title: string
     detail?: string
@@ -86,6 +99,6 @@ export function describePendingDestination(destination: PlatformAlertCreateDesti
                 }),
             }
         default:
-            return { title, detail: destination.webhook_url }
+            return { title, detail: redactedUrl(destination.webhook_url) }
     }
 }
