@@ -91,11 +91,27 @@ describe('drive', () => {
         expect(await driving).toEqual({ targetUnits: 5, offeredUnits: 2 })
     })
 
-    it('leaves no abort listener on the interrupt signal once a drive ends', async () => {
+    it.each<[string, (entry: JournalEntry) => void]>([
+        ['ends', () => {}],
+        [
+            'fails to record a unit',
+            () => {
+                throw new Error('journal full')
+            },
+        ],
+    ])('leaves no abort listener on the interrupt signal once a drive %s', async (_name, record) => {
         const interrupt = new AbortController()
-        const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), ACKNOWLEDGED, {
-            signal: interrupt.signal,
-        })
+        const driving = drive(
+            cardWith({ ratePerSecond: 50, driveFor: '100ms' }),
+            { teamIds: [7] },
+            { record },
+            interrupt.signal,
+            {
+                producer: { produce: ACKNOWLEDGED },
+                eventsTopic: 'scenario_events_test',
+                runId: 'run-a',
+            }
+        ).catch(() => undefined)
 
         await jest.advanceTimersByTimeAsync(100)
         await driving
