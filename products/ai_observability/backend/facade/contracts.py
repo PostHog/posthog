@@ -518,6 +518,7 @@ class TraceSummaryContent(Contract):
 class TraceSummaryFailure(Contract):
     reason: TraceSummaryFailureReason
     message: str = Field(description="Why the summary failed, ready to show to the user.")
+    retryable: bool = Field(description="Whether a new request could succeed; false when it would fail the same way.")
 
 
 class TraceSummary(Contract):
