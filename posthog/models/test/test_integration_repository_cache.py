@@ -1,6 +1,7 @@
 import base64
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
@@ -685,13 +686,14 @@ class TestGitHubRepositoryFullCache(BaseTest):
     @parameterized.expand(
         [
             ("answered", None, 2),
-            ("failed_batch_moves_on", GitHubIntegrationError("boom", status_code=502), 2),
-            ("rate_limit_stops", GitHubRateLimitError("slow down", retry_after=60), 1),
+            ("failed_batch_moves_on", {"data": None, "errors": [{"type": "FORBIDDEN", "message": "no"}]}, 2),
+            # GitHub answers an exhausted GraphQL point budget with a 200, not a 403 or 429.
+            ("rate_limit_stops", {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}, 1),
         ]
     )
     @patch("posthog.models.integration_repository_cache.ACTIVITY_BATCH_SIZE", 1)
     def test_refresh_activity_stores_figures_and_skips_failures(
-        self, _name: str, error: Exception | None, batches: int
+        self, _name: str, error_body: dict | None, batches: int
     ) -> None:
         integration = self._create_integration()
         due = self._activity_row(integration, "posthog/posthog")
@@ -706,11 +708,10 @@ class TestGitHubRepositoryFullCache(BaseTest):
         synced_at = IntegrationRepositoryCacheEntry.objects.get(pk=due.pk).updated_at
         queried: list[list[str]] = []
 
-        def graphql(self_, query, variables, **kwargs):
+        def api_request(self_, method, path, *, json_body, **kwargs):
+            variables = json_body["variables"]
             names = [f"{variables[f'o{i}']}/{variables[f'n{i}']}" for i in range(len(variables) // 2)]
             queried.append(names)
-            if error is not None:
-                raise error
             node = {
                 "merged": {"totalCount": 120},
                 "defaultBranchRef": {
@@ -720,9 +721,11 @@ class TestGitHubRepositoryFullCache(BaseTest):
                     }
                 },
             }
-            return {f"r{i}": node if name == "posthog/posthog" else None for i, name in enumerate(names)}
+            data = {f"r{i}": node if name == "posthog/posthog" else None for i, name in enumerate(names)}
+            body = error_body if error_body is not None else {"data": data}
+            return SimpleNamespace(status_code=200, json=lambda: body, headers={}, text="")
 
-        with patch.object(GitHubIntegration, "_gh_graphql", autospec=True, side_effect=graphql):
+        with patch.object(GitHubIntegration, "api_request", autospec=True, side_effect=api_request):
             self._cache_for(integration).refresh_activity()
 
         assert queried == [["posthog/gone"], ["posthog/posthog"]][:batches]
@@ -733,7 +736,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert due.updated_at == synced_at
         assert fresh.merged_pull_request_count == 7
         figures = (due.commits_last_30_days, due.recent_author_count, due.merged_pull_request_count)
-        if error is None:
+        if error_body is None:
             assert figures == (30, 1, 120)
             assert due.activity_updated_at is not None
             assert missing.activity_updated_at is not None and missing.merged_pull_request_count is None

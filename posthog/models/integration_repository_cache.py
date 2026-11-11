@@ -574,6 +574,7 @@ class GitHubRepositoryFullCache:
             endpoint="/graphql:repositoryActivity",
             timeout=ACTIVITY_QUERY_TIMEOUT_SECONDS,
             priority=self.priority,
+            raise_rate_limit=True,
         )
 
     @database_sync_to_async
