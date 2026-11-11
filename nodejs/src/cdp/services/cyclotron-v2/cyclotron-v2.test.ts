@@ -2,6 +2,7 @@ import { Client, Pool } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
+import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -63,18 +64,22 @@ function createMockResults(ok = true): {
     }
 }
 
-// A real HogInvocationResultsService over a fake producer — exercises the actual
-// give-up row build (buildLifecycleRow + serialization), which the mock skips.
-// This is the Postgres-rung guard for the invalid-date RangeError class.
-function createRealResults(): { service: HogInvocationResultsService; produce: jest.Mock } {
-    const produce = jest.fn().mockResolvedValue(undefined)
-    const service = new HogInvocationResultsService({ produce } as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
-    return { service, produce }
-}
+type RecordedResultMessage = { output: string; key: string; row: Record<string, any> }
 
-function parseProducedResult(produce: jest.Mock): Record<string, any> {
-    const value = produce.mock.calls[0][1].value as Buffer
-    return parseJSON(value.toString('utf-8'))
+function createRealResults(): { service: HogInvocationResultsService; recorded: RecordedResultMessage[] } {
+    const recorded: RecordedResultMessage[] = []
+    const outputs = {
+        produce: (output: string, message: { key: Buffer; value: Buffer }): Promise<void> => {
+            recorded.push({
+                output,
+                key: message.key.toString('utf-8'),
+                row: parseJSON(message.value.toString('utf-8')),
+            })
+            return Promise.resolve()
+        },
+    }
+    const service = new HogInvocationResultsService(outputs as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
+    return { service, recorded }
 }
 
 function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {
@@ -3037,25 +3042,29 @@ describe('Cyclotron V2', () => {
                     state,
                 })
 
-                const { service, produce } = createRealResults()
+                const { service, recorded } = createRealResults()
                 const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
                 const result = await janitor.runOnce()
                 await janitor.stop()
 
                 expect(result.poisonedIds).toEqual([id])
-                // The row was actually built + produced — where the invalid-date
-                // RangeError used to throw and leave the job undeleted.
-                expect(produce).toHaveBeenCalledTimes(1)
-                const row = parseProducedResult(produce)
-                expect(row.status).toBe('failed')
-                expect(row.function_kind).toBe('hog_flow')
-                expect(row.function_id).toBe(functionId)
-                expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
-                // Timestamps must be real ISO microsecond strings, never NaN/"Invalid".
-                expect(row.scheduled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
-                expect(row.finished_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
-                // Recorded first, then deleted.
-                await expect(queryJob(id)).rejects.toThrow()
+                const clickhouseTimestamp = expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                expect(recorded).toEqual([
+                    {
+                        output: HOG_INVOCATION_RESULTS_OUTPUT,
+                        key: id,
+                        row: expect.objectContaining({
+                            invocation_id: id,
+                            status: 'failed',
+                            function_kind: 'hog_flow',
+                            function_id: functionId,
+                            error_kind: JANITOR_POISON_PILL_ERROR_KIND,
+                            scheduled_at: clickhouseTimestamp,
+                            finished_at: clickhouseTimestamp,
+                        }),
+                    },
+                ])
+                expect(await totalJobCount()).toBe(0)
             }
         )
 
