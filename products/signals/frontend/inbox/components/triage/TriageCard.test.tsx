@@ -1,14 +1,17 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim } from '../../__mocks__/inboxMocks'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { TriageCard } from './InboxTriageView'
 
 jest.mock('lib/components/TZLabel', () => ({
@@ -51,19 +54,35 @@ describe('TriageCard', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        localStorage.clear()
     })
 
-    it('keeps Unassign me on the next report while the command key stays held', () => {
-        logic.mount()
-        const { rerender } = render(<TriageCard report={makeReport('r-1')} expanded={false} />)
-        fireEvent.keyDown(window, { key: 'Control' })
-        expect(screen.getByText('Unassign me')).toBeInTheDocument()
+    it.each([
+        { claimedByMe: false, reviewer: true, shown: ['Assign to me', 'Remove yourself'], hidden: ['Unassign'] },
+        { claimedByMe: true, reviewer: true, shown: ['Unassign', 'Remove yourself'], hidden: ['Assign to me'] },
+        { claimedByMe: false, reviewer: false, shown: ['Assign to me'], hidden: ['Unassign', 'Remove yourself'] },
+    ])(
+        'shows the claim and reviewer actions in the footer (mine: $claimedByMe, reviewer: $reviewer)',
+        async ({ claimedByMe, reviewer, shown, hidden }) => {
+            const report = {
+                ...makeReport('r-1'),
+                is_suggested_reviewer: reviewer,
+                assignee: claimedByMe ? myClaim : null,
+            }
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/': { results: [report], next: null, count: 1 } },
+            })
+            logic.mount()
+            // A list scoped to you counts you as a reviewer on every report, so read the flag from the report.
+            inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            render(<TriageCard report={report} expanded={false} />)
 
-        rerender(<TriageCard report={makeReport('r-2')} expanded={false} />)
-
-        expect(screen.getByText('Unassign me')).toBeInTheDocument()
-        expect(screen.queryByText('Dismiss')).not.toBeInTheDocument()
-    })
+            const footer = screen.getByText('Dismiss').closest('div') as HTMLElement
+            shown.forEach((label) => expect(within(footer).getByText(label)).toBeInTheDocument())
+            hidden.forEach((label) => expect(within(footer).queryByText(label)).not.toBeInTheDocument())
+        }
+    )
 
     it.each([
         [503, 'button'],

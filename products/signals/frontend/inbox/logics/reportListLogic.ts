@@ -463,8 +463,10 @@ export interface reportListLogicActions {
         report: SignalReport,
         claimed: boolean,
         surface: InboxReportActionSurface,
-        takeover?: boolean
+        takeover?: boolean,
+        analyticsExtra?: Record<string, unknown>
     ) => {
+        analyticsExtra: Record<string, unknown> | undefined
         claimed: boolean
         report: SignalReport
         surface: InboxReportActionSurface
@@ -483,8 +485,10 @@ export interface reportListLogicActions {
     unassignMe: (
         reportId: string,
         surface: InboxReportActionSurface,
-        reason?: ReviewerRemovalReasonEnumApi
+        reason?: ReviewerRemovalReasonEnumApi,
+        analyticsExtra?: Record<string, unknown>
     ) => {
+        analyticsExtra: Record<string, unknown> | undefined
         reason: ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: InboxReportActionSurface
@@ -623,22 +627,30 @@ export const reportListLogic = kea<reportListLogicType>([
         dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
         restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
-        unassignMe: (reportId: string, surface: InboxReportActionSurface, reason?: ReviewerRemovalReasonEnumApi) => ({
+        unassignMe: (
+            reportId: string,
+            surface: InboxReportActionSurface,
+            reason?: ReviewerRemovalReasonEnumApi,
+            analyticsExtra?: Record<string, unknown>
+        ) => ({
             reportId,
             surface,
             reason,
+            analyticsExtra,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
         setReportClaimed: (
             report: SignalReport,
             claimed: boolean,
             surface: InboxReportActionSurface,
-            takeover: boolean = false
+            takeover: boolean = false,
+            analyticsExtra?: Record<string, unknown>
         ) => ({
             report,
             claimed,
             surface,
             takeover,
+            analyticsExtra,
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
@@ -1279,14 +1291,17 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.setSuggestedToMe(reportIds, false)
             }
         },
-        unassignMe: async ({ reportId, surface, reason }) => {
+        unassignMe: async ({ reportId, surface, reason, analyticsExtra }) => {
             const report = values.reports.find((r) => r.id === reportId)
             captureInboxReportAction({
                 report,
                 actionType: 'remove_suggested_reviewer',
                 surface,
                 // pinned: analytics property names — renaming breaks dashboards
-                extra: reason ? { removal_reason: reason } : undefined,
+                extra:
+                    reason || analyticsExtra
+                        ? { ...(reason ? { removal_reason: reason } : {}), ...analyticsExtra }
+                        : undefined,
             })
             const teamId = String(values.currentTeamId)
             try {
@@ -1303,12 +1318,15 @@ export const reportListLogic = kea<reportListLogicType>([
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
         },
-        setReportClaimed: async ({ report, claimed, surface, takeover }) => {
+        setReportClaimed: async ({ report, claimed, surface, takeover, analyticsExtra }) => {
             captureInboxReportAction({
                 report,
                 actionType: claimed ? 'claim' : 'unclaim',
                 surface,
-                extra: takeover ? { takeover: true } : undefined,
+                extra:
+                    takeover || analyticsExtra
+                        ? { ...(takeover ? { takeover: true } : {}), ...analyticsExtra }
+                        : undefined,
             })
             const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed, {
                 currentUserUuid: values.user?.uuid ?? null,

@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim, teammateClaim } from '../__mocks__/inboxMocks'
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
@@ -133,7 +134,7 @@ describe('inboxTriageLogic', () => {
             inboxFiltersLogic.actions.setScope(scope)
             await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.unassignCurrent()
+            logic.actions.removeMeFromCurrent('hotkey')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.currentReport?.id).toBe(expectedId)
@@ -157,7 +158,7 @@ describe('inboxTriageLogic', () => {
         })
         await mountAt({ report: 'r-2', at: 2 })
 
-        logic.actions.unassignCurrent()
+        logic.actions.removeMeFromCurrent('hotkey')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(bodies).toEqual([{ removal_reason: 'wrong_area' }])
@@ -181,15 +182,68 @@ describe('inboxTriageLogic', () => {
         inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.unassignCurrent()
-        logic.actions.unassignCurrent()
-        expect(logic.values.isUnassigningCurrent).toBe(true)
+        logic.actions.removeMeFromCurrent('hotkey')
+        logic.actions.removeMeFromCurrent('hotkey')
+        expect(logic.values.isRemovingMeFromCurrent).toBe(true)
         await waitFor(() => expect(deleted).toEqual(['last']))
         finishDelete()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(deleted).toEqual(['last'])
-        expect(logic.values.isUnassigningCurrent).toBe(false)
+        expect(logic.values.isRemovingMeFromCurrent).toBe(false)
+    })
+
+    it.each([
+        {
+            name: 'assigns an unclaimed report to me',
+            assignee: null,
+            run: 'assign',
+            bodies: [{ takeover: false }],
+            reason: null,
+        },
+        { name: 'unassigns my claim', assignee: 'me', run: 'unassign', bodies: [{ release: true }], reason: null },
+        {
+            name: 'does not assign a report I already hold',
+            assignee: 'me',
+            run: 'assign',
+            bodies: [],
+            reason: "You can't assign yourself to a report in this state",
+        },
+        { name: 'does not unassign a report I do not hold', assignee: null, run: 'unassign', bodies: [], reason: null },
+        {
+            name: "does not take over a teammate's claim",
+            assignee: 'teammate',
+            run: 'assign',
+            bodies: [],
+            reason: expect.stringContaining('Robin'),
+        },
+    ])('$name and stays on the report', async ({ assignee, run, bodies, reason }) => {
+        const report = {
+            ...makeReport('r-1'),
+            assignee: assignee === 'me' ? myClaim : assignee === 'teammate' ? teammateClaim : null,
+        }
+        const received: unknown[] = []
+        useMocks({
+            get: { [REPORTS_URL]: { count: 2, next: null, previous: null, results: [report, makeReport('r-2')] } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': async ({ request }) => {
+                    received.push(await request.json())
+                    return [200, { ...report, assignee: null }]
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+
+        if (run === 'assign') {
+            logic.actions.assignCurrentToMe('hotkey')
+        } else {
+            logic.actions.unassignCurrent('hotkey')
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(received).toEqual(bodies)
+        expect(logic.values.currentReport?.id).toBe('r-1')
+        expect(logic.values.assignDisabledReason).toEqual(reason)
     })
 
     it('loads the next page when unassigning me moves triage near the end of the loaded reports', async () => {
@@ -221,7 +275,7 @@ describe('inboxTriageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         requestedOffsets = []
 
-        logic.actions.unassignCurrent()
+        logic.actions.removeMeFromCurrent('hotkey')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.currentReport?.id).toBe(`r-${PAGE_SIZE - 1}`)

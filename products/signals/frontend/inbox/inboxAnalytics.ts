@@ -117,6 +117,9 @@ export type InboxReportActionSurface =
     | 'context_menu'
     | 'today'
 
+/** How a triage action started. Sent as `trigger`, because `keybind triggered` misses command-key chords. */
+export type InboxTriageTrigger = 'hotkey' | 'button'
+
 /**
  * Affordance that put the first report into a multi-select. Tells us which ones people find, so
  * the ones nobody uses can go.

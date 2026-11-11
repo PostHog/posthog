@@ -230,6 +230,17 @@ export const Triage: Story = {
     decorators: [routeTo(urls.inboxTriage())],
 }
 
+// The scene width that a docked side panel leaves on a laptop.
+export const TriageNarrow: Story = {
+    decorators: [routeTo(urls.inboxTriage())],
+    parameters: { testOptions: { viewport: { width: 520, height: 900 }, waitForLoadersToDisappear: false } },
+}
+
+export const TriagePhone: Story = {
+    decorators: [routeTo(urls.inboxTriage())],
+    parameters: { testOptions: { viewport: { width: 390, height: 844 }, waitForLoadersToDisappear: false } },
+}
+
 export const Scouts: Story = {
     decorators: [
         routeTo(urls.inbox('scouts')),

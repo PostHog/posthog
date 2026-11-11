@@ -7,7 +7,6 @@ import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { HotkeyInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
@@ -25,7 +24,9 @@ import {
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
 import { ImplementButton } from '../detail/ImplementButton'
-import { DismissOrUnassignButton } from './DismissOrUnassignButton'
+import { DismissButton } from './DismissButton'
+import { TriageClaimButton } from './TriageClaimButton'
+import { TriageReportFacts } from './TriageReportFacts'
 
 /**
  * Wrap a hotkey so it stays quiet while a dialog (the archive form) is up. The hotkey listener sits
@@ -42,7 +43,6 @@ function outsideDialogs(action: (event: KeyboardEvent) => void): HotkeyInterface
 }
 
 const IS_MAC = isMac()
-const COMMAND_KEY = IS_MAC ? 'Meta' : 'Control'
 
 function isCommandKeyDown(event: KeyboardEvent): boolean {
     return IS_MAC ? event.metaKey : event.ctrlKey
@@ -106,27 +106,31 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 export function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, currentReportUrl, implementationDisabledReason } = useValues(inboxTriageLogic)
-    const { resolveCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
-    // Read above the article keyed by report, so a key still held after Unassign me survives the
-    // move to the next report.
-    const commandKeyHeld = useKeyHeld(COMMAND_KEY)
+    const {
+        canCreatePr,
+        currentReportUrl,
+        implementationDisabledReason,
+        canRemoveMeFromCurrent,
+        isRemovingMeFromCurrent,
+        removeMeDisabledReason,
+    } = useValues(inboxTriageLogic)
+    const { resolveCurrent, openCurrent, toggleExpanded, removeMeFromCurrent } = useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const headline = deriveHeadline(report.summary)
+    const lead = report.summary_lead || deriveHeadline(report.summary)
 
     return (
         <article
             key={report.id}
-            className="flex max-h-full w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary shadow-sm"
+            className="@container/triage flex max-h-full w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary shadow-sm"
             data-attr="inbox-triage-card"
         >
-            <div className="flex flex-none items-center px-6 pt-4">
+            <div className="flex flex-none items-center px-4 pt-4 @md/triage:px-6">
                 <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
             </div>
 
-            <div className="flex flex-none items-center gap-3 px-6 pt-3">
+            <div className="flex flex-none items-start gap-3 px-4 pt-3 @md/triage:px-6">
                 {report.priority && (
                     <div className="shrink-0">
                         <SignalReportPriorityBadge priority={report.priority} />
@@ -135,7 +139,7 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                 <h1
                     className={cn(
                         'm-0 min-w-0 break-words font-bold leading-tight tracking-tight',
-                        expanded ? 'text-base' : 'text-xl'
+                        expanded ? 'text-base line-clamp-2' : 'text-lg line-clamp-3 @md/triage:text-xl'
                     )}
                 >
                     {conventionalTitle && (
@@ -146,21 +150,14 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
             </div>
 
             {!expanded ? (
-                <>
-                    <p className="m-0 flex-none px-6 pt-3 text-sm leading-relaxed text-secondary">
-                        {headline ?? (
+                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-4 @md/triage:px-6">
+                    <p className="m-0 line-clamp-6 text-sm leading-relaxed text-secondary">
+                        {lead ?? (
                             <span className="italic text-tertiary">No summary yet. Still collecting context.</span>
                         )}
                     </p>
-                    <div className="flex flex-none flex-wrap items-center gap-x-2 gap-y-1 px-6 pt-3 pb-4 text-xs text-tertiary">
-                        {report.signal_count > 0 && (
-                            <>
-                                <span className="tabular-nums">
-                                    {report.signal_count} signal{report.signal_count === 1 ? '' : 's'}
-                                </span>
-                                <span aria-hidden>·</span>
-                            </>
-                        )}
+                    <TriageReportFacts report={report} />
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
                         <span className="flex items-center gap-1">
                             First seen <TZLabel time={report.created_at} />
                         </span>
@@ -169,9 +166,9 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                             Last updated <TZLabel time={report.updated_at ?? report.created_at} />
                         </span>
                     </div>
-                </>
+                </div>
             ) : (
-                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t border-primary px-6 py-5">
+                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t border-primary px-4 py-5 @md/triage:px-6">
                     {report.summary ? (
                         <LemonMarkdown
                             className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
@@ -211,7 +208,8 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                 >
                     Resolve
                 </LemonButton>
-                <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
+                <DismissButton />
+                <TriageClaimButton />
                 {canCreatePr && (
                     <ImplementButton
                         report={report}
@@ -219,25 +217,40 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                         implementationDisabledReason={implementationDisabledReason}
                     />
                 )}
-                <div className="flex-1" />
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={openCurrent}
-                    sideIcon={<KeyboardShortcut o />}
-                    data-attr="inbox-triage-open-report"
-                >
-                    Open report
-                </LemonButton>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={toggleExpanded}
-                    sideIcon={<KeyboardShortcut enter />}
-                    data-attr="inbox-triage-toggle-summary"
-                >
-                    {expanded ? 'Collapse' : 'Read summary'}
-                </LemonButton>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                    {canRemoveMeFromCurrent && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={() => removeMeFromCurrent('button')}
+                            loading={isRemovingMeFromCurrent}
+                            disabledReason={removeMeDisabledReason}
+                            sideIcon={<KeyboardShortcut x />}
+                            // pinned: the attr predates the Remove yourself label; dashboards read it.
+                            data-attr="inbox-triage-unassign-me"
+                        >
+                            Remove yourself
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={openCurrent}
+                        sideIcon={<KeyboardShortcut o />}
+                        data-attr="inbox-triage-open-report"
+                    >
+                        Open report
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={toggleExpanded}
+                        sideIcon={<KeyboardShortcut enter />}
+                        data-attr="inbox-triage-toggle-summary"
+                    >
+                        {expanded ? 'Collapse' : 'Read summary'}
+                    </LemonButton>
+                </div>
             </div>
         </article>
     )
@@ -266,7 +279,9 @@ export function InboxTriageView(): JSX.Element {
         setExpanded,
         dismissCurrent,
         resolveCurrent,
+        assignCurrentToMe,
         unassignCurrent,
+        removeMeFromCurrent,
         createPrForCurrent,
         openCurrent,
         ensureLoaded,
@@ -298,15 +313,20 @@ export function InboxTriageView(): JSX.Element {
             a: { action: outsideDialogs(() => dismissCurrent()) },
             u: {
                 action: outsideDialogs((event) => {
-                    if (!isCommandKeyDown(event) || event.shiftKey || event.altKey) {
+                    if (event.shiftKey || event.altKey) {
                         return
                     }
-                    // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
-                    event.preventDefault()
-                    unassignCurrent()
+                    if (isCommandKeyDown(event)) {
+                        // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
+                        event.preventDefault()
+                        unassignCurrent('hotkey')
+                    } else {
+                        assignCurrentToMe('hotkey')
+                    }
                 }),
                 willHandleEvent: true,
             },
+            x: { action: outsideDialogs(() => removeMeFromCurrent('hotkey')) },
             r: { action: outsideDialogs(() => resolveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
@@ -327,7 +347,9 @@ export function InboxTriageView(): JSX.Element {
             setExpanded,
             dismissCurrent,
             resolveCurrent,
+            assignCurrentToMe,
             unassignCurrent,
+            removeMeFromCurrent,
             createPrForCurrent,
             openCurrent,
         ]
@@ -421,6 +443,8 @@ export function InboxTriageView(): JSX.Element {
             <footer className="flex flex-none flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-primary px-4 py-1.5 text-xxs text-tertiary">
                 <HintBarItem shortcut={<KeyboardShortcut arrowdown />} label="next" />
                 <HintBarItem shortcut={<KeyboardShortcut arrowup />} label="previous" />
+                <HintBarItem shortcut={<KeyboardShortcut u />} label="assign to me" />
+                <HintBarItem shortcut={<KeyboardShortcut command u />} label="unassign" />
                 <HintBarItem shortcut={<KeyboardShortcut command enter />} label="open report" />
                 <HintBarItem shortcut={<KeyboardShortcut escape />} label="back" />
             </footer>
