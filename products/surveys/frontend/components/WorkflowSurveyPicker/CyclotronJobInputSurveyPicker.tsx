@@ -87,6 +87,26 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     )
 }
 
+function SelectedSurveyStatus({
+    survey,
+    selectedId,
+    loading,
+    showReadiness,
+}: {
+    survey: SurveyApi | null
+    selectedId: string
+    loading: boolean
+    showReadiness: boolean
+}): JSX.Element | null {
+    if (survey && !survey.archived) {
+        return showReadiness ? <SurveyReadiness survey={survey} /> : null
+    }
+    if (selectedId && !loading) {
+        return <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
+    }
+    return null
+}
+
 export default function CyclotronJobInputSurveyPicker({
     value,
     onChange,
@@ -147,13 +167,12 @@ export default function CyclotronJobInputSurveyPicker({
                     Refresh
                 </LemonButton>
             </div>
-            {currentSurvey && !currentSurvey.archived ? (
-                templateId === HIDE_SURVEY_TEMPLATE_ID ? null : (
-                    <SurveyReadiness survey={currentSurvey} />
-                )
-            ) : selectedId && !selectedSurveyLoading ? (
-                <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
-            ) : null}
+            <SelectedSurveyStatus
+                survey={currentSurvey}
+                selectedId={selectedId}
+                loading={selectedSurveyLoading}
+                showReadiness={templateId !== HIDE_SURVEY_TEMPLATE_ID}
+            />
         </div>
     )
 }
