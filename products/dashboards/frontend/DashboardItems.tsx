@@ -7,8 +7,6 @@ import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { calcGridItemPosition, type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
-import { IconPlusSmall } from '@posthog/icons'
-
 import 'scenes/dashboard/DashboardItems.scss'
 import { ApiError } from 'lib/api'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
@@ -16,7 +14,6 @@ import { useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/Insigh
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { objectsEqual } from 'lib/utils/objects'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -975,18 +972,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     {tileGroupSections.map(renderSection)}
                     {showTakeOutDropZone && (
                         <TileGroupTakeOutDropZone isDropTarget={dropTargetKey === TAKE_OUT_DROP_ZONE_KEY} />
-                    )}
-                    {onAddTileGroup && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            className="self-start"
-                            icon={<IconPlusSmall />}
-                            onClick={onAddTileGroup}
-                            data-attr="dashboard-tile-group-sections-add"
-                        >
-                            Add group
-                        </LemonButton>
                     )}
                 </div>
             )}
