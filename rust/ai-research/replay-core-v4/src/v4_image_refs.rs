@@ -24,8 +24,7 @@ const PUBLIC: &str = "public:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageDecline {
-    /// An AVIF that is not a still image the image scrub decodes: an animation, or AVIF only as a compatible brand under
-    /// another major brand.
+    /// An AVIF the image scrub does not decode, such as an animation.
     Avif,
     OverLimit,
     Undecodable,
