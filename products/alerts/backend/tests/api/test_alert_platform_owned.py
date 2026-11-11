@@ -37,6 +37,7 @@ from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     EarlierFlag,
 )
+from products.alerts.backend.llm_detector_limits import count_enabled_llm_alerts
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
@@ -692,20 +693,26 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("statistical_alert", None, True, status.HTTP_200_OK),
+            ("statistical_alert", None, True, None, status.HTTP_200_OK),
             # Its checks would run as the requester, who is not on the AI detector's rollout.
-            ("ai_alert_without_the_rollout", {"type": "llm"}, False, status.HTTP_400_BAD_REQUEST),
+            ("ai_alert_without_the_rollout", {"type": "llm"}, False, None, status.HTTP_400_BAD_REQUEST),
+            ("series_gone_from_the_insight", None, True, 5, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_taking_ownership_of_an_alert_insight_keeps_no_row_for_writes_the_platform(
-        self, _name: str, detector: dict[str, Any] | None, rolled_out: bool, expected: int
+        self, _name: str, detector: dict[str, Any] | None, rolled_out: bool, series_index: int | None, expected: int
     ) -> None:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
         with team_scope(self.team.id):
             stored_config = self._copy().source_config
+            config = (
+                stored_config["config"]
+                if series_index is None
+                else {**stored_config["config"], "series_index": series_index}
+            )
             platform_testing.set_source_config(
                 self.copy_id,
-                {**stored_config, "condition": {**stored_config["condition"], "detector": detector}},
+                {**stored_config, "config": config, "condition": {**stored_config["condition"], "detector": detector}},
             )
             platform_testing.set_enabled(self.copy_id, False)
         self._forget_the_insight_row()
@@ -773,6 +780,45 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         }
 
         assert reads[reader]() is expected
+
+    @parameterized.expand([("row", False), ("insight_keeps_no_row_for", True)])
+    def test_simulate_reads_a_saved_alert_only_with_the_insight_it_watches(self, _name: str, native: bool) -> None:
+        other_insight = create_insight_alert(self.team).insight
+        if native:
+            self._forget_the_insight_row()
+        alert_id = str(self.copy_id if native else self.alert.id)
+
+        with patch(
+            "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight",
+            side_effect=ValueError("simulated"),
+        ):
+            elsewhere = self.client.post(
+                f"{self.url}/simulate/", {"insight": other_insight.id, "alert": alert_id}, format="json"
+            )
+            watched = self.client.post(
+                f"{self.url}/simulate/", {"insight": self.alert.insight_id, "alert": alert_id}, format="json"
+            )
+
+        assert elsewhere.json()["attr"] == "alert", elsewhere.json()
+        assert watched.json()["detail"] == "simulated", watched.json()
+
+    @parameterized.expand([("counted", False, 1), ("left_out_of_its_own_edit", True, 0)])
+    def test_the_ai_detector_cap_counts_an_ai_alert_insight_keeps_no_row_for(
+        self, _name: str, editing_it: bool, expected: int
+    ) -> None:
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
+            )
+
+        count = count_enabled_llm_alerts(
+            team_id=self.team.id, exclude_alert_id=str(self.copy_id) if editing_it else None
+        )
+
+        assert count == expected
 
     @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self, mock_trigger) -> None:
