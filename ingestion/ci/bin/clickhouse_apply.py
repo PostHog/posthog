@@ -15,6 +15,7 @@ statements = [re.sub(r"^\s*--.*\n", "", s, flags=re.M).strip() for s in text.spl
 statements = [s for s in statements if s]
 for statement in statements:
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the URL is the local constant above, not input
         with urllib.request.urlopen(
             urllib.request.Request(url, data=statement.rstrip(";").encode()), timeout=120
         ) as response:

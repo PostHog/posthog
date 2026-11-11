@@ -91,10 +91,12 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       rust:
                         - 'cli/**'
+                        - 'ingestion/rust/**'
                         - 'rust/**'
                         - '.github/workflows/ci-security.yaml'
                       js:
                         - 'frontend/**'
+                        - 'ingestion/node/**'
                         - 'nodejs/**'
                         - 'packages/**'
                         - 'services/agent-proxy/**'
@@ -116,6 +118,8 @@ jobs:
                         - '!common/**'
                         - '!ee/**'
                         - '!frontend/**'
+                        - '!ingestion/node/**'
+                        - '!ingestion/rust/**'
                         - '!livestream/**'
                         - '!nodejs/**'
                         - '!packages/**'
@@ -319,6 +323,7 @@ jobs:
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
                       --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result
                       --include /cli
+                      --include /ingestion/rust
                       --include /rust
 
     semgrep-js:
@@ -359,6 +364,7 @@ jobs:
                       --config p/security-audit
                       --config p/trailofbits
                       --include /frontend
+                      --include /ingestion/node
                       --include /nodejs
                       --include /packages
                       --include /services/agent-proxy
@@ -459,6 +465,8 @@ jobs:
                       --exclude /common
                       --exclude /ee
                       --exclude /frontend
+                      --exclude /ingestion/node
+                      --exclude /ingestion/rust
                       --exclude /livestream
                       --exclude /nodejs
                       --exclude /packages
