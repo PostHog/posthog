@@ -6,7 +6,6 @@ use bytes::Bytes;
 use futures::future::join_all;
 use metrics::{counter, histogram};
 use slatedb::config::{CloseOptions, CompactorOptions, Settings};
-use slatedb::db_cache::DbCache;
 use slatedb::object_store::ObjectStore;
 use slatedb::{CloseReason, CompactorBuilder, Db, ErrorKind, FilterPolicy, WriteBatch};
 use tokio::sync::{Mutex, Notify};
@@ -81,7 +80,6 @@ pub struct PropertyWriter {
     settings: Settings,
     compactor_options: CompactorOptions,
     filter_policies: Vec<Arc<dyn FilterPolicy>>,
-    cache: Arc<dyn DbCache>,
     memtable_flush: Option<Duration>,
     full_compaction: Option<Duration>,
     max_full_compactions: usize,
@@ -107,7 +105,6 @@ impl PropertyWriter {
             settings: engine::settings(config),
             compactor_options: engine::compactor_options(config),
             filter_policies: engine::filter_policies(config),
-            cache: engine::shared_cache(config),
             memtable_flush: config.memtable_flush_interval(),
             full_compaction: config.full_compaction_interval(),
             max_full_compactions: config.max_full_compactions.max(1),
@@ -380,7 +377,8 @@ impl PropertyWriter {
             .with_settings(self.settings.clone())
             .with_compactor_builder(compactor)
             .with_filter_policies(self.filter_policies.clone())
-            .with_db_cache(Arc::clone(&self.cache), u64::from(shard))
+            // A cached load runs as its own task and outlives an abandoned erasure scan.
+            .with_db_cache_disabled()
             .with_merge_operator(Arc::new(KeepNewest))
             .with_metrics_recorder(metrics.recorder())
             .build()

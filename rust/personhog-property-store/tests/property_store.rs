@@ -1110,3 +1110,40 @@ async fn an_erasure_on_a_slow_store_advances_by_smaller_batches() {
     slow.close().await;
     reader.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_scan_abandoned_during_an_outage_stops_reading() {
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let tables = Arc::new(FailingTables {
+        inner: store(&dir),
+        failing: std::sync::atomic::AtomicBool::new(false),
+        table_reads: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let earlier = assigned_writer(&dir, 1).await;
+    earlier
+        .put(&sole_partition(), 1, &[record(1, 1, "{}")])
+        .await
+        .unwrap();
+    earlier.flush_memtables().await;
+    earlier.close().await;
+    // A new owner has none of the table's metadata cached, so the scan has to load it.
+    let writer = PropertyWriter::new(&config(), tables.clone());
+    writer
+        .assign(&sole_partition(), 2, 1, || true)
+        .await
+        .unwrap();
+    tables.failing.store(true, Ordering::SeqCst);
+
+    let erased = writer
+        .erase_team_in_batches(7, 100, Duration::from_millis(200))
+        .await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let settled = tables.table_reads.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    assert!(erased.is_err(), "{erased:?}");
+    assert!(settled > 0, "the scan never reached the failing tables");
+    assert_eq!(tables.table_reads.load(Ordering::SeqCst), settled);
+    writer.close().await;
+}
