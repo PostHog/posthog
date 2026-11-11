@@ -17,6 +17,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import JUDGE_TRACE_M
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionKind
+from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
@@ -384,7 +385,8 @@ def gap_proposal(
         outcome=text.outcome,
         reason=text.reason,
         draft={
-            "name": eval_text.name,
+            # A field path comes from the customer's output and has no length bound of its own.
+            "name": eval_text.name[: Evaluation._meta.get_field("name").max_length],
             "description": eval_text.description,
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": prompt},

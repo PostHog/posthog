@@ -24,6 +24,8 @@ from .stats import wilson_interval
 DISPATCHER_SHARE = 0.8
 # A custom property is a segment when it splits traffic into a few named parts.
 MAX_SEGMENT_VALUES = 20
+# Longer values read as ids or free text, not names, and a card or eval name built from one would overflow.
+MAX_SEGMENT_VALUE_LENGTH = 64
 # Gap search tests every segment key against every enum field in Python, so a team that sends thousands of
 # custom properties or output fields must not set its cost. The keys and fields with the most data stay.
 MAX_SEGMENT_KEYS = 10
@@ -188,7 +190,7 @@ FROM (
             WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
               AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
         )
-        WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= 64
+        WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= {max_value_length}
         GROUP BY key, value
     )
     GROUP BY key
@@ -269,6 +271,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
                 **sampled,
                 "max_values": ast.Constant(value=MAX_SEGMENT_VALUES),
                 "numeric_suffix": ast.Constant(value=NUMERIC_SUFFIX_PATTERN),
+                "max_value_length": ast.Constant(value=MAX_SEGMENT_VALUE_LENGTH),
             },
             "EvalSuggestionsProfileSegments",
         )
@@ -476,7 +479,14 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
     for field, meaning in _enum_fields(outputs).items():
         values = sorted({value for output in outputs for value in output.fields.get(field, ())})
         for segment_key in segment_keys:
-            segment_values = sorted({o.segments[segment_key] for o in outputs if segment_key in o.segments})
+            # The same bound as the profile's segment query, so gap search never names a value profiling would drop.
+            segment_values = sorted(
+                {
+                    value
+                    for o in outputs
+                    if len(value := o.segments.get(segment_key, "")) <= MAX_SEGMENT_VALUE_LENGTH and value
+                }
+            )
             if len(segment_values) < 2:
                 continue
             for segment_value in segment_values:

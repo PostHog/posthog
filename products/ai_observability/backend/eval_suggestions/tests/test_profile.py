@@ -2,6 +2,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.eval_suggestions.profile import (
     MAX_SEGMENT_KEYS,
+    MAX_SEGMENT_VALUE_LENGTH,
     StructuredOutput,
     find_structured_gaps,
     gap_holds,
@@ -41,6 +42,14 @@ class TestStructuredGaps:
             gap_holds(gaps[0], _outputs("security", ["P3", "P3"], 6) + _outputs("performance", ["P1", "P2"], 6))
             is False
         )
+
+    def test_a_segment_value_too_long_to_name_is_not_a_gap(self) -> None:
+        long_lens = "s" * (MAX_SEGMENT_VALUE_LENGTH + 1)
+        outputs = _outputs(long_lens, ["P0", "P1", "P2", "P3"], 20) + _outputs(
+            "performance", ["P2", "P3", "P3", "P2"], 30
+        )
+
+        assert find_structured_gaps(outputs) == []
 
     def test_tests_severe_values_as_one_set(self) -> None:
         # P1 alone is 2.5x its siblings, under the 3x gap ratio, but P0 and P1 together are 5x.
