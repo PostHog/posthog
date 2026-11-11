@@ -52,10 +52,10 @@ describe('measurements', () => {
     it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>]>([
         ['one process across the run', [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)], [], { value: 5 }],
         [
-            'a process killed and started again',
+            'a process killed and started again, marked incomplete for the CPU after its last sample',
             [sample(0, -60, 10), sample(5, -60, 12), sample(10, 7, 1.5), sample(15, 7, 3)],
             [],
-            { value: 5 },
+            { value: 5, incomplete: true },
         ],
         [
             'a process that missed a scrape and answered the next one',
