@@ -599,6 +599,7 @@ section headings for related findings, and subsection headings only for a meanin
 Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
 in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
 markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Put a whole table in one visual: header, separator, and every row, with one newline between rows.
 Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
 Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
 """

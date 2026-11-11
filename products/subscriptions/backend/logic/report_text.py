@@ -28,6 +28,35 @@ class ReportChangeItem(BaseModel):
     direction: Literal["increase", "decrease"]
 
 
+_TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$")
+
+
+def _is_table_row(line: str) -> bool:
+    return line.strip().startswith("|")
+
+
+def join_report_blocks(parts: list[str]) -> str:
+    """Join rendered blocks with blank lines, except between rows of one Markdown table.
+
+    The model often returns a table as one visual per row. A blank line between rows ends the
+    table, so Slack and email would show every row, separator included, as its own paragraph.
+    A blank line stays before a header row whose next line is a separator row, which keeps two
+    tables in a row apart.
+    """
+    lines = "\n\n".join(parts).split("\n")
+    kept: list[str] = []
+    for index, line in enumerate(lines):
+        if line.strip() or not kept or not _is_table_row(kept[-1]):
+            kept.append(line)
+            continue
+        following = [rest for rest in lines[index + 1 :] if rest.strip()]
+        next_row = following[0] if following else ""
+        starts_new_table = len(following) > 1 and bool(_TABLE_SEPARATOR_ROW.match(following[1].strip()))
+        if not _is_table_row(next_row) or starts_new_table:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 class ReportText(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -103,7 +132,7 @@ class ReportSubsection(BaseModel):
         parts = [f"### {self.heading}"]
         parts.extend(finding.render_bullet() for finding in self.findings)
         parts.extend(visual.render() for visual in self.visuals)
-        return "\n\n".join(parts)
+        return join_report_blocks(parts)
 
 
 class ReportSection(BaseModel):
@@ -121,7 +150,7 @@ class ReportSection(BaseModel):
         parts.extend(finding.render_bullet() for finding in self.findings)
         parts.extend(subsection.render() for subsection in self.subsections)
         parts.extend(visual.render() for visual in self.visuals)
-        return "\n\n".join(parts)
+        return join_report_blocks(parts)
 
 
 class ReportDocument(BaseModel):
@@ -139,10 +168,10 @@ class ReportDocument(BaseModel):
 
     def render(self) -> str:
         if self.custom_layout:
-            return "".join(part.render() for part in self.custom_layout)
+            return join_report_blocks(["".join(part.render() for part in self.custom_layout)])
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
-        return "\n\n".join(parts)
+        return join_report_blocks(parts)
 
 
 REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies inline styles from their kinds.
