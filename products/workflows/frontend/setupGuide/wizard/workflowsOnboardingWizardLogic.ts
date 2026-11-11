@@ -133,6 +133,20 @@ export interface workflowsOnboardingWizardLogicActions {
         template: HogFlowTemplate
     } // newWorkflowLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
+    updateCurrentTeamFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // teamLogic
+    updateCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType,
+        payload?: Partial<TeamType> | undefined
+    ) => {
+        currentTeam: TeamPublicType | TeamType
+        payload?: Partial<TeamType>
+    } // teamLogic
     loadHasMessagingWorkflow: () => any // workflowsSetupGuideLogic
     loadHasMessagingWorkflowFailure: (
         error: string,
@@ -168,7 +182,8 @@ export interface workflowsOnboardingWizardLogicActions {
         step: WizardStepKey | null,
         stepIndex: number,
         templateId: string | null,
-        entry: WizardEntry | null
+        entry: WizardEntry | null,
+        journeyFirst: boolean
     ) => {
         entry:
             | 'automation_banner'
@@ -177,6 +192,7 @@ export interface workflowsOnboardingWizardLogicActions {
             | 'messaging_setup_guide'
             | 'path_choice'
             | null
+        journeyFirst: boolean
         path: WorkflowsOnboardingPath
         step: WizardStepKey | null
         stepIndex: number
@@ -247,7 +263,6 @@ export interface workflowsOnboardingWizardLogicMeta {
             chosenReachChannels: ('email' | 'push')[] | null,
             integrations: IntegrationType[] | null
         ) => ReachChannel[] | null
-        journeyFirst: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
         stepKeys: (
             wizardPath: WorkflowsOnboardingPath,
             pushEnabled: boolean,
@@ -335,7 +350,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 'setReachChannels',
             ],
             teamLogic,
-            ['updateCurrentTeam'],
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure'],
             integrationsLogic,
             ['loadIntegrationsSuccess', 'loadIntegrationsFailure'],
         ],
@@ -346,13 +361,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             step: WizardStepKey | null,
             stepIndex: number,
             templateId: string | null,
-            entry: WizardEntry | null
+            entry: WizardEntry | null,
+            journeyFirst: boolean
         ) => ({
             path,
             step,
             stepIndex,
             templateId,
             entry,
+            journeyFirst,
         }),
         openFromUrl: (searchParams: Record<string, any>) => ({ searchParams }),
         setStepIndex: (index: number) => ({ index }),
@@ -380,6 +397,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             null as WizardEntry | null,
             {
                 initWizard: (_, { entry }) => entry,
+            },
+        ],
+        journeyFirst: [
+            false,
+            {
+                initWizard: (_, { journeyFirst }) => journeyFirst,
             },
         ],
         stepIndex: [
@@ -531,11 +554,6 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 )
                 return connected.length ? connected : null
             },
-        ],
-        journeyFirst: [
-            (s) => [s.wizardPath, s.featureFlags],
-            (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet): boolean =>
-                isJourneyFirst(wizardPath, featureFlags),
         ],
         stepKeys: [
             (s) => [s.wizardPath, s.pushEnabled, s.reachChannels, s.journeyFirst],
@@ -716,7 +734,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     return
                 }
                 cache.pendingSearchParams = null
-                const journeyFirst = isJourneyFirst(path, values.featureFlags)
+                const journeyFirst =
+                    values.initialized && path === values.wizardPath
+                        ? values.journeyFirst
+                        : isJourneyFirst(path, values.featureFlags)
                 const steps = wizardSteps(path, values.pushEnabled, values.reachChannels, journeyFirst)
                 const templateId = searchParams.template ? String(searchParams.template) : null
                 const requestedStep = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
@@ -729,7 +750,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     step !== values.currentStep ||
                     templateId !== values.selectedTemplateId
                 ) {
-                    actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId, entry)
+                    actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId, entry, journeyFirst)
                 }
             },
             loadIntegrationsSuccess: () => {
@@ -746,7 +767,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                         null,
                         0,
                         searchParams.template ? String(searchParams.template) : null,
-                        isWizardEntry(searchParams.entry) ? searchParams.entry : null
+                        isWizardEntry(searchParams.entry) ? searchParams.entry : null,
+                        isJourneyFirst(searchParams.path, values.featureFlags)
                     )
                 }
             },
@@ -782,11 +804,22 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 if (rulesToSave) {
                     actions.updateCurrentTeam({ workflows_config: rulesToSave })
                 }
-                if (values.isLastStep) {
+                if (values.isLastStep && rulesToSave) {
+                    cache.finishAfterSave = true
+                } else if (values.isLastStep) {
                     actions.finish()
                 } else {
                     actions.setStepIndex(values.stepIndex + 1)
                 }
+            },
+            updateCurrentTeamSuccess: () => {
+                if (cache.finishAfterSave) {
+                    cache.finishAfterSave = false
+                    actions.finish()
+                }
+            },
+            updateCurrentTeamFailure: () => {
+                cache.finishAfterSave = false
             },
             back: () => {
                 actions.setStepIndex(Math.max(0, values.stepIndex - 1))

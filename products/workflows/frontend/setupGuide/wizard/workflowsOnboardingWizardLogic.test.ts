@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -189,6 +190,36 @@ describe('workflowsOnboardingWizardLogic', () => {
         await continueToTheEnd()
 
         expect(router.values.searchParams).toMatchObject({ templateId: WELCOME_TEMPLATE.id })
+    })
+
+    it('keeps the arm for the run when the flags change mid-run', async () => {
+        setJourneyFirstVariant('test')
+        logic = workflowsOnboardingWizardLogic()
+        logic.mount()
+        await enterWizard('messaging')
+        logic.actions.selectTemplate(WELCOME_TEMPLATE.id)
+        await expectLogic(logic, () => logic.actions.next()).toFinishAllListeners()
+
+        setJourneyFirstVariant('control')
+        await expectLogic(logic, () => logic.actions.next()).toFinishAllListeners()
+
+        expect(logic.values.stepKeys).toEqual(['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'])
+        expect(logic.values.currentStep).toBe('domain')
+    })
+
+    it('stays on the sending rules when they fail to save at the end of the test arm', async () => {
+        useMocks({ patch: { '/api/environments/:team_id/': () => [500, { detail: 'Something went wrong' }] } })
+        setJourneyFirstVariant('test')
+        logic = workflowsOnboardingWizardLogic()
+        logic.mount()
+        await enterWizard('messaging')
+        logic.actions.selectTemplate(WELCOME_TEMPLATE.id)
+
+        await continueToTheEnd()
+        await expectLogic(teamLogic).toFinishAllListeners()
+
+        expect(logic.values.currentStep).toBe('sending-rules')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows('onboarding'))
     })
 
     it('opens the broadcast editor after the setup steps in the test arm', async () => {
