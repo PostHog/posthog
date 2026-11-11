@@ -9,16 +9,21 @@ from parameterized import parameterized
 
 from posthog.schema import QueryStatus
 
+from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.customer_analytics.backend.constants import ACTIVITY_QUERY_PROPERTY_ACCESS_LABEL_PREFIX
 from products.customer_analytics.backend.facade.api import validate_book_activity_people_access
 from products.customer_analytics.backend.hogql_queries.test.book_activity_test_case import ANA, BookActivityTestCase
+from products.event_definitions.backend.models import PropertyDefinition
 
 KINDS = [("BookActivityMatrixQuery",), ("BookActivityPeopleQuery",), ("BookActivityFirstsQuery",)]
 
@@ -113,17 +118,26 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         assert denied_cached.status_code == 400, denied_cached.content
         assert "results" not in denied_cached.json()
 
-    @parameterized.expand(KINDS)
-    def test_async_status_rechecks_every_account(self, kind: str) -> None:
-        query = self._query(kind)
-        labels = get_query_runner(query, self.team, user=self.user).query_status_labels()
+    @parameterized.expand([(kind, limit) for (kind,) in KINDS for limit in (None, 1)])
+    def test_async_status_rechecks_every_account(self, kind: str, limit: int | None) -> None:
+        query = {**self._query(kind), "rowLimit": limit}
         stored = QueryStatus(
             id="book-activity",
             team_id=self.team.id,
             complete=True,
-            labels=labels,
-            results={"results": {"rows": [{"key": str(self.beta.id)}]}},
+            labels=get_query_runner(query, self.team, user=self.user).query_status_labels(),
         )
+        self.beta.name = "Aardvark"
+        self.beta.save(update_fields=["name"])
+        result = process_query_dict(
+            self.team,
+            query,
+            user=self.user,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_status=stored,
+        )
+        stored.results = result if isinstance(result, dict) else result.model_dump()
+        assert stored.results["results"]["rows"][0]["key"] == str(self.beta.id)
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
         AccessControl.objects.create(
@@ -135,6 +149,73 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         )
         with patch("posthog.api.query.get_query_status", return_value=stored):
             response = self.client.get(f"/api/projects/{self.team.id}/query/book-activity/")
+        assert response.status_code == 403, response.content
+
+    @parameterized.expand(
+        [
+            ("BookActivityPeopleQuery", False, PropertyDefinition.Type.PERSON),
+            ("BookActivityFirstsQuery", False, PropertyDefinition.Type.PERSON),
+            ("AccountActivityMatrixQuery", False, PropertyDefinition.Type.PERSON),
+            ("AccountActivityMatrixQuery", True, PropertyDefinition.Type.PERSON),
+            ("AccountActivityMatrixQuery", True, PropertyDefinition.Type.EVENT),
+        ]
+    )
+    def test_async_status_rechecks_property_access(self, kind: str, other_reader: bool, property_type: int) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="Activity",
+            filters={"events": [{"id": "insight created", "type": "events"}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property="private_value",
+        )
+        self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha, properties={"private_value": 5})
+        flush_persons_and_events()
+        stored = QueryStatus(id="activity", team_id=self.team.id, complete=True)
+        result = process_query_dict(
+            self.team,
+            self._query(kind),
+            user=self.user,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_status=stored,
+        )
+        stored.results = result if isinstance(result, dict) else result.model_dump()
+        assert stored.results["results"]["rows"]
+        reader = self.other_user if other_reader else self.user
+        definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email" if property_type == PropertyDefinition.Type.PERSON else "private_value",
+            type=property_type,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=OrganizationMembership.objects.get(user=reader, organization=self.organization),
+            access_level="none",
+        )
+        self.client.force_login(reader)
+        with patch("posthog.api.query.get_query_status", return_value=stored):
+            response = self.client.get(f"/api/projects/{self.team.id}/query/activity/")
+        assert response.status_code == 403, response.content
+        assert "results" not in response.json()
+
+    def test_async_status_rejects_missing_property_access_snapshot(self) -> None:
+        labels = get_query_runner(
+            self._query("BookActivityPeopleQuery"), self.team, user=self.user
+        ).query_status_labels()
+        stored = QueryStatus(
+            id="activity",
+            team_id=self.team.id,
+            complete=True,
+            labels=[label for label in labels if not label.startswith(ACTIVITY_QUERY_PROPERTY_ACCESS_LABEL_PREFIX)],
+            results={"results": {"people": [{"label": "person@example.com"}]}},
+        )
+        with patch("posthog.api.query.get_query_status", return_value=stored):
+            response = self.client.get(f"/api/projects/{self.team.id}/query/activity/")
         assert response.status_code == 403, response.content
 
     @parameterized.expand([("BookActivityPeopleQuery",), ("BookActivityFirstsQuery",)])

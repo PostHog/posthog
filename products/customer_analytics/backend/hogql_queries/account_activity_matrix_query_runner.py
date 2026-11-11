@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from functools import cached_property
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.schema import (
@@ -22,6 +23,7 @@ from posthog.models.user import User
 from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.actions.backend.facade.api import get_actions
 from products.customer_analytics.backend.constants import ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX
 from products.customer_analytics.backend.hogql_queries.activity_base import (
     ActivityQueryRunner,
@@ -30,6 +32,9 @@ from products.customer_analytics.backend.hogql_queries.activity_base import (
 )
 from products.customer_analytics.backend.logic.account_activity_access import get_account_activity_account
 from products.customer_analytics.backend.models import Account
+
+if TYPE_CHECKING:
+    from products.actions.backend.facade.contracts import Action
 
 DEFAULT_WEEKS = 8
 MAX_WEEKS = 26
@@ -54,7 +59,10 @@ class AccountActivityMatrixQueryRunner(ActivityQueryRunner[AccountActivityMatrix
         return super().get_cache_key_variant()
 
     def query_status_labels(self) -> list[str]:
-        return [f"{ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{self.query.accountId}"]
+        return [
+            *super().query_status_labels(),
+            f"{ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{self.query.accountId}",
+        ]
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -167,12 +175,22 @@ class AccountActivityMatrixQueryRunner(ActivityQueryRunner[AccountActivityMatrix
     def _split_metrics(self) -> tuple[list[MetricWithFilter], list[GroupUsageMetric]]:
         eligible: list[MetricWithFilter] = []
         skipped: list[GroupUsageMetric] = []
+        action_ids = {action_id for metric in self._team_metrics for action_id in metric.get_action_ids()}
+        actions: dict[int, Action | None] = dict.fromkeys(action_ids)
+        if action_ids:
+            actions.update(
+                {action.id: action for action in get_actions(action_ids=action_ids, project_id=self.team.project_id)}
+            )
         for metric in self._team_metrics:
-            if metric.is_data_warehouse or (metric.math == GroupUsageMetric.Math.SUM and not metric.math_property):
+            if (
+                len(eligible) >= MAX_SERIES
+                or metric.is_data_warehouse
+                or (metric.math == GroupUsageMetric.Math.SUM and not metric.math_property)
+            ):
                 skipped.append(metric)
                 continue
-            filter_expr = metric.get_expr()
-            if filter_expr == ast.Constant(value=True) or len(eligible) >= MAX_SERIES:
+            filter_expr = metric.get_expr(actions)
+            if filter_expr == ast.Constant(value=True):
                 skipped.append(metric)
                 continue
             eligible.append((metric, filter_expr))

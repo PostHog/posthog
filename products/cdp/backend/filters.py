@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -272,20 +273,22 @@ def _build_event_filter_expr(filter: dict) -> ast.Expr:
     return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
 
 
-def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+def _build_action_filter_expr(filter: dict, actions: Mapping[int, Action | None], team: Team) -> ast.Expr:
     """Build expression for a single action filter."""
     try:
         action_id = int(filter["id"])
-        action = actions.get(action_id)
-        if not action:
+        if action_id not in actions:
             return action_to_expr(get_action(action_id=action_id, project_id=team.project_id))
+        action = actions[action_id]
+        if action is None:
+            return parse_expr("1 = 2")
         # Callers fetched these with their team joined, so reuse the team rather than read it once per action.
         return action_to_expr(action, team=team)
     except KeyError:
         return parse_expr("1 = 2")  # No events match
 
 
-def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+def _build_single_filter_expr(filter: dict, actions: Mapping[int, Action | None], team: Team) -> ast.Expr:
     """Build expression for a single event or action filter with its properties."""
     filter_exprs: list[ast.Expr] = []
 
@@ -349,7 +352,7 @@ def _build_warehouse_table_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return [ast.Or(exprs=entry_exprs) if len(entry_exprs) > 1 else entry_exprs[0]]
 
 
-def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
+def hog_function_filters_to_expr(filters: dict, team: Team, actions: Mapping[int, Action | None]) -> ast.Expr:
     """
     Build a HogQL expression from hog function filters.
 

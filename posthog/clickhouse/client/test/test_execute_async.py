@@ -276,7 +276,11 @@ class TestExecuteProcessQuery(TestCase):
         ).encode()
         mock_redis_client.return_value = mock_redis
 
-        mock_process_query_dict.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+        def process_query(**kwargs: Any) -> list[float | str]:
+            kwargs["query_status"].labels = ["executed"]
+            return [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+
+        mock_process_query_dict.side_effect = process_query
 
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
@@ -290,6 +294,7 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+        self.assertEqual(args_loaded["labels"], ["executed"])
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")

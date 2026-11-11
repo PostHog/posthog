@@ -1,9 +1,15 @@
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
 from django.db import models
 
 from posthog.hogql import ast
 
 from posthog.models.utils import BytecodeModelMixin, UUIDModel
 from posthog.rbac.decorators import field_access_control
+
+if TYPE_CHECKING:
+    from products.actions.backend.facade.contracts import Action
 
 
 class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
@@ -63,13 +69,20 @@ class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
     def is_data_warehouse(self) -> bool:
         return self.source == self.Source.DATA_WAREHOUSE
 
-    def get_expr(self):
+    def get_action_ids(self) -> list[int]:
+        from products.cdp.backend.filters import (
+            filter_action_ids,  # noqa: PLC0415 -- keeps the filter compiler off Django startup
+        )
+
+        return filter_action_ids(self.filters)
+
+    def get_expr(self, actions: Mapping[int, "Action | None"] | None = None) -> ast.Expr:
         if self.is_data_warehouse:
             return ast.Constant(value=True)
 
         from products.cdp.backend.filters import hog_function_filters_to_expr
 
-        return hog_function_filters_to_expr(self.filters, self.team, {})
+        return hog_function_filters_to_expr(self.filters, self.team, actions if actions is not None else {})
 
     def get_cohort_filter_errors(self) -> list[str]:
         """Return why the test account cohorts can't be inlined into the metric's real-time filter."""

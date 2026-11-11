@@ -286,6 +286,7 @@ def execute_process_query(
             user=user,
             is_query_service=is_query_service,
             analytics_props=analytics_props,
+            query_status=query_status,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
