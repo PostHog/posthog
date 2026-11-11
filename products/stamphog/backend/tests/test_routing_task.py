@@ -616,29 +616,34 @@ def test_the_clean_review_switch_waits_for_reviewhog(
 
 
 @pytest.mark.parametrize(
-    "name,push_before_open,status,verdict,live_labels,expect_routed",
+    "name,push_before_open,approved_first,status,verdict,live_labels,expect_routed",
     [
         # A run that fails on a moved head, such as a silent run that a push to an unlabeled PR did not supersede.
-        ("failure_on_a_moved_head", False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("failure_on_a_moved_head", False, False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
         # The opening event ran after the push, so the record waits on the live head, which nothing reviews.
-        ("failure_after_the_record_moved_on", True, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("failure_after_the_record_moved_on", True, False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
         # An approval of the old head says nothing about the live head, so it routes in full, not pinned only.
-        ("approval_of_a_stale_head", False, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, [], True),
+        ("approval_of_a_stale_head", False, False, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, [], True),
         # The trigger label starts a visible review of the live head, and its verdict routes it.
         (
             "labeled_live_pull_request",
+            False,
             False,
             ReviewRunStatus.FAILED,
             ReviewVerdict.NONE,
             [{"name": "stamphog"}],
             False,
         ),
+        # A labeled re-review of the approved head dismissed the approval, and then the label went and the author pushed.
+        ("failure_after_a_pinned_routing", False, True, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("wait_after_a_pinned_routing", False, True, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, [], True),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
     name: str,
     push_before_open: bool,
+    approved_first: bool,
     status: ReviewRunStatus,
     verdict: ReviewVerdict,
     live_labels: list[dict[str, str]],
@@ -659,10 +664,12 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
         _push(routing_chain, _HEAD_2)
     _route()
     assert _stored(team.id)["status"] == "waiting"
+    if approved_first:
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, silent=True)
     _push(routing_chain, _HEAD_2)
     routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = live_labels
 
-    _finish_review(repo_config, status, verdict, silent=True)
+    _finish_review(repo_config, status, verdict, silent=not approved_first)
 
     record = _stored(team.id)
     if expect_routed:
@@ -853,6 +860,9 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
         ("same_head_refusal_after_approval", [_APPROVED, _REFUSED, _NET], 2, "verdict:refused", HEAD_SHA, 1),
         # Nothing reviews again after a silent WAIT, so it withdraws the approval like a refusal.
         ("same_head_silent_wait_after_approval", [_APPROVED, _SILENT_WAIT, _NET], 2, "verdict:wait", HEAD_SHA, 1),
+        # A visible re-review that keeps answering WAIT dismissed the approval, so the head waits for a new net.
+        ("same_head_wait_after_approval", [_APPROVED, _WAIT, _WAIT, _NET], 2, "safety_net", HEAD_SHA, 2),
+        ("same_head_wait_then_approval", [_APPROVED, _WAIT, _APPROVED, _NET], 1, "verdict:approved", HEAD_SHA, 2),
         # A verdict for a moved head does nothing, and the safety net routes the current head.
         ("safety_net_routes_the_current_head", [_PUSH, _REFUSED, _NET], 1, "safety_net", _HEAD_2, 1),
     ],
