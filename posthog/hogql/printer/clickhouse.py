@@ -299,6 +299,7 @@ class ClickHousePrinter(BasePrinter):
                 args.append(self.visit(suffix_arg))
 
         relevant_clickhouse_name = func_meta.clickhouse_name
+        first_arg_constant_type: ast.ConstantType | None = None
         if func_meta.overloads:
             # Prefer concrete fields/calls: transforms can leave a call's
             # recorded arg_types stale after fields are rewritten.
@@ -307,7 +308,6 @@ class ClickHousePrinter(BasePrinter):
             while isinstance(first_arg, ast.Alias):
                 first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = None
             if (
                 first_arg is not None
                 and first_arg.type is not None
@@ -347,11 +347,13 @@ class ClickHousePrinter(BasePrinter):
                 ):
                     args[0] = f"toFloat64({args[0]})"
 
-        # toDateOrNull rejects a timezone argument, so a string with a timezone is parsed in that timezone first.
-        # An unparseable string still gives NULL, and a string with an offset gets the date in the given timezone.
+        # toDateOrNull rejects a timezone argument. A known string is parsed in that timezone first, so an unparseable
+        # string still gives NULL. An input of unknown type can be a DateTime at runtime, which the parser rejects, so
+        # it goes to the plain constructor, which accepts both.
         if relevant_clickhouse_name == "toDateOrNull" and len(args) == 2:
             relevant_clickhouse_name = "toDate"
-            args[0] = f"parseDateTime64BestEffortOrNull({args[0]}, 6, {args[1]})"
+            if isinstance(first_arg_constant_type, ast.StringType):
+                args[0] = f"parseDateTime64BestEffortOrNull({args[0]}, 6, {args[1]})"
 
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args

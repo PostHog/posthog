@@ -3333,6 +3333,11 @@ class TestPrinter(BaseTest):
                 "toDate(event, 'US/Pacific')",
                 "toDate(parseDateTime64BestEffortOrNull(events.event, 6, %(hogql_val_0)s), %(hogql_val_0)s)",
             ),
+            (
+                "unknown_type",
+                "toDate((SELECT toDateTime('2024-03-05 23:30:00')), 'US/Pacific')",
+                "toDate((SELECT toDateTime(%(hogql_val_0)s, %(hogql_val_1)s) AS `toDateTime('2024-03-05 23:30:00')`), %(hogql_val_2)s)",
+            ),
         ]
     )
     def test_to_date_with_timezone(self, _name: str, expression: str, expected: str) -> None:
