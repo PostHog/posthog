@@ -1,9 +1,16 @@
+from typing import Literal
+
+import structlog
 from anthropic import Anthropic
 from pydantic import BaseModel, ValidationError
 
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
 
 from ..backend.facade.enums import DocsChangeKind
+
+logger = structlog.get_logger(__name__)
+
+JudgeDeclineCause = Literal["validation_error", "refusal", "no_parsed_output"]
 
 JUDGE_MODEL = "claude-haiku-5-5"
 JUDGE_AI_PRODUCT = "knowledge_writer"
@@ -57,11 +64,14 @@ def judge_merge(
             output_format=JudgeVerdict,
         )
     except ValidationError:
-        return declined_verdict()
-    if response.stop_reason == "refusal" or response.parsed_output is None:
-        return declined_verdict()
+        return declined_verdict("validation_error")
+    if response.stop_reason == "refusal":
+        return declined_verdict("refusal")
+    if response.parsed_output is None:
+        return declined_verdict("no_parsed_output")
     return response.parsed_output
 
 
-def declined_verdict() -> JudgeVerdict:
+def declined_verdict(cause: JudgeDeclineCause) -> JudgeVerdict:
+    logger.warning("knowledge_writer_judge_declined", cause=cause)
     return JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="judge_declined")

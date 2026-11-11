@@ -4,6 +4,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
+import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
@@ -138,6 +139,11 @@ export const ContentAutopilot = (): JSX.Element => {
                                     key: 'prompts',
                                     label: 'Prompts',
                                     content: <ContentAutopilotPrompts />,
+                                },
+                                {
+                                    key: 'keywords',
+                                    label: 'Keywords',
+                                    content: <ContentAutopilotKeywords />,
                                 },
                                 {
                                     key: 'opportunities',
