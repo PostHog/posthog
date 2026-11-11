@@ -176,8 +176,42 @@ export interface propertyDefinitionsTableLogicActions {
         attempt: number
         url: string
     }
+    setFilters: (
+        filters: Partial<Filters>,
+        debounce?: boolean
+    ) => {
+        debounce: boolean
+        filters: Partial<Filters>
+    }
+    setHoveredDefinition: (definitionKey: string | null) => {
+        definitionKey: string | null
+    }
     setLastSentFailed: () => {
         value: true
+    }
+    setLocalPropertyDefinition: (definition: PropertyDefinition) => {
+        definition: PropertyDefinition
+    }
+    setLocalPropertyDefinitionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setLocalPropertyDefinitionSuccess: (
+        propertyDefinitions: PropertyDefinitionsTableResponse,
+        payload?: {
+            definition: PropertyDefinition
+        }
+    ) => {
+        propertyDefinitions: PropertyDefinitionsTableResponse
+        payload?: {
+            definition: PropertyDefinition
+        }
+    }
+    setOpenedDefinition: (id: string | null) => {
+        id: string | null
     }
     setPolledLastSent: (
         url: string,
@@ -205,40 +239,6 @@ export interface propertyDefinitionsTableLogicActions {
             response: PropertyDefinitionsTableResponse
             url: string
         }
-    }
-    setFilters: (
-        filters: Partial<Filters>,
-        debounce?: boolean
-    ) => {
-        debounce: boolean
-        filters: Partial<Filters>
-    }
-    setHoveredDefinition: (definitionKey: string | null) => {
-        definitionKey: string | null
-    }
-    setLocalPropertyDefinition: (definition: PropertyDefinition) => {
-        definition: PropertyDefinition
-    }
-    setLocalPropertyDefinitionFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    setLocalPropertyDefinitionSuccess: (
-        propertyDefinitions: PropertyDefinitionsTableResponse,
-        payload?: {
-            definition: PropertyDefinition
-        }
-    ) => {
-        propertyDefinitions: PropertyDefinitionsTableResponse
-        payload?: {
-            definition: PropertyDefinition
-        }
-    }
-    setOpenedDefinition: (id: string | null) => {
-        id: string | null
     }
     setPropertyType: (propertyType: string) => {
         propertyType: string
