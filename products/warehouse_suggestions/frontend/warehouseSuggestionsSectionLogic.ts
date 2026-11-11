@@ -1,0 +1,527 @@
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
+
+import { DataModelingSyncInterval, UserType } from '~/types'
+
+import {
+    warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
+    warehouseSuggestionsDismissCreate,
+} from './generated/api'
+import type {
+    AcceptWarehouseSuggestionApi,
+    WarehouseSuggestionApi,
+    WarehouseSuggestionDismissalReasonEnumApi,
+    WarehouseSuggestionStatusApi,
+} from './generated/api.schemas'
+import { INTERVAL_SECONDS } from './refreshIntervals'
+import { countOf, deleteDisabledReason, isMaterializePayload } from './suggestionCopy'
+import {
+    SuggestionGroup,
+    WarehouseSuggestionsLogicProps,
+    catalogEditBlockedReason,
+    deprecateOptions,
+    isStale,
+    projectId,
+    warehouseSuggestionsLogic,
+} from './warehouseSuggestionsLogic'
+
+export type KindFilter = 'any' | 'materialize' | 'unmaterialize' | 'certify' | 'deprecate'
+export type AssigneeFilter = 'anyone' | 'me' | 'unassigned'
+export type SubjectFilter = 'any' | 'tables' | 'views'
+export type BulkAction = 'accept' | 'dismiss' | 'assign'
+export type BulkIntervalChoice = 'suggested' | 'fixed'
+
+export interface SuggestionsSectionFilters {
+    kind: KindFilter
+    assignee: AssigneeFilter
+    subject: SubjectFilter
+    search: string
+}
+
+export interface BulkAcceptChoices {
+    intervalChoice: BulkIntervalChoice
+    interval: DataModelingSyncInterval | null
+    deleteViews: boolean
+    keepMaterialized: boolean
+}
+
+interface BulkFailure {
+    suggestion: WarehouseSuggestionApi
+    error: unknown
+}
+
+export const DEFAULT_SECTION_FILTERS: SuggestionsSectionFilters = {
+    kind: 'any',
+    assignee: 'anyone',
+    subject: 'any',
+    search: '',
+}
+
+const DEFAULT_ACCEPT_CHOICES: BulkAcceptChoices = {
+    intervalChoice: 'suggested',
+    interval: null,
+    deleteViews: false,
+    keepMaterialized: false,
+}
+
+const PICK_INTERVAL_REASON = 'Pick an interval for the views'
+
+function isMaterializeSuggestion(suggestion: WarehouseSuggestionApi): boolean {
+    return isMaterializePayload(suggestion.payload)
+}
+
+function isViewDeprecation(suggestion: WarehouseSuggestionApi): boolean {
+    return suggestion.kind === 'deprecate' && suggestion.subject_kind !== 'table'
+}
+
+const BULK_ACTION_EVENT = 'warehouse suggestions bulk action'
+const DONE_VERBS: Record<BulkAction, string> = { accept: 'Approved', dismiss: 'Dismissed', assign: 'Assigned' }
+const FAILED_VERBS: Record<BulkAction, string> = { accept: 'approve', dismiss: 'dismiss', assign: 'assign' }
+
+function matchesFilters(
+    suggestion: WarehouseSuggestionApi,
+    filters: SuggestionsSectionFilters,
+    currentUserId: number | undefined
+): boolean {
+    const isTable = suggestion.subject_kind === 'table'
+    const search = filters.search.trim().toLowerCase()
+    return (
+        (filters.kind === 'any' || suggestion.kind === filters.kind) &&
+        (filters.assignee === 'anyone' ||
+            (filters.assignee === 'me' && suggestion.assignee?.id === currentUserId) ||
+            (filters.assignee === 'unassigned' && !suggestion.assignee)) &&
+        (filters.subject === 'any' || (filters.subject === 'tables') === isTable) &&
+        (!search || suggestion.payload.subject_name.toLowerCase().includes(search))
+    )
+}
+
+function bulkAcceptOptions(
+    suggestion: WarehouseSuggestionApi,
+    choices: BulkAcceptChoices
+): AcceptWarehouseSuggestionApi | undefined {
+    if (isMaterializePayload(suggestion.payload)) {
+        const fixedInterval = choices.intervalChoice === 'fixed' ? choices.interval : null
+        return {
+            refresh_interval_seconds: fixedInterval
+                ? INTERVAL_SECONDS[fixedInterval]
+                : suggestion.payload.refresh_interval_seconds,
+        }
+    }
+    if (suggestion.subject_kind === 'table') {
+        return undefined
+    }
+    return deprecateOptions(suggestion, {
+        deleteView: choices.deleteViews,
+        keepMaterialized: choices.keepMaterialized,
+    })
+}
+
+function failureDetail(error: unknown): string {
+    return (error instanceof ApiError && error.detail) || 'Try again.'
+}
+
+function summaryMessage(action: BulkAction, done: number, failures: BulkFailure[]): string {
+    const doneText = done > 0 ? `${DONE_VERBS[action]} ${countOf(done, 'suggestion', 'suggestions')}.` : ''
+    if (failures.length === 0) {
+        return doneText
+    }
+    const failedText =
+        done > 0
+            ? `${failures.length} failed: ${failureDetail(failures[0].error)}`
+            : `Couldn't ${FAILED_VERBS[action]} ${countOf(failures.length, 'suggestion', 'suggestions')}: ${failureDetail(failures[0].error)}`
+    return [doneText, failedText].filter(Boolean).join(' ')
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseSuggestionsSectionLogicValues {
+    user: UserType | null // userLogic
+    actionsInFlight: Record<string, boolean> // warehouseSuggestionsLogic
+    leavingSuggestionIds: string[] // warehouseSuggestionsLogic
+    status: WarehouseSuggestionStatusApi | null // warehouseSuggestionsLogic
+    suggestionGroups: SuggestionGroup[] // warehouseSuggestionsLogic
+    acceptChoices: BulkAcceptChoices
+    bulkAcceptBlockedReason: string | undefined
+    bulkAcceptOpen: boolean
+    bulkActionRunning: BulkAction | null
+    bulkDismissOpen: boolean
+    deleteViewsBlockedReason: string | undefined
+    dismissReason: WarehouseSuggestionDismissalReasonEnumApi
+    filteredGroups: SuggestionGroup[]
+    filters: SuggestionsSectionFilters
+    filtersActive: boolean
+    selectableIds: string[]
+    selectedIds: string[]
+    selectedSuggestions: WarehouseSuggestionApi[]
+    selectedViewDeprecations: WarehouseSuggestionApi[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseSuggestionsSectionLogicActions {
+    hideSuggestion: (id: string) => {
+        id: string
+    } // warehouseSuggestionsLogic
+    loadSuggestions: () => any // warehouseSuggestionsLogic
+    setActionInFlight: (
+        id: string,
+        inFlight: boolean
+    ) => {
+        id: string
+        inFlight: boolean
+    } // warehouseSuggestionsLogic
+    suggestionUpdated: (suggestion: WarehouseSuggestionApi) => {
+        suggestion: WarehouseSuggestionApi
+    } // warehouseSuggestionsLogic
+    assignSelectedToMe: () => {
+        value: true
+    }
+    clearFilters: () => {
+        value: true
+    }
+    clearSelection: () => {
+        value: true
+    }
+    closeBulkAccept: () => {
+        value: true
+    }
+    closeBulkDismiss: () => {
+        value: true
+    }
+    confirmBulkAccept: () => {
+        value: true
+    }
+    confirmBulkDismiss: () => {
+        value: true
+    }
+    openBulkAccept: () => {
+        value: true
+    }
+    openBulkDismiss: () => {
+        value: true
+    }
+    setAcceptChoices: (choices: Partial<BulkAcceptChoices>) => {
+        choices: Partial<BulkAcceptChoices>
+    }
+    setBulkActionRunning: (action: BulkAction | null) => {
+        action: BulkAction | null
+    }
+    setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => {
+        reason: WarehouseSuggestionDismissalReasonEnumApi
+    }
+    setFilters: (filters: Partial<SuggestionsSectionFilters>) => {
+        filters: Partial<SuggestionsSectionFilters>
+    }
+    setSelected: (
+        ids: string[],
+        selected: boolean
+    ) => {
+        ids: string[]
+        selected: boolean
+    }
+    toggleSelected: (id: string) => {
+        id: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseSuggestionsSectionLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        filtersActive: (filters: SuggestionsSectionFilters) => boolean
+        filteredGroups: (
+            suggestionGroups: SuggestionGroup[],
+            filters: SuggestionsSectionFilters,
+            user: UserType | null
+        ) => SuggestionGroup[]
+        selectableIds: (
+            filteredGroups: SuggestionGroup[],
+            leavingSuggestionIds: string[],
+            actionsInFlight: Record<string, boolean>
+        ) => string[]
+        selectedSuggestions: (
+            filteredGroups: SuggestionGroup[],
+            selectedIds: string[],
+            leavingSuggestionIds: string[]
+        ) => WarehouseSuggestionApi[]
+        selectedViewDeprecations: (selectedSuggestions: WarehouseSuggestionApi[]) => WarehouseSuggestionApi[]
+        deleteViewsBlockedReason: (
+            selectedViewDeprecations: WarehouseSuggestionApi[],
+            status: WarehouseSuggestionStatusApi | null
+        ) => string | undefined
+        bulkAcceptBlockedReason: (
+            selectedSuggestions: WarehouseSuggestionApi[],
+            selectedViewDeprecations: WarehouseSuggestionApi[],
+            acceptChoices: BulkAcceptChoices,
+            deleteViewsBlockedReason: string | undefined
+        ) => string | undefined
+    }
+}
+
+export type warehouseSuggestionsSectionLogicType = MakeLogicType<
+    warehouseSuggestionsSectionLogicValues,
+    warehouseSuggestionsSectionLogicActions,
+    WarehouseSuggestionsLogicProps,
+    warehouseSuggestionsSectionLogicMeta
+>
+
+export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionLogicType>([
+    props({} as WarehouseSuggestionsLogicProps),
+    path(['products', 'warehouseSuggestions', 'warehouseSuggestionsSectionLogic']),
+    connect((props: WarehouseSuggestionsLogicProps) => ({
+        values: [
+            warehouseSuggestionsLogic(props),
+            ['suggestionGroups', 'leavingSuggestionIds', 'actionsInFlight', 'status'],
+            userLogic,
+            ['user'],
+        ],
+        actions: [
+            warehouseSuggestionsLogic(props),
+            ['hideSuggestion', 'suggestionUpdated', 'setActionInFlight', 'loadSuggestions'],
+        ],
+    })),
+    actions({
+        setFilters: (filters: Partial<SuggestionsSectionFilters>) => ({ filters }),
+        clearFilters: true,
+        toggleSelected: (id: string) => ({ id }),
+        setSelected: (ids: string[], selected: boolean) => ({ ids, selected }),
+        clearSelection: true,
+        openBulkAccept: true,
+        closeBulkAccept: true,
+        setAcceptChoices: (choices: Partial<BulkAcceptChoices>) => ({ choices }),
+        confirmBulkAccept: true,
+        openBulkDismiss: true,
+        closeBulkDismiss: true,
+        setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => ({ reason }),
+        confirmBulkDismiss: true,
+        assignSelectedToMe: true,
+        setBulkActionRunning: (action: BulkAction | null) => ({ action }),
+    }),
+    reducers({
+        filters: [
+            DEFAULT_SECTION_FILTERS,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                clearFilters: () => DEFAULT_SECTION_FILTERS,
+            },
+        ],
+        selectedIds: [
+            [] as string[],
+            {
+                toggleSelected: (state, { id }) =>
+                    state.includes(id) ? state.filter((selectedId) => selectedId !== id) : [...state, id],
+                setSelected: (state, { ids, selected }) =>
+                    selected
+                        ? [...new Set([...state, ...ids])]
+                        : state.filter((selectedId) => !ids.includes(selectedId)),
+                clearSelection: () => [],
+            },
+        ],
+        bulkAcceptOpen: [
+            false,
+            {
+                openBulkAccept: () => true,
+                closeBulkAccept: () => false,
+                confirmBulkAccept: () => false,
+            },
+        ],
+        bulkDismissOpen: [
+            false,
+            {
+                openBulkDismiss: () => true,
+                closeBulkDismiss: () => false,
+                confirmBulkDismiss: () => false,
+            },
+        ],
+        acceptChoices: [
+            DEFAULT_ACCEPT_CHOICES,
+            {
+                setAcceptChoices: (state, { choices }) => ({ ...state, ...choices }),
+                openBulkAccept: () => DEFAULT_ACCEPT_CHOICES,
+            },
+        ],
+        dismissReason: [
+            'not_now' as WarehouseSuggestionDismissalReasonEnumApi,
+            {
+                setDismissReason: (_, { reason }) => reason,
+                openBulkDismiss: () => 'not_now',
+            },
+        ],
+        bulkActionRunning: [
+            null as BulkAction | null,
+            {
+                setBulkActionRunning: (_, { action }) => action,
+            },
+        ],
+    }),
+    selectors({
+        filtersActive: [
+            (s) => [s.filters],
+            (filters: SuggestionsSectionFilters): boolean =>
+                filters.kind !== 'any' || filters.assignee !== 'anyone' || filters.subject !== 'any',
+        ],
+        filteredGroups: [
+            (s) => [s.suggestionGroups, s.filters, s.user],
+            (groups: SuggestionGroup[], filters: SuggestionsSectionFilters, user: UserType | null): SuggestionGroup[] =>
+                groups
+                    .map((group) => ({
+                        ...group,
+                        suggestions: group.suggestions.filter((suggestion) =>
+                            matchesFilters(suggestion, filters, user?.id)
+                        ),
+                    }))
+                    .filter((group) => group.suggestions.length > 0),
+        ],
+        selectableIds: [
+            (s) => [s.filteredGroups, s.leavingSuggestionIds, s.actionsInFlight],
+            (groups: SuggestionGroup[], leavingIds: string[], inFlight: Record<string, boolean>): string[] =>
+                groups
+                    .flatMap((group) => group.suggestions)
+                    .filter(
+                        (suggestion) =>
+                            suggestion.can_act && !inFlight[suggestion.id] && !leavingIds.includes(suggestion.id)
+                    )
+                    .map((suggestion) => suggestion.id),
+        ],
+        selectedSuggestions: [
+            (s) => [s.filteredGroups, s.selectedIds, s.leavingSuggestionIds],
+            (groups: SuggestionGroup[], selectedIds: string[], leavingIds: string[]): WarehouseSuggestionApi[] =>
+                groups
+                    .flatMap((group) => group.suggestions)
+                    .filter((suggestion) => selectedIds.includes(suggestion.id) && !leavingIds.includes(suggestion.id)),
+        ],
+        selectedViewDeprecations: [
+            (s) => [s.selectedSuggestions],
+            (selected: WarehouseSuggestionApi[]): WarehouseSuggestionApi[] => selected.filter(isViewDeprecation),
+        ],
+        deleteViewsBlockedReason: [
+            (s) => [s.selectedViewDeprecations, s.status],
+            (views: WarehouseSuggestionApi[], status: WarehouseSuggestionStatusApi | null): string | undefined =>
+                views
+                    .map((view) => deleteDisabledReason(view.evidence, status?.window_days ?? 0))
+                    .find((reason) => reason !== undefined),
+        ],
+        bulkAcceptBlockedReason: [
+            (s) => [s.selectedSuggestions, s.selectedViewDeprecations, s.acceptChoices, s.deleteViewsBlockedReason],
+            (
+                selected: WarehouseSuggestionApi[],
+                viewDeprecations: WarehouseSuggestionApi[],
+                choices: BulkAcceptChoices,
+                deleteBlockedReason: string | undefined
+            ): string | undefined => {
+                if (choices.intervalChoice === 'fixed' && !choices.interval && selected.some(isMaterializeSuggestion)) {
+                    return PICK_INTERVAL_REASON
+                }
+                const needsCatalogEdit =
+                    selected.some(
+                        (suggestion) => suggestion.kind === 'certify' || suggestion.subject_kind === 'table'
+                    ) ||
+                    (viewDeprecations.length > 0 && !choices.deleteViews)
+                if (needsCatalogEdit && catalogEditBlockedReason()) {
+                    return catalogEditBlockedReason()
+                }
+                return viewDeprecations.length > 0 && choices.deleteViews ? deleteBlockedReason : undefined
+            },
+        ],
+    }),
+    listeners(({ actions, values, props }) => {
+        const runBulk = async (
+            action: BulkAction,
+            request: (suggestion: WarehouseSuggestionApi) => Promise<WarehouseSuggestionApi | void>,
+            onDone: (suggestion: WarehouseSuggestionApi, result: WarehouseSuggestionApi | void) => void
+        ): Promise<void> => {
+            const suggestions = values.selectedSuggestions
+            if (values.bulkActionRunning || suggestions.length === 0) {
+                return
+            }
+            actions.setBulkActionRunning(action)
+            const doneIds: string[] = []
+            const failures: BulkFailure[] = []
+            for (const suggestion of suggestions) {
+                actions.setActionInFlight(suggestion.id, true)
+                try {
+                    onDone(suggestion, await request(suggestion))
+                    doneIds.push(suggestion.id)
+                } catch (error) {
+                    failures.push({ suggestion, error })
+                } finally {
+                    actions.setActionInFlight(suggestion.id, false)
+                }
+            }
+            actions.setSelected(doneIds, false)
+            actions.setBulkActionRunning(null)
+            if (failures.some(({ error }) => isStale(error))) {
+                actions.loadSuggestions()
+            }
+            const message = summaryMessage(action, doneIds.length, failures)
+            if (failures.length > 0) {
+                lemonToast.error(message)
+            } else {
+                lemonToast.success(message)
+            }
+            posthog.capture(BULK_ACTION_EVENT, {
+                action,
+                kinds: [...new Set(suggestions.map((suggestion) => suggestion.kind))],
+                count: suggestions.length,
+                failed: failures.length,
+                placement: props.placement,
+            })
+        }
+
+        return {
+            confirmBulkAccept: async () => {
+                if (values.bulkAcceptBlockedReason) {
+                    return
+                }
+                const choices = values.acceptChoices
+                let lastAccepted: WarehouseSuggestionApi | null = null
+                await runBulk(
+                    'accept',
+                    (suggestion) =>
+                        warehouseSuggestionsAcceptCreate(
+                            projectId(),
+                            suggestion.id,
+                            bulkAcceptOptions(suggestion, choices),
+                            { surface: props.surface }
+                        ),
+                    (suggestion, accepted) => {
+                        actions.hideSuggestion(suggestion.id)
+                        lastAccepted = accepted || suggestion
+                    }
+                )
+                if (lastAccepted) {
+                    props.onAccepted?.(lastAccepted)
+                }
+            },
+            confirmBulkDismiss: async () => {
+                const reason = values.dismissReason
+                await runBulk(
+                    'dismiss',
+                    async (suggestion) => {
+                        await warehouseSuggestionsDismissCreate(
+                            projectId(),
+                            suggestion.id,
+                            { reason },
+                            { surface: props.surface }
+                        )
+                    },
+                    (suggestion) => actions.hideSuggestion(suggestion.id)
+                )
+            },
+            assignSelectedToMe: async () => {
+                const userId = values.user?.id
+                if (!userId) {
+                    return
+                }
+                await runBulk(
+                    'assign',
+                    (suggestion) =>
+                        warehouseSuggestionsAssignCreate(projectId(), suggestion.id, { assignee_id: userId }),
+                    (_, updated) => updated && actions.suggestionUpdated(updated)
+                )
+            },
+        }
+    }),
+])

@@ -10,14 +10,15 @@ import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCo
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRowProps } from './CertificationSuggestionRow'
 import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
-import { QuillSuggestionRow } from './QuillSuggestionRow'
+import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
 
 export function QuillCertificationSuggestionRow({
     suggestion,
     windowDays,
-}: CertificationSuggestionRowProps): JSX.Element {
+    selection,
+}: CertificationSuggestionRowProps & QuillRowSelectionProps): JSX.Element {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { acceptSuggestion, openAcceptConfirm } = useActions(warehouseSuggestionsLogic)
     const { payload } = suggestion
@@ -35,6 +36,7 @@ export function QuillCertificationSuggestionRow({
     return (
         <QuillSuggestionRow
             suggestionId={suggestion.id}
+            selection={selection}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}

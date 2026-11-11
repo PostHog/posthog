@@ -1,8 +1,14 @@
+import { ReactNode } from 'react'
+
 import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
 import { SAVING_COLUMNS_CLASS, SuggestionRowProps } from './SuggestionRow'
+
+export interface QuillRowSelectionProps {
+    selection?: ReactNode
+}
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success-foreground'
 
@@ -43,7 +49,8 @@ export function QuillSuggestionRow({
     highlight,
     actions,
     leaving,
-}: SuggestionRowProps): JSX.Element {
+    selection,
+}: SuggestionRowProps & QuillRowSelectionProps): JSX.Element {
     return (
         <div
             data-suggestion-row={suggestionId}
@@ -60,6 +67,9 @@ export function QuillSuggestionRow({
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
+                        {selection && (
+                            <span className="flex h-5 shrink-0 translate-y-0.5 items-center">{selection}</span>
+                        )}
                         <span className="group/colorful-product-icons colorful-product-icons-true flex h-5 shrink-0 translate-y-0.5 items-center text-base">
                             {icon}
                         </span>

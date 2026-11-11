@@ -189,7 +189,7 @@ function changedRefreshOptions(
     return options
 }
 
-function deprecateOptions(
+export function deprecateOptions(
     suggestion: WarehouseSuggestionApi,
     { deleteView, keepMaterialized }: { deleteView: boolean; keepMaterialized: boolean }
 ): AcceptWarehouseSuggestionApi | undefined {
@@ -219,7 +219,7 @@ function leaveDisposableKey(id: string): string {
     return `leave-${id}`
 }
 
-function projectId(): string {
+export function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
 
@@ -1125,7 +1125,7 @@ function isNotFound(error: unknown): boolean {
     return error instanceof ApiError && error.status === NOT_FOUND_STATUS
 }
 
-function isStale(error: unknown): boolean {
+export function isStale(error: unknown): boolean {
     return isConflict(error) || isNotFound(error)
 }
 

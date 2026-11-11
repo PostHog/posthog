@@ -9,7 +9,7 @@ import { suggestionBlockedReason } from '../suggestionBlockedReason'
 import { isUnmaterializePayload, readSummary, unmaterializeHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
-import { QuillSuggestionRow } from './QuillSuggestionRow'
+import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
 import { UnmaterializeSuggestionRowProps } from './UnmaterializeSuggestionRow'
@@ -17,7 +17,8 @@ import { UnmaterializeSuggestionRowProps } from './UnmaterializeSuggestionRow'
 export function QuillUnmaterializeSuggestionRow({
     suggestion,
     windowDays,
-}: UnmaterializeSuggestionRowProps): JSX.Element | null {
+    selection,
+}: UnmaterializeSuggestionRowProps & QuillRowSelectionProps): JSX.Element | null {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { openAcceptConfirm } = useActions(warehouseSuggestionsLogic)
     const { payload } = suggestion
@@ -30,6 +31,7 @@ export function QuillUnmaterializeSuggestionRow({
     return (
         <QuillSuggestionRow
             suggestionId={suggestion.id}
+            selection={selection}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}

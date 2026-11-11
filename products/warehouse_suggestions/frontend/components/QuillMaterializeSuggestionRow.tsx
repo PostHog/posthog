@@ -10,14 +10,15 @@ import { isMaterializePayload, materializeHighlight, readSummary, rebuiltSummary
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionRowProps } from './MaterializeSuggestionRow'
 import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
-import { QuillSuggestionRow } from './QuillSuggestionRow'
+import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
 
 export function QuillMaterializeSuggestionRow({
     suggestion,
     windowDays,
-}: MaterializeSuggestionRowProps): JSX.Element | null {
+    selection,
+}: MaterializeSuggestionRowProps & QuillRowSelectionProps): JSX.Element | null {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { openMaterializeModal } = useActions(warehouseSuggestionsLogic)
     const { payload } = suggestion
@@ -32,6 +33,7 @@ export function QuillMaterializeSuggestionRow({
     return (
         <QuillSuggestionRow
             suggestionId={suggestion.id}
+            selection={selection}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}
