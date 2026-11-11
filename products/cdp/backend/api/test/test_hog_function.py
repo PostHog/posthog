@@ -1848,7 +1848,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == expected, response.json()
         stored.refresh_from_db()
-        assert "$inbox_report_ready" in [event["id"] for event in stored.filters["events"]]
+        assert "$inbox_report_ready" in [event["id"] for event in (stored.filters or {}).get("events", [])]
 
     def test_an_edit_checked_before_another_added_the_inbox_report_trigger_is_refused(self):
         stored = HogFunction.objects.create(

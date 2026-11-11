@@ -24,6 +24,7 @@ def recorded_internal_events(*, flag_enabled: bool | None = True) -> Iterator[tu
 
     with (
         patch.object(KafkaProducerForTests, "produce", record),
+        patch("posthoganalytics.disabled", False),
         patch("products.signals.backend.inbox_report_events.feature_enabled", return_value=flag_enabled) as flag,
     ):
         yield sent, flag

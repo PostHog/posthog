@@ -20,6 +20,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from celery.exceptions import SoftTimeLimitExceeded
 from posthoganalytics import feature_enabled
 
@@ -95,28 +96,31 @@ def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_produ
     """`emit_inbox_report_ready_event`, except that a failure before the claims are written raises.
 
     Nothing records a report that was never claimed, so only the caller's retry can still send it.
-    Once claimed, a report is the sweep's to send again.
+    Once claimed, a report is the sweep's to send again. A project whose flag could not be evaluated
+    gets its reports claimed but not sent, so the sweep sends them once the flag answers.
     """
-    if not inbox_report_destinations_enabled(team_id) or report_is_hidden_from_inbox(team_id, report_id):
+    destinations_enabled = _destinations_flag(team_id)
+    if destinations_enabled is False or report_is_hidden_from_inbox(team_id, report_id):
         return
-    _publish_ready_events(
-        [
-            _ReadyEventClaim(team_id=team_id, report_id=claimed_id, source_products=source_products)
-            for claimed_id in [report_id, *_plan_layer_ids(team_id, report_id)]
-            if _claim_ready_event(team_id, claimed_id, source_products)
-        ]
-    )
-
-
-def inbox_report_destinations_enabled(team_id: int) -> bool:
-    """Fails closed: a flag-service error must not start sending a project's reports off-platform."""
-    return _destinations_flag(team_id) is True
+    claims = [
+        _ReadyEventClaim(team_id=team_id, report_id=claimed_id, source_products=source_products)
+        for claimed_id in [report_id, *_plan_layer_ids(team_id, report_id)]
+        if _claim_ready_event(team_id, claimed_id, source_products)
+    ]
+    if destinations_enabled:
+        _publish_ready_events(claims)
 
 
 def _destinations_flag(team_id: int) -> bool | None:
-    """The project's flag, or None when it could not be evaluated."""
+    """The project's flag, or None when it could not be evaluated.
+
+    Fails closed: a flag-service error must not start sending a project's reports off-platform.
+    """
     if settings.DEBUG:
         return True
+    if posthoganalytics.disabled:
+        # An instance that opted out of PostHog's own analytics never gets an answer, so the flag is off for good.
+        return False
     try:
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         enabled = feature_enabled(

@@ -9,8 +9,12 @@ from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
+from posthog.kafka_client.client import KafkaProducerForTests
+from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models.team.team import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -95,20 +99,28 @@ class TestInboxReportReadyEvent(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag off", SignalReport.Status.READY, False, False),
-            ("not ready", SignalReport.Status.IN_PROGRESS, True, False),
-            ("scout keeps its reports out of the inbox", SignalReport.Status.READY, True, True),
+            ("flag off", SignalReport.Status.READY, False, False, False),
+            ("not ready", SignalReport.Status.IN_PROGRESS, True, False, False),
+            ("scout keeps its reports out of the inbox", SignalReport.Status.READY, True, True, False),
+            ("instance opted out of PostHog's analytics", SignalReport.Status.READY, None, False, True),
         ]
     )
-    def test_nothing_is_sent(self, _name: str, status: str, flag_enabled: bool, hidden_from_inbox: bool):
+    def test_nothing_is_sent(
+        self, _name: str, status: str, flag_enabled: bool | None, hidden_from_inbox: bool, analytics_disabled: bool
+    ):
         report = self._report(status)
         if hidden_from_inbox:
             self._hide_from_inbox(report)
 
-        with recorded_internal_events(flag_enabled=flag_enabled) as (sent, _):
+        with (
+            recorded_internal_events(flag_enabled=flag_enabled) as (sent, _),
+            patch("posthoganalytics.disabled", analytics_disabled),
+        ):
             emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
 
+        report.refresh_from_db()
         assert sent == []
+        assert report.ready_event_emitted_at is None
 
     def test_a_report_that_could_not_be_claimed_is_left_to_the_callers_retry(self):
         with recorded_internal_events() as (sent, _):
@@ -118,24 +130,48 @@ class TestInboxReportReadyEvent(BaseTest):
 
         assert sent == []
 
-    def test_the_flag_is_checked_for_the_reports_project(self):
+    def test_only_the_project_the_flag_is_on_for_sends_its_reports(self):
+        other_team = Team.objects.create(organization=self.organization)
         report = self._report()
+        other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="t")
 
-        with recorded_internal_events() as (_, flag):
-            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=[])
+        with recorded_internal_events() as (sent, flag):
+            flag.side_effect = lambda *args, groups, **kwargs: groups["project"] == str(self.team.id)
+            for team_id, report_id in [(self.team.id, report.id), (other_team.id, other_report.id)]:
+                emit_inbox_report_ready_event(team_id=team_id, report_id=str(report_id), source_products=[])
 
-        assert flag.call_args.kwargs["groups"] == {
-            "organization": str(self.organization.id),
-            "project": str(self.team.id),
-        }
+        assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [str(report.id)]
 
-    def test_the_sweep_resends_a_stale_unconfirmed_claim_with_the_same_uuid(self):
+    @parameterized.expand([("rejects it",), ("never confirms it",), ("refuses it",), ("fails to flush",)])
+    def test_the_sweep_sends_again_an_event_the_broker(self, fault: str):
         report = self._report()
-        with recorded_internal_events() as (first, _):
+        accept = KafkaProducerForTests.produce
+
+        def faulty_produce(producer, topic, value, key=None, headers=None, on_delivery=None):
+            if fault == "refuses it":
+                raise BufferError("Local: Queue full")
+            if fault == "rejects it" and on_delivery:
+                on_delivery(KafkaError(KafkaError._MSG_TIMED_OUT), None)  # type: ignore[attr-defined]
+            elif fault != "never confirms it":
+                accept(producer, topic, value, key=key, headers=headers, on_delivery=on_delivery)
+
+        def faulty_flush(producer, timeout=None):
+            if fault == "fails to flush":
+                raise KafkaException(KafkaError(KafkaError._TRANSPORT))  # type: ignore[attr-defined]
+            return 0
+
+        with (
+            # The test-mode producer reports every send delivered without its callback, so take the
+            # production path for the broker's answer to reach the delivery callback.
+            patch.object(get_producer(topic=KAFKA_CDP_INTERNAL_EVENTS), "_test", False),
+            patch.object(KafkaProducerForTests, "produce", faulty_produce),
+            patch.object(KafkaProducerForTests, "flush", faulty_flush),
+            recorded_internal_events() as (first, _),
+        ):
             emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
-        SignalReport.objects.filter(id=report.id).update(
-            ready_event_emitted_at=timezone.now() - timedelta(hours=1), ready_event_delivered_at=None
-        )
+        report.refresh_from_db()
+        assert report.ready_event_delivered_at is None
+        SignalReport.objects.filter(id=report.id).update(ready_event_emitted_at=timezone.now() - timedelta(hours=1))
 
         with recorded_internal_events() as (resent, _):
             reconcile_stranded_ready_events()
@@ -143,6 +179,8 @@ class TestInboxReportReadyEvent(BaseTest):
 
         assert [event["event"]["uuid"] for event in resent] == [first[0]["event"]["uuid"]]
         assert resent[0]["event"]["properties"]["source_products"] == ["scout"]
+        report.refresh_from_db()
+        assert report.ready_event_delivered_at is not None
 
     @parameterized.expand(
         [
@@ -170,14 +208,13 @@ class TestInboxReportReadyEvent(BaseTest):
         assert swept == []
         assert report.ready_event_emitted_at is None
 
-    def test_the_sweep_keeps_a_claim_whose_flag_could_not_be_evaluated(self):
+    def test_a_report_settled_while_its_flag_could_not_be_evaluated_is_sent_once_the_flag_answers(self):
         report = self._report()
         stale = timezone.now() - timedelta(hours=1)
-        SignalReport.objects.filter(id=report.id).update(
-            ready_event_emitted_at=stale, ready_event_source_products=["scout"]
-        )
 
         with recorded_internal_events(flag_enabled=None) as (unknown, _):
+            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
+            SignalReport.objects.filter(id=report.id).update(ready_event_emitted_at=stale)
             reconcile_stranded_ready_events()
         report.refresh_from_db()
         assert report.ready_event_emitted_at is not None and report.ready_event_emitted_at > stale
@@ -186,7 +223,9 @@ class TestInboxReportReadyEvent(BaseTest):
             reconcile_stranded_ready_events()
 
         assert unknown == []
-        assert [event["report_id"] for event in inbox_report_ready_events(recovered)] == [str(report.id)]
+        assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(recovered)] == [
+            (str(report.id), ["scout"])
+        ]
 
     def test_the_sweep_stops_checking_projects_once_its_time_runs_out(self):
         other_team = Team.objects.create(organization=self.organization)

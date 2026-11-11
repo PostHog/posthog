@@ -180,7 +180,7 @@ Defined in `backend/temporal/summary.py`.
     The layers of a research plan are born ready with their plan and run no workflow of their own, so the plan's event carries one event per layer with it.
     A claim on the report (`ready_event_emitted_at`) keeps a re-settle from sending it again, and `reconcile_inbox_report_ready_events` re-sends every 10 minutes a claim the broker never confirmed, with the same event uuid.
     Delivery is at least once, so receivers dedupe on `report_id`.
-    The `inbox-report-destinations` flag gates sending and re-sending per project. A report the Inbox hides, because its scout turned the Inbox destination off, is never sent.
+    The `inbox-report-destinations` flag gates sending and re-sending per project. While the flag cannot be evaluated, a report is claimed but not sent, and the sweep sends it once the flag answers. An instance that opts out of PostHog's own analytics never sends. A report the Inbox hides, because its scout turned the Inbox destination off, is never sent.
     A destination on this event needs viewer access to Tasks, plus `inbox:read` (or the legacy `task:read`) for an API key, to create, edit, test, rerun, or read its logs. It cannot drop the event from its trigger.
     Gated with `workflow.patched("signals-inbox-report-ready-event")`.
 
