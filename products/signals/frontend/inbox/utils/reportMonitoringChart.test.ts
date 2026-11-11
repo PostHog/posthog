@@ -2,6 +2,7 @@ import { NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
 
 import { reportMetricsFixture } from '../__mocks__/reportMetricMocks'
 import {
+    monitoringChartBucketPositioner,
     monitoringChartMarkers,
     monitoringChartPoints,
     monitoringChartQuery,
@@ -25,6 +26,34 @@ describe('Monitoring chart context', () => {
         expect(result.dateRange).toEqual({ date_from: from, date_to: to, explicitDate: true })
         expect(result.series).toEqual(query.series)
         expect(query.dateRange).toEqual({ date_from: '-7d' })
+    })
+
+    const days = ['2026-08-27', '2026-08-28', '2026-08-29']
+    it.each([
+        ['before the first bucket', days, '2026-08-26T00:00:00Z', { index: 0, fraction: 0 }],
+        ['part way through a bucket', days, '2026-08-28T18:00:00Z', { index: 1, fraction: 0.75 }],
+        ['after the last bucket ends', days, '2026-09-01T00:00:00Z', { index: 2, fraction: 1 }],
+        [
+            'in a weekday bucket followed by a filtered weekend',
+            ['2026-08-28', '2026-08-31'],
+            '2026-08-28T12:00:00Z',
+            { index: 0, fraction: 0.5 },
+        ],
+    ])('places a time %s on the chart buckets', (_, labels, time, expected) => {
+        expect(monitoringChartBucketPositioner(labels, 'UTC', 'day')(Date.parse(time))).toEqual(expected)
+    })
+
+    it('limits the range to the observation window when the window end is known', () => {
+        const result = monitoringChartQuery(
+            query,
+            { referencePeriodMinutes: 10080, startedAt: '2026-08-27T12:00:00Z', endsAt: '2026-09-03T12:00:00Z' },
+            now
+        )
+        expect(result.dateRange).toEqual({
+            date_from: '2026-08-27T12:00:00.000Z',
+            date_to: '2026-09-03T12:00:00.000Z',
+            explicitDate: true,
+        })
     })
 
     it.each([

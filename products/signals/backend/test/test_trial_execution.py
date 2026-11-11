@@ -27,7 +27,7 @@ from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, run_agentic_report_activity
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialExecutionRefused, TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import (
     implementation_requires_trial_opt_in,
     prepare_report_pass,
@@ -231,6 +231,62 @@ class TestTrialExecution(BaseTest):
         assert {key: run.state[key] for key in profile} == profile
         assert run.state["self_driving_funding"]["funding"] == "trial"
 
+    @parameterized.expand(
+        [
+            (origin, runtime, adapter, prepared)
+            for origin, runtime, adapter in (
+                ("signal_report", "pi", None),
+                ("signals_scout", "acp", "claude"),
+                ("signals_scout", "acp", "codex"),
+            )
+            for prepared in (False, True)
+        ]
+    )
+    def test_trial_refuses_unaccounted_execution_before_creating_run(
+        self, origin: str, runtime: str, adapter: str | None, prepared: bool
+    ) -> None:
+        grant = self.claim()
+        task = Task.objects.create(
+            team=self.team, title="Trial run", origin_product=origin, runtime=runtime, internal=True
+        )
+        state = {"runtime_adapter": adapter, f"{adapter}_model_access": "own-subscription"} if adapter else {}
+        admission = task_trial_admission(team=self.team, origin=origin) if prepared else nullcontext()
+        with admission, self.assertRaisesMessage(TrialExecutionRefused, "PostHog AI gateway"):
+            task.create_run(extra_state=state)
+        assert not task.runs.exists()
+        assert not SignalSpend.objects.for_team(self.team.id).exists()
+        assert trial_usage(grant).spend_microusd == 0
+
+    @parameterized.expand([(False,), (True,)])
+    def test_trial_preserves_deepseek_for_pi_scouts(self, prepared: bool) -> None:
+        grant = self.claim()
+        task = Task.objects.create(
+            team=self.team, title="First report", origin_product="signals_scout", runtime="pi", internal=True
+        )
+        model = "deepseek-ai/deepseek-v4.1-flash-1017-fast"
+        admission = task_trial_admission(team=self.team, origin="signals_scout") if prepared else nullcontext()
+        with admission:
+            run = task.create_run(extra_state={"model": model})
+        assert run.state["model"] == model
+        assert run.state["self_driving_funding"]["funding"] == "trial"
+        assert run.state["self_driving_funding"]["grant_id"] == str(grant.id)
+        scout_run = SignalScoutRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id, task_run=run, skill_name=FIRST_REPORT_SCOUT, skill_version=1
+        )
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id))
+        assert start_task_trial(team=self.team, run_id=run.id)
+        self.record_token_cost(run)
+        assert trial_usage(grant).spend_microusd == 40_123
+
+    @parameterized.expand([("pi", None), ("acp", "claude"), ("acp", "codex")])
+    def test_existing_funding_keeps_non_trial_execution_modes(self, runtime: str, adapter: str | None) -> None:
+        task = Task.objects.create(
+            team=self.team, title="Existing scout", origin_product="signals_scout", runtime=runtime
+        )
+        state = {"runtime_adapter": adapter, f"{adapter}_model_access": "own-subscription"} if adapter else {}
+        run = task.create_run(extra_state=state)
+        assert run.state["self_driving_funding"]["funding"] == "existing"
+
     @parameterized.expand([(True,), (False,)])
     def test_cost_exhaustion_keeps_accepted_implementation_with_existing_pr(self, enabled: bool) -> None:
         grant = self.claim()
@@ -288,6 +344,8 @@ class TestTrialExecution(BaseTest):
             origin="signals_scout",
             stage="scout",
             report_id=None,
+            task_runtime="acp",
+            model_access="posthog-gateway",
         )
         assert funding["funding"] == "trial"
         assert funding["grant_id"] == str(grant.id)

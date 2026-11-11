@@ -1385,6 +1385,21 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Resolve Node version
+              id: node-version
+              shell: bash
+              run: |
+                  version=$(tr -d 'v[:space:]' < .nvmrc)
+                  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=""
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
+            - name: Restore Node tool cache
+              if: steps.node-version.outputs.version != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
+                  key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
+
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

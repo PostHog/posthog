@@ -43,13 +43,14 @@ role "logs" {
 }
 
 # APM satellite: the ingestion-apm nodes. Every environment runs the shared
-# custom_metrics suite and writes to the query log archive. Every environment also
-# runs the metrics4 ingest chain and the logs Kafka ingest. Development runs the
-# legacy APM ingest chain too. The production logs nodes still run that legacy chain.
+# custom_metrics suite, writes to the query log archive, and runs the logs Kafka
+# ingest. Development runs the legacy APM ingest chain too. The production logs
+# nodes still run that legacy chain. The metrics4 ingest chain runs only on the
+# ingestion-metrics nodes, which write to the metrics cluster.
 role "apm" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/shared", "roles/apm/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
 }
 
 # Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, which the
@@ -60,8 +61,8 @@ role "metrics" {
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
 }
 
-# The ingestion-metrics nodes run the same metrics4 ingest chain as apm, patched to write to the
-# metrics cluster under their own consumer group. Both chains run while the topic is dual-written.
+# The ingestion-metrics nodes run the metrics4 ingest chain, patched to write to the metrics
+# cluster under their own consumer group.
 role "ingestion_metrics" {
   env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared", "roles/ingestion_metrics/dev"] }
   env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
