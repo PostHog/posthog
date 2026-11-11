@@ -359,6 +359,7 @@ const TasksCreateSchema = () => {
         auto_publish: true,
         channel: true,
         scheduled_at: true,
+        warm_run_id: true,
         start_run: true,
         signal_report_discussion_question: true,
         naming_source: true,

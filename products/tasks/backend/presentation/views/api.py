@@ -8,7 +8,7 @@ from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -1964,7 +1964,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
-        return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
+        return Response(
+            WarmTaskResponseSerializer(
+                {
+                    "task_id": result.task_id,
+                    "run_id": result.run_id,
+                    "permission_mode_mutable": origin_product == tasks_facade.TaskOriginProduct.USER_CREATED,
+                }
+            ).data
+        )
 
     @extend_schema(operation_id="tasks_warm_resume_create")
     @validated_request(
@@ -3908,6 +3916,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return access_response
 
         if method == "user_message":
+            if request_id is None:
+                request_id = str(uuid4())
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -3943,7 +3953,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
-                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    TaskRunErrorResponseSerializer(
+                        {"error": "Failed to queue user message for task run", "id": request_id}
+                    ).data,
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
             if signal_result is None:

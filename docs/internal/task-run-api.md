@@ -46,6 +46,11 @@ Older agents may omit these fields; consumers must preserve the existing behavio
 
 `branch` selects the base branch for the first run.
 Optional run hints can be `null`.
+
+User-created tasks may target an unused warm run with `warm_run_id` when the warm response advertises `permission_mode_mutable`. All sandbox settings still need to match except permission mode.
+The server claims the run and requires an exact runtime acknowledgement of a changed mode before delivering the first prompt. Unsupported or unacknowledged mode changes release the warm run, remove its unused draft, and create a cold task; an ambiguous prompt delivery never falls back to another run.
+Other origins do not advertise permission mutability. A failed `user_message` command returns an `id` that the caller can reuse as its JSON-RPC request ID when retrying. Confirmed nondelivery releases a direct message's activation claim; ambiguous delivery preserves it for that same-ID retry.
+
 Pi runs reject ACP runtime, model, reasoning-effort, and permission-mode hints.
 The combined request rejects `pending_user_artifact_ids` before it creates a task.
 It also rejects inaccessible sandbox environments and custom images before task creation.
