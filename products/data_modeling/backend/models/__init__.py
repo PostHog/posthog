@@ -10,7 +10,6 @@ from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .node import Node, NodeType
 from .node_subscription import NodeSubscription
-from .pending_organization_reconcile import PendingOrganizationReconcile
 
 __all__ = [
     "DAG",
@@ -35,5 +34,4 @@ __all__ = [
     "Node",
     "NodeSubscription",
     "NodeType",
-    "PendingOrganizationReconcile",
 ]
