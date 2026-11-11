@@ -37,6 +37,7 @@ const HIDDEN_EVENTS = [
     '$workflows_email_sent',
     '$workflows_email_failed',
     '$workflows_email_delivered',
+    '$workflows_email_delivery_delayed',
     '$workflows_email_opened',
     '$workflows_email_link_clicked',
     '$workflows_email_bounced',

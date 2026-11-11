@@ -569,6 +569,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Workflow email delivered",
             "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
         },
+        "$workflows_email_delivery_delayed": {
+            "label": "Workflow email delivery delayed",
+            "description": "Fires when a workflow email can't be delivered yet, for example because the recipient's mailbox is full, and the email provider keeps retrying. A delivered or bounced event follows once the provider succeeds or gives up.",
+        },
         "$workflows_email_failed": {
             "label": "Workflow email failed",
             "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
