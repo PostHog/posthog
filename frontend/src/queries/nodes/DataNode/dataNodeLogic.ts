@@ -23,7 +23,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
-import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { inStorybook, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
@@ -1084,7 +1084,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
             refresh: sanitizeRefreshType(refresh),
-            queryId: alreadyRunningQueryId || (inStorybook() || inStorybookTestRunner() ? STORYBOOK_QUERY_ID : uuid()),
+            queryId: alreadyRunningQueryId || (inStorybook() ? STORYBOOK_QUERY_ID : uuid()),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
         }),
@@ -1099,7 +1099,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
-            elapsedTime: inStorybook() || inStorybookTestRunner() ? STORYBOOK_ELAPSED_TIME_MS : elapsedTime,
+            elapsedTime: inStorybook() ? STORYBOOK_ELAPSED_TIME_MS : elapsedTime,
             serverDurationMs,
         }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),

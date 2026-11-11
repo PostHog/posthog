@@ -69,6 +69,32 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
+# Labels an async MetricsQuery status with each source a derived metric reads, so retrieval can check access.
+# Stable wire identifier shared by query-status producers and readers. Renaming requires
+# a dual-read rollout and a drain of in-flight query statuses.
+DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DerivedSeriesStatus:
+    """Whether a team can see series derived from its spans and logs."""
+
+    # The team sent spans or logs in the last day.
+    has_sources: bool
+    # Derived series are on for the team, which needs sources.
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if self.enabled and not self.has_sources:
+            raise ValueError("derived series need spans or logs")
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:

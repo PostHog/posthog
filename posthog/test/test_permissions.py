@@ -47,14 +47,17 @@ from posthog.permissions import (
     SharingTokenPermission,
     extract_organization,
     get_authenticator_client,
+    resource_for_ref,
 )
-from posthog.scopes import scopes_not_covered
+from posthog.scopes import APIScopeObject, scopes_not_covered
 from posthog.test.authentication_checks import covers_authentication
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.authorization.backend.facade.contracts import Parent
+from products.authorization.backend.facade.enums import ResourceType
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
@@ -760,7 +763,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         return request
 
-    def _create_mock_view(self, team=None, raise_exception=None, user_permissions=None):
+    def _create_mock_view(self, team=None, raise_exception=None):
         """Helper to create a mock view with specified team or exception"""
         view = Mock()
 
@@ -769,10 +772,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         else:
             view.team = team
 
-        # Set user_permissions if provided
-        if user_permissions:
-            view.user_permissions = user_permissions
-
         return view
 
     def _create_mock_team(self, team_id=1):
@@ -780,14 +779,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         team = Mock()
         team.id = team_id
         return team
-
-    def _create_mock_user_permissions(self, effective_membership_level=None):
-        """Helper to create a mock user_permissions with specified effective membership level"""
-        user_permissions = Mock()
-        current_team = Mock()
-        current_team.effective_membership_level = effective_membership_level
-        user_permissions.current_team = current_team
-        return user_permissions
 
     def test_has_permission_with_team_secret_token_authenticator(self):
         """Should return True when using TeamSecretTokenAuthentication"""
@@ -825,50 +816,31 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         self.assertFalse(self.permission.has_permission(request, view))
 
-    def test_has_permission_with_non_team_secret_token_authenticator_and_valid_membership(self):
-        """Should return True when not using project secret auth and user has valid membership"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(
-            effective_membership_level=OrganizationMembership.Level.MEMBER
-        )
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, True),
+            ("admin", OrganizationMembership.Level.ADMIN, True),
+            ("no_membership", None, False),
+        ]
+    )
+    def test_has_permission_follows_project_membership(self, _name, level, expected):
+        if level is None:
+            user = User.objects.create(email="outsider@example.com")
+        else:
+            user = self.user
+            membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            membership.level = level
+            membership.save()
 
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication, user=user)
+        view = self._create_mock_view(team=self.team)
 
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_with_non_team_secret_token_authenticator_and_no_membership(self):
-        """Should return False when not using project secret auth and user has no membership"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(effective_membership_level=None)
-
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertFalse(result)
+        self.assertEqual(self.permission.has_permission(request, view), expected)
 
     def test_has_permission_with_team_does_not_exist_exception(self):
         """Should return True when view.team raises Team.DoesNotExist"""
         request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
         view = self._create_mock_view(raise_exception=Team.DoesNotExist("Team not found"))
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_with_admin_membership(self):
-        """Should return True when user has admin membership level"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(
-            effective_membership_level=OrganizationMembership.Level.ADMIN
-        )
-
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
 
         result = self.permission.has_permission(request, view)
 
@@ -1741,6 +1713,29 @@ class TestSharingTokenPermission(SimpleTestCase):
         ref = ObjectAccessRef(resource="notebook", id="1", team_id=1, created_by_id=None)
 
         assert SharingTokenPermission().has_object_permission(request, Mock(), ref) is False
+
+
+class TestResourceForRef(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("table_without_parent", "warehouse_table", None),
+            ("table_with_another_parent_type", "warehouse_table", FallbackParent(resource="notebook", id="1")),
+            ("notebook_with_parent", "notebook", FallbackParent(resource="external_data_source", id="1")),
+        ]
+    )
+    def test_rejects_a_parent_that_does_not_match_the_resource(
+        self, _name: str, resource: APIScopeObject, fallback_parent: FallbackParent | None
+    ) -> None:
+        ref = ObjectAccessRef(resource=resource, id="1", team_id=1, created_by_id=None, fallback_parent=fallback_parent)
+
+        with pytest.raises(ValueError, match="fallback_parent"):
+            resource_for_ref(ref)
+
+    def test_keeps_the_parent_of_a_table(self) -> None:
+        parent = FallbackParent(resource="external_data_source", id="7")
+        ref = ObjectAccessRef(resource="warehouse_table", id="1", team_id=1, created_by_id=None, fallback_parent=parent)
+
+        assert resource_for_ref(ref).parent == Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id="7")
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):

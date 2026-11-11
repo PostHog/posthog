@@ -56,6 +56,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -225,6 +226,9 @@ class RouterRegistry:
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
+    # Defer early IP checks so permissions can resolve token and organization overrides after authentication.
+    _ip_restrictions_use_view_scope = True
+
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -556,6 +560,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
         # individual insights are retrieved
         if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
+            include_all_if_admin = True
+
+        if self.scope_object == "early_access_feature" and self.request.GET.get("ids") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(
@@ -905,4 +912,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Team.DoesNotExist, KeyError):
             pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        access = UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same rules, so they reuse this instance.
+            authorization.reuse_current_rules(access)
+        return access

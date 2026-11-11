@@ -1,11 +1,13 @@
 import { IconInfo } from '@posthog/icons'
 import { Field, FieldTitle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+
 import type { EditorFilterItemsProps } from './EditorFilterItems'
 
 export function QuillEditorFilterItems({ editorFilters, insightProps }: EditorFilterItemsProps): JSX.Element {
     return (
-        <>
+        <QuillSurfaceContext.Provider value>
             {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
                 if (Component && Component.name === 'component') {
                     throw new Error(
@@ -41,6 +43,6 @@ export function QuillEditorFilterItems({ editorFilters, insightProps }: EditorFi
                     </Field>
                 )
             })}
-        </>
+        </QuillSurfaceContext.Provider>
     )
 }

@@ -30,6 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
@@ -85,7 +86,8 @@ class TestHogQLDefinitionDirectDispatch(BaseTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
         )
 
-        assert type(table.hogql_definition()) is expected_class
+        with read_unsaved_source_inputs_as_stored():
+            assert type(table.hogql_definition()) is expected_class
 
 
 class TestDataWarehouseTableColumnOrder(BaseTest):
@@ -240,6 +242,15 @@ class TestWarehouseReadErrorClassification:
                 RuntimeError(
                     "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
                     "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                "corrupted or oversized metadata",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file. Error:\n"
+                    "Code: 117. DB::Exception: Failed to parse Parquet Thrift metadata from 40 bytes: "
+                    "TProtocolException: Exceeded size limit. (INCORRECT_DATA).",
+                    code=636,
                 ),
                 "corrupted or oversized metadata",
             ),

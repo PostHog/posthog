@@ -97,6 +97,14 @@ def _customer_fixable_setup_message(exc: BaseException) -> str | None:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
+    # ALTER PUBLICATION ADD TABLE raises this when the table was renamed or dropped on the
+    # source database after PostHog last synced the schema — the customer's database, not ours.
+    if isinstance(exc, psycopg.errors.UndefinedTable):
+        return (
+            f"Could not add this table to change data capture: {exc} "
+            "The table doesn't exist on your database — it may have been renamed or dropped "
+            "since PostHog last synced the schema. Refresh the schema and try again."
+        )
     return None
 
 
