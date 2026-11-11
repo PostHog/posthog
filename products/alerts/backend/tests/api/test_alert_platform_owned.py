@@ -997,16 +997,27 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("hourly", {"calculation_interval": "hourly"}, (60, None, None)),
+            ("hourly", {"calculation_interval": "hourly"}, (60, None, None), None),
             (
                 "weekly_from_a_start_time",
                 {"calculation_interval": "weekly", "schedule_start_time": "09:30"},
                 (60 * 24 * 7, "week", "09:30"),
+                None,
+            ),
+            (
+                "snoozed",
+                {"calculation_interval": "hourly", "snoozed_until": "2099-01-01T00:00:00Z"},
+                (60, None, None),
+                datetime(2099, 1, 1, tzinfo=UTC),
             ),
         ]
     )
     def test_a_create_in_a_team_creating_native_alerts_writes_only_the_platform(
-        self, _name: str, schedule: dict[str, str], cadence: tuple[int, str | None, str | None]
+        self,
+        _name: str,
+        schedule: dict[str, str],
+        cadence: tuple[int, str | None, str | None],
+        snooze_until: datetime | None,
     ) -> None:
         insight = create_insight_alert(self.team).insight
         payload = {
@@ -1034,6 +1045,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert created is not None
         assert (created.legacy_configuration_id, created.created_by_id) == (None, self.user.id)
         assert (created.check_interval_minutes, created.recurrence_unit, created.anchor_time) == cadence
+        assert created.snooze_until == snooze_until
+        assert (response.json()["snoozed_until"] is not None) == (snooze_until is not None)
         assert created.source_config["condition"]["threshold"]["bounds"] == {"upper": 100}
         assert set(response.json()) == set(row.json())
         assert [user["id"] for user in response.json()["subscribed_users"]] == [self.user.id]

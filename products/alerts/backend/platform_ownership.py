@@ -96,8 +96,8 @@ def create_native_alert(
 ) -> PlatformAlertConfigurationView:
     """Creates an insight alert with no insight row from a create the insight API or the Max tool
     checked, in the caller's transaction, after its limit checks. `fields` holds the alert's other
-    fields by name, with `threshold` as the threshold's configuration. Its subscribers are the
-    caller's to write.
+    fields by name, with `threshold` as the threshold's configuration and `snoozed_until` parsed.
+    Its subscribers are the caller's to write.
 
     Raises `PlatformCannotOwn` for an alert the platform cannot evaluate, and like `create_configuration`.
     """
@@ -132,20 +132,24 @@ def create_native_alert(
         created_by_id=alert.created_by_id,
         natively=True,
     )
-    if upsert.anchor_time is None:
+    anchored = upsert.anchor_time is not None
+    if not anchored and alert.snoozed_until is None:
         return view
-    # A create stores the kind's schedule, so a start time takes the cadence write an edit uses.
-    anchored = update_configuration(
-        team_id=alert.team_id,
+    # A create stores the kind's schedule and no mute, so a start time and a snooze take the writes
+    # an edit uses.
+    written = update_configuration(
+        team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
         configuration_id=view.id,
         change=lambda stored: stored,
-        cadence=upsert,
-        rescheduled=True,
+        snooze_until=alert.snoozed_until,
+        snooze_changed=alert.snoozed_until is not None,
+        cadence=upsert if anchored else None,
+        rescheduled=anchored,
         source_checked=True,
     )
-    assert anchored is not None
-    return anchored
+    assert written is not None
+    return written
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:

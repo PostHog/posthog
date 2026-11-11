@@ -1006,6 +1006,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         """`create` for a team whose new alerts get no insight row, after the same checks. The platform
         keeps the alert and its subscribers, and the response carries the platform's id."""
         fields = dict(validated_data)
+        _, fields["snoozed_until"] = _popped_snooze(fields)
         team_id = fields.pop("team_id")
         insight = fields.pop("insight")
         created_by = fields.pop("created_by")
