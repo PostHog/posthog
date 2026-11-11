@@ -428,6 +428,14 @@ export class CyclotronV2Manager {
         })
     }
 
+    async getIdempotencyKeyFingerprint(id: string): Promise<string | null> {
+        const { rows } = await this.pool.query<{ fingerprint: string }>(
+            `SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1 AND expires_at > NOW()`,
+            [id.toLowerCase()]
+        )
+        return rows[0]?.fingerprint ?? null
+    }
+
     private insertJobRows(
         db: Pool | PoolClient,
         jobs: CyclotronV2JobInit[],

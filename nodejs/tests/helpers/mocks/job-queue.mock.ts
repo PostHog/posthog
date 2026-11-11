@@ -1,6 +1,6 @@
-import { JobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
+import { IdempotentJobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
 
-export function createMockJobQueue(): jest.Mocked<JobQueue> {
+export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
     return {
         queueInvocations: jest.fn().mockResolvedValue(undefined),
         queueInvocationResults: jest.fn().mockResolvedValue(undefined),
@@ -12,5 +12,7 @@ export function createMockJobQueue(): jest.Mocked<JobQueue> {
         dequeueInvocations: jest.fn().mockResolvedValue(undefined),
         cancelInvocations: jest.fn().mockResolvedValue(undefined),
         heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
-    } as jest.Mocked<JobQueue>
+        queueInvocationsIdempotently: jest.fn().mockResolvedValue([]),
+        getIdempotencyKeyFingerprint: jest.fn().mockResolvedValue(null),
+    } as jest.Mocked<IdempotentJobQueue>
 }

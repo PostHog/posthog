@@ -4,6 +4,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -34,6 +35,7 @@ import {
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
+import { TransactionalIdempotencyStore } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
@@ -41,6 +43,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -2309,7 +2312,10 @@ describe('CDP API', () => {
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = {
+                queueInvocations: mockQueueInvocations,
+                getIdempotencyKeyFingerprint: jest.fn().mockResolvedValue(null),
+            } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
             jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
@@ -2538,6 +2544,110 @@ describe('CDP API', () => {
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
+            })
+
+            describe('while the idempotency store moves to the cyclotron database', () => {
+                let queue: CyclotronJobQueuePostgresV2
+                let cyclotron: Pool
+                const useStore = (store: TransactionalIdempotencyStore): void => {
+                    api['config'].CDP_TRANSACTIONAL_IDEMPOTENCY_STORE = store
+                }
+                const queuedJobs = async (): Promise<number> =>
+                    (
+                        await cyclotron.query('SELECT COUNT(*)::int AS n FROM cyclotron_jobs WHERE team_id = $1', [
+                            team.id,
+                        ])
+                    ).rows[0].n
+
+                beforeAll(async () => {
+                    queue = new CyclotronJobQueuePostgresV2(1, hub)
+                    await queue.startAsProducer()
+                    cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                })
+
+                afterAll(async () => {
+                    await queue.stopProducer()
+                    await cyclotron.end()
+                })
+
+                beforeEach(async () => {
+                    api['hogflowQueue'] = queue
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE team_id = $1', [team.id])
+                })
+
+                afterEach(() => useStore('valkey'))
+
+                it.each([
+                    ['valkey', 'dual'],
+                    ['dual', 'valkey'],
+                    ['dual', 'postgres'],
+                    ['postgres', 'dual'],
+                    ['valkey', 'postgres'],
+                    ['postgres', 'valkey'],
+                    ['postgres', 'postgres'],
+                ] as const)(
+                    'replays a send made with the %s store to a retry with the %s store',
+                    async (first, retry) => {
+                        useStore(first)
+                        const sent = await sendKeyed()
+                        useStore(retry)
+                        const replayed = await sendKeyed()
+
+                        expect(sent.status).toEqual(202)
+                        expect(replayed.body).toEqual({
+                            status: 'queued',
+                            invocation_id: sent.body.invocation_id,
+                            replayed: true,
+                        })
+                        expect(await queuedJobs()).toBe(1)
+                    }
+                )
+
+                it.each([
+                    ['valkey', 'postgres'],
+                    ['postgres', 'valkey'],
+                    ['postgres', 'postgres'],
+                ] as const)(
+                    'rejects a changed request made with the %s store and retried with the %s store',
+                    async (first, retry) => {
+                        useStore(first)
+                        await sendKeyed()
+                        useStore(retry)
+                        const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                        expect(res.status).toEqual(422)
+                        expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                        expect(await queuedJobs()).toBe(1)
+                    }
+                )
+
+                it('sends with the postgres store when no Valkey is configured', async () => {
+                    useStore('postgres')
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, 'transactional-email')
+                    try {
+                        const res = await sendKeyed()
+
+                        expect(res.status).toEqual(202)
+                        expect(res.body).toMatchObject({ replayed: false })
+                        expect(await queuedJobs()).toBe(1)
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
+                })
+
+                it('refuses a send with the valkey store while the cyclotron database cannot be read, and sends on retry', async () => {
+                    jest.spyOn(queue, 'getIdempotencyKeyFingerprint').mockRejectedValueOnce(new Error('cyclotron down'))
+
+                    const refused = await sendKeyed()
+                    const retry = await sendKeyed()
+
+                    expect(refused.status).toEqual(503)
+                    expect(refused.body).toEqual({ error: 'idempotency_unavailable' })
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ replayed: false })
+                    expect(await queuedJobs()).toBe(1)
+                })
             })
         })
 

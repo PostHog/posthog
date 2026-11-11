@@ -1,4 +1,5 @@
 import { Counter, Histogram } from 'prom-client'
+import { v5 as uuidv5 } from 'uuid'
 import { z } from 'zod'
 
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
@@ -73,6 +74,12 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
 })
+
+const TRANSACTIONAL_EMAIL_INVOCATION_NAMESPACE = 'b3c1f0a4-6a59-4d6e-9b8e-2f7d4c1a9e53'
+
+// A retry with the same key gets the same id, so the id itself is the idempotency key in the cyclotron database.
+export const transactionalEmailInvocationId = (teamId: number, idempotencyKey: string): string =>
+    uuidv5(`${teamId}:${idempotencyKey}`, TRANSACTIONAL_EMAIL_INVOCATION_NAMESPACE)
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }

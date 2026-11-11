@@ -20,6 +20,8 @@ import {
 } from './outputs/producers'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
+export type TransactionalIdempotencyStore = 'valkey' | 'dual' | 'postgres'
+
 // CdpConfig intersects ClickhouseConfig so any consumer reading
 // `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
 // case where `CdpRerunWorkerConsumer` silently fell back to `default` DB.
@@ -118,6 +120,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_IDEMPOTENCY_VALKEY_PORT: number
     CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
     CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+    // Move one step at a time between valkey, dual and postgres: each step reads what its neighbours write.
+    CDP_TRANSACTIONAL_IDEMPOTENCY_STORE: TransactionalIdempotencyStore
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -377,6 +381,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
         CDP_IDEMPOTENCY_VALKEY_TLS: false,
+        CDP_TRANSACTIONAL_IDEMPOTENCY_STORE: 'valkey',
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,

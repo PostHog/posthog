@@ -39,7 +39,7 @@ const idempotencyValkeyDurationSeconds = new Histogram({
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
 })
 
-type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release'
+type IdempotencyOperation = 'reserve' | 'peek' | 'mark_queued' | 'release'
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -121,7 +121,17 @@ export type IdempotencyReservation =
     | { status: 'conflict' }
     | { status: 'unavailable' }
 
+export type IdempotencyPeek = IdempotencyReservation | { status: 'absent' }
+
 type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
+
+const classifyStoredKey = (existing: string, fingerprint: string): IdempotencyReservation => {
+    const stored = parseJSON(existing) as StoredKey
+    if (stored.fingerprint !== fingerprint) {
+        return { status: 'conflict' }
+    }
+    return stored.queued ? { status: 'replayed', invocationId: stored.invocationId } : { status: 'in_flight' }
+}
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -196,11 +206,27 @@ export class IdempotencyKeys {
         if (existing === null) {
             return { status: 'reserved' }
         }
-        const stored = parseJSON(existing) as StoredKey
-        if (stored.fingerprint !== fingerprint) {
-            return { status: 'conflict' }
+        return classifyStoredKey(existing, fingerprint)
+    }
+
+    /** Reads a key without reserving it, to honour keys recorded here before writes moved to another store. */
+    async peek(teamId: number, key: string, fingerprint: string): Promise<IdempotencyPeek> {
+        const valkey = this.valkey
+        if (!valkey) {
+            return { status: 'absent' }
         }
-        return stored.queued ? { status: 'replayed', invocationId: stored.invocationId } : { status: 'in_flight' }
+        let peeked: IdempotencyPeek
+        try {
+            const existing = await this.timed('peek', () =>
+                valkey.useClient({ name: 'idempotency-peek' }, (client) => client.get(this.redisKey(teamId, key)))
+            )
+            peeked = existing === null ? { status: 'absent' } : classifyStoredKey(existing, fingerprint)
+        } catch (error) {
+            logger.error('🔑', 'idempotency key read failed', { scope: this.scope, error: String(error) })
+            peeked = { status: 'unavailable' }
+        }
+        this.count('peek', peeked.status)
+        return peeked
     }
 
     async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {

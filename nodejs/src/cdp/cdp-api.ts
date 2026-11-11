@@ -37,6 +37,7 @@ import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
+import { CyclotronV2IdempotentOutcome } from './services/cyclotron-v2/types'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -63,11 +64,12 @@ import {
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
     isRecipientFormatIssue,
+    transactionalEmailInvocationId,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { JobQueue } from './services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
@@ -221,7 +223,7 @@ export class CdpApi {
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
@@ -246,7 +248,7 @@ export class CdpApi {
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
         batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
@@ -1359,29 +1361,49 @@ export class CdpApi {
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
                 const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
+                const store = this.config.CDP_TRANSACTIONAL_IDEMPOTENCY_STORE
+                const reservesInValkey = !!idempotencyKey && store !== 'postgres'
+                const claimsInPostgres = !!idempotencyKey && store !== 'valkey'
+                if (idempotencyKey && claimsInPostgres) {
+                    invocation.id = transactionalEmailInvocationId(team.id, idempotencyKey)
+                }
+                const replayed = (invocationId: string) =>
+                    reply('replayed', 202, { status: 'queued', invocation_id: invocationId, replayed: true })
                 if (idempotencyKey) {
-                    // Checked before the quota, so a retry of a send that went out gets its answer even
-                    // when the team has hit its quota since.
+                    // Checked before the refusals, so a retry of a sent email gets its answer even after a block.
                     stages.start('idempotency')
-                    const reservation = await idempotencyKeys.reserve(
-                        team.id,
-                        idempotencyKey,
-                        fingerprint,
-                        invocation.id
-                    )
-                    switch (reservation.status) {
+                    const earlier = reservesInValkey
+                        ? await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
+                        : await idempotencyKeys.peek(team.id, idempotencyKey, fingerprint)
+                    switch (earlier.status) {
                         case 'replayed':
-                            return reply('replayed', 202, {
-                                status: 'queued',
-                                invocation_id: reservation.invocationId,
-                                replayed: true,
-                            })
+                            return replayed(earlier.invocationId)
                         case 'in_flight':
                             return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
                         case 'conflict':
                             return reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
                         case 'unavailable':
                             return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                    }
+                    if (store === 'valkey') {
+                        // A key that the dual or postgres store recorded is only in the cyclotron database.
+                        const postgresId = transactionalEmailInvocationId(team.id, idempotencyKey)
+                        let storedFingerprint: string | null
+                        try {
+                            storedFingerprint = await this.hogflowQueue.getIdempotencyKeyFingerprint(postgresId)
+                        } catch (error) {
+                            logger.error('🔑', 'Transactional email idempotency key lookup failed', {
+                                error: error instanceof Error ? error.message : String(error),
+                            })
+                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                            return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                        }
+                        if (storedFingerprint !== null) {
+                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                            return storedFingerprint === fingerprint
+                                ? replayed(postgresId)
+                                : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+                        }
                     }
                 }
                 try {
@@ -1392,7 +1414,7 @@ export class CdpApi {
                         transactionalEmailRecipients(parsed.data)
                     )
                     if (refusal) {
-                        if (idempotencyKey) {
+                        if (idempotencyKey && reservesInValkey) {
                             stages.start('idempotency')
                             await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                         }
@@ -1400,22 +1422,41 @@ export class CdpApi {
                     }
                     stages.start('queue_insert')
                     this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+                    let outcome: CyclotronV2IdempotentOutcome = 'created'
                     try {
-                        await this.hogflowQueue.queueInvocations([invocation])
+                        if (claimsInPostgres) {
+                            ;[outcome] = await this.hogflowQueue.queueInvocationsIdempotently([
+                                { invocation, fingerprint },
+                            ])
+                        } else {
+                            await this.hogflowQueue.queueInvocations([invocation])
+                        }
                     } catch (error) {
                         this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                         throw error
                     }
+                    if (outcome !== 'created') {
+                        this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                        if (idempotencyKey && reservesInValkey) {
+                            stages.start('idempotency')
+                            await (outcome === 'replayed'
+                                ? idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+                                : idempotencyKeys.release(team.id, idempotencyKey, invocation.id))
+                        }
+                        return outcome === 'replayed'
+                            ? replayed(invocation.id)
+                            : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+                    }
                     cdpEmailQueuedTotal.labels(priorityClass).inc()
                 } catch (error) {
                     // Nothing was queued, so the caller's retry with the same key must be able to send.
-                    if (idempotencyKey) {
+                    if (idempotencyKey && reservesInValkey) {
                         stages.start('idempotency')
                         await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                     }
                     throw error
                 }
-                if (idempotencyKey) {
+                if (idempotencyKey && reservesInValkey) {
                     stages.start('idempotency')
                     await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
                 }

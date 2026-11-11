@@ -9,8 +9,8 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
-import { JobQueue } from './job-queue.interface'
+import { CyclotronV2IdempotentOutcome, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
@@ -41,7 +41,7 @@ type SerializedJobState = {
     queueMetadata?: CyclotronJobInvocation['queueMetadata']
 }
 
-export class CyclotronJobQueuePostgresV2 implements JobQueue {
+export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
@@ -212,6 +212,28 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             logger.error('Error creating cyclotron V2 jobs', { error: String(e) })
             throw e
         }
+    }
+
+    public async queueInvocationsIdempotently(
+        entries: IdempotentInvocation[]
+    ): Promise<CyclotronV2IdempotentOutcome[]> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        const invocations = this.sanitizer.sanitizeInvocations(entries.map((entry) => entry.invocation))
+        return await this.manager.createJobsIdempotently(
+            invocations.map((invocation, i) => ({
+                job: { ...invocationToV2JobInit(invocation), id: invocation.id },
+                fingerprint: entries[i].fingerprint,
+            }))
+        )
+    }
+
+    public async getIdempotencyKeyFingerprint(id: string): Promise<string | null> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        return await this.manager.getIdempotencyKeyFingerprint(id)
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
