@@ -32,12 +32,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-)
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -140,6 +135,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionEventDeltaResponseSerializer,
     ExperimentSetupContextInputSerializer,
     ExperimentSetupContextResponseSerializer,
+    ExperimentTimeseriesResultsSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -151,6 +147,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
@@ -695,14 +692,8 @@ class EnterpriseExperimentsViewSet(
         only experiment:write. Session and other non-token auth aren't scope-limited (gated by
         access control instead), mirroring APIScopePermission.
         """
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scopes = authenticator.personal_api_key.scopes or []
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scopes = (authenticator.access_token.scope or "").split()
-        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
-            scopes = list(authenticator.scopes or [])
-        else:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is None:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 
@@ -1068,7 +1059,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
         flag version that are no local evaluation, from an hour after the window starts. When
         every condition that includes users pins the variant whose key one property holds,
-        `assigned_by_property` replaces `all_conditions_pinned`.
+        `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+        everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+        as a warning. A condition without filters, or with only filters that leave users out,
+        includes everyone.
 
         A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
         is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -1581,6 +1575,7 @@ class EnterpriseExperimentsViewSet(
                 deprecated=True,
             ),
         ],
+        responses={200: ExperimentTimeseriesResultsSerializer},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1591,7 +1586,11 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric_uuid query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
+        return Response(
+            ExperimentTimeseriesResultsSerializer(
+                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
+            ).data
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1707,7 +1706,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1715,10 +1714,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            return Response(_serialize_latest(fallback, active_run))
+            return Response(_serialize_latest(experiment, fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_latest(_build_run_payload(active), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -2172,7 +2171,8 @@ def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     return payload
 
 
-def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
+def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
+    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
     return ExperimentMetricsRecalculationLatestSerializer(payload).data

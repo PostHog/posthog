@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -44,10 +46,10 @@ class TestAppHomeOpenedRegionRouting(TestCase):
         write_auth_state_ok(integration.id, bot_user_id=None)
         return integration
 
-    def _route(self, host: str = "eu.posthog.com") -> str:
+    def _route(self, host: str = "eu.posthog.com", tab: str = "home") -> str:
         request = self.factory.post("/slack/event-callback/", HTTP_HOST=host)
         return route_posthog_code_event_to_relevant_region(
-            request, {"type": "app_home_opened", "user": "U001"}, self.SLACK_TEAM_ID
+            request, {"type": "app_home_opened", "user": "U001", "tab": tab}, self.SLACK_TEAM_ID
         )
 
     @patch("products.slack_app.backend.api.get_instance_region", return_value="EU")
@@ -62,15 +64,25 @@ class TestAppHomeOpenedRegionRouting(TestCase):
         assert mock_proxy.called
         assert not mock_publish.called
 
+    @parameterized.expand([("home",), ("messages",)])
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api.get_instance_region", return_value="EU")
     @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.request_onboarding")
     @patch("products.slack_app.backend.api._handle_app_home_opened")
     def test_publishes_locally_when_workspace_is_local(
-        self, mock_publish: MagicMock, mock_proxy: MagicMock, _region: MagicMock, _claims: MagicMock
+        self,
+        tab: str,
+        mock_publish: MagicMock,
+        mock_setup_card: MagicMock,
+        mock_proxy: MagicMock,
+        _region: MagicMock,
+        _claims: MagicMock,
     ) -> None:
         integration = self._create_local_integration()
 
-        assert self._route() == ROUTE_HANDLED_LOCALLY
+        assert self._route(tab=tab) == ROUTE_HANDLED_LOCALLY
         assert not mock_proxy.called
         assert mock_publish.call_args.kwargs["integration"] == integration
+        assert mock_setup_card.called
+        assert mock_setup_card.call_args.kwargs == {"may_start": True}

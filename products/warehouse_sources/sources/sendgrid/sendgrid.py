@@ -111,13 +111,26 @@ def _flatten_daily_stats(item: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _flatten_category_stats(item: dict[str, Any]) -> list[dict[str, Any]]:
-    """Flatten one `{date, stats: [{name, metrics: {...}}]}` bucket of a single-category request
-    into a row per metrics entry, keyed by the requested category from the parent row."""
+def _flatten_breakdown_stats(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten one `{date, stats: [{type, name, metrics: {...}}]}` bucket into a row per breakdown
+    value (country, device, browser, ...), with the bucket `date` merged in."""
     return [
-        {"date": item.get("date"), "category": item.get("category"), **(entry.get("metrics") or {})}
+        {"date": item.get("date"), "type": entry.get("type"), "name": entry.get("name"), **(entry.get("metrics") or {})}
         for entry in item.get("stats") or []
     ]
+
+
+def _parent_stats_flattener(parent_field: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """Flatten one `{date, stats: [{name, metrics: {...}}]}` bucket of a single-parent request
+    into a row per metrics entry, keyed by the requested parent value (category, subuser)."""
+
+    def _flatten(item: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"date": item.get("date"), parent_field: item.get(parent_field), **(entry.get("metrics") or {})}
+            for entry in item.get("stats") or []
+        ]
+
+    return _flatten
 
 
 _ACTIVITY_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -315,7 +328,7 @@ def _build_params(
 
     # Metadata endpoints carry the page size as a query param; offset endpoints get limit/offset
     # from the paginator, single endpoints take no pagination params.
-    if config.pagination == "metadata":
+    if config.pagination == "metadata" and config.send_page_size:
         params["page_size"] = config.page_size
 
     if config.incremental_param:
@@ -433,7 +446,7 @@ def _fanout_resource(
         # The cursor is already bound into `child_params` as the endpoint's start param.
         incremental_config_factory=lambda _field: None,
         # Offset parents get `limit` from their paginator, single-page children take no page size.
-        page_size_param="page_size" if config.pagination == "metadata" else None,
+        page_size_param="page_size" if config.pagination == "metadata" and config.send_page_size else None,
         child_params_extra=child_params,
         parent_data_map=(
             _encoded_parent_field(config.encode_parent_field, config.fanout.resolve_field)
@@ -453,9 +466,10 @@ def _fanout_resource(
             "data_selector_required": True,
         },
     )
-    if config.response_shape == "category_stats":
+    if config.response_shape == "parent_stats":
         assert isinstance(resource, Resource)
-        resource.add_map(_flatten_category_stats)
+        assert config.parent_stats_field is not None
+        resource.add_map(_parent_stats_flattener(config.parent_stats_field))
     return resource
 
 
@@ -519,6 +533,8 @@ def sendgrid_source(
     if config.response_shape == "daily_stats":
         # stats rows are nested one level deeper than the bare array; flatten them into flat daily rows.
         resource_config["data_map"] = _flatten_daily_stats
+    elif config.response_shape == "breakdown_stats":
+        resource_config["data_map"] = _flatten_breakdown_stats
 
     # Activity pagination owns its own request params (`query` window + `limit`), including the
     # server-side incremental filter, so it is built with the cursor instead of via `params`.
@@ -586,7 +602,7 @@ def _probe_params(config: SendGridEndpointConfig) -> dict[str, Any]:
     params: dict[str, Any] = dict(config.extra_params)
     if config.pagination == "offset":
         params["limit"] = 1
-    elif config.pagination == "metadata":
+    elif config.pagination == "metadata" and config.send_page_size:
         params["page_size"] = 1
     elif config.pagination == "activity":
         # `query` is required on /messages, so probe a one-day window for one row. The 403 for a

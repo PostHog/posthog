@@ -301,6 +301,21 @@ CREATE TABLE posthog.email_status (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -1844,6 +1859,7 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
@@ -2049,6 +2065,7 @@ CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),

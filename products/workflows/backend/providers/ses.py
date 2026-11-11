@@ -40,6 +40,7 @@ from products.workflows.backend.services.email_domain_status import build_email_
 
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
+    from types_boto3_ses.type_defs import IdentityMailFromDomainAttributesTypeDef
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
@@ -865,9 +866,7 @@ class SESProvider:
             domain
         )
         dkim_for_domain = ses.get_identity_dkim_attributes(Identities=[domain])["DkimAttributes"].get(domain)
-        mail_from_for_domain = ses.get_identity_mail_from_domain_attributes(Identities=[domain])[
-            "MailFromDomainAttributes"
-        ].get(domain)
+        mail_from_for_domain = self._read_mail_from_attributes(domain, ses)
         return _SESIdentityState(
             verification_status=id_for_domain["VerificationStatus"] if id_for_domain else _UNKNOWN,
             verification_token=id_for_domain.get("VerificationToken") if id_for_domain else None,
@@ -876,6 +875,18 @@ class SESProvider:
             mail_from_status=mail_from_for_domain["MailFromDomainStatus"] if mail_from_for_domain else _UNKNOWN,
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
+
+    @staticmethod
+    def _read_mail_from_attributes(domain: str, ses: "SESClient") -> "IdentityMailFromDomainAttributesTypeDef | None":
+        return ses.get_identity_mail_from_domain_attributes(Identities=[domain])["MailFromDomainAttributes"].get(domain)
+
+    def get_mail_from_subdomain(self, domain: str) -> str | None:
+        mail_from_for_domain = self._read_mail_from_attributes(domain, self.ses_client)
+        mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
+        suffix = f".{domain}"
+        if mail_from_domain and mail_from_domain.endswith(suffix):
+            return mail_from_domain.removesuffix(suffix)
+        return None
 
     def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
         """

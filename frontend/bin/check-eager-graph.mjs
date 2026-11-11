@@ -162,6 +162,10 @@ const ROOTS = [
             // The login scene's logics. Shell code reads the login redirect from lib/utils/loginRedirect.
             'src/scenes/authentication/auth/loginLogic.ts',
             'src/scenes/authentication/shared/passkeyLogic.ts',
+            // The cohort criteria normalizer belongs to the cohort scenes. It pulls in the cohort row editor.
+            'src/scenes/cohorts/CohortFilters/constants.tsx',
+            // The persons scene loads its own logic. The shared cohorts model has no reason to import it.
+            'products/persons/frontend/logics/personsLogic.tsx',
             // The surveys scene constants hold the question type tables. lib/api reads its page size from lib/constants.
             'src/scenes/surveys/constants.tsx',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.

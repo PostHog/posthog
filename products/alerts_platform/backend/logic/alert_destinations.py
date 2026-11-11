@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from typing import Final, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import transaction
@@ -136,6 +137,22 @@ def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     )
 
 
+def hears_kind(
+    *, team_id: int, configuration_id: UUID, destination_type: DestinationType, event_kind: AlertEventKind
+) -> bool:
+    """Whether an enabled destination of this type on the alert sends messages of this kind."""
+    return (
+        AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration_id=configuration_id,
+            type=destination_type,
+            enabled=True,
+            event_kinds__contains=[event_kind.value],
+        )
+        .exists()
+    )
+
+
 def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
     """A second destination with the same address would send every message twice."""
     seen = [
@@ -154,25 +171,59 @@ def _receiver(data: AlertDestinationData) -> dict[str, object]:
 
 
 def _validate(destination: NewAlertDestination) -> None:
-    destination_type = destination.data.get("type")
+    validate_destination_data(destination.data)
+    validate_event_kinds(destination.event_kinds)
+
+
+def validate_destination_data(data: AlertDestinationData) -> None:
+    """Where and how a destination sends. A team-wide receiver shares these rules with an alert's own destination."""
+    destination_type = data.get("type")
     if destination_type not in DestinationType.values:
         raise AlertDestinationValidationError("This destination type is not supported.", field="type")
     required = _REQUIRED_FIELDS[DestinationType(destination_type)]
-    missing = [key for key in required if not destination.data.get(key)]
+    missing = [key for key in required if not data.get(key)]
     if missing:
         raise AlertDestinationValidationError(f"This destination needs {', '.join(missing)}.", field="config")
-    malformed = [key for key in required if not _FIELD_CHECKS[key](destination.data.get(key))]
+    malformed = [key for key in required if not _FIELD_CHECKS[key](data.get(key))]
     if malformed:
         raise AlertDestinationValidationError(
             f"This destination has an invalid {', '.join(malformed)}.", field="config"
         )
-    if not destination.event_kinds:
-        raise AlertDestinationValidationError("Choose at least one event to send.", field="event_kinds")
-    if not set(destination.event_kinds) <= DESTINATION_EVENT_KINDS:
-        raise AlertDestinationValidationError("A destination cannot send about this event.", field="event_kinds")
-    refusal = refused_destination(destination.data)
+    refusal = refused_destination(data)
     if refusal is not None:
         raise AlertDestinationValidationError(refusal, field="config")
+
+
+def validate_event_kinds(event_kinds: Collection[AlertEventKind]) -> None:
+    if not event_kinds:
+        raise AlertDestinationValidationError("Choose at least one event to send.", field="event_kinds")
+    if not set(event_kinds) <= DESTINATION_EVENT_KINDS:
+        raise AlertDestinationValidationError("A destination cannot send about this event.", field="event_kinds")
+
+
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """Drop the parts of a destination's configuration that are a credential."""
+    redacted = cast(AlertDestinationData, {key: value for key, value in data.items() if key != "webhook_headers"})
+    if (webhook_url := data.get("webhook_url")) is not None:
+        redacted["webhook_url"] = _redact_url(webhook_url)
+    if (routing_key := data.get("pagerduty_routing_key")) is not None:
+        # Keep the tail a person needs to tell two integration keys apart.
+        redacted["pagerduty_routing_key"] = f"••••{routing_key[-4:]}"
+    return redacted
+
+
+def _redact_url(value: str) -> str:
+    """Keep only the parts a person needs to tell two destinations apart. The path,
+    query and userinfo carry the channel secret for every webhook-style provider."""
+    try:
+        parsed = urlsplit(value)
+        scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
+    except ValueError:
+        return "<redacted>"
+    if not scheme or not hostname:
+        return "<redacted>"
+    authority = f"{hostname}:{port}" if port is not None else hostname
+    return f"{scheme}://{authority}"
 
 
 def _stored(row: AlertDestination) -> StoredAlertDestination:

@@ -9,6 +9,7 @@ that has not sent a task yet would leave the flags service reading stale team me
 until the hourly verification fixes it.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -23,6 +24,7 @@ from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import clear_team_metadata_cache
 
+from products.cohorts.backend.models.team_access import RealtimeCohortTeamAccess
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
 logger = structlog.get_logger(__name__)
@@ -34,21 +36,25 @@ def _record_enqueue_failure() -> None:
     ).inc()
 
 
+def _enqueue_or_record_failure(enqueue: Callable[[], object], failure_message: str, **log_context: Any) -> None:
+    try:
+        enqueue()
+    except Exception as e:
+        _record_enqueue_failure()
+        logger.exception(failure_message, error=str(e), **log_context)
+
+
 def _enqueue_team_metadata_update_on_commit(team_id: int) -> None:
     def enqueue_task() -> None:
         # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
         # this signal module is wired at django.setup(), so import the task lazily.
         from posthog.tasks.team_metadata import update_team_metadata_cache_task  # noqa: PLC0415
 
-        try:
-            update_team_metadata_cache_task.delay(team_id)
-        except Exception as e:
-            _record_enqueue_failure()
-            logger.exception(
-                "Failed to enqueue cache update task",
-                team_id=team_id,
-                error=str(e),
-            )
+        _enqueue_or_record_failure(
+            lambda: update_team_metadata_cache_task.delay(team_id),
+            "Failed to enqueue cache update task",
+            team_id=team_id,
+        )
 
     # Use transaction.on_commit to ensure the database changes are committed
     # before we update the cache
@@ -59,16 +65,12 @@ def _enqueue_related_team_metadata_fanout(*, organization_id: int | None = None,
     # Imported lazily for the same reason as in _enqueue_team_metadata_update_on_commit.
     from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task  # noqa: PLC0415
 
-    try:
-        update_related_teams_metadata_cache_task.delay(organization_id=organization_id, project_id=project_id)
-    except Exception as e:
-        _record_enqueue_failure()
-        logger.exception(
-            "Failed to enqueue related team metadata fan-out",
-            organization_id=organization_id,
-            project_id=project_id,
-            error=str(e),
-        )
+    _enqueue_or_record_failure(
+        lambda: update_related_teams_metadata_cache_task.delay(organization_id=organization_id, project_id=project_id),
+        "Failed to enqueue related team metadata fan-out",
+        organization_id=organization_id,
+        project_id=project_id,
+    )
 
 
 def _any_field_may_have_changed(update_fields: frozenset[str] | None, fields: frozenset[str]) -> bool:
@@ -103,6 +105,40 @@ def update_team_metadata_cache_on_flag_policy_save(
     _enqueue_team_metadata_update_on_commit(instance.team_id)
 
 
+def update_team_metadata_cache_on_realtime_cohort_access_save(
+    sender: type[RealtimeCohortTeamAccess], instance: RealtimeCohortTeamAccess, created: bool, **kwargs: Any
+) -> None:
+    """Refresh the cached team when its realtime cohort level changes, because the flags service reads it from that cache."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"level"})):
+        return
+
+    _enqueue_team_metadata_update_on_commit(instance.team_id)
+
+
+def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str) -> None:
+    """After the commit, clear the metadata cache entry of a token that no longer belongs to the team.
+
+    The flags service trusts a cache hit without a Postgres check.
+    Until the entry is gone, the token keeps resolving to the team there.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    def enqueue_task() -> None:
+        # Imported lazily for the same reason as in _enqueue_team_metadata_update_on_commit.
+        from posthog.tasks.team_metadata import clear_team_metadata_cache_for_token_task  # noqa: PLC0415
+
+        _enqueue_or_record_failure(
+            lambda: clear_team_metadata_cache_for_token_task.delay(api_token),
+            "Failed to enqueue retired token metadata clear",
+            team_id=team_id,
+        )
+
+    transaction.on_commit(enqueue_task)
+
+
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
     if not settings.FLAGS_REDIS_URL:
@@ -111,6 +147,9 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
+    # This clear runs before the commit and does not retry. A refresh in that gap can write the entry back.
+    # The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
+    enqueue_retired_token_metadata_clear_on_commit(instance.id, instance.api_token)
 
 
 # Organization and project names are denormalized into team metadata, but only the Team signal
@@ -143,6 +182,7 @@ def update_team_metadata_cache_on_project_save(
 def connect_signal_handlers() -> None:
     post_save.connect(update_team_metadata_cache_on_save, sender=Team)
     post_save.connect(update_team_metadata_cache_on_flag_policy_save, sender=TeamFeatureFlagPolicyConfig)
+    post_save.connect(update_team_metadata_cache_on_realtime_cohort_access_save, sender=RealtimeCohortTeamAccess)
     pre_delete.connect(clear_team_metadata_cache_on_delete, sender=Team)
     post_save.connect(update_team_metadata_cache_on_organization_save, sender=Organization)
     post_save.connect(update_team_metadata_cache_on_project_save, sender=Project)

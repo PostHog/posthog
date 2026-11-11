@@ -11,6 +11,7 @@ from typing import Any
 from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 
 OCSF_VERSION = "1.5.0"
 
@@ -74,8 +75,13 @@ def _classify(activity: str) -> tuple[int, int]:
     return CLASS_UID_ENTITY_MANAGEMENT, _ENTITY_MANAGEMENT_ACTIVITIES.get(activity, ACTIVITY_ID_OTHER)
 
 
-def _changes(instance: ActivityLog) -> list[dict[str, Any]]:
-    detail = instance.safe_detail or {}
+def _visible_detail(instance: ActivityLog, context: dict[str, Any]) -> dict[str, Any]:
+    visibility = PropertyValueVisibility.from_serializer_context(context)
+    detail = visibility.apply(instance, instance.safe_detail) if visibility else instance.safe_detail
+    return detail if isinstance(detail, dict) else {}
+
+
+def _changes(detail: dict[str, Any]) -> list[dict[str, Any]]:
     return [change for change in (detail.get("changes") or []) if isinstance(change, dict)]
 
 
@@ -86,8 +92,8 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ActivityLog) -> dict[str, Any]:
         class_uid, activity_id = _classify(instance.activity)
-        detail = instance.safe_detail or {}
-        changes = _changes(instance)
+        detail = _visible_detail(instance, self.context)
+        changes = _changes(detail)
         changed_fields = [change["field"] for change in changes if change.get("field")]
 
         event: dict[str, Any] = {

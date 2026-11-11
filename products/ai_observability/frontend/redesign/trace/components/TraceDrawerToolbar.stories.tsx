@@ -23,4 +23,7 @@ type Story = StoryObj<typeof TraceDrawerToolbar>
 export const Default: Story = {}
 export const FirstTrace: Story = { args: { position: { index: 0, total: 12 }, onPrevious: null } }
 export const NotInList: Story = { args: { position: null, onPrevious: null, onNext: null } }
+export const SingleTrace: Story = {
+    args: { showNavigation: false, position: null, onPrevious: null, onNext: null },
+}
 export const Narrow: Story = { decorators: [withWidth(480)] }

@@ -14,6 +14,7 @@ from posthog.tasks.alerts.investigation_notifications import (
     run_investigation_notification_safety_net,
 )
 
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.product_analytics.backend.facade.models import Insight
@@ -180,12 +181,20 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
 
+    @parameterized.expand(
+        [
+            ("evaluation_skipped", {"skipped_reason": "Not enough completed intervals after the evaluation delay."}),
+            ("firing_not_renotified", {FIRING_NOT_RENOTIFIED_KEY: True}),
+        ]
+    )
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
-    def test_skips_evaluation_skipped_check(self, mock_dispatch: object) -> None:
+    def test_skips_firing_check_that_owes_no_notification(
+        self, _name: str, triggered_metadata: dict, mock_dispatch: object
+    ) -> None:
         self._make_check(
             age_minutes=INVESTIGATION_RUNNING_GRACE_MINUTES + 60,
             investigation_status=None,
-            triggered_metadata={"skipped_reason": "Not enough completed intervals after the evaluation delay."},
+            triggered_metadata=triggered_metadata,
         )
         notified = run_investigation_notification_safety_net()
         assert notified == 0

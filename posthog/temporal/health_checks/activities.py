@@ -1,6 +1,5 @@
 import dataclasses
 from datetime import timedelta
-from itertools import batched
 from typing import TYPE_CHECKING
 
 from django.db import close_old_connections
@@ -53,43 +52,6 @@ def _scheduled_teams(inputs: HealthCheckWorkflowInputs) -> "QuerySet[Team]":
     return qs
 
 
-@database_sync_to_async
-def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[int]]:
-    # Temporal activities run in a thread pool where DB connections can go stale
-    # between executions. close_old_connections() ensures we get a fresh connection.
-    close_old_connections()
-
-    kill_switch_level = get_kill_switch_level()
-    if kill_switch_level != KillSwitchLevel.OFF:
-        logger.info(
-            "skipping health check due to clickhouse kill switch",
-            kind=inputs.kind,
-            kill_switch_level=kill_switch_level.value,
-        )
-        return []
-
-    if inputs.team_ids:
-        team_ids = inputs.team_ids
-        logger.info("processing configured teams", count=len(team_ids))
-    else:
-        team_ids = list(_scheduled_teams(inputs).values_list("id", flat=True))
-        logger.info("team query complete", count=len(team_ids), active_since_days=inputs.active_since_days)
-
-    if inputs.rollout_percentage < 1.0:
-        team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
-        logger.info("after rollout filtering", rollout_pct=inputs.rollout_percentage, count=len(team_ids))
-
-    batches = [list(b) for b in batched(team_ids, inputs.batch_size, strict=False)]
-
-    logger.info("created team batches", batch_count=len(batches), batch_size=inputs.batch_size)
-    return batches
-
-
-@temporalio.activity.defn
-async def get_team_id_batches(inputs: HealthCheckWorkflowInputs) -> list[list[int]]:
-    return await _get_team_id_batches_sync(inputs)
-
-
 def _next_team_ids(inputs: HealthCheckWorkflowInputs, after_team_id: int, page_size: int) -> list[int]:
     if inputs.team_ids:
         return sorted(team_id for team_id in set(inputs.team_ids) if team_id > after_team_id)[:page_size]
@@ -135,7 +97,8 @@ async def get_team_id_page(inputs: HealthCheckWorkflowInputs, after_team_id: int
 
 @database_sync_to_async
 def _get_team_id_page_sync(inputs: HealthCheckWorkflowInputs, after_team_id: int) -> TeamIdPage:
-    # See comment in _get_team_id_batches_sync for why this is needed.
+    # Temporal activities run in a thread pool where DB connections can go stale
+    # between executions. close_old_connections() ensures we get a fresh connection.
     close_old_connections()
     return build_team_id_page(inputs, after_team_id)
 
@@ -146,7 +109,7 @@ def _run_health_check_batch_sync(
     kind: str,
     dry_run: bool,
 ) -> dict:
-    # See comment in _get_team_id_batches_sync for why this is needed.
+    # See comment in _get_team_id_page_sync for why this is needed.
     close_old_connections()
 
     ensure_registry_loaded()

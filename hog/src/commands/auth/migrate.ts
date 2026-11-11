@@ -1,12 +1,15 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
-import { HogError } from '@/core/errors'
+import { parseJsonOrUndefined } from '@/core/json'
 import { escapeControls } from '@/core/output'
 import { PersonalAPIKey } from '@/posthog/access-key'
-import { parseJson } from '@/posthog/credential-store/helpers'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { checkApiKey, checkHost, checkProjectId, DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
-import { trimHost } from '@/posthog/host'
+import { DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
+import { parseHost } from '@/posthog/host'
+import { parseProjectId } from '@/posthog/ids'
 import { saveLogin } from '@/posthog/login/flow'
+import { parsePersonalApiKey } from '@/posthog/tokens'
 
 type MigrateResult =
     | {
@@ -20,6 +23,9 @@ type MigrateResult =
           legacyFile: string
       }
     | { status: 'nothing_to_migrate'; legacyFile: string; next: string }
+
+// The fields go through the brand factories below, so a bad value names what is wrong with it.
+const LegacyCredentials = z.object({ token: z.unknown(), env_id: z.unknown(), host: z.unknown() })
 
 // TODO(v1.1): drop this command. It exists so people moving from posthog-cli keep their key
 // without logging in again, and hog reads the old file nowhere else.
@@ -44,18 +50,15 @@ export default defineCommand({
             }
             throw error
         }
-        const stored = parseJson(text) as { token?: unknown; env_id?: unknown; host?: unknown } | null | undefined
-        const apiKey = typeof stored?.token === 'string' ? stored.token : ''
-        const projectId = stored?.env_id === undefined ? '' : String(stored.env_id)
-        const host = trimHost(typeof stored?.host === 'string' ? stored.host : DEFAULT_HOST)
-        const problem = checkApiKey(apiKey) ?? checkProjectId(projectId) ?? checkHost(host)
-        if (problem) {
-            throw new HogError(
-                'invalid_legacy_credentials',
-                `hog couldn't move the key in ${legacyFile}. ${problem}`,
-                'Run `hog auth login` to log in instead.'
-            )
+        const stored = parseJsonOrUndefined(text, LegacyCredentials)
+        const failure = {
+            code: 'invalid_legacy_credentials',
+            context: `hog couldn't move the key in ${legacyFile}.`,
+            hint: 'Run `hog auth login` to log in instead.',
         }
+        const apiKey = parsePersonalApiKey(stored?.token, failure)
+        const projectId = parseProjectId(stored?.env_id, failure)
+        const host = typeof stored?.host === 'string' ? parseHost(stored.host, failure) : DEFAULT_HOST
         const key = new PersonalAPIKey({ host, projectId, apiKey })
         const loggedIn = await saveLogin(runtime, key)
         const { store, credentialsPath, keychainError } = loggedIn

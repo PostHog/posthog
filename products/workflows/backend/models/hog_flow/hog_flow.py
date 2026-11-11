@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.workflows.backend.facade.enums import (
     HogFlowEmailSendingPausedBy,
     HogFlowExitCondition,
@@ -407,11 +407,10 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
-@receiver(post_save, sender=Action)
-def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+def action_saved_for_hog_flows(event: ActionSaved) -> None:
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(action_id=instance.id)
+    refresh_affected_hog_flows.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

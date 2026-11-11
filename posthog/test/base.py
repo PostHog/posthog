@@ -7,6 +7,7 @@ import logging
 import datetime as dt
 import resource
 import threading
+import dataclasses
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import AbstractContextManager, ExitStack, contextmanager
@@ -79,9 +80,11 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.dataclasses import frozen
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -118,10 +121,9 @@ from posthog.models.event.sql import (
 )
 from posthog.models.event.util import ZERO_DATE, _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_NAME,
     EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -219,6 +221,7 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
+from posthog.organization_caching import access_cache
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -229,7 +232,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -1090,6 +1093,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+            get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
         organization = Organization.objects.create(name="Test Organization")
@@ -1672,6 +1676,32 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
+@contextmanager
+def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]]:
+    # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
+    unpatched_get = access_cache.get
+    missing = object()
+    with (
+        patch.object(access_cache, "get", wraps=access_cache.get) as get,
+        patch.object(
+            access_cache,
+            "get_many",
+            side_effect=lambda keys: {
+                key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
+            },
+        ) as get_many,
+    ):
+        # IP policies share the backend but not the organization-access key namespace.
+        def count(key_prefix: str | None = "organization_access:") -> int:
+            if key_prefix is None:
+                return get.call_count + get_many.call_count
+            return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
+                any(key.startswith(key_prefix) for key in call.args[0]) for call in get_many.call_args_list
+            )
+
+        yield count
+
+
 def reset_unusable_db_connections() -> None:
     """Close any DB connection whose underlying handle is dead or left in an errored state
     by an earlier test, so Django transparently reconnects on next use.
@@ -1931,8 +1961,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
+    return create_action(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
 
 
 class ClickhouseTestMixin(QueryMatchingTest):
@@ -2135,103 +2164,98 @@ def reset_clickhouse_database() -> None:
             _clear_materialized_columns_cache(_mat_table)
     except ModuleNotFoundError:
         pass
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
-            DROP_RAW_SESSION_VIEW_SQL(),
-            DROP_RAW_SESSION_VIEW_SQL_V3(),
-            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_SESSION_VIEW_SQL(),
-            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
-            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_CHANNEL_DEFINITION_TABLE_SQL,
-            DROP_EXCHANGE_RATE_TABLE_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            *clickhouse_events_table_drop_statements(),
-            DROP_PERSON_TABLE_SQL,
-            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
-            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_SESSION_TABLE_SQL(),
-            DROP_WEB_STATS_SQL(),
-            DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_STAGING_SQL(),
-            DROP_WEB_BOUNCES_STAGING_SQL(),
-            DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_MV_SQL(),
-            DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_MV_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
-            TRUNCATE_GROUPS_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
-            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
-            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            TRUNCATE_AI_EVENTS_TABLE_SQL(),
-            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
-            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            CHANNEL_DEFINITION_TABLE_SQL(),
-            EXCHANGE_RATE_TABLE_SQL(),
-            *clickhouse_events_data_table_sqls(),
-            FLAG_EVALUATIONS_TABLE_SQL(),
-            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
-            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
-            PERSONS_TABLE_SQL(),
-            PROPERTY_DEFINITIONS_TABLE_SQL(),
-            RAW_SESSIONS_TABLE_SQL(),
-            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
-            SESSIONS_TABLE_SQL(),
-            SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_STATS_SQL(),
-            WEB_BOUNCES_SQL(),
-            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
-            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
-            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
-            COHORT_MEMBERSHIP_TABLE_SQL(),
-            PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-        ]
-    )
+    drop_views_and_dictionaries = [
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
+        DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
+        DROP_RAW_SESSION_VIEW_SQL(),
+        DROP_RAW_SESSION_VIEW_SQL_V3(),
+        DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+        DROP_SESSION_VIEW_SQL(),
+        DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
+        DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+        *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
+    ]
+    drop_and_truncate_tables = [
+        DROP_CHANNEL_DEFINITION_TABLE_SQL,
+        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+        *clickhouse_events_table_drop_statements(),
+        DROP_PERSON_TABLE_SQL,
+        DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
+        DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+        DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
+        DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+        DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
+        DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
+        DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
+        DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        DROP_SESSION_TABLE_SQL(),
+        DROP_WEB_STATS_SQL(),
+        DROP_WEB_BOUNCES_SQL(),
+        DROP_WEB_STATS_STAGING_SQL(),
+        DROP_WEB_BOUNCES_STAGING_SQL(),
+        DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
+        DROP_COHORT_MEMBERSHIP_MV_SQL(),
+        DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
+        DROP_PRECALCULATED_EVENTS_MV_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
+        DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
+        DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
+        DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+        TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
+        TRUNCATE_GROUPS_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
+        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
+        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+        *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
+    ]
+    create_tables = [
+        CHANNEL_DEFINITION_TABLE_SQL(),
+        EXCHANGE_RATE_TABLE_SQL(),
+        *clickhouse_events_data_table_sqls(),
+        FLAG_EVALUATIONS_TABLE_SQL(),
+        WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+        DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
+        PERSONS_TABLE_SQL(),
+        PROPERTY_DEFINITIONS_TABLE_SQL(),
+        RAW_SESSIONS_TABLE_SQL(),
+        SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
+        WRITABLE_RAW_SESSIONS_TABLE_SQL(),
+        WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
+        SESSIONS_TABLE_SQL(),
+        SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+        WEB_STATS_SQL(),
+        WEB_BOUNCES_SQL(),
+        WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+        WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+        WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+        SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+        QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
+        COHORT_MEMBERSHIP_TABLE_SQL(),
+        PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+        PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+        SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+    ]
+    run_clickhouse_statement_in_parallel(drop_views_and_dictionaries)
+    run_clickhouse_statement_in_parallel(drop_and_truncate_tables)
+    run_clickhouse_statement_in_parallel(create_tables)
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DICTIONARY_SQL(),
@@ -2260,10 +2284,11 @@ def reset_clickhouse_database() -> None:
             KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
+    exchange_rates_seeded = sync_execute(f"SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME}")[0][0] > 0
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DATA_SQL(),
-            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
+            *([] if exchange_rates_seeded else [EXCHANGE_RATE_DATA_BACKFILL_SQL()]),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL_V3(),
             RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
@@ -2282,16 +2307,132 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    managed_tables = {
+        match.group(1)
+        for statement in (*drop_views_and_dictionaries, *drop_and_truncate_tables, *create_tables)
+        if (match := _MANAGED_TABLE_STATEMENT.match(statement))
+    }
+    state = _read_clickhouse_table_state()
+    row_counts = {name: rows for name, rows in state.row_counts.items() if name in managed_tables and rows is not None}
+    global _clickhouse_reset_baseline
+    _clickhouse_reset_baseline = _ClickhouseResetBaseline(
+        schema=state.schema,
+        row_counts=row_counts,
+        mutation_counts={table: count for table, count in state.mutation_counts.items() if table in row_counts},
+    )
+    _mark_clickhouse_reset()
+
+
+_MANAGED_TABLE_STATEMENT = re.compile(
+    r"^\s*(?:DROP\s+TABLE|TRUNCATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(?:`?\w+`?\.)?`?(\w+)`?",
+    re.IGNORECASE,
+)
+
+_CLICKHOUSE_TABLE_STATE_SQL = """
+SELECT
+    name,
+    uuid,
+    total_rows,
+    (
+        SELECT groupBitXor(cityHash64(table, name, type, default_kind, default_expression, comment))
+        FROM system.columns
+        WHERE database = currentDatabase()
+    ),
+    (
+        SELECT groupBitXor(cityHash64(table, name, type_full, expr))
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase()
+    ),
+    (
+        SELECT groupArray((table, mutations, pending))
+        FROM (
+            SELECT table, count() AS mutations, countIf(NOT is_done) AS pending
+            FROM system.mutations
+            WHERE database = currentDatabase()
+            GROUP BY table
+        )
+    )
+FROM system.tables
+WHERE database = currentDatabase()
+"""
+
+
+@frozen
+class _ClickhouseTableState:
+    schema: tuple[frozenset[tuple[str, str]], int, int]
+    row_counts: dict[str, int | None]
+    mutation_counts: dict[str, int]
+    tables_with_pending_mutations: frozenset[str]
+
+
+@frozen
+class _ClickhouseResetBaseline:
+    schema: tuple[frozenset[tuple[str, str]], int, int]
+    row_counts: dict[str, int]
+    mutation_counts: dict[str, int]
+
+
+_clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
+
+
+def _read_clickhouse_table_state() -> _ClickhouseTableState:
+    rows = sync_execute(_CLICKHOUSE_TABLE_STATE_SQL)
+    _, _, _, columns_hash, indices_hash, mutations = rows[0]
+    return _ClickhouseTableState(
+        schema=(frozenset((name, str(uuid)) for name, uuid, *_ in rows), columns_hash, indices_hash),
+        row_counts={name: total_rows for name, _, total_rows, *_ in rows},
+        mutation_counts={table: count for table, count, _ in mutations},
+        tables_with_pending_mutations=frozenset(table for table, _, pending in mutations if pending),
+    )
+
+
+def _truncate_clickhouse_tables_if_schema_unchanged() -> bool:
+    global _clickhouse_reset_baseline
+    baseline = _clickhouse_reset_baseline
+    if baseline is None:
+        return False
+    state = _read_clickhouse_table_state()
+    if state.schema != baseline.schema:
+        return False
+    if state.tables_with_pending_mutations & baseline.row_counts.keys():
+        return False
+    mutation_counts = {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts}
+    mutated_tables = {
+        table
+        for table in baseline.row_counts
+        if mutation_counts.get(table, 0) != baseline.mutation_counts.get(table, 0)
+    }
+    tables_to_truncate: list[str] = []
+    for name, baseline_rows in baseline.row_counts.items():
+        if state.row_counts[name] == baseline_rows and name not in mutated_tables:
+            continue
+        if baseline_rows > 0:
+            return False
+        tables_to_truncate.append(name)
+    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_to_truncate])
+    if mutated_tables:
+        _clickhouse_reset_baseline = dataclasses.replace(baseline, mutation_counts=mutation_counts)
+    _mark_clickhouse_reset()
+    return True
+
+
+def _mark_clickhouse_reset() -> None:
     global _clickhouse_checkouts_at_last_reset
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
+
+
+def truncate_or_reset_clickhouse_database() -> None:
+    if not _truncate_clickhouse_tables_if_schema_unchanged():
+        reset_clickhouse_database()
 
 
 def reset_clickhouse_database_if_dirty() -> None:
     """Reset ClickHouse only if something has checked out a ClickHouse client since
     the last reset finished; with zero checkouts the state cannot have changed and
     the reset would be a no-op costing dozens of DDL statements."""
-    if _clickhouse_pool_checkouts != _clickhouse_checkouts_at_last_reset:
-        reset_clickhouse_database()
+    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset:
+        return
+    truncate_or_reset_clickhouse_database()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):

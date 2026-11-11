@@ -22,7 +22,7 @@ from posthog.models.remote_config import (
     UnreadableTriggerGroupsError,
 )
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -684,7 +684,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             start_date=timezone.now(),
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -698,7 +698,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
             start_date=timezone.now(),
         )
-        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.actions.set([action.id])
         survey_with_actions.save()
 
         self.sync_remote_config()

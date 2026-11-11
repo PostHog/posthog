@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+SYSTEM_TABLE_ORIGIN = "posthog"
+MANAGED_VIEW_ORIGIN = "managed_view"
+
 
 def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
     """Whether a saved query is asking to be materialized.
@@ -90,7 +93,7 @@ def resolve_dependency_to_node(
 
     Resolution order:
     1. PostHog system table (events, persons, etc.)
-    2. SavedQuery view or matview
+    2. SavedQuery view or matview, or a TABLE node for a product's in-memory view
     3. DataWarehouse table (postgres, stripe, etc.)
 
     Raises UnknownParentError if the dependency cannot be resolved.
@@ -108,9 +111,11 @@ def resolve_dependency_to_node(
         # batch widens that window. A view renamed or deleted since then is an unresolvable name,
         # which `on_unresolved` gets to rule on, not a failure that costs every other dependency.
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
-        if saved_query is None:
+        if saved_query is not None:
+            return _saved_query_node(team, dag, dependency_name, saved_query)
+        if not _is_in_memory_view(table):
             raise UnknownParentError(dependency_name, "")
-        return _saved_query_node(team, dag, dependency_name, saved_query)
+        return _source_table_node(team, dag, dependency_name, MANAGED_VIEW_ORIGIN)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -150,14 +155,22 @@ def resolve_dependency_to_node(
             node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
+    return _source_table_node(team, dag, dependency_name, SYSTEM_TABLE_ORIGIN)
+
+
+def _is_in_memory_view(table: HogQLSavedQuery) -> bool:
+    return type(table) is not HogQLSavedQuery
+
+
+def _source_table_node(team: "Team", dag: DAG, name: str, origin: str) -> Node:
     node, _ = Node.objects.get_or_create(
         team=team,
         dag=dag,
-        name=dependency_name,
+        name=name,
         type=NodeType.TABLE,
-        defaults={"properties": {"origin": "posthog"}},
+        defaults={"properties": {"origin": origin}},
     )
-    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": origin}
     properties.pop("warehouse_table_id", None)
     if node.properties != properties:
         node.properties = properties

@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
 from posthog.rate_limit import (
@@ -49,6 +50,22 @@ class TraceQuerySerializer(serializers.Serializer):
         if not api.is_usable_timestamp_hint(value):
             raise serializers.ValidationError("Timestamp hint is out of range.")
         return value
+
+
+class TraceAvailabilityRequestSerializer(serializers.Serializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        min_length=1,
+        max_length=2,
+        help_text="Application and evaluator trace IDs to check without loading trace contents.",
+    )
+
+
+class TraceAvailabilitySerializer(serializers.Serializer):
+    available_trace_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Requested trace IDs readable from AI events or the shared events table.",
+    )
 
 
 class TraceClustersQuerySerializer(serializers.Serializer):
@@ -130,7 +147,9 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
     scope_object_read_actions = [
         "retrieve",
+        "availability",
         "node",
+        "node_raw",
         "evaluations",
         "clusters",
         "feedback",
@@ -154,6 +173,19 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = request.user if isinstance(request.user, User) else None
         with query_concurrency_slots(self.team):
             return read(user, request.validated_query_data.get("timestamp_hint"))
+
+    @validated_request(
+        request_serializer=TraceAvailabilityRequestSerializer,
+        responses={200: TraceAvailabilitySerializer, 429: THROTTLED_RESPONSE},
+        operation_id="ai_observability_traces_availability_create",
+    )
+    @action(detail=False, methods=["POST"])
+    def availability(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        trace_ids = self._read(
+            request,
+            lambda user, _hint: api.get_available_trace_ids(self.team, user, request.validated_data["trace_ids"]),
+        )
+        return Response(TraceAvailabilitySerializer(instance={"available_trace_ids": trace_ids}).data)
 
     @validated_request(
         query_serializer=TraceQuerySerializer,
@@ -191,19 +223,44 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path=r"nodes/(?P<node_id>[A-Za-z0-9_-]+)")
     def node(self, request: ValidatedRequest, pk: str, node_id: str, **kwargs: Any) -> Response:
-        """One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata."""
+        """One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read."""
+        return self._node_response(request, pk, node_id, api.load_trace_node_detail)
+
+    @validated_request(
+        query_serializer=TraceQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER, NODE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceNodeRaw),
+            400: OpenApiResponse(description="The timestamp hint or an encoded id is malformed."),
+            404: OpenApiResponse(description="No node with this id in the trace."),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_nodes_raw_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path=r"nodes/(?P<node_id>[A-Za-z0-9_-]+)/raw")
+    def node_raw(self, request: ValidatedRequest, pk: str, node_id: str, **kwargs: Any) -> Response:
+        """One node of a trace as ingested: its event properties and the keys that hold its input, output and tools, with nothing normalized."""
+        return self._node_response(request, pk, node_id, api.load_trace_node_raw)
+
+    def _node_response(
+        self,
+        request: ValidatedRequest,
+        pk: str,
+        node_id: str,
+        load: Callable[[Team, User | None, str, str, datetime | None], Callable[[], contracts.Contract]],
+    ) -> Response:
         try:
             trace_id = decode_trace_id_segment(pk)
             decoded_node_id = decode_trace_id_segment(node_id)
         except MalformedTraceIdSegmentError:
             return Response({"detail": "Malformed encoded id."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            node = self._read(
-                request, lambda user, hint: api.get_trace_node(self.team, user, trace_id, decoded_node_id, hint)
-            )
+            build = self._read(request, lambda user, hint: load(self.team, user, trace_id, decoded_node_id, hint))
         except api.TraceNodeNotFoundError:
             return Response({"detail": "Node not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(node.model_dump(mode="json", by_alias=True))
+        # Only the ClickHouse load holds the query slot. Building the node normalizes its content, which runs no ClickHouse
+        # query, so other reads of the organization do not wait on that work.
+        return Response(build().model_dump(mode="json", by_alias=True))
 
     @validated_request(
         parameters=[TRACE_ID_PARAMETER],

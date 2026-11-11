@@ -100,6 +100,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `insight` - insight
  * * `insight_variable` - insight_variable
  * * `integration` - integration
+ * * `knowledge_writer` - knowledge_writer
  * * `legal_document` - legal_document
  * * `link` - link
  * * `live_debugger` - live_debugger
@@ -166,6 +167,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `wizard_session` - wizard_session
  * * `wizard_run` - wizard_run
  * * `workload_trust_policy` - workload_trust_policy
+ * * `workload_trust_policy_request` - workload_trust_policy_request
  */
 export type ScopeObjectEnumApi = (typeof ScopeObjectEnumApi)[keyof typeof ScopeObjectEnumApi]
 
@@ -225,6 +227,7 @@ export const ScopeObjectEnumApi = {
     Insight: 'insight',
     InsightVariable: 'insight_variable',
     Integration: 'integration',
+    KnowledgeWriter: 'knowledge_writer',
     LegalDocument: 'legal_document',
     Link: 'link',
     LiveDebugger: 'live_debugger',
@@ -291,6 +294,7 @@ export const ScopeObjectEnumApi = {
     WizardSession: 'wizard_session',
     WizardRun: 'wizard_run',
     WorkloadTrustPolicy: 'workload_trust_policy',
+    WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
 } as const
 
 /**
@@ -373,6 +377,7 @@ export interface ProjectAccessSourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -438,7 +443,8 @@ export interface ProjectAccessSourceApi {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
-     * * `workload_trust_policy` - workload_trust_policy */
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -541,6 +547,7 @@ export interface AccessControlObjectRuleApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -606,7 +613,8 @@ export interface AccessControlObjectRuleApi {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
-     * * `workload_trust_policy` - workload_trust_policy */
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The object's primary key. */
     resource_id: string
@@ -937,6 +945,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -1002,7 +1011,8 @@ export interface AccessControlObjectRuleResourceApi {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
-     * * `workload_trust_policy` - workload_trust_policy */
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The levels an object rule on this resource type accepts, lowest first. */
     available_access_levels: string[]
@@ -1228,6 +1238,7 @@ export interface ResolvedAccessApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -1293,7 +1304,8 @@ export interface ResolvedAccessApi {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
-     * * `workload_trust_policy` - workload_trust_policy */
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -18,12 +18,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.helpers.email_utils import email_domain
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model
+from . import model, row_writes
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
@@ -31,6 +32,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
+
+
+def _duplicate_sender_error(email_address: str) -> ValidationError:
+    return ValidationError(f"A sender for {email_address} already exists. Edit that sender instead of adding it again.")
+
+
+def lock_sender_domain(cursor: Any, domain: str) -> None:
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
 
 
 @frozen
@@ -49,17 +58,26 @@ class EmailIntegration:
         self.integration = model.integration_model(integration)
 
     @classmethod
+    @transaction.atomic
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
-        domain: str = email_address.split("@")[1]
+        domain = email_domain(email_address)
+        if domain is None:
+            raise ValidationError("Enter a valid email address, like hello@example.com.")
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        with connection.cursor() as cursor:
+            lock_sender_domain(cursor, domain)
+
+        if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+            raise _duplicate_sender_error(email_address)
 
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
@@ -72,9 +90,13 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.facade.api import (
-                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                create_ses_email_domain,
+                get_ses_mail_from_subdomain,
             )
+
+            if same_domain_integrations.exists():
+                mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
             create_ses_email_domain(
@@ -88,27 +110,25 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
-                    "email": email_address,
-                    "domain": domain,
-                    "mail_from_subdomain": mail_from_subdomain,
-                    "reply_to": config.get("reply_to", ""),
-                    "name": name,
-                    "provider": provider,
-                    "verified": True if provider == "maildev" else False,
-                },
-                "created_by": created_by,
-            },
-        )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
+        try:
+            with transaction.atomic():
+                integration = model.Integration.objects.create(
+                    team_id=team_id,
+                    kind="email",
+                    integration_id=email_address,
+                    config={
+                        "email": email_address,
+                        "domain": domain,
+                        "mail_from_subdomain": mail_from_subdomain,
+                        "reply_to": config.get("reply_to", ""),
+                        "name": name,
+                        "provider": provider,
+                        "verified": True if provider == "maildev" else False,
+                    },
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise _duplicate_sender_error(email_address)
 
         return integration
 
@@ -142,12 +162,10 @@ class EmailIntegration:
         }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
-        with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
-        self.integration.config = locked.config
+        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+        self.integration = model.integration_model(
+            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
@@ -264,7 +282,7 @@ class EmailIntegration:
                 sender.config["verified"] = True
                 sender.save()
 
-        self.integration.config["verified"] = True
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path

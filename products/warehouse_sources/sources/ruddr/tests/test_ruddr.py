@@ -67,6 +67,10 @@ class TestPagination:
             ("invoices", "https://www.ruddr.io/api/workspace/invoices"),
             ("invoice_items", "https://www.ruddr.io/api/workspace/invoice-items"),
             ("allocations", "https://www.ruddr.io/api/workspace/allocations"),
+            ("project_members", "https://www.ruddr.io/api/workspace/project-members"),
+            ("opportunities", "https://www.ruddr.io/api/workspace/opportunities"),
+            ("opportunity_stages", "https://www.ruddr.io/api/workspace/opportunity-stages"),
+            ("project_health_reports", "https://www.ruddr.io/api/workspace/project-health-reports"),
         ]
     )
     def test_request_targets_endpoint_path(self, endpoint: str, expected_url: str) -> None:

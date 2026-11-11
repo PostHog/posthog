@@ -391,6 +391,23 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in self._views(viewset) if v.name == provided[0].name)
         self.assertEqual(view.incremental_state, state)
 
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_a_view_that_names_the_window_start_gets_a_dag_node(self, _):
+        fake_view = ProvidedView(
+            name="windowed",
+            query="SELECT 1 AS id WHERE 1 >= ifNull({incremental_window_start}, 0)",
+            fields={"id": IntegerDatabaseField(name="id")},
+            incremental_config=INCREMENTAL_CONFIG,
+        )
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertTrue(Node.objects.filter(saved_query=view).exists())
+
     def test_provisioning_a_new_team_puts_every_view_on_tier_schedules(self):
         # Managed viewsets are how most new teams first materialize anything (a provider makes
         # several views at once), and their DAG is brand new. Views after the first must follow the

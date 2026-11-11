@@ -67,7 +67,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |ActionSelectorMatchChange
+                              |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
                               |AEOPromptVersion
@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -146,6 +147,7 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -198,6 +200,7 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -224,6 +227,7 @@ rules:
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -244,6 +248,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -259,6 +264,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -305,11 +311,13 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -400,6 +408,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -424,9 +433,11 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -437,6 +448,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -449,6 +461,8 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |AlertReceiver
+                              |AlertRoute
                               |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
@@ -462,6 +476,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -502,6 +517,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -581,7 +598,6 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
-                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -617,6 +633,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -657,6 +674,7 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -709,6 +727,7 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -732,6 +751,7 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -752,6 +772,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -767,6 +788,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -808,10 +830,12 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -901,6 +925,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -925,9 +950,11 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState
@@ -938,6 +965,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -950,6 +978,8 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |AlertReceiver
+                        |AlertRoute
                         |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
@@ -963,6 +993,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -1002,6 +1033,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
@@ -1296,6 +1329,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
@@ -1401,6 +1435,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
                               |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
@@ -1484,6 +1519,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
                         |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration

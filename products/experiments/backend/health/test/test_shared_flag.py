@@ -21,10 +21,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 ENDED_AT = datetime(2026, 10, 10, tzinfo=UTC)
 
-RUNNING_OTHER = ExperimentOnFlag(launched_at=LAUNCHED_AT, ended_at=None, archived=False)
-DRAFT_OTHER = ExperimentOnFlag(launched_at=None, ended_at=None, archived=False)
-ENDED_OTHER = ExperimentOnFlag(launched_at=LAUNCHED_AT, ended_at=ENDED_AT, archived=False)
-ARCHIVED_DRAFT_OTHER = ExperimentOnFlag(launched_at=None, ended_at=None, archived=True)
+RUNNING_OTHER = ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=False)
+DRAFT_OTHER = ExperimentOnFlag(start_date=None, ended_at=None, archived=False)
+ENDED_OTHER = ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=ENDED_AT, archived=False)
+ARCHIVED_DRAFT_OTHER = ExperimentOnFlag(start_date=None, ended_at=None, archived=True)
 
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO

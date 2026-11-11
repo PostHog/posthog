@@ -22,6 +22,14 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.presentation.views.platform_alert import create_serializers
+
+
+def test_the_create_schema_leaves_out_a_kind_whose_native_lifecycle_does_not_create() -> None:
+    # Insight has a native lifecycle for deletes only, so an insight create would always be refused.
+    assert "insight" not in create_serializers()
+    assert {"logs", "metrics"} <= create_serializers().keys()
+
 
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 
@@ -61,6 +69,49 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "feature_flag_required"
+
+    @parameterized.expand(
+        [
+            ("platform_alerts_only", {"platform-alerts"}, ["logs"], status.HTTP_403_FORBIDDEN),
+            (
+                "warehouse_flag_only",
+                {"platform-alerts-source-warehouse"},
+                ["warehouse_source"],
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "both",
+                {"platform-alerts", "platform-alerts-source-warehouse"},
+                ["logs", "warehouse_source"],
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_each_kind_opens_on_its_own_flag(
+        self, _name: str, flags_on: set[str], visible_kinds: list[str], warehouse_create_status: int
+    ) -> None:
+        self.enterContext(
+            patch(
+                "posthog.permissions.posthog_feature_flag_enabled",
+                side_effect=lambda flag, *_args, **_kwargs: flag in flags_on,
+            )
+        )
+        self._create_configuration(self.team, "API errors")
+        self._create_configuration(
+            self.team, "Stripe failing", source_kind=PlatformAlertConfiguration.SourceKind.WAREHOUSE_SOURCE
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
+        # An empty body passes the flag check and fails validation, so 400 means the kind is open.
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/platform_alerts/", {"source_kind": "warehouse_source"}, format="json"
+        )
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert sorted(row["source_kind"] for row in listed.json()["results"]) == visible_kinds
+        assert create.status_code == warehouse_create_status, create.json()
+        if warehouse_create_status == status.HTTP_403_FORBIDDEN:
+            assert create.json()["code"] == "feature_flag_required"
 
     def test_list_returns_own_configurations_with_nested_alerts(self) -> None:
         self._set_flag(True)

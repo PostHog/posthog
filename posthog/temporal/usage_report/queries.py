@@ -89,6 +89,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_workflow_transactional_emails_sent_in_period,
@@ -404,6 +405,12 @@ QUERIES: list[QuerySpec] = [
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
     ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
+    ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
         name="teams_with_query_app_bytes_read",
@@ -539,6 +546,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_signals_credits_used_in_period",
         fn=get_teams_with_signals_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
     ),
     QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",

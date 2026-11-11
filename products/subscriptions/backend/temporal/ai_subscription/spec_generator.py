@@ -20,10 +20,11 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
+from posthog.models import Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
+from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription

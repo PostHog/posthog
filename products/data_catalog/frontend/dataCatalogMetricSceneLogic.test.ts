@@ -1,17 +1,22 @@
 import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import { SidePanelTab } from '~/types'
 
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricSceneLogic,
     LINEAGE_RETRY_MS,
     MARKDOWN_DEFINITION_TEMPLATE,
+    referencedTablePreviewQuery,
 } from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -157,7 +162,7 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lineageRequest()).not.toHaveBeenCalled()
     })
 
-    it('retries a not-ready lineage exactly once', async () => {
+    it('retries a not-ready lineage exactly once, then reports it missing', async () => {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
         try {
             lineageRequest().mockRejectedValue(new ApiError('nope', 404))
@@ -165,12 +170,14 @@ describe('dataCatalogMetricSceneLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(lineageRequest()).toHaveBeenCalledTimes(1)
 
+            expect(logic.values.lineageProblem).toBe('not_ready')
+
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
 
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 3)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
-            expect(logic.values.lineageProblem).toBe('not_ready')
+            expect(logic.values.lineageProblem).toBe('missing')
         } finally {
             jest.useRealTimers()
         }
@@ -332,6 +339,25 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.mutating).toBe(false)
     })
 
+    it.each([
+        ['events', 'SELECT * FROM events LIMIT 100'],
+        ['sales-data', 'SELECT * FROM "sales-data" LIMIT 100'],
+        ['postgres.orders', 'SELECT * FROM postgres.orders LIMIT 100'],
+    ])('previews the referenced table %s with an escaped name', (tableName, expected) => {
+        expect(referencedTablePreviewQuery(tableName)).toEqual(expected)
+    })
+
+    it('confirms an approval by the metric display name', async () => {
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', display_name: 'Weekly active users' })
+        )
+
+        logic.actions.approveMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.success).toHaveBeenCalledWith('Approved Weekly active users')
+    })
+
     it('surfaces refresh when approve returns 409 and leaves the metric untouched', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockRejectedValue(new ApiError('drifted', 409))
 
@@ -357,6 +383,30 @@ describe('dataCatalogMetricSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runResult?.compiled_query).toEqual('SELECT count()')
+    })
+
+    it('records the run and opens the agent when running with AI without scene integration', async () => {
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockResolvedValue({ results: [] })
+
+        logic.actions.runMetricWithAI()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsRunCreate).toHaveBeenCalledWith('1', 'weekly_active_users', {})
+        expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toContain('weekly_active_users')
+    })
+
+    it.each([
+        [false, ['Data catalog', 'Weekly active users']],
+        [true, ['Data catalog', 'Metrics', 'Weekly active users']],
+    ])('with the catalog restructure %s the breadcrumbs read %j', (restructure, names) => {
+        logic.actions.setMetric(buildMetric({ display_name: 'Weekly active users' }))
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: restructure,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: restructure,
+        })
+
+        expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(names)
     })
 
     it('discards the edited draft when the definition editor closes without saving', async () => {

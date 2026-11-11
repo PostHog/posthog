@@ -1,6 +1,7 @@
 import io
 import re
 import csv
+import json
 from collections.abc import Buffer, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -24,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
+QUOTA_EXHAUSTED_MARKER = "limit reached"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -58,6 +60,7 @@ REPORT_CHUNK_BYTES = 1 << 16
 # Keep AppsFlyer's rejection reason short enough to read in a setup error.
 MAX_REJECTION_REASON_CHARS = 300
 _HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
+_JSON_ERROR_KEYS = ("error", "message", "detail")
 
 
 @frozen
@@ -138,9 +141,26 @@ def _validate_app_id(app_id: str) -> str:
     return app_id
 
 
+def _json_error_text(body: str) -> str:
+    """AppsFlyer sometimes rejects with a JSON body like {"error": "..."}; show its text, never the raw JSON."""
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in _JSON_ERROR_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str):
+            return " ".join(value.split())
+    return ""
+
+
 def _rejection_reason(response: requests.Response, api_token: str) -> str | None:
     """Return AppsFlyer's own reason for a rejected request, or None when the body has no plain text."""
     reason = " ".join(response.text.split())
+    if reason.startswith(("{", "[")):
+        reason = _json_error_text(reason)
     if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
         return None
     return reason.replace(_normalize_token(api_token), "[redacted]")[:MAX_REJECTION_REASON_CHARS]
@@ -149,6 +169,11 @@ def _rejection_reason(response: requests.Response, api_token: str) -> str | None
 def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
     reason = _rejection_reason(response, api_token)
     return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
+
+
+def _is_quota_exhausted(response: requests.Response) -> bool:
+    """AppsFlyer answers 403 (sometimes 429) with a "limit reached" body once the daily report quota is spent."""
+    return response.status_code in (403, 429) and QUOTA_EXHAUSTED_MARKER in response.text.lower()
 
 
 def _normalize_header(header: str) -> str:
@@ -266,7 +291,7 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code == 429 or response.status_code >= 500 or _is_quota_exhausted(response):
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
@@ -321,6 +346,11 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
+    if _is_quota_exhausted(response):
+        raise AppsFlyerCredentialsError(
+            "Your AppsFlyer account has used up its daily report API quota. "
+            "Try connecting again after your daily quota resets."
+        )
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:

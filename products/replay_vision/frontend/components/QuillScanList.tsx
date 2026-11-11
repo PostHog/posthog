@@ -114,7 +114,7 @@ function FocusPane({
         >
             <div ref={contentRef}>
                 {(observation.error_reason || isInFlight(observation)) && (
-                    <div className="flex flex-col gap-2 px-3 pb-2">
+                    <div className="flex flex-col gap-2 px-3 pt-2 pb-2">
                         {(observation.status === 'failed' || observation.status === 'ineligible') &&
                             observation.error_reason && (
                                 <QuillObservationErrorDetail

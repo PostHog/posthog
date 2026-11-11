@@ -39,7 +39,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { AcceptedSend } from './transactional-email'
+import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -450,6 +450,35 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
+        })
+
+        it.each([
+            ['keeps the version a step rendered under', true, 2],
+            ['uses the live version for a step saved before the rendered version was stored', false, 3],
+        ])('%s when the workflow is republished before it sends', async (_name, storesRenderedVersion, expected) => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            const config = { template_id: customerTaskTemplate.id, inputs: { name: { value: 'Follow up' } } }
+            const renderedFlow = { ...hogFlow, version: 2 }
+            const invocation = createExampleHogFlowInvocation(renderedFlow, {
+                currentAction: { id: 'function_id_1', startedAtTimestamp: Date.now() },
+            })
+            const hogFunction = await hogFlowFunctionsService.buildHogFunction(renderedFlow, config)
+            const rendered = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+            const { renderedWorkflowVersion, ...legacyState } = rendered.state
+            invocation.state.currentAction!.hogFunctionState = parseJSON(
+                JSON.stringify(storesRenderedVersion ? { ...legacyState, renderedWorkflowVersion } : legacyState)
+            )
+
+            invocation.hogFlow = { ...renderedFlow, version: 3 }
+            const resumed = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+
+            expect(resumed.state.renderedWorkflowVersion).toBe(expected)
         })
 
         it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {
@@ -2052,11 +2081,35 @@ describe('Hogflow Executor', () => {
                         loggerErrorSpy.mockRestore()
                     })
 
-                    // A delay that cannot work out when to continue is the one error on_error must not be
+                    // A wait that cannot work out when to continue is the one error on_error must not be
                     // allowed to carry past: continuing runs the next step immediately, which for a "N days
                     // before X" reminder sends it with nothing to be before. The handler marks the wait
                     // unresolved and the executor has to honour that over on_error: 'continue'.
-                    it('does NOT continue past a delay whose date cannot be worked out, despite on_error continue', async () => {
+                    it.each([
+                        {
+                            label: 'a delay whose date cannot be worked out',
+                            // Compiled by the HogQL compiler from `person.properties.expires_at`,
+                            // which evaluates to null for a person without that property.
+                            wait: {
+                                type: 'delay',
+                                config: {
+                                    delay_until: {
+                                        expression: 'person.properties.expires_at',
+                                        bytecode: ['_H', 1, 32, 'expires_at', 32, 'properties', 32, 'person', 1, 3],
+                                    },
+                                },
+                            },
+                            error: 'The date to wait for did not evaluate to a date',
+                        },
+                        {
+                            label: 'a time window with no days to open on',
+                            wait: {
+                                type: 'wait_until_time_window',
+                                config: { timezone: 'UTC', day: [], time: ['09:00', '17:00'] },
+                            },
+                            error: 'No day in the next 7 days matches the time window',
+                        },
+                    ])('does NOT continue past $label, despite on_error continue', async ({ wait, error }) => {
                         const flow = new FixtureHogFlowBuilder()
                             .withWorkflow({
                                 actions: {
@@ -2067,56 +2120,35 @@ describe('Hogflow Executor', () => {
                                             filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                                         },
                                     },
-                                    // Compiled by the HogQL compiler from `person.properties.expires_at`,
-                                    // which evaluates to null for a person without that property.
-                                    delay_1: {
-                                        type: 'delay',
-                                        config: {
-                                            delay_until: {
-                                                expression: 'person.properties.expires_at',
-                                                bytecode: [
-                                                    '_H',
-                                                    1,
-                                                    32,
-                                                    'expires_at',
-                                                    32,
-                                                    'properties',
-                                                    32,
-                                                    'person',
-                                                    1,
-                                                    3,
-                                                ],
-                                            },
-                                        } as any,
-                                    },
+                                    wait_1: wait as any,
                                     exit: { type: 'exit', config: {} },
                                 },
                                 edges: [
-                                    { from: 'trigger', to: 'delay_1', type: 'continue' },
-                                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                                    { from: 'trigger', to: 'wait_1', type: 'continue' },
+                                    { from: 'wait_1', to: 'exit', type: 'continue' },
                                 ],
                             })
                             .build()
-                        expect(flow.actions.find((a) => a.id === 'delay_1')!.on_error).toBe('continue')
+                        expect(flow.actions.find((a) => a.id === 'wait_1')!.on_error).toBe('continue')
 
                         const invocation = createExampleHogFlowInvocation(flow)
                         invocation.state.currentAction = {
-                            id: 'delay_1',
+                            id: 'wait_1',
                             startedAtTimestamp: DateTime.now().toMillis(),
                         }
 
                         const result = await executor.execute(invocation)
 
-                        expect(result.error).toContain('The date to wait for did not evaluate to a date')
+                        expect(result.error).toContain(error)
                         expect(result.finished).toBe(true)
-                        expect(result.invocation.state.currentAction?.id).toBe('delay_1')
+                        expect(result.invocation.state.currentAction?.id).toBe('wait_1')
                         expect(result.logs.map((l) => l.message)).not.toEqual(
                             expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
                         )
                         expect(result.logs.map((l) => l.message)).toEqual(
                             expect.arrayContaining([
                                 expect.stringContaining(
-                                    'Workflow is aborting because [Action:delay_1] could not work out the date to wait for'
+                                    'Workflow is aborting because [Action:wait_1] could not work out the date to wait for'
                                 ),
                             ])
                         )
@@ -3358,7 +3390,7 @@ describe('Hogflow Executor', () => {
             html: '',
         })
 
-        const codeSend = (): AcceptedSend => ({
+        const codeSend = (): QueuedSend => ({
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId, email: 'security@posthog.com', name: 'Security' },
             replyTo: ['help@example.com', 'support@example.com'],
@@ -3366,6 +3398,13 @@ describe('Hogflow Executor', () => {
             bcc: ['audit@example.com'],
             tracking: { captureEngagement: true },
         })
+
+        const attachmentFile = {
+            filename: 'report.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 11,
+            sha256: 'a1b2c3',
+        }
 
         it('should route email actions to the email queue', async () => {
             await insertEmailSetup('maildev')
@@ -3558,7 +3597,7 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label on the delayed email only, not on the email after it', async () => {
+        it('keeps the team cap label and the suppression tries on the delayed email only, not on the email after it', async () => {
             await insertEmailSetup('ses')
             const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
             sesSend
@@ -3589,8 +3628,12 @@ if (not res.success) { throw Error(res.error) }`,
             })
 
             const routed = await executor.execute(invocation)
-            // As if the team sending cap had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+            // As if the team sending cap and an unread suppression list had delayed email_1 on the email queue.
+            routed.invocation.queueMetadata = {
+                ...routed.invocation.queueMetadata,
+                teamCapped: true,
+                suppressionLookupAttempts: 7,
+            }
 
             const result = await executor.execute(routed.invocation)
 
@@ -3602,13 +3645,13 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a template send as the step renders it',
                 step: storedStep,
-                send: (): AcceptedSend | undefined => undefined,
+                send: (): QueuedSend | undefined => undefined,
                 expected: () => ({ type: 'email', ...storedStep() }),
             },
             {
                 name: 'a code send for a local template as the step renders it',
                 step: storedStep,
-                send: (): AcceptedSend => ({ tracking: { captureEngagement: false } }),
+                send: (): QueuedSend => ({ tracking: { captureEngagement: false } }),
                 expected: () => ({ type: 'email', ...storedStep() }),
             },
             {
@@ -3628,6 +3671,18 @@ if (not res.success) { throw Error(res.error) }`,
                     html: '<p>Hi {{ variables.name }}</p>',
                 }),
             },
+            {
+                name: 'a code send with the metadata of its files, which the email worker loads by job id',
+                step: storedStep,
+                send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
+                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
+            },
+            {
+                name: 'a step whose own email input lists files without them, because only an accepted send has files',
+                step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
         ])('hands the email queue $name', async ({ step, send, expected }) => {
             await insertEmailSetup('ses')
             const invocation = flowInvocation(emailFlow(step()))
@@ -3642,7 +3697,7 @@ if (not res.success) { throw Error(res.error) }`,
         it.each([
             {
                 name: 'fails a code-key step without an accepted send',
-                send: (): AcceptedSend | undefined => undefined,
+                send: (): QueuedSend | undefined => undefined,
                 sent: 0,
             },
             { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },

@@ -40,7 +40,7 @@ import calendar
 import functools
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing, nullcontext
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -61,6 +61,7 @@ from dagster import (
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
     OpExecutionContext,
+    RunRecord,
     RunRequest,
     RunsFilter,
     SensorEvaluationContext,
@@ -70,6 +71,7 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
+from psycopg.conninfo import conninfo_to_dict
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
@@ -368,6 +370,43 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
         return None
 
 
+_DUCKGRES_HOSTNAME_REFUSAL = re.compile(r"this server requires connecting via ([^\n]+)")
+_DUCKGRES_MANAGED_SUFFIX = re.compile(r"<org-id>(\S+)")
+
+
+class DuckgresConnectionRefused(Exception):
+    """duckgres refused the connection because of its hostname, so no retry can succeed."""
+
+
+class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
+    """duckgres has no organization for the managed warehouse hostname of the connection."""
+
+
+def _duckgres_refusal(
+    conninfo: str, organization_id: str, error: psycopg.OperationalError
+) -> DuckgresConnectionRefused | None:
+    """The refusal that `error` carries, or None when duckgres did not refuse the hostname.
+
+    duckgres sends "this server requires connecting via <hint>" both for a hostname that is not a managed warehouse
+    hostname and for a managed hostname whose organization it does not have. The hint names each managed suffix, as in
+    "<org-id>.dw.us.postwh.com". hogtower creates new warehouses without a duckgres organization, so their connections
+    get the second refusal.
+    """
+    match = _DUCKGRES_HOSTNAME_REFUSAL.search(str(error))
+    if match is None:
+        return None
+    hint = match[1].strip()
+    host = str(conninfo_to_dict(conninfo).get("host") or "")
+    if any(host.endswith(suffix) for suffix in _DUCKGRES_MANAGED_SUFFIX.findall(hint)):
+        return DuckgresOrganizationUnavailable(
+            f"duckgres has no organization for org {organization_id}, so it refuses the connection to {host}"
+        )
+    return DuckgresConnectionRefused(
+        f"duckgres refused the connection to {host or 'the configured host'}, because it is not a managed warehouse "
+        f"hostname. duckgres expects {hint}"
+    )
+
+
 @retry(
     # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
     # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
@@ -411,12 +450,19 @@ def _connect_duckgres(
         service_credential=service_credential,
         application_name="events-backfill",
     )
-    conn = psycopg.connect(
-        conninfo,
-        autocommit=True,
-        connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
-        options=_duckgres_backfill_options(),
-    )
+    try:
+        conn = psycopg.connect(
+            conninfo,
+            autocommit=True,
+            connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
+            options=_duckgres_backfill_options(),
+        )
+    except psycopg.OperationalError as error:
+        # The retry above does not catch a refusal, because no later attempt to the same host can succeed.
+        refusal = _duckgres_refusal(conninfo, target.organization_id, error)
+        if refusal is not None:
+            raise refusal from error
+        raise
     # Pin the session to UTC. The ranged partition DELETEs compare the TIMESTAMPTZ catalog
     # columns against bare 'YYYY-MM-DD' strings, a cast that uses the session TimeZone; with
     # ICU loaded that defaults to system-local, which would shift the half-open [day,
@@ -955,6 +1001,28 @@ def _stale_run_outcome(run: DagsterRun | None) -> BackfillOutcome | None:
     return None if outcome is BackfillOutcome.RUNNING else outcome
 
 
+RETRY_HISTORY_LIMIT = 6
+
+
+def _failed_run_retry_due(history: Sequence[RunRecord], *, now: datetime, base_seconds: int) -> bool:
+    """Whether a partition may run again after its latest runs in `history` (newest first).
+
+    The wait after the latest run starts at `base_seconds` and doubles with each consecutive failed or canceled run, so
+    a partition that keeps failing gets fewer and fewer of the concurrency slots that its job shares with other teams.
+    Sensors read RETRY_HISTORY_LIMIT runs, which caps the wait at 2 ** (RETRY_HISTORY_LIMIT - 1) times `base_seconds`.
+    """
+    failures = 0
+    for record in history:
+        if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+            break
+        failures += 1
+    if failures == 0:
+        return True
+    latest = history[0]
+    ended_at = latest.end_time or latest.update_timestamp.timestamp()
+    return now.timestamp() >= ended_at + base_seconds * 2 ** (failures - 1)
+
+
 # Bounds the run-storage lookups a single sensor tick spends resolving crashed runs.
 STALE_RUNNING_REPAIR_LIMIT = 25
 
@@ -1046,6 +1114,8 @@ class DucklingBackfillConfig(Config):
     dry_run: bool = False
     # Opt-in per run. A backfill never evaluates the canary feature flag.
     use_trino_canary: bool = False
+    # Opt-in per run: register through Trino even when the organization is not on the flag.
+    register_through_trino: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -1056,6 +1126,41 @@ class DucklingBackfillConfig(Config):
     # Huge team-days produce many right-sized files; tiny ones stay a single file.
     target_rows_per_file: int = TARGET_ROWS_PER_FILE
     max_s3_file_fanout: int = MAX_S3_FILE_FANOUT
+
+
+@frozen
+class _DucklakeRegistration:
+    """How a backfill run registers its exports in DuckLake.
+
+    `session` is None when the run registers through Trino, and when it only exports.
+    """
+
+    through_trino: bool
+    session: _DuckgresSession | None = None
+
+
+def _open_ducklake_registration(
+    context: AssetExecutionContext | OpExecutionContext, config: DucklingBackfillConfig, target: DucklingTarget
+) -> _DucklakeRegistration:
+    """Choose Trino or duckgres for the run, and open the duckgres session when the run registers through it.
+
+    An organization that duckgres does not have registers through Trino, because PostHog provisions every warehouse with
+    Trino. Only duckgres knows which organizations it has, so its refusal of the connection is the signal.
+    """
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
+        return _DucklakeRegistration(through_trino=True)
+    if config.dry_run or config.skip_ducklake_registration:
+        return _DucklakeRegistration(through_trino=False)
+    try:
+        return _DucklakeRegistration(through_trino=False, session=_DuckgresSession(context, target))
+    except DuckgresOrganizationUnavailable as error:
+        context.log.warning(f"{error}. Registering through Trino instead.")
+        logger.warning(
+            "duckling_backfill_duckgres_organization_unavailable",
+            team_id=target.team_id,
+            organization_id=target.organization_id,
+        )
+        return _DucklakeRegistration(through_trino=True)
 
 
 def _events_row_group_buffer_fanout_limit(config: DucklingBackfillConfig) -> int:
@@ -2642,10 +2747,12 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
-    with (
-        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
-    ) as catalog:
-        if catalog is not None:
+    connect = functools.partial(
+        connect_backfill_catalog, target.organization_id, canary=config.use_trino_canary, team_id=target.team_id
+    )
+
+    if register:
+        with connect() as catalog:
             try:
                 catalog.ensure_table(
                     table,
@@ -2662,24 +2769,26 @@ def backfill_through_trino(
                     f"{table} does not have the column types of the export, so this run rebuilds it before it "
                     "registers files"
                 )
-        for item in exports:
-            # A new prefix for every export, because an export under an earlier prefix would overwrite files that
-            # DuckLake already registered with their row counts and statistics.
-            prefix = f"{run_id}_{secrets.token_hex(4)}"
+    for item in exports:
+        # A new prefix for every export, because an export under an earlier prefix would overwrite files that
+        # DuckLake already registered with their row counts and statistics.
+        prefix = f"{run_id}_{secrets.token_hex(4)}"
 
-            def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
-                with tags_context(kind="dagster", dagster=tags):
-                    s3_glob = item.export(client=client, run_id=prefix)
-                    return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
+        def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
+            with tags_context(kind="dagster", dagster=tags):
+                s3_glob = item.export(client=client, run_id=prefix)
+                return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
 
-            files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
-            if files is None:
-                continue
-            partitions_exported += 1
-            if catalog is None:
-                context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
-                continue
-            replacement = item.replacement if config.cleanup_existing_partition_data else None
+        files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
+        if files is None:
+            continue
+        partitions_exported += 1
+        if not register:
+            context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
+            continue
+        replacement = item.replacement if config.cleanup_existing_partition_data else None
+        # An export can outlive the Trino service credential, which cannot be renewed after it expires.
+        with connect() as catalog:
             if rebuild:
                 # The rebuild waits until the export finished, to keep the window with an empty table short. A file
                 # count that add_files refuses fails here, before the rebuild empties the table.
@@ -2691,14 +2800,14 @@ def backfill_through_trino(
                 files_registered += len(files)
             elif replacement is not None:
                 catalog.delete_rows(table, replacement)
-            context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
-            logger.info(
-                "duckling_trino_files_registered",
-                team_id=target.team_id,
-                table=table,
-                partition=item.label,
-                file_count=len(files),
-            )
+        context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
+        logger.info(
+            "duckling_trino_files_registered",
+            team_id=target.team_id,
+            table=table,
+            partition=item.label,
+            file_count=len(files),
+        )
     return TrinoBackfillResult(partitions_exported=partitions_exported, files_registered=files_registered)
 
 
@@ -2865,15 +2974,11 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    registration = _open_ducklake_registration(context, config, target)
+    if registration.through_trino:
         _backfill_events_through_trino(context, config, target, dates)
         return
-
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-
-    # Open one duckgres connection for all metadata operations, but skip it
-    # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
-    session = _DuckgresSession(context, target) if should_register else None
+    session = registration.session
     try:
         if session is not None:
             # Delete events table if requested (dangerous - loses all data)
@@ -3187,15 +3292,11 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    registration = _open_ducklake_registration(context, config, target)
+    if registration.through_trino:
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
         return
-
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-
-    # Open one duckgres connection for all metadata operations, but skip it
-    # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
-    session = _DuckgresSession(context, target) if should_register else None
+    session = registration.session
     try:
         if session is not None:
             # Delete persons table if requested (dangerous - loses all data)
@@ -3758,9 +3859,15 @@ duckling_events_backfill_job = define_asset_job(
 )
 
 
+# Both persons sensors share the persons concurrency slots, so a failed run waits at least one sensor interval before a
+# retry, and the wait doubles with each further failure.
+PERSONS_DAILY_SENSOR_INTERVAL_SECONDS = 3600
+PERSONS_FULL_SENSOR_INTERVAL_SECONDS = 600
+
+
 @sensor(
     name="duckling_persons_daily_backfill_sensor",
-    minimum_interval_seconds=3600,  # Run hourly
+    minimum_interval_seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS,  # Run hourly
     job_name="duckling_persons_backfill_job",
 )
 def duckling_persons_daily_backfill_sensor(
@@ -3771,7 +3878,11 @@ def duckling_persons_daily_backfill_sensor(
     Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
     """
-    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    now = timezone.now()
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    # The sensor only looks at yesterday's partition. The last tick of a day retries a failed run during its backoff,
+    # because no later tick looks at that partition again.
+    last_tick_of_day = (now + timedelta(seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS)).date() != now.date()
 
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
@@ -3791,17 +3902,21 @@ def duckling_persons_daily_backfill_sensor(
             )
             context.log.info(f"Creating persons partition for team_id={backfill.team_id}, date={yesterday}")
         else:
-            runs = context.instance.get_runs(
+            history = context.instance.get_run_records(
                 filters=RunsFilter(
                     job_name="duckling_persons_backfill_job",
                     tags={"dagster/partition": partition_key},
                 ),
-                limit=1,
+                limit=RETRY_HISTORY_LIMIT,
             )
-            if runs:
-                latest_run = runs[0]
+            if history:
+                latest_run = history[0].dagster_run
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
+                    if not last_tick_of_day and not _failed_run_retry_due(
+                        history, now=now, base_seconds=PERSONS_DAILY_SENSOR_INTERVAL_SECONDS
+                    ):
+                        continue
                     run_requests.append(
                         RunRequest(
                             partition_key=partition_key,
@@ -3849,7 +3964,7 @@ def duckling_persons_daily_backfill_sensor(
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=600,  # Run every 10 minutes
+    minimum_interval_seconds=PERSONS_FULL_SENSOR_INTERVAL_SECONDS,  # Run every 10 minutes
     job_name="duckling_persons_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
@@ -3892,6 +4007,7 @@ def duckling_persons_full_backfill_sensor(
 
     _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.PERSONS)
 
+    now = timezone.now()
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
@@ -3915,15 +4031,15 @@ def duckling_persons_full_backfill_sensor(
             context.log.info(f"Creating full persons backfill partition for team_id={team_id}")
         else:
             # Partition exists - check if we need to retry a failed run
-            runs = context.instance.get_runs(
+            history = context.instance.get_run_records(
                 filters=RunsFilter(
                     job_name="duckling_persons_backfill_job",
                     tags={"dagster/partition": partition_key},
                 ),
-                limit=1,
+                limit=RETRY_HISTORY_LIMIT,
             )
-            if runs:
-                latest_run = runs[0]
+            if history:
+                latest_run = history[0].dagster_run
                 if partition_key not in projected_persons_partitions:
                     record_backfill_outcome(
                         team_id=team_id,
@@ -3934,6 +4050,8 @@ def duckling_persons_full_backfill_sensor(
                     )
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
+                    if not _failed_run_retry_due(history, now=now, base_seconds=PERSONS_FULL_SENSOR_INTERVAL_SECONDS):
+                        continue
                     run_requests.append(
                         RunRequest(
                             partition_key=partition_key,

@@ -35,6 +35,7 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -283,7 +284,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (!config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('CdpHogflowSubscriptionMatcherConsumer requires CYCLOTRON_NODE_DATABASE_URL')
         }
-        this.cyclotronPool = new Pool({
+        this.cyclotronPool = createCyclotronPool('subscription_matcher', {
             connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
             max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
         })

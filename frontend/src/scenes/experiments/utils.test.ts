@@ -36,6 +36,7 @@ import {
     getDisplayOrderedIndices,
     getEventCountQuery,
     getFunnelDropoffReason,
+    getMetricIncompleteReason,
     getSessionLinkabilityEventNames,
     isEvenlyDistributed,
     isLegacyExperiment,
@@ -110,6 +111,28 @@ describe('utils', () => {
             { variants: [], expected: true },
         ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
             expect(isEvenlyDistributed(variants)).toBe(expected)
+        })
+    })
+
+    describe('getMetricIncompleteReason for percentile metrics', () => {
+        const quantileMetric = (quantile: number): ExperimentMetric =>
+            ({
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.QUANTILE,
+                quantile,
+                source: { kind: NodeKind.EventsNode, event: 'page_loaded', math_property: 'load_ms' },
+            }) as ExperimentMetric
+
+        it.each([
+            [0.975, undefined],
+            [0.01, undefined],
+            [0.99, undefined],
+            [0.995, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0.005, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0.9755, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+        ])('quantile %s gives %s', (quantile, expected) => {
+            expect(getMetricIncompleteReason(quantileMetric(quantile))).toBe(expected)
         })
     })
 })
