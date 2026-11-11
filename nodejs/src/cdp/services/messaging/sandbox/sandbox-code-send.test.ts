@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { ClickHouseClient } from '@clickhouse/client'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
@@ -10,7 +11,7 @@ import express from 'ultimate-express'
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
+import { KAFKA_EMAIL_STATUS, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -22,9 +23,11 @@ import { Hub } from '~/types'
 import { FixtureHogFlowBuilder } from '../../../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../../../_tests/fixtures-hogflows'
 import { CdpApi } from '../../../cdp-api'
+import { createCdpCoreServices } from '../../../cdp-services'
 import { CdpCyclotronWorkerEmailSandbox } from '../../../consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from '../../../consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from '../../../consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { RerunJobQueues, RerunPaginatorService } from '../../../rerun/rerun-paginator.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, MinimalAppMetric } from '../../../types'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
@@ -92,15 +95,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         await closeHub(hub)
     })
 
-    beforeEach(async () => {
-        mockProducerObserver.resetKafkaProducer()
-        queued.length = 0
-        hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
-        hub.SES_SANDBOX_TENANT_NAME = world.tenantName
-        member = `member-${new UUIDT().toString()}@example.com`
-        await world.addMember(member)
-        sandboxSenderId = await sandboxSenderOf(world.team.id)
-        hogFlow = await insertHogFlow(
+    const insertFlow = (emailOnError?: 'abort'): Promise<HogFlow> =>
+        insertHogFlow(
             world.postgres,
             new FixtureHogFlowBuilder()
                 .withTeamId(world.team.id)
@@ -111,6 +107,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                         trigger: { type: 'trigger', config: { type: 'api' } },
                         email: {
                             type: 'function_email',
+                            ...(emailOnError ? { on_error: emailOnError } : {}),
                             config: {
                                 template_id: 'template-email',
                                 inputs: {},
@@ -126,6 +123,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 })
                 .build()
         )
+
+    beforeEach(async () => {
+        mockProducerObserver.resetKafkaProducer()
+        queued.length = 0
+        hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
+        hub.HOG_INVOCATION_RESULTS_ENABLED = false
+        hub.SES_SANDBOX_TENANT_NAME = world.tenantName
+        member = `member-${new UUIDT().toString()}@example.com`
+        await world.addMember(member)
+        sandboxSenderId = await sandboxSenderOf(world.team.id)
+        hogFlow = await insertFlow()
     })
 
     afterEach(() => {
@@ -368,6 +376,86 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toHaveLength(delivered)
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(deliveryStatuses(queued[0].id)).toEqual([final])
+    })
+
+    const rerunFromStoredRun = async (invocationId: string): Promise<CyclotronJobInvocation[]> => {
+        const stored = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            .map(({ value }) => value as Record<string, any>)
+            .filter((row) => row.invocation_id === invocationId)
+            .at(-1)!
+        const pageRow = {
+            invocation_id: stored.invocation_id,
+            parent_run_id: stored.parent_run_id,
+            latest_attempts: stored.attempts,
+            last_scheduled_at: stored.scheduled_at,
+            run_first_scheduled_at: stored.first_scheduled_at,
+            invocation_globals: stored.invocation_globals,
+        }
+        const clickhouse = {
+            query: ({ query }: { query: string }) =>
+                Promise.resolve({
+                    json: () => Promise.resolve(query.includes('hog_invocation_rerun_stale_status') ? [] : [pageRow]),
+                }),
+        } as unknown as ClickHouseClient
+        const rerunQueued: CyclotronJobInvocation[] = []
+        const services = createCdpCoreServices(hub, createCdpConsumerDeps(hub))
+        const paginator = new RerunPaginatorService(
+            clickhouse,
+            services.hogFunctionManager,
+            services.hogFlowManager,
+            services.invocationResultsService.invocationResultsRowsService,
+            {
+                hog_function: createMockJobQueue(),
+                hog_flow: {
+                    ...createMockJobQueue(),
+                    queueInvocations: (invocations: CyclotronJobInvocation[]) => {
+                        rerunQueued.push(...invocations.map(roundTrip))
+                        return Promise.resolve()
+                    },
+                },
+            } as unknown as RerunJobQueues,
+            services.invocationResultsService.monitoringService,
+            10000
+        )
+        await paginator.processPage(
+            world.team.id,
+            {
+                function_kind: 'hog_flow',
+                function_id: hogFlow.id,
+                request: {
+                    filter: { window_start: '2020-01-01T00:00:00Z', window_end: '2100-01-01T00:00:00Z' },
+                    replay_code_sends: true,
+                },
+                progress: { queued: 0, skipped: 0, done: false },
+            },
+            { jobId: `rerun-${new UUIDT().toString()}`, createdAt: DateTime.now() }
+        )
+        return rerunQueued
+    }
+
+    it('delivers a rerun of a send that SES rejected on the sandbox sender', async () => {
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+        hogFlow = await insertFlow('abort')
+        const res = await sendFromCode(request(sandboxSend()))
+        expect(res.status).toEqual(202)
+        world.ses.replyNext(SES_REJECTED)
+        await deliver(queued[0])
+        expect(world.ses.delivered).toEqual([])
+
+        const rerun = await rerunFromStoredRun(queued[0].id)
+        expect(rerun).toHaveLength(1)
+        const results = await deliver(rerun[0])
+
+        expect(results.at(-1)).toMatchObject({ finished: true })
+        expect(world.ses.delivered).toEqual([
+            expect.objectContaining({
+                from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
+                to: [{ name: '', address: member }],
+                subject: content.subject,
+            }),
+        ])
+        expect(finalStatus(queued[0].id)).toEqual('sent')
     })
 
     it.each([
