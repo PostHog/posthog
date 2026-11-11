@@ -93,11 +93,15 @@ function changedFilenames(file) {
     return file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
 }
 
-function pathRuleMatches(rule, files) {
+function filesMatchingRule(rule, files) {
     const patterns = (rule.paths || []).map(pathPatternToRegExp)
-    const matched = files.filter((file) =>
+    return files.filter((file) =>
         changedFilenames(file).some((filename) => patterns.some((pattern) => pattern.test(filename)))
     )
+}
+
+function pathRuleMatches(rule, files) {
+    const matched = filesMatchingRule(rule, files)
     if (rule.minLines === undefined && rule.minFiles === undefined) {
         return matched.length > 0
     }
@@ -379,6 +383,14 @@ function flagsLowHangingFruitLabel(author, labels, files) {
 // End of the feature flags team section.
 // ---------------------------------------------------------------------------
 
+function writeTriageOutput(rules, files) {
+    const triaged =
+        files !== null && rules.some((rule) => rule.review && pathRuleMatches(rule, files))
+    if (triaged && process.env.GITHUB_OUTPUT) {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, 'triage=true\n')
+    }
+}
+
 async function main() {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, PR_TITLE, PR_AUTHOR } = process.env
     const missing = Object.entries({ GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER })
@@ -403,6 +415,7 @@ async function main() {
         }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
+        writeTriageOutput(rules, files)
         if (files && files.length < PR_FILES_API_LIMIT) {
             const events = await fetchAllPages(`issues/${PR_NUMBER}/events`)
             await removeLabels(staleLabels(events ?? [], labels, rules))
@@ -423,8 +436,11 @@ module.exports = {
     docsLabelApplies,
     labelsForTitle,
     labelsForFiles,
-    pathPatternToRegExp,
-    changedFilenames,
+    filesMatchingRule,
+    pathRuleMatches,
+    writeTriageOutput,
+    fetchAllPages,
+    addLabels,
     staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,

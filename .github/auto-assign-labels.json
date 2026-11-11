@@ -1,5 +1,5 @@
 {
-    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. A rule can also list `paths` from the repo root: a PR that changes a matching file, either side of a rename, gets the rule's labels. A rule with `minLines` or `minFiles` adds them only when the matching files change at least that many lines or that many files, not counting the files the reviewer assigner excludes, such as lockfiles and generated files. A path that ends in `/` covers its directory, `*` matches within one path segment and `**` matches any number of directories. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
+    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. A rule can also list `paths` from the repo root: a PR that changes a matching file, either side of a rename, gets the rule's labels. A rule with `minLines` or `minFiles` adds them only when the matching files change at least that many lines or that many files, not counting the files the reviewer assigner excludes, such as lockfiles and generated files. A path that ends in `/` covers its directory, `*` matches within one path segment and `**` matches any number of directories. Labels must already exist in the repo. Add a new object to `rules` to map more scopes. A rule with `review` hands its team's review request to the Agent Infra Review Triage workflow: Auto Assign Reviewers stops requesting that team, and the triage workflow requests it and adds `review.label` only when a change alters shared behavior. Sensitive paths still request the team directly.",
     "rules": [
         {
             "scopes": ["flags", "flag", "feature-flags", "feature-flag", "feature_flags", "feature_flag"],
@@ -46,7 +46,8 @@
             ],
             "minLines": 10,
             "minFiles": 3,
-            "labels": ["feature/agent-infra"]
+            "labels": ["feature/agent-infra"],
+            "review": { "team": "team-agent-infrastructure", "label": "agent-infra/review-needed" }
         }
     ]
 }

@@ -1,5 +1,8 @@
 // Run with: node --test .github/scripts/assign-reviewers.test.js
 
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
@@ -18,6 +21,8 @@ const {
     classifyOwnersWithPinned,
     buildReviewerComment,
     fileMatchesPattern,
+    loadTriagedTeams,
+    withoutTriagedTeams,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -506,3 +511,39 @@ test('buildReviewerComment: truncates long pattern lists', () => {
     const body = buildReviewerComment(requested, manyDemoted)
     assert.ok(body.includes('(+3 more)'))
 })
+
+test('withoutTriagedTeams drops only the triaged team, keeping users and other teams', () => {
+    const footprints = [
+        {
+            type: 'team',
+            name: 'team-agent-infrastructure',
+            owner: '@PostHog/team-agent-infrastructure',
+        },
+        { type: 'team', name: 'team-devex', owner: '@PostHog/team-devex' },
+        { type: 'user', name: 'team-agent-infrastructure', owner: '@team-agent-infrastructure' },
+    ]
+
+    assert.deepEqual(
+        withoutTriagedTeams(footprints, ['team-agent-infrastructure']).map((f) => f.owner),
+        ['@PostHog/team-devex', '@team-agent-infrastructure']
+    )
+})
+
+for (const [name, contents, expected] of [
+    [
+        'a rule with review',
+        { rules: [{ labels: ['x'], review: { team: 'team-a', label: 'l' } }] },
+        ['team-a'],
+    ],
+    ['no rule with review', { rules: [{ labels: ['x'] }] }, []],
+    ['an unreadable config', null, []],
+]) {
+    test(`loadTriagedTeams reads ${name}`, () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'triaged-teams-'))
+        const configPath = path.join(directory, 'auto-assign-labels.json')
+        fs.writeFileSync(configPath, contents === null ? '{' : JSON.stringify(contents))
+
+        assert.deepEqual(loadTriagedTeams(configPath), expected)
+        fs.rmSync(directory, { recursive: true, force: true })
+    })
+}

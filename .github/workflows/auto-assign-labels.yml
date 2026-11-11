@@ -40,6 +40,8 @@ jobs:
         if: ${{ github.event.pull_request.state == 'open' && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 5
+        outputs:
+            triage: ${{ steps.labels.outputs.triage }}
 
         steps:
             - name: Checkout master branch
@@ -75,6 +77,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Run label assignment script
+              id: labels
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -82,3 +85,76 @@ jobs:
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: node .github/scripts/label-pr-from-title.js
+
+    review-triage:
+        needs: assign-labels
+        if: >-
+            ${{ needs.assign-labels.outputs.triage == 'true'
+            && github.event.pull_request.draft == false }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+            statuses: write
+
+        steps:
+            - name: Checkout master branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /.github/
+                  sparse-checkout-cone-mode: false
+
+            - name: Triage the pull request
+              id: triage
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  AI_GATEWAY_MINT_KEY: ${{ secrets.AGENT_INFRA_TRIAGE_AI_GATEWAY_MINT_KEY }}
+              run: node .github/scripts/agent-infra-review-triage.js
+
+            - name: Get app token
+              id: app-token
+              if: ${{ steps.triage.outputs.verdict == 'review' }}
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Request the team's review
+              if: ${{ steps.triage.outputs.verdict == 'review' }}
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  TEAM: ${{ steps.triage.outputs.team }}
+              run: |
+                  gh api --method POST "repos/$REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
+                      -f "team_reviewers[]=$TEAM" > /dev/null
+
+            - name: Add the review label
+              if: ${{ steps.triage.outputs.verdict == 'review' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LABEL: ${{ steps.triage.outputs.label }}
+              run: |
+                  gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/labels" \
+                      -f "labels[]=$LABEL" > /dev/null
+
+            - name: Record the triage on the head commit
+              if: ${{ steps.triage.outputs.status != '' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  DESCRIPTION: ${{ steps.triage.outputs.status }}
+              run: |
+                  gh api --method POST "repos/$REPOSITORY/statuses/$SHA" -f state=success \
+                      -f context=agent-infra-review-triage -f "description=$DESCRIPTION" > /dev/null

@@ -35,8 +35,6 @@ rules:
       sensitive: true
     - match: ['/agent-infra-review-triage.md', '/scripts/agent-infra-review-triage.js']
       owners: team-agent-infrastructure
-    - match: '/workflows/agent-infra-review-triage.yml'
-      owners: [team-devex, team-agent-infrastructure]
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'

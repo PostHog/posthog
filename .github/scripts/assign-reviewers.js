@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
 const { pathMatchesPattern } = require('./codeowners')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
@@ -328,6 +331,23 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
         }
     }
     return Array.from(owners.values())
+}
+
+function loadTriagedTeams(configPath = path.join(__dirname, '..', 'auto-assign-labels.json')) {
+    try {
+        const rules = JSON.parse(fs.readFileSync(configPath, 'utf8')).rules ?? []
+        return rules.flatMap((rule) => (rule.review?.team ? [rule.review.team] : []))
+    } catch (error) {
+        const reason = error?.message ?? error
+        console.warn(`⚠️  Could not read triaged teams, so every owner is requested: ${reason}`)
+        return []
+    }
+}
+
+function withoutTriagedTeams(footprints, triagedTeams) {
+    return footprints.filter(
+        (footprint) => footprint.type !== 'team' || !triagedTeams.includes(footprint.name)
+    )
 }
 
 function isSubstantive(footprint, config = CONFIG) {
@@ -711,7 +731,11 @@ async function main() {
         const relevantFilenames = changedFiles.flatMap(changedPaths).filter((filename) => !isExcludedFile(filename))
         const resolutionByPath = resolveOwners([...new Set(relevantFilenames)])
 
-        const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
+        const triagedTeams = loadTriagedTeams()
+        const footprints = withoutTriagedTeams(
+            computeOwnerFootprints(resolutionByPath, changedFiles),
+            triagedTeams
+        )
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
         const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
@@ -728,6 +752,7 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info(`Owners of additions: ${additionOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info(`Owners of sensitive paths: ${sensitiveOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
+        console.info(`Teams left to triage: ${triagedTeams.join(', ') || 'none'}`)
         console.info()
 
         if (!isExternal) {
@@ -768,6 +793,8 @@ module.exports = {
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
     isSubstantive,
+    loadTriagedTeams,
+    withoutTriagedTeams,
     classifyOwners,
     classifyOwnersWithPinned,
     buildReviewerComment,

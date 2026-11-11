@@ -4,6 +4,9 @@
 // pull_request_target, so this unit test is the only pre-merge signal that the
 // mapping logic is correct.
 
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
@@ -18,6 +21,7 @@ const {
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
     flagsWithoutGeneratedFiles,
+    writeTriageOutput,
 } = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
@@ -547,3 +551,28 @@ test('flagsWithoutGeneratedFiles drops generated files and keeps hand-written on
         file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
     ])
 })
+
+for (const [name, files, expected] of [
+    [
+        'a triaged path above the threshold',
+        [{ filename: 'products/tasks/a.py', additions: 20 }],
+        'triage=true\n',
+    ],
+    ['a triaged path below the threshold', [{ filename: 'products/tasks/a.py', additions: 1 }], ''],
+    ['no file list', null, ''],
+]) {
+    test(`writeTriageOutput with ${name}`, () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'triage-output-'))
+        const outputPath = path.join(directory, 'output')
+        fs.writeFileSync(outputPath, '')
+        const rules = [{ paths: ['products/tasks/'], minLines: 10, labels: ['x'], review: {} }]
+        const previous = process.env.GITHUB_OUTPUT
+        process.env.GITHUB_OUTPUT = outputPath
+
+        writeTriageOutput(rules, files)
+
+        process.env.GITHUB_OUTPUT = previous ?? ''
+        assert.equal(fs.readFileSync(outputPath, 'utf8'), expected)
+        fs.rmSync(directory, { recursive: true, force: true })
+    })
+}
