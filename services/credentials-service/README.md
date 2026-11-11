@@ -333,6 +333,41 @@ socket, so it covers the wiring the unit suite fakes. Neither suite needs a data
 Point `CREDENTIALS_SERVICE_SECRETS_DIR` at a directory of files, one per key, to stand in for the
 mount.
 
+## Envelope encryption
+
+`src/crypto/` encrypts one integration's secret blob for storage. No route uses it yet.
+
+- Each write gets a fresh 32-byte data key from the KMS, wrapped under one single-region key.
+- The blob is canonical JSON (sorted keys, no whitespace), encrypted with AES-256-GCM and a random 12-byte nonce.
+- The AAD and the KMS encryption context are the same three fields: `integration_id`, `owner_id` and `kind`.
+  A ciphertext copied to another row, owner or kind does not decrypt.
+- Stored per row: `key_id`, `wrapped_dek`, `ciphertext` (GCM output, then the 16-byte tag), `nonce` and `enc_version` (`1`).
+- Unwrapped data keys stay in an in-process LRU cache: 50k entries, 10 minutes.
+  The cache zeroes a key when it evicts it. A miss is one KMS `Decrypt`.
+- `rewrap` wraps a data key under another KMS key. The ciphertext does not change.
+  On AWS this is `ReEncrypt`, so the role needs `kms:ReEncryptFrom` and `kms:ReEncryptTo`.
+
+The `aws` provider makes one attempt and two retries, each limited to 2s.
+It connects to KMS directly and ignores `HTTP_PROXY` and `HTTPS_PROXY`, unless `CREDENTIALS_SERVICE_KMS_PROXY_URL` is set.
+KMS traffic uses the AWS KMS VPC endpoint (`CREDENTIALS_SERVICE_KMS_ENDPOINT`) and does not use the HTTP proxy.
+This is the only direct egress of the service, besides the internal capture host.
+The `local` provider wraps data keys with AES-256-GCM under keys from config, for dev, CI and hobby.
+Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` is `prod-us` or `prod-eu`, and when it starts with `prod`.
+
+| Variable                             | Default | Notes                                                                      |
+| ------------------------------------ | ------- | -------------------------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_KMS_PROVIDER`   | unset   | `aws` or `local`. Unset means no KMS                                       |
+| `CREDENTIALS_SERVICE_KMS_KEY_ID`     |         | Alias, key id or ARN that wraps new data keys (`aws`, required)            |
+| `CREDENTIALS_SERVICE_KMS_REGION`     | SDK     | Falls back to `AWS_REGION` (`aws`)                                         |
+| `CREDENTIALS_SERVICE_KMS_ENDPOINT`   | SDK     | A VPC endpoint or an emulator (`aws`)                                      |
+| `CREDENTIALS_SERVICE_KMS_PROXY_URL`  | unset   | Send KMS traffic through this proxy (`aws`)                                |
+| `CREDENTIALS_SERVICE_KMS_LOCAL_KEYS` |         | Comma-separated base64 32-byte keys. The first wraps, all unwrap (`local`) |
+
+| Metric                                            | What it answers                                           |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| `credentials_service_kms_calls_total{op,outcome}` | KMS calls; `outcome` is `ok`, `unavailable` or `rejected` |
+| `credentials_service_dek_cache_hits_total`        | decryptions served from the data key cache                |
+
 ## Configuration
 
 | Variable                                                 | Default                       | Notes                                                                                               |
