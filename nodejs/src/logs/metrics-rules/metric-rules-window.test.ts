@@ -223,6 +223,24 @@ describe('MetricRulesEmission', () => {
         }
     )
 
+    it('sends the open window on a revoke flush and keeps the idle timer for later windows', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(WINDOW_START_MS)
+            const { sent, emission } = setup()
+            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record()], WINDOW_START_MS)]]))
+            await emission.flushOpen()
+            expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([[WINDOW_START_MS, 1]])
+
+            sent.length = 0
+            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record(), record()], WINDOW_START_MS)]]))
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([[WINDOW_START_MS, 2]])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('waits for an idle flush still sending when shutdown starts', async () => {
         jest.useFakeTimers()
         try {

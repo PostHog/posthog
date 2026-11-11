@@ -195,13 +195,18 @@ export class MetricRulesEmission {
     public async emitBatch(byTeam: Map<number, MetricRuleTeamTallies>, nowMs: number = Date.now()): Promise<void> {
         const startedAtMs = Date.now()
         // Take the closed window before adding, so this batch's counts open the next window.
+        // No await until every add is done, so batches running concurrently never see half a batch in a window.
         const closed = this.aggregator.takeClosed(nowMs)
+        const perBatch: [number, MetricRuleTeamTallies][] = []
         for (const [teamId, batch] of byTeam) {
             if (this.isWindowedTeam(teamId)) {
                 this.aggregator.add(teamId, batch, nowMs)
             } else {
-                await this.send(teamId, batch.token, batch.rules, batch.tallies, nowMs)
+                perBatch.push([teamId, batch])
             }
+        }
+        for (const [teamId, batch] of perBatch) {
+            await this.send(teamId, batch.token, batch.rules, batch.tallies, nowMs)
         }
         // Exports for teams outside the window took time, and the timer must still fire when the window ends.
         this.scheduleIdleFlush(nowMs + (Date.now() - startedAtMs))
@@ -215,8 +220,14 @@ export class MetricRulesEmission {
         await this.sendFlushes(closed)
     }
 
+    /** Sends the open window on shutdown, and stops the idle timer for good. */
     public async flushAll(): Promise<void> {
         this.stopping = true
+        await this.flushOpen()
+    }
+
+    /** Sends the open window now, as when partitions are revoked. Later batches open a new window as usual. */
+    public async flushOpen(): Promise<void> {
         this.clearIdleTimer()
         // The timer may already hold the expired window; shutdown must not close the HTTP agents under its sends.
         await this.idleFlush
