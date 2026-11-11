@@ -243,7 +243,6 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
             [] as PlatformAlertCreateDestinationApi[],
             {
                 addPendingDestination: (state, { destination }) => [...state, destination],
-                removePendingDestination: (state, { index }) => state.filter((_, i) => i !== index),
                 setPendingDestinations: (_, { destinations }) => destinations,
             },
         ],
@@ -363,6 +362,13 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                 actions.addPendingDestination({ type, webhook_url: values.webhookUrl.trim() })
                 actions.setWebhookUrl('')
             }
+        },
+        // A save sends the list it started with, so a removal during it would still be created.
+        removePendingDestination: ({ index }) => {
+            if (values.savingDestinations) {
+                return
+            }
+            actions.setPendingDestinations(values.pendingDestinations.filter((_, i) => i !== index))
         },
         // A saved alert takes each destination as soon as it is added, as the logs alert editor does.
         addPendingDestination: () => {
