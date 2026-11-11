@@ -717,24 +717,33 @@ export function appendResultsToFolders(
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
     const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
 
-    // Merges each folder once, so a scan of thousands of files into one folder stays linear.
-    const incomingByFolder = new Map<string, Map<string, FileSystemEntry>>()
+    // Track IDs we've already processed to avoid duplicates within the incoming results
     const processedIds = new Set<string>()
+    const positions = new Map<string, Map<string, number>>()
+
     for (const result of newResults) {
-        if (!result.id || processedIds.has(result.id)) {
+        // Skip items without IDs or that we've already processed in this batch
+        if (!result.id) {
+            continue
+        }
+        if (processedIds.has(result.id)) {
             continue
         }
         processedIds.add(result.id)
+
         const folder = parentPath(result.path)
-        incomingByFolder.set(folder, (incomingByFolder.get(folder) ?? new Map()).set(result.id, result))
-    }
-    for (const [folder, incoming] of incomingByFolder) {
-        const existing = newState[folder] ?? []
-        const existingIds = new Set(existing.map((file) => file.id))
-        newState[folder] = [
-            ...existing.map((file) => incoming.get(file.id) ?? file),
-            ...[...incoming.values()].filter((result) => !existingIds.has(result.id)),
-        ]
+        // Each folder is copied once and indexed by id, so merging thousands of files into one folder stays linear.
+        if (!positions.has(folder)) {
+            newState[folder] = [...(newState[folder] ?? [])]
+            positions.set(folder, new Map(newState[folder].map((file, index) => [file.id, index])))
+        }
+        const position = positions.get(folder)!
+        const index = position.get(result.id)
+        if (index === undefined) {
+            position.set(result.id, newState[folder].push(result) - 1)
+        } else {
+            newState[folder][index] = result
+        }
     }
     return newState
 }
