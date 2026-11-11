@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use crate::{
     api::client::ClientError,
     invocation_context::context,
-    utils::{files::content_hash, raise_for_err},
+    utils::{files::content_hash, raise_for_presigned_err, redact_request_error},
 };
 
 pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
@@ -688,7 +688,7 @@ fn upload_to_s3(
             Ok(response) => response,
             Err(e) => {
                 router.record_transport_error(use_fallback);
-                return Err(e.into());
+                return Err(redact_request_error(e).into());
             }
         };
         if !use_fallback {
@@ -696,7 +696,7 @@ fn upload_to_s3(
         }
         // HTTP errors never reroute: a response proves the endpoint is
         // reachable, and the standard endpoint would return the same error.
-        raise_for_err(response)?;
+        raise_for_presigned_err(response)?;
 
         if router.should_set_latch(use_fallback) {
             transport.mark_accelerated_unreachable();
@@ -799,6 +799,7 @@ pub fn download_bytes(symbol_set_id: &str) -> Result<Vec<u8>> {
     let response = http_client
         .get(&presigned_url)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to download from S3")?;
 
     if !response.status().is_success() {
