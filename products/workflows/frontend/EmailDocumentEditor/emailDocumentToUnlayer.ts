@@ -86,7 +86,7 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
                 autoWidth: !style.width,
                 ...(style.width
                     ? {
-                          maxWidth: `${Math.min(100, Math.round((number(style.width, available) / available) * 100))}%`,
+                          maxWidth: `${Math.min(100, Math.round((number(style.width, available) / available) * 1000) / 10)}%`,
                       }
                     : {}),
             },

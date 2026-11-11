@@ -343,7 +343,12 @@ describe('unlayerToEmailDocument', () => {
                 },
                 {
                     type: 'emailImage',
-                    attrs: { src: 'https://example.com/a.png', alt: 'An image', href: 'https://example.com/image' },
+                    attrs: {
+                        src: 'https://example.com/a.png',
+                        alt: 'An image',
+                        href: 'https://example.com/image',
+                        emailStyle: { width: 101 },
+                    },
                 },
                 { type: 'emailButton', attrs: { href: 'https://example.com/start' }, content: [text('Get started')] },
                 { type: 'horizontalRule' },
@@ -375,6 +380,7 @@ describe('unlayerToEmailDocument', () => {
         expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
         expect(back?.content?.[6].attrs?.emailStyle.backgroundColor).toEqual('#ffeecc')
         expect(back?.content?.[0].attrs?.emailStyle.padding).toEqual({ top: 32, right: 24, bottom: 8, left: 24 })
+        expect(back?.content?.[3].attrs?.emailStyle.width).toEqual(101)
         for (const expected of [
             'Rollback héading 🚀',
             'person.properties.name',
