@@ -22,6 +22,16 @@ class UnknownFeatureFlagsError(Exception):
 
 
 @dataclass(frozen=True)
+class FlagVisibility:
+    existing: frozenset[int]
+    visible: frozenset[int]
+
+    @property
+    def hidden(self) -> frozenset[int]:
+        return self.existing - self.visible
+
+
+@dataclass(frozen=True)
 class ReleaseOwnerDTO:
     id: int
     first_name: str

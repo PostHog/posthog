@@ -56,6 +56,38 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_hidden_flags_are_omitted_and_kept_while_deleted_flags_still_show(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        visible_id, hidden_id, deleted_id = (
+            self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"key": key}, format="json").json()["id"]
+            for key in ("visible", "hidden", "deleted")
+        )
+        release_id = self.client.post(
+            self._url(), {"name": "Dark mode", "feature_flag_ids": [visible_id, hidden_id, deleted_id]}, format="json"
+        ).json()["id"]
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted_id}/", {"deleted": True}, format="json")
+        self.client.put(
+            f"/api/projects/{self.team.id}/feature_flags/{hidden_id}/access_controls",
+            {"access_level": "none"},
+            format="json",
+        )
+        admin = self.user
+        self.client.force_login(self._create_user("member@example.com"))
+
+        listed = self.client.get(self._url()).json()["results"][0]["feature_flag_ids"]
+        self.client.patch(self._url(f"{release_id}/"), {"feature_flag_ids": []}, format="json")
+        self.client.force_login(admin)
+        kept = self.client.get(self._url()).json()["results"][0]["feature_flag_ids"]
+
+        assert listed == [visible_id, deleted_id]
+        assert kept == [hidden_id]
+
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
             self._url("00000000-0000-0000-0000-000000000000/"), {"name": "Renamed"}, format="json"

@@ -70,10 +70,10 @@ interface ReleaseLogicActions {
     reload: (force?: boolean) => { force: boolean }
     loadReleases: () => void
     loadReleasesFailure: (error: string) => { error: string }
-    setReleaseLocally: (
-        id: string,
+    setReleaseLocally: (update: { id: string; changes: PatchedUpdateReleaseApi }) => {
+        id: string
         changes: PatchedUpdateReleaseApi
-    ) => { id: string; changes: PatchedUpdateReleaseApi }
+    }
     loadFlags: () => void
     loadFlagsSuccess: (flags: FeatureFlagApi[]) => { flags: FeatureFlagApi[] }
     loadFlagsFailure: (error: string) => { error: string }
@@ -505,12 +505,23 @@ export const releaseLogic = kea<releaseLogicType>([
             }
         },
         updateRelease: async ({ id, changes, successMessage }) => {
-            actions.setReleaseLocally(id, changes)
+            actions.setReleaseLocally({ id, changes })
             cache.pendingSaves = (cache.pendingSaves ?? 0) + 1
+            cache.pendingById = { ...cache.pendingById, [id]: (cache.pendingById?.[id] ?? 0) + 1 }
             const previous: Promise<void> = cache.saving ?? Promise.resolve()
             cache.saving = previous.then(async () => {
                 try {
-                    await releasesPartialUpdate(String(values.currentProjectId), id, changes)
+                    const saved = await releasesPartialUpdate(String(values.currentProjectId), id, changes)
+                    if (cache.pendingById[id] === 1) {
+                        actions.setReleaseLocally({
+                            id,
+                            changes: {
+                                name: saved.name,
+                                description: saved.description,
+                                feature_flag_ids: saved.feature_flag_ids,
+                            },
+                        })
+                    }
                     if (successMessage) {
                         lemonToast.success(successMessage)
                     }
@@ -525,6 +536,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     cache.refetchAfterSaves = true
                 } finally {
                     cache.pendingSaves -= 1
+                    cache.pendingById[id] -= 1
                     if (cache.pendingSaves === 0) {
                         if (cache.refetchAfterSaves) {
                             actions.loadReleases()

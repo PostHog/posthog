@@ -4,7 +4,10 @@ import { IconCalendar, IconChevronDown } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { releaseLogic } from './releaseLogic'
+import { ReleaseScheduleFlagSearch } from './ReleaseScheduleFlagSearch'
 import { ReleaseRow } from './releaseUtils'
+
+const MENU_LIMIT = 10
 
 export function ReleaseScheduleButton({
     row,
@@ -25,6 +28,9 @@ export function ReleaseScheduleButton({
                 Schedule a change
             </Button>
         )
+    }
+    if (row.flags.length > MENU_LIMIT) {
+        return <ReleaseScheduleFlagSearch row={row} />
     }
     return (
         <DropdownMenu>

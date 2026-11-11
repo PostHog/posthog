@@ -491,7 +491,10 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         flagAudienceRow(flag, optInKeys.has(flag.key) || !!flagFilters(flag).feature_enrollment)
     )
     const mainAudience = audiences[0]
-
+    const audienceSummary =
+        new Set(audiences.map((audience) => audience.summary)).size > 1
+            ? `Differs across ${audiences.length} flags`
+            : mainAudience?.summary
     let status = 'No feature flag yet'
     let headline = 'Not started'
     let detail = 'Link the feature flag that controls who gets this release.'
@@ -530,7 +533,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     } else if (flags.length) {
         status = 'Behind a flag'
         headline = 'Behind a flag'
-        detail = mainAudience ? `${mainAudience.summary}.` : ''
+        detail = audienceSummary ? `${audienceSummary}.` : ''
     }
 
     let nextStep: ReleaseNextStep | null = null
@@ -758,8 +761,8 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         ? 'Users who opt in'
         : running.length
           ? 'Experiment participants'
-          : mainAudience
-            ? mainAudience.summary
+          : audienceSummary
+            ? audienceSummary
             : 'Nobody yet'
 
     return {
