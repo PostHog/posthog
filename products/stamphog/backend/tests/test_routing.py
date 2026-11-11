@@ -356,136 +356,70 @@ class TestDecideCuts:
         assert decision.llm_skipped == skipped
 
 
-_KEPT = RoutingOwnerReason.SHARED_BEHAVIOR_KEPT
-_CUT = RoutingOwnerReason.SHARED_BEHAVIOR_CUT
-_BOTH_PROMPTS = [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT]
-_PLATFORM_CUT = {"cuts": [{"owner": "team-platform", "reason": "Only calls the existing API."}]}
+_AGENT_INFRA = "team-agent-infrastructure"
+_CUT_AGENT_INFRA = {"cuts": [{"owner": _AGENT_INFRA, "reason": "Only calls the existing API."}]}
 
 
-class TestSharedBehaviorCuts:
+class TestSharedBehaviorCut:
     @parameterized.expand(
         [
-            (
-                "cuts_the_team",
-                [_candidate("team-big", lines=50)],
-                {"cuts": []},
-                _PLATFORM_CUT,
-                ["team-platform"],
-                _BOTH_PROMPTS,
-                _CUT,
-            ),
-            (
-                "keeps_the_team",
-                [_candidate("team-big", lines=50)],
-                {"cuts": []},
-                {"cuts": []},
-                [],
-                _BOTH_PROMPTS,
-                _KEPT,
-            ),
-            (
-                "logs_a_failed_second_call",
-                [_candidate("team-big", lines=50)],
-                {"cuts": []},
-                RuntimeError("gateway down"),
-                [],
-                _BOTH_PROMPTS,
-                RoutingOwnerReason.SHARED_BEHAVIOR_NO_ANSWER,
-            ),
-            (
-                "ignores_a_cut_of_another_owner",
-                [_candidate("team-big", lines=50)],
-                {"cuts": []},
-                {"cuts": [{"owner": "team-big", "reason": "x"}]},
-                [],
-                _BOTH_PROMPTS,
-                _KEPT,
-            ),
-            (
-                "skips_the_check_when_the_first_pass_cut_the_team",
-                [_candidate("team-big", lines=50)],
-                {"cuts": [{"owner": "team-platform", "reason": "Only a rename."}]},
-                None,
-                ["team-platform"],
-                [CUT_SYSTEM_PROMPT],
-                RoutingOwnerReason.MODEL_CUT,
-            ),
-            (
-                "checks_a_sole_owner_without_the_first_pass",
-                [],
-                None,
-                _PLATFORM_CUT,
-                ["team-platform"],
-                [SHARED_BEHAVIOR_SYSTEM_PROMPT],
-                _CUT,
-            ),
-            (
-                "keeps_the_largest_first_pass_cut_when_both_are_cut",
-                [_candidate("team-small", lines=2)],
-                {"cuts": [{"owner": "team-small", "reason": "Only a rename."}]},
-                _PLATFORM_CUT,
-                ["team-platform"],
-                _BOTH_PROMPTS,
-                _CUT,
-            ),
+            ("cuts_the_team", [_candidate("team-big", lines=50)], False, _CUT_AGENT_INFRA, True, 2),
+            ("keeps_the_team", [_candidate("team-big", lines=50)], False, {"cuts": []}, False, 2),
+            ("cuts_a_sole_owner", [], False, _CUT_AGENT_INFRA, True, 1),
+            ("keeps_the_team_on_a_failed_call", [], False, RuntimeError("down"), False, 1),
+            ("skips_a_fork", [_candidate("team-big", lines=50)], True, _CUT_AGENT_INFRA, False, 0),
         ]
     )
     def test_second_pass(
         self,
         _name: str,
         others: list[OwnerCandidate],
-        first_answer: Mapping[str, object] | None,
-        second_answer: Exception | Mapping[str, object] | None,
-        expected_cut: list[str],
-        expected_prompts: list[str],
-        expected_reason: RoutingOwnerReason,
+        is_fork: bool,
+        answer: Exception | Mapping[str, object],
+        expected_cut: bool,
+        expected_calls: int,
     ) -> None:
-        candidates = [*others, _candidate("team-platform", lines=10)]
-        prompts: list[str] = []
-        second_users: list[str] = []
+        candidates = [*others, _candidate(_AGENT_INFRA, lines=10)]
+        calls: list[str] = []
 
         def call_model(
             system: str,
             user: str,
             schema: Mapping[str, object],
         ) -> Mapping[str, object] | None:
-            prompts.append(system)
+            calls.append(system)
             if system == CUT_SYSTEM_PROMPT:
-                return first_answer
-            second_users.append(user)
-            if isinstance(second_answer, Exception):
-                raise second_answer
-            return second_answer
+                return {"cuts": []}
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
 
         decision = decide_cuts(
             candidates=candidates,
             title="t",
             description="d",
-            is_fork=False,
+            is_fork=is_fork,
             call_model=call_model,
-            shared_behavior_teams=frozenset({"team-platform"}),
         )
 
-        assert [cut.candidate.owner for cut in decision.cut] == expected_cut
-        assert len(decision.kept) == len(candidates) - len(expected_cut)
-        assert decision.reasons["team-platform"] == expected_reason
-        assert prompts == expected_prompts
-        assert all("team-big/code.py" not in user for user in second_users)
+        assert (_AGENT_INFRA in [cut.candidate.owner for cut in decision.cut]) == expected_cut
+        assert len(calls) == expected_calls
+        assert calls[-1:] == ([SHARED_BEHAVIOR_SYSTEM_PROMPT] if expected_calls else [])
 
-    def test_skips_the_check_for_a_pinned_team(self) -> None:
+    def test_never_asks_about_a_pinned_team(self) -> None:
         candidates = [
             _candidate("team-big", lines=50),
-            _candidate("team-platform", pins=_SENSITIVE_PIN),
+            _candidate(_AGENT_INFRA, pins=_SENSITIVE_PIN),
         ]
-        prompts: list[str] = []
+        calls: list[str] = []
 
         def call_model(
             system: str,
             user: str,
             schema: Mapping[str, object],
         ) -> Mapping[str, object] | None:
-            prompts.append(system)
-            return {"cuts": []}
+            calls.append(system)
+            return _CUT_AGENT_INFRA
 
         decision = decide_cuts(
             candidates=candidates,
@@ -493,11 +427,10 @@ class TestSharedBehaviorCuts:
             description="d",
             is_fork=False,
             call_model=call_model,
-            shared_behavior_teams=frozenset({"team-platform"}),
         )
 
-        assert prompts == [CUT_SYSTEM_PROMPT]
-        assert decision.reasons["team-platform"] == RoutingOwnerReason.SENSITIVE
+        assert calls == [CUT_SYSTEM_PROMPT]
+        assert [candidate.owner for candidate in decision.kept] == ["team-big", _AGENT_INFRA]
 
 
 class TestRenderRoutingComment:
@@ -534,42 +467,3 @@ class TestRenderRoutingComment:
         assert "@PostHog/security" not in body
         assert "`code`" not in body
         assert len(items[0]) < 300
-
-    @parameterized.expand(
-        [
-            (
-                "with_a_reviewer",
-                True,
-                "Review requests went to the owners of the changed code. These owners",
-            ),
-            (
-                "without_a_reviewer",
-                False,
-                "No owner was requested for review, so please request a reviewer.",
-            ),
-        ]
-    )
-    def test_names_a_shared_behavior_cut(
-        self,
-        _name: str,
-        has_reviewer: bool,
-        opening: str,
-    ) -> None:
-        decision = RoutingDecision(
-            kept=(_candidate("team-big"),) if has_reviewer else (),
-            cut=(
-                CutOwner(
-                    candidate=_candidate("team-platform"),
-                    reason="Tests only.",
-                    shared_behavior=True,
-                ),
-            ),
-            llm_skipped=None,
-        )
-
-        body = render_routing_comment(decision=decision, org="PostHog")
-
-        assert body is not None
-        assert body.split("\n")[1].startswith(opening)
-        assert "leaves the shared behavior of their code unchanged:" in body
-        assert "looks trivial" not in body
