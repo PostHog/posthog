@@ -1232,12 +1232,11 @@ mod tests {
         format!("{origin}/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE")
     }
 
-    fn serve_signature_mismatch(attempts: usize) -> String {
+    fn serve_upload_error(attempts: usize, body: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
         let address = listener.local_addr().expect("read bound address");
 
         std::thread::spawn(move || {
-            let body = "<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>";
             for _ in 0..attempts {
                 let (mut stream, _) = listener.accept().expect("accept upload connection");
                 read_request(&mut stream);
@@ -1329,25 +1328,42 @@ mod tests {
     #[test]
     fn upload_to_s3_keeps_presigned_credentials_out_of_logs_and_errors() {
         let _retry_tracing_lock = lock_retry_tracing();
-        let cases: Vec<(&str, String, Option<&str>)> = vec![
+        let cases = [
             (
                 "storage answers with an error",
-                serve_signature_mismatch(3),
+                serve_upload_error(3, "<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>"),
                 Some("Code=SignatureDoesNotMatch"),
+                false,
             ),
-            ("storage refuses the connection", refused_origin(), None),
+            (
+                "storage rejects a POST policy",
+                serve_upload_error(3, "<Error><Code>AccessDenied</Code><Message>Invalid according to Policy: Policy Condition failed: [eq, $x-amz-security-token, SESSIONTOKEN]</Message><RequestId>REQ123</RequestId></Error>"),
+                Some("Code=AccessDenied"),
+                true,
+            ),
+            ("storage refuses the connection", refused_origin(), None, false),
         ];
 
-        for (name, origin, expected) in cases {
+        for (name, origin, expected, use_post) in cases {
             let url = presigned_put_url(&origin);
+            let presigned = PresignedUrl {
+                url: format!("{origin}/symbolsets/chunk"),
+                fields: HashMap::from([
+                    ("key".to_string(), "symbolsets/chunk".to_string()),
+                    (
+                        "x-amz-security-token".to_string(),
+                        "SESSIONTOKEN".to_string(),
+                    ),
+                ]),
+            };
+            let target = if use_post {
+                UploadTarget::Post(&presigned)
+            } else {
+                UploadTarget::Put(&url)
+            };
             let mut result = None;
             let messages = capture_tracing_messages(|| {
-                result = Some(upload_to_s3(
-                    &test_transport(),
-                    UploadTarget::Put(&url),
-                    None,
-                    b"bytes",
-                ));
+                result = Some(upload_to_s3(&test_transport(), target, None, b"bytes"));
             });
 
             let err = result.expect("upload ran").expect_err(name);
@@ -1355,6 +1371,7 @@ mod tests {
             assert!(output.contains("/symbolsets/chunk"), "{name}: {output}");
             if let Some(expected) = expected {
                 assert!(output.contains(expected), "{name}: {output}");
+                assert!(output.contains("RequestId=REQ123"), "{name}: {output}");
             }
             for secret in PRESIGNED_SECRETS {
                 assert!(!output.contains(secret), "{name}: {output}");

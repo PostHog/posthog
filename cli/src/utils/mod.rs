@@ -54,7 +54,7 @@ fn s3_error_summary(body: &str) -> Option<String> {
         let end = start + body[start..].find(&format!("</{name}>"))?;
         Some(format!("{name}={}", &body[start..end]))
     };
-    let fields: Vec<String> = ["Code", "Message", "RequestId"]
+    let fields: Vec<String> = ["Code", "RequestId"]
         .into_iter()
         .filter_map(field)
         .collect();
