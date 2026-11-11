@@ -590,6 +590,52 @@ describe('workflowFoldersLogic', () => {
         }
     })
 
+    it('blocks every other change to a folder and its subfolders until its rename lands', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let releaseMove: () => void = () => {}
+        const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
+        const moves: string[] = []
+        let deletes = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 3 }],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    moves.push(body.new_path)
+                    await moveHeld
+                    return [200, { id: params.id, path: body.new_path, type: 'folder' }]
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/file_system/:id/': () => {
+                    deletes++
+                    return [204]
+                },
+            },
+        })
+        logic.actions.renameFolder('Billing', 'Invoices')
+        await waitFor(() => expect(moves).toEqual(['Invoices']))
+        expect(logic.values.folderMutationDisabledReason('Billing')).not.toBeNull()
+        expect(logic.values.folderMutationDisabledReason('Billing/Cards')).not.toBeNull()
+        expect(logic.values.folderMutationDisabledReason('Empty')).toBeNull()
+
+        logic.actions.renameFolder('Billing', 'Accounts')
+        logic.actions.renameFolder('Billing/Cards', 'Debit')
+        await logic.asyncActions.deleteFolder('Billing')
+        logic.actions.startFolderDraft('Billing/Cards')
+        logic.actions.setFolderDraftName('Statements')
+        expect(logic.values.folderDraftError).not.toBeNull()
+        logic.actions.cancelFolderDraft()
+        releaseMove()
+        await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(moves).toEqual(['Invoices'])
+        expect(deletes).toBe(0)
+        expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
+        expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+    })
+
     it("moves workflow files and drops folders and other products' files to match a full reload", async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.folderPaths).not.toContain('Reports')

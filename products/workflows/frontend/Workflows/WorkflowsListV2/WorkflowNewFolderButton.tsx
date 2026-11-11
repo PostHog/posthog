@@ -12,7 +12,7 @@ export function WorkflowNewFolderButton({
     parent: string
     iconOnly?: boolean
 }): JSX.Element {
-    const { creatingFolder } = useValues(workflowFoldersLogic)
+    const { creatingFolder, folderMutationDisabledReason } = useValues(workflowFoldersLogic)
     const { startFolderDraft } = useActions(workflowFoldersLogic)
     const label = `New folder in ${parent || 'the project root'}`
     return (
@@ -22,7 +22,11 @@ export function WorkflowNewFolderButton({
             aria-label={label}
             tooltip={label}
             loading={creatingFolder}
-            disabledReason={parent === 'Unfiled' ? 'Open a project folder to add a subfolder' : undefined}
+            disabledReason={
+                parent === 'Unfiled'
+                    ? 'Open a project folder to add a subfolder'
+                    : (folderMutationDisabledReason(parent) ?? undefined)
+            }
             onClick={() => startFolderDraft(parent)}
             data-attr="workflows-new-folder"
         >
