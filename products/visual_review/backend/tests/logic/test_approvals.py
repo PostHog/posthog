@@ -8,9 +8,17 @@ from unittest.mock import MagicMock
 from django.db import connections, transaction
 from django.test.utils import CaptureQueriesContext
 
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import BaselineMode, ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import (
+    BaselineMode,
+    ReviewState,
+    RunGate,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
 from products.visual_review.backend.logic import (
     approvals,
     artifact_store,
@@ -325,6 +333,50 @@ def _changed_run(git: FakeGit, flow: LedgerFlow) -> Run:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestFinalizeByBaselineMode:
+    @pytest.mark.parametrize(
+        ("mode", "commits", "writes_approval"),
+        [
+            (BaselineMode.YAML, True, False),
+            (BaselineMode.SHADOW, True, True),
+            (BaselineMode.LEDGER, False, True),
+        ],
+    )
+    def test_finalize_commits_records_and_never_reruns_by_mode(
+        self, team, user, mocker, django_capture_on_commit_callbacks, mode, commits, writes_approval
+    ):
+        repo, git, flow = button_flow(team.id, mode, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+
+        assert flow.commit_to_github.called is commits
+        assert BaselineApproval.objects.filter(repo=repo, pr_number=1, content_hash="b1").exists() is writes_approval
+        assert flow.rerun.called is False
+
+    @pytest.mark.parametrize(
+        ("created_in", "gate", "reruns"),
+        [(BaselineMode.SHADOW, RunGate.CI_JOB, True), (BaselineMode.LEDGER, RunGate.COMMIT_STATUS, False)],
+    )
+    def test_finalize_reruns_the_completing_job_by_the_gate_the_run_was_created_with(
+        self, team, user, mocker, django_capture_on_commit_callbacks, created_in, gate, reruns
+    ):
+        repo, git, flow = button_flow(team.id, created_in, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+        repo.baseline_mode = BaselineMode.SHADOW
+        repo.save()
+        snapshot = run.snapshots.get(identifier="Button")
+
+        # A tolerated change leaves nothing to commit, so only a re-run can turn the job green.
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
+            approvals.finalize_run(run_id=run.id, user_id=user.id)
+
+        run.refresh_from_db()
+        assert run.gate == gate
+        assert flow.commit_to_github.called is False
+        assert flow.rerun.called is reruns
+
     def test_shadow_finalize_makes_no_github_request_of_its_own(self, team, user, mocker):
         _repo, git, flow = button_flow(team.id, BaselineMode.SHADOW, mocker, external_id=99997)
         run = _changed_run(git, flow)

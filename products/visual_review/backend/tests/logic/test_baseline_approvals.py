@@ -2,7 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from django.db import transaction
+from django.db import connections, transaction
+from django.test.utils import CaptureQueriesContext
 
 from products.visual_review.backend.classifier import ToleratedKey
 from products.visual_review.backend.db import WRITER_DB
@@ -17,7 +18,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import baseline_approvals, baseline_resolution, ledger
+from products.visual_review.backend.logic import baseline_approvals, baseline_resolution, ledger, repos
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord, OverlayEntry
 from products.visual_review.backend.models import (
     BaselineApproval,
@@ -28,7 +29,14 @@ from products.visual_review.backend.models import (
     ToleratedHash,
 )
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, approve, make_record, seeded_repo
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    FakeGit,
+    approve,
+    make_record,
+    move_ledger,
+    seeded_repo,
+)
 
 APPROVED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
@@ -306,6 +314,99 @@ class TestRecordApprovals:
             assert baseline_approvals.record_approvals(run, user_id=1) == 0
 
         assert not BaselineApproval.objects.filter(repo=repo).exists()
+
+
+def _made_on_the_run(repo: Repo, approval: BaselineApproval) -> Run:
+    run = _run(
+        repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=make_record(), purpose=RunPurpose.REVIEW, pr_number=8
+    )
+    Run.objects.filter(id=run.id).update(approved=True)
+    BaselineApproval.objects.filter(id=approval.id).update(source_run=run)
+    run.refresh_from_db()
+    return run
+
+
+def _made_on_the_run_and_quarantined(repo: Repo, approval: BaselineApproval) -> Run:
+    run = _made_on_the_run(repo, approval)
+    RunSnapshot.objects.filter(run=run).update(is_quarantined=True)
+    return run
+
+
+def _applied_as_overlay(repo: Repo, approval: BaselineApproval) -> Run:
+    overlay = {"Button": OverlayEntry(content_hash="b1", approval_id=approval.id, pr_number=7, ledger_hash="b0")}
+    record = make_record(overlay=overlay, candidate_approval_ids=(approval.id,))
+    return _run(repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8)
+
+
+def _candidate_the_overlay_dropped(repo: Repo, approval: BaselineApproval) -> Run:
+    record = make_record(candidate_approval_ids=(approval.id,))
+    return _run(repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8)
+
+
+class TestIsStale:
+    @pytest.mark.parametrize(
+        ("content_hash", "ledger_base_hash", "effective_base_hash", "current_hash", "stale"),
+        [
+            pytest.param("b1", "b0", "b0", "b0", False, id="nothing_changed"),
+            pytest.param("b2", "b0", "b1", "b1", False, id="parent_landed_on_the_effective_base"),
+            pytest.param("b1", "b0", "b0", "b1", False, id="approved_picture_landed"),
+            pytest.param("b1", "b0", "b0", "b9", True, id="another_picture_landed"),
+            pytest.param("n1", "", "", "", False, id="new_story_still_absent"),
+            pytest.param("n1", "", "", "n9", True, id="new_story_added_by_someone_else"),
+            pytest.param("", "c0", "c0", "c9", True, id="approved_removal_of_a_story_that_changed"),
+            pytest.param("", "c0", "c0", "", False, id="approved_removal_landed"),
+        ],
+    )
+    def test_is_stale(self, content_hash, ledger_base_hash, effective_base_hash, current_hash, stale) -> None:
+        approval = BaselineApproval(
+            content_hash=content_hash, ledger_base_hash=ledger_base_hash, effective_base_hash=effective_base_hash
+        )
+
+        assert baseline_approvals.is_stale(approval, current_hash) is stale
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestStaleApprovals:
+    @pytest.mark.parametrize(
+        ("pr_number", "fields", "make_run", "stale"),
+        [
+            pytest.param(8, {}, _made_on_the_run, True, id="made_on_the_run"),
+            pytest.param(8, {}, _made_on_the_run_and_quarantined, False, id="quarantined"),
+            pytest.param(8, {"state": "superseded"}, _made_on_the_run, False, id="superseded"),
+            pytest.param(8, {"state": "promoted"}, _made_on_the_run, False, id="promoted"),
+            pytest.param(7, {}, _applied_as_overlay, True, id="applied_as_overlay"),
+            pytest.param(7, {}, _candidate_the_overlay_dropped, False, id="candidate_the_overlay_dropped"),
+        ],
+    )
+    def test_the_approvals_a_run_rests_on(self, repo, pr_number, fields, make_run, stale) -> None:
+        made = approve(repo, pr_number, "Button", "b1", **fields)
+        run = make_run(repo, made)
+        move_ledger(repo, "Button", "b9")
+
+        assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([made.id] if stale else [])
+
+    def test_nothing_is_stale_without_a_record(self, repo) -> None:
+        run = _made_on_the_run(repo, approve(repo, 8, "Button", "b1"))
+        move_ledger(repo, "Button", "b9")
+        Run.objects.filter(id=run.id).update(metadata={})
+        run.refresh_from_db()
+
+        assert baseline_approvals.stale_approvals(run) == []
+
+    def test_nothing_is_stale_without_a_ledger(self, team) -> None:
+        unseeded = repos.create_repo(team_id=team.id, repo_external_id=66100, repo_full_name="org/no-ledger")
+        # Against an empty ledger the approval's base b0 is gone, so only the missing cursor keeps it fresh.
+        run = _made_on_the_run(unseeded, approve(unseeded, 8, "Button", "b1"))
+
+        assert baseline_approvals.stale_approvals(run) == []
+
+    def test_a_run_without_approvals_or_overlay_reads_nothing(self, repo) -> None:
+        run = _run(repo, "p8a", {}, record=make_record(), purpose=RunPurpose.REVIEW, pr_number=8)
+
+        with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+            assert baseline_approvals.stale_approvals(run) == []
+
+        assert len(queries) == 0
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

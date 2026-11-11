@@ -22,7 +22,7 @@ from posthog.egress.limiter.policies import Priority
 from ..db import WRITER_DB
 from ..facade.enums import BaselineApprovalState, BaselineEntrySource, BaselineEvidence, BaselineMode, RunStatus
 from ..models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run
-from . import baseline_approvals, baseline_record, errors, github_api, ledger, quarantine
+from . import baseline_approvals, baseline_record, commit_status, errors, github_api, ledger, quarantine
 
 logger = structlog.get_logger(__name__)
 
@@ -201,6 +201,8 @@ class _LedgerAdvancer:
         self._evidence_contains: dict[tuple[str, str], bool | None] = {}
         self._open_approvals: list[BaselineApproval] | None = None
         self._run_candidates: dict[int, set[UUID]] = {}
+        # Identifiers per run type that the open transaction landed, for the publish after it commits.
+        self._landed_identifiers: dict[str, set[str]] = {}
 
     def result(self) -> AdvanceResult:
         return AdvanceResult(
@@ -338,6 +340,23 @@ class _LedgerAdvancer:
         if self._open_approvals is not None:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
 
+    def _publish_for_landed_identifiers(self) -> None:
+        """Publish again for the pull requests with an open approval of an identifier this transaction landed.
+
+        It runs after the commit, so no GitHub request runs under the ledger lock. The first callback of
+        a transaction takes the whole buffer, so the later callbacks of that transaction do nothing.
+        """
+        landed, self._landed_identifiers = self._landed_identifiers, {}
+        if not landed or not commit_status.publishes_by_commit(self.repo):
+            return
+        open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
+        holders = {
+            (approval.pr_number, approval.run_type)
+            for approval in open_approvals
+            if approval.identifier in landed.get(approval.run_type, set())
+        }
+        commit_status.publish_for_pull_requests(self.repo, holders)
+
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:
         """Apply the landing table to each approval, with a fixed number of queries per run type.
 
@@ -421,6 +440,10 @@ class _LedgerAdvancer:
                 updated_at=self.now,
             )
         ledger.append_entries(entries)
+        if entries:
+            for entry in entries:
+                self._landed_identifiers.setdefault(entry.run_type, set()).add(entry.identifier)
+            transaction.on_commit(self._publish_for_landed_identifiers, using=WRITER_DB, robust=True)
         landed_ids = {approval_id for approval_ids in landed_by_verdict.values() for approval_id in approval_ids}
         self.approvals_landed += len(landed_ids)
         self._forget(landed_ids)

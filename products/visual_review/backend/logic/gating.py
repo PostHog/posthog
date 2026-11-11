@@ -44,18 +44,19 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
-def count_unresolved(run: Run) -> int:
+def count_unresolved(run: Run, using: str | None = None) -> int:
     """How many of a run's snapshots `_is_unresolved` flags, counted in SQL.
 
     The run detail read needs only this number, and loading every snapshot to count a handful
     costs seconds on a large run. Observe runs are never approvable, so nothing in them is
     unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
-    together.
+    together. `using` defaults to the normal routing, so a caller that must read its own writes passes the writer.
     """
     if run.purpose == RunPurpose.OBSERVE:
         return 0
     return (
-        RunSnapshot.objects.filter(run_id=run.id)
+        RunSnapshot.objects.using(using)
+        .filter(run_id=run.id)
         .exclude(result=SnapshotResult.UNCHANGED)
         .exclude(is_quarantined=True)
         .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))
@@ -63,22 +64,46 @@ def count_unresolved(run: Run) -> int:
     )
 
 
+def count_awaiting_finalize(run: Run, using: str | None = None) -> int:
+    """Approved changes of a run that is not finalized yet.
+
+    They fail the gate until finalize, because the baseline does not hold them before it. In yaml and
+    shadow mode finalize commits them to the PR branch, and in ledger mode it records them in the ledger.
+    """
+    if run.approved or run.purpose == RunPurpose.OBSERVE:
+        return 0
+    return (
+        RunSnapshot.objects.using(using)
+        .filter(
+            run_id=run.id,
+            review_state=ReviewState.APPROVED,
+            result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED),
+        )
+        .count()
+    )
+
+
 def count_gating(run: Run) -> int:
     """How many snapshots fail the CI job that completes the run: `_post_status`'s verdict as a count.
 
-    Approved changes fail it too until finalize commits them, because the baseline on the PR
-    branch does not hold them yet. Without this, a re-run of that job passes a run whose
+    Without the approved changes that wait for finalize, a re-run of that job passes a run whose
     approvals were never committed.
     """
-    unresolved = count_unresolved(run)
-    if run.approved or run.purpose == RunPurpose.OBSERVE:
-        return unresolved
-    awaiting_commit = RunSnapshot.objects.filter(
-        run_id=run.id,
-        review_state=ReviewState.APPROVED,
-        result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED),
-    ).count()
-    return unresolved + awaiting_commit
+    return count_unresolved(run) + count_awaiting_finalize(run)
+
+
+def count_hidden_by_quarantine(run: Run, using: str | None = None) -> int:
+    """The changes a quarantine keeps out of the gate, counted in SQL. The count `_success_description` makes."""
+    return (
+        RunSnapshot.objects.using(using)
+        .filter(
+            run_id=run.id,
+            is_quarantined=True,
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED),
+        )
+        .exclude(review_state=ReviewState.APPROVED)
+        .count()
+    )
 
 
 def _changes_summary(run: Run) -> str:
@@ -116,18 +141,26 @@ def _recount(run: Run) -> list[RunSnapshot]:
     return snapshots
 
 
-def _success_description(snapshots: list[RunSnapshot]) -> str:
-    """The passing status, naming the changes a quarantine keeps out of the gate.
-
-    Without the count a quarantine can hide a real change on a green run, and nobody looks.
-    """
-    hidden = sum(
+def _hidden_by_quarantine(snapshots: list[RunSnapshot]) -> int:
+    """`count_hidden_by_quarantine` over loaded snapshots. A test pins the two together."""
+    return sum(
         1
         for s in snapshots
         if s.is_quarantined
         and s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
         and s.review_state != ReviewState.APPROVED
     )
+
+
+def _success_description(snapshots: list[RunSnapshot]) -> str:
+    """The passing status, naming the changes a quarantine keeps out of the gate.
+
+    Without the count a quarantine can hide a real change on a green run, and nobody looks.
+    """
+    return success_text(_hidden_by_quarantine(snapshots))
+
+
+def success_text(hidden: int) -> str:
     if not hidden:
         return "No visual changes"
     if hidden == 1:
@@ -136,14 +169,22 @@ def _success_description(snapshots: list[RunSnapshot]) -> str:
 
 
 def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
-    """Compute unresolved and post the commit status that gates CI.
+    """Compute unresolved, post the review prompt and the commit status.
 
     The unresolved count is separate from the run's counts because it further
-    excludes tolerated and approved snapshots.
+    excludes tolerated and approved snapshots. With the commit status gate on, the status
+    is the one of the newest run of the commit, which `commit_status` publishes.
 
     Returns the unresolved count.
     """
+    from . import commit_status  # noqa: PLC0415 — avoids the gating/commit_status circular import
+
     unresolved = sum(1 for s in snapshots if _is_unresolved(s))
+    if commit_status.publishes_by_commit(run.repo):
+        if not run.error_message and run.purpose != RunPurpose.OBSERVE and unresolved > 0:
+            comments._post_review_prompt_comment(run, run.repo)
+        commit_status.publish_for_run(run)
+        return unresolved
 
     # Approved-but-uncommitted changes still block the gate: the baseline on the PR branch
     # doesn't reflect them yet, so re-running CI would re-detect them. Only finalize commits
