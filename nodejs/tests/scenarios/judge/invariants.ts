@@ -25,16 +25,13 @@ function endedByTerminalFault(records: TruthRecord[]): boolean {
     return last?.fault !== undefined && isNotRetriedBySes(last.status)
 }
 
-function recordsByDelivery(truth: readonly TruthRecord[]): Map<string, TruthRecord[]> {
-    const byDelivery = new Map<string, TruthRecord[]>()
-    for (const record of truth) {
-        if (record.unitId !== undefined && record.actionId !== undefined) {
-            const key = deliveryKey(record.unitId, record.actionId)
-            byDelivery.set(key, [...(byDelivery.get(key) ?? []), record])
-        }
-    }
-    return byDelivery
-}
+type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }
+
+const isDeliveryRecord = (record: TruthRecord): record is DeliveryRecord =>
+    record.unitId !== undefined && record.actionId !== undefined
+
+const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, TruthRecord[]> =>
+    Map.groupBy(truth.filter(isDeliveryRecord), ({ unitId, actionId }) => deliveryKey(unitId, actionId))
 
 export const atLeastOnce: InvariantDefinition = {
     name: 'at_least_once',

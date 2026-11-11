@@ -410,6 +410,7 @@ describe('runner through seed, drive and judge', () => {
         cdp = await startCdp({
             DATABASE_URL: defaultConfig.DATABASE_URL,
             ENCRYPTION_SALT_KEYS: secretsOf(process.env).encryptionSaltKeys,
+            CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: 10_000,
         })
     })
 
