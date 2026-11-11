@@ -873,6 +873,33 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == ""
         assert integration.sensitive_config["access_token"] == "fallback-token"
 
+    @parameterized.expand(
+        [
+            ("row_still_stores_the_held_token", False, True, "REFRESHED_ACCESS_TOKEN"),
+            ("another_worker_stored_a_newer_token", True, False, "NEWER_TOKEN"),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_access_token_spends_the_refresh_token_once(
+        self, _name, other_worker_refreshed, calls_provider, expected_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}
+        integration = self.create_integration(kind="hubspot", sensitive_config={"access_token": "HELD_TOKEN"})
+        held = Integration.objects.get(id=integration.id)
+        if other_worker_refreshed:
+            integration.sensitive_config = {**integration.sensitive_config, "access_token": "NEWER_TOKEN"}
+            integration.save()
+
+        oauth = OauthIntegration(held)
+        with self.settings(**self.mock_settings):
+            returned = oauth.refresh_access_token()
+
+        assert mock_post.called == calls_provider
+        for record in (returned, oauth.integration, held, Integration.objects.get(id=integration.id)):
+            assert record.access_token == expected_token
+
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):

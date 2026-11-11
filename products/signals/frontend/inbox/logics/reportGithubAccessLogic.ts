@@ -31,6 +31,7 @@ export interface reportGithubAccessLogicValues {
     connectionOpen: boolean
     disabledReason: string | null
     failed: boolean
+    githubMissing: boolean
     loading: boolean
     pilot: boolean
     repairNeeded: boolean
@@ -103,17 +104,24 @@ export interface reportGithubAccessLogicMeta {
             integrations: IntegrationType[] | null,
             loading: boolean
         ) => boolean
+        githubMissing: (
+            pilot: boolean,
+            integrations: IntegrationType[] | null,
+            githubIntegrations: IntegrationType[]
+        ) => boolean
         repairNeeded: (
             pilot: boolean,
             access: 'available' | 'unavailable' | null,
             loading: boolean,
-            failed: boolean
+            failed: boolean,
+            githubMissing: boolean
         ) => boolean
         disabledReason: (
             pilot: boolean,
             access: 'available' | 'unavailable' | null,
             loading: boolean,
-            failed: boolean
+            failed: boolean,
+            githubMissing: boolean
         ) => string | null
     }
 }
@@ -225,28 +233,45 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
             (pilot: boolean, failed: boolean, integrations: IntegrationType[] | null, loading: boolean): boolean =>
                 pilot && (failed || (integrations === null && !loading)),
         ],
-        repairNeeded: [
-            (s) => [s.pilot, s.access, s.loading, s.failed],
-            (pilot: boolean, access: 'available' | 'unavailable' | null, loading: boolean, failed: boolean): boolean =>
-                pilot && access === 'unavailable' && !loading && !failed,
+        // Outside the pilot, this checks only that a usable installation exists. Report tasks push with
+        // the project's own GitHub integration, so without one the backend cannot open a pull request.
+        githubMissing: [
+            (s) => [s.pilot, s.integrations, s.githubIntegrations],
+            (pilot: boolean, integrations: IntegrationType[] | null, githubIntegrations: IntegrationType[]): boolean =>
+                !pilot &&
+                integrations !== null &&
+                !githubIntegrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],
-        disabledReason: [
-            (s) => [s.pilot, s.access, s.loading, s.failed],
+        repairNeeded: [
+            (s) => [s.pilot, s.access, s.loading, s.failed, s.githubMissing],
             (
                 pilot: boolean,
                 access: 'available' | 'unavailable' | null,
                 loading: boolean,
-                failed: boolean
+                failed: boolean,
+                githubMissing: boolean
+            ): boolean => githubMissing || (pilot && access === 'unavailable' && !loading && !failed),
+        ],
+        disabledReason: [
+            (s) => [s.pilot, s.access, s.loading, s.failed, s.githubMissing],
+            (
+                pilot: boolean,
+                access: 'available' | 'unavailable' | null,
+                loading: boolean,
+                failed: boolean,
+                githubMissing: boolean
             ): string | null =>
-                !pilot
-                    ? null
-                    : failed
-                      ? "Couldn't check GitHub access. Try again."
-                      : loading || access === null
-                        ? 'Checking GitHub access'
-                        : access === 'unavailable'
-                          ? 'Connect or repair GitHub access to create a pull request'
-                          : null,
+                githubMissing
+                    ? 'Connect or repair GitHub access to create a pull request'
+                    : !pilot
+                      ? null
+                      : failed
+                        ? "Couldn't check GitHub access. Try again."
+                        : loading || access === null
+                          ? 'Checking GitHub access'
+                          : access === 'unavailable'
+                            ? 'Connect or repair GitHub access to create a pull request'
+                            : null,
         ],
     }),
     listeners(({ actions, values, props }) => {
@@ -262,7 +287,12 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
             })
         }
         return {
-            loadIntegrationsSuccess: () => actions.checkAccess(),
+            loadIntegrationsSuccess: () => {
+                actions.checkAccess()
+                if (!values.pilot && !values.githubMissing) {
+                    actions.setConnectionOpen(false)
+                }
+            },
             loadSetupSuccess: () => actions.checkAccess(),
             loadSetupFailure: () => track('check', 'failed'),
             loadIntegrationsFailure: () => {

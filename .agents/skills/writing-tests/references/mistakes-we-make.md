@@ -31,7 +31,7 @@ Common — and cheap to guard against relative to the cost of shipping it.
 
 - **Catch it at:** the cheapest level that exercises the boundary — a pure-unit call with the bad value, or a Django `TestCase` hitting the endpoint. No ClickHouse.
 - [#62757](https://github.com/PostHog/posthog/pull/62757) — handle null metrics when serializing experiments — a `NULL` `metrics` column reached `enumerate(None)`, so one bad row 500'd the whole experiments list; the test parameterizes null/empty combinations against the list and detail endpoints.
-- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the fix converts it to a `ValueError` (→ 400), and the unit test calls the function directly and asserts that — a rung below even the endpoint.
+- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the fix converts it to a `ValueError` (→ 400), and the unit test calls the function directly and asserts that — a level below even the endpoint.
 - [#61076](https://github.com/PostHog/posthog/pull/61076) — guard `wordPluralize` against null `group_type` — a null group type crashed the flags page render; tested at the helper (Jest) and at the converter that produced the null (Python unit).
 
 ### Tenant-isolation / scoping (IDOR)
@@ -45,7 +45,7 @@ A query or endpoint isn't scoped to the requesting team/org, leaking reads or al
 
 Code assumes UTC; date bucketing, pagination cursors, and chart labels shift by a day for teams in other zones — and CI's `TZ=UTC` hides it.
 
-- **Catch it at:** usually the cheapest rung — a pure-unit test parameterized over non-UTC zones (plus a DST boundary). But when the truncation happens _inside ClickHouse_, the cheap test can't see it and you need real execution.
+- **Catch it at:** usually the cheapest level — a pure-unit test parameterized over non-UTC zones (plus a DST boundary). But when the truncation happens _inside ClickHouse_, the cheap test can't see it and you need real execution.
 - [#57593](https://github.com/PostHog/posthog/pull/57593) — timezone-safe date parsing — frontend parsing read the system wall-clock and rolled the calendar day back east of UTC; a pure Jest test over UTC/LA/Tokyo/Berlin and a DST boundary catches it. The clean cheap exemplar.
 - [#61111](https://github.com/PostHog/posthog/pull/61111) — UTC-pin `time_bucket` truncation — `toStartOfDay` truncated on the session-timezone grid while cursors printed UTC, emptying keyset page 2 under a non-UTC `session_timezone`. This one is _not_ cheap: the regression test inserts rows and runs the real SQL with `session_timezone=US/Pacific` (a ClickHouse-backed `TestCase`). Know which kind you have.
 

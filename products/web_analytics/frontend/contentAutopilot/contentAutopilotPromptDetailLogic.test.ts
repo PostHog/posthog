@@ -19,6 +19,7 @@ import {
     aeoPromptsVersions,
 } from '../generated/api'
 import type { AEOPromptApi } from '../generated/api.schemas'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import {
     EXAMPLE_PROMPT_CHECKS,
@@ -27,16 +28,22 @@ import {
     EXAMPLE_PROMPTS,
 } from './contentAutopilotStoryFixtures'
 
-// The detail logic connects to the prompts list logic, which loads the list and topics on mount.
-jest.mock('../generated/api', () => ({
-    aeoPromptsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
-    aeoPromptsTopics: jest.fn().mockResolvedValue([]),
-    aeoPromptsChecks: jest.fn(),
-    aeoPromptsRetrieve: jest.fn(),
-    aeoPromptsStats: jest.fn(),
-    aeoPromptsVersions: jest.fn(),
-    aeoPromptsPartialUpdate: jest.fn(),
-}))
+// The detail logic connects to the prompts list and workspace logics, which load their lists on mount.
+// Any API call this file doesn't mock answers with an empty page.
+jest.mock('../generated/api', () => {
+    const mocks: Record<string, jest.Mock> = {
+        aeoPromptsTopics: jest.fn().mockResolvedValue([]),
+        aeoPromptsChecks: jest.fn(),
+        aeoPromptsRetrieve: jest.fn(),
+        aeoPromptsStats: jest.fn(),
+        aeoPromptsVersions: jest.fn(),
+        aeoPromptsPartialUpdate: jest.fn(),
+    }
+    return new Proxy(mocks, {
+        get: (target, name: string) =>
+            (target[name] ??= jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] })),
+    })
+})
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
 
@@ -84,6 +91,17 @@ describe('contentAutopilotPromptDetailLogic', () => {
 
         logic.actions.openPromptDetail(PROMPT.id)
         expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+    })
+
+    it.each(['prompts', 'drafts'] as const)('leaves the prompt page for the %s tab', async (tab) => {
+        router.actions.push(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+        await expectLogic(logic).toDispatchActions(['openPromptDetail']).toFinishAllListeners()
+
+        contentAutopilotLogic.actions.setWorkspaceTab(tab)
+
+        expect(logic.values.promptId).toBeNull()
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual(tab)
+        expect(router.values.location.pathname).not.toContain('/prompts/')
     })
 
     it('loads the prompt, its stats, its versions and the latest answer of each engine', async () => {

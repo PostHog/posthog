@@ -34,33 +34,36 @@ class TestLivenessTracker:
     def test_record_activity_execution(self):
         """Test recording activity execution updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_activity_execution()
+            traveller.shift(1)
+            tracker.record_activity_execution()
 
         assert tracker.get_last_execution_time() > initial_time
 
     def test_record_workflow_execution(self):
         """Test recording workflow execution updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_workflow_execution()
+            traveller.shift(1)
+            tracker.record_workflow_execution()
 
         assert tracker.get_last_execution_time() > initial_time
 
     def test_record_heartbeat(self):
         """Test recording heartbeat updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_heartbeat()
+            traveller.shift(1)
+            tracker.record_heartbeat()
 
         assert tracker.get_last_execution_time() > initial_time
 

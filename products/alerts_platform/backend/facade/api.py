@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -16,9 +17,11 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertReceiverEdit,
     AlertRouteEdit,
+    ControlChangeKind,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
+    NativeConfigurationMatch,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -32,6 +35,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
@@ -92,12 +97,12 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
-def source_suppressed_holds_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+def source_suppressed_holds_by_public_id(
+    *, team_id: int, public_id: UUID, evaluation_keys: Collection[str]
 ) -> frozenset[str]:
     """The named evaluations of an alert the platform owns whose held delivery its source released
     with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
-    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+    return delivery_holds.source_suppressed_holds_by_public_id(team_id, public_id, evaluation_keys)
 
 
 def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
@@ -222,6 +227,25 @@ def native_configuration_keys(
     )
 
 
+def native_configuration_matches(
+    *, team_id: int, source_kind: SourceKind, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
+    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
+    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
+    `values`, such as the alerts on a set of insights."""
+    return platform_reads.native_configuration_ids(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    )
+
+
 def count_configurations(
     *,
     team_id: int,
@@ -335,6 +359,28 @@ def notable_checks_by_public_id(
     return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
 
 
+def control_changes_by_public_id(
+    *, team_id: int, public_id: UUID, kinds: Collection[ControlChangeKind], limit: int
+) -> PlatformControlChangePage | None:
+    """The newest `limit` control-plane changes of `kinds` to a named alert, with their total and the
+    time of the oldest change of any kind, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
+
+
+def control_history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """The control-plane changes in `[since, until)` of each named alert the platform owns, keyed by its
+    public id, with when its oldest kept change happened and its newest enable or disable before `since`.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
+
+
 def update_configuration(
     *,
     team_id: int,
@@ -412,10 +458,12 @@ def update_owned_copy(
     snooze_changed: bool = False,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
-    next due at the cadence's `next_check_at`.
+    next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
+    it wrote any history row of its own, so the platform's row of the same change is no later.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -427,6 +475,7 @@ def update_owned_copy(
         snooze_changed=snooze_changed,
         cadence=cadence,
         rescheduled=rescheduled,
+        at=at,
     )
 
 
