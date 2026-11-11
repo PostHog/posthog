@@ -108,6 +108,7 @@ const LIVE_LABELS: Partial<Record<TableKind, string>> = {
 }
 
 const LAST_REFRESHED_LABEL = 'Last refreshed'
+const NO_SUCCESSFUL_REFRESH_LABEL = 'No successful refresh yet'
 
 const STOPPED_REFRESH_KINDS: IssueKind[] = ['suspended', 'failed']
 
@@ -244,7 +245,11 @@ function freshnessFor(
     }
     const stoppedKind = stoppedRefreshKind(attention, syncFailed)
     if (stoppedKind) {
-        return { state: ISSUE_LABELS[stoppedKind], timeLabel: LAST_REFRESHED_LABEL, time: refreshedAt }
+        return {
+            state: ISSUE_LABELS[stoppedKind],
+            timeLabel: refreshedAt ? LAST_REFRESHED_LABEL : NO_SUCCESSFUL_REFRESH_LABEL,
+            time: refreshedAt,
+        }
     }
     return refreshedAt
         ? { state: null, timeLabel: null, time: refreshedAt }
@@ -394,7 +399,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
                     checkGroup,
                     savedQuery,
                     certificationTarget: { targetType: 'view', targetId: view.id },
-                    refreshedAt: node?.last_run_at ?? savedQuery?.last_run_at ?? null,
+                    refreshedAt: node ? (node.last_run_at ?? null) : (savedQuery?.last_run_at ?? null),
                     detailUrl: node ? urls.nodeDetail(node.id) : (checkGroup?.detailUrl ?? null),
                 },
                 key

@@ -44,10 +44,10 @@ function FreshnessText({ row }: { row: CatalogTableRow }): JSX.Element {
     return (
         <div className="flex flex-col">
             {state && <MutedCellText>{state}</MutedCellText>}
-            {time && (
+            {(time || timeLabel) && (
                 <MutedCellText>
                     {timeLabel && `${timeLabel} `}
-                    <TZLabel time={time} />
+                    {time && <TZLabel time={time} />}
                 </MutedCellText>
             )}
         </div>

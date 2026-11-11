@@ -202,6 +202,25 @@ describe('catalogTableRows', () => {
             'Refresh failed Last refreshed revenue-run',
         ],
         [
+            'a refresh that never succeeded',
+            {
+                nodes: [{ ...revenueNode, last_run_at: null }],
+                savedQueries: [
+                    savedQuery('query-orders', 'orders_daily'),
+                    savedQuery('query-revenue', 'revenue', { is_materialized: true, last_run_at: 'failed-attempt' }),
+                    savedQuery('query-api', 'api_v1', { origin: DataWarehouseSavedQueryOrigin.ENDPOINT }),
+                ],
+                materializationProblems: [
+                    {
+                        kind: 'failed',
+                        attention: { node: { ...revenueNode, last_run_at: null }, problem: 'Failed' },
+                    } as MaterializationProblem,
+                ],
+            },
+            'revenue',
+            'Refresh failed No successful refresh yet',
+        ],
+        [
             'a late refresh',
             {
                 materializationProblems: [
