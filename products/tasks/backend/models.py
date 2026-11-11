@@ -3474,8 +3474,13 @@ class TaskRun(models.Model):
             return None
         from products.slack_app.backend.analytics import slack_session_id  # noqa: PLC0415
 
-        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
-        return slack_session_id(*thread) if thread else None
+        try:
+            thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+            return slack_session_id(*thread) if thread else None
+        except Exception:
+            # task_run_created reads this in a commit callback, where a raise would fail the caller after the run exists.
+            logger.warning("task_run.slack_session_id_lookup_failed", run_id=str(self.id), exc_info=True)
+            return None
 
     def capture_event(
         self,
