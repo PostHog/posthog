@@ -10,6 +10,7 @@
                 "backend/temporal/**",
                 "backend/migrations/**",
                 "backend/activity_logging.py",
+                "backend/logic/source_configs.py",
                 "backend/apps.py"
             ],
             "outputs": [],

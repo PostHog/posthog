@@ -684,6 +684,24 @@ describe('TaxonomicFilter', () => {
                 })
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
+
+            // On the Events tab the stand-in row fills the list, so the empty state never renders there.
+            it('does not claim the event is unavailable when the picker offers stand-ins', async () => {
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+                    offerHiddenEventStandIns: true,
+                })
+
+                await activateGroupWithResults('taxonomic-tab-person_properties')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+                })
+                expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
+            })
         })
     })
 
@@ -795,6 +813,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: false,
                     position: 1,
                 },
@@ -809,6 +828,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: true,
                     position: 0,
                 },
