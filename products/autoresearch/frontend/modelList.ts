@@ -24,10 +24,7 @@ type ListedPipeline = Pick<
     | 'champion_is_preliminary'
 >
 
-/**
- * Lower ranks need the user first. A model that is not live and is not training toward it comes first:
- * its best result couldn't go live, it is paused, or it is a draft. A weak model comes next.
- */
+/** Not live and not training toward it ranks first, then a weak model, then the rest. */
 function attentionRank(pipeline: ListedPipeline): number {
     const training = !!pipeline.live_training_run
     if (!training && (!!pipeline.not_promoted_reason || pipeline.status === 'paused' || pipeline.status === 'draft')) {
