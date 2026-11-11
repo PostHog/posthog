@@ -41,15 +41,13 @@ This reservation does not add qualified names to existing models or require a na
 Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it sets the `alerts` limit.
 Billing sync stores the feature in `available_product_features`.
 An organization without the feature, or with a feature that has no `limit`, has no minimum.
-The `limit` must be `15`, `30`, `60`, `360`, `720`, `1440`, or `10080`, the cadences an endpoint can use.
-While the flag is on, any other value counts as invalid: saves that speed up a view are refused, and reconciles leave existing schedules alone.
+A `limit` that is not a cadence rounds up to the next one, and the minimum stops at seven days, the coarsest cadence an endpoint can use.
 
 The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
 
-The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization.
-Its payload sets `clamp_existing`, which defaults to `false`.
-With `clamp_existing: false`, existing faster cadences keep running.
-With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence.
+The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
+The minimum refuses new and faster cadences only.
+A view or endpoint already set faster keeps its cadence and keeps running at it, and an endpoint's query edit keeps the cadence of the version it replaces.
 Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage

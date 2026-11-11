@@ -73,11 +73,6 @@ class SyncFrequencyBlockedBy(models.TextChoices):
     CONSUMER = "consumer", "consumer"
 
 
-class SyncFrequencyClampReason(models.TextChoices):
-    SOURCE = "source", "source"
-    PLAN = "plan", "plan"
-
-
 class SyncFrequencyOptionSerializer(serializers.Serializer):
     cadence = serializers.ChoiceField(choices=MATERIALIZE_SYNC_FREQUENCY_CHOICES, help_text="A `sync_frequency` value.")
     allowed = serializers.BooleanField(help_text="False when writing this cadence would be rejected.")
@@ -103,22 +98,6 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
     speeds_up_withheld = serializers.BooleanField(
         help_text="True when at least one view this cadence speeds up sits outside the caller's access "
         "grants, so `speeds_up` is incomplete."
-    )
-
-
-class SyncFrequencyEffectiveSerializer(serializers.Serializer):
-    cadence = serializers.ChoiceField(
-        choices=SavedQuerySyncFrequency.choices,
-        help_text="The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is "
-        "never rewritten, so this differs from it when something holds the view back, and is finer "
-        "than it when a downstream view or endpoint needs fresher data.",
-    )
-    reason = serializers.ChoiceField(
-        choices=SyncFrequencyClampReason.choices,
-        allow_null=True,
-        help_text="Why `cadence` is slower than the view would otherwise refresh: 'plan' when the "
-        "organization's plan does not allow refreshing that often, 'source' when the upstream sources "
-        "do not sync that often. Null when nothing holds the view back.",
     )
 
 
@@ -153,11 +132,6 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         help_text="The slowest bound: no cadence coarser than this is allowed, because the consumer "
         "named here refreshes that often. Null when no consumer withholds a cadence.",
     )
-    effective = SyncFrequencyEffectiveSerializer(
-        allow_null=True,
-        help_text="How often the view actually refreshes, and what holds it back when something does. "
-        "Null when no schedule runs the view, and outside 'tiered' mode.",
-    )
     best_effort_sources = SyncFrequencyBlockerSerializer(
         many=True,
         help_text="Upstream sources with no sync schedule, so the floor is a guess: these arrive when "
@@ -186,7 +160,6 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
         "floor": None,
         "plan_floor": None,
         "ceiling": None,
-        "effective": None,
         "best_effort_sources": [],
         "best_effort_sources_withheld": False,
     }
@@ -277,11 +250,6 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return []
         return sorted(resolved.speeds_up.get(option.value, ()))
 
-    def effective(value: Any) -> dict[str, Any] | None:
-        if value is None:
-            return None
-        return {"cadence": sync_frequency_interval_to_sync_frequency(value.cadence), "reason": value.reason}
-
     best_effort = sorted(resolved.best_effort_source_ids)
     plan_floor = resolved.bounds.plan_floor
     options = []
@@ -303,7 +271,6 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
         "floor": bound(resolved.bounds.floor),
         "plan_floor": {"label": humanize_cadence(plan_floor), "blocker": None} if plan_floor is not None else None,
         "ceiling": bound(resolved.bounds.ceiling),
-        "effective": effective(resolved.effective),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
         "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),
     }
