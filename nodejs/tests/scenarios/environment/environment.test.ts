@@ -754,6 +754,7 @@ describe('scenario environment', () => {
     })
 
     describe('role supervisor on real processes', () => {
+        const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-supervisor-'))
         const tag = `stop-${process.pid}`
         const tagged = (): ProcEntry[] =>
             readProcs().filter((entry) => entry.environ?.includes(`SCENARIO_TEST_TAG=${tag}`))
@@ -761,12 +762,14 @@ describe('scenario environment', () => {
             command: process.execPath,
             args: ['-e', 'setInterval(() => {}, 1000)'],
             cwd: os.tmpdir(),
-            logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+            logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
             graceMs: 5000,
             restartBackoffMs: 0,
         })
 
         afterEach(() => supervisor.stop())
+
+        afterAll(() => rmSync(tempRoot, { recursive: true, force: true }))
 
         it('stops a running role without recording its exit or starting it again', async () => {
             const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
@@ -784,7 +787,7 @@ describe('scenario environment', () => {
                 command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),
                 args: [],
                 cwd: os.tmpdir(),
-                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
                 graceMs: 1000,
                 restartBackoffMs: 20,
             })
@@ -800,12 +803,12 @@ describe('scenario environment', () => {
         }, 15_000)
 
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
-            const cwd = mkdtempSync(path.join(os.tmpdir(), 'scenario-role-cwd-'))
+            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
             const exiting = createSupervisor({
                 command: process.execPath,
                 args: ['-e', 'process.exit(3)'],
                 cwd,
-                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
                 graceMs: 1000,
                 restartBackoffMs: 50,
             })
