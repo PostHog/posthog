@@ -27,6 +27,7 @@ function trafficKind(name: string): TrafficKind {
 
 async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promise<void> {
     if (signal.aborted) {
+        work.catch(() => undefined)
         return
     }
     const settled = new AbortController()
@@ -76,12 +77,14 @@ export async function drive(
     const end = start + forMs
     let offeredUnits = 0
     const offers: Promise<void>[] = []
+    const failed = new AbortController()
+    const stop = AbortSignal.any([signal, failed.signal])
     for (const [n, { kind, atMs }] of schedule.entries()) {
         const waitMs = start + atMs - Date.now()
         if (waitMs > 0) {
-            await untilAborted(elapse(waitMs), signal)
+            await untilAborted(elapse(waitMs), stop)
         }
-        if (signal.aborted || Date.now() > end) {
+        if (stop.aborted || Date.now() > end) {
             break
         }
         const teamId = chance.pickone(seeded.teamIds)
@@ -100,9 +103,12 @@ export async function drive(
                 offeredUnits += 1
             }
         })
-        offer.catch(() => undefined)
+        offer.catch((error: unknown) => failed.abort(error))
         offers.push(offer)
     }
-    await untilAborted(Promise.all(offers), signal)
+    await untilAborted(Promise.all(offers), stop)
+    if (failed.signal.aborted) {
+        throw failed.signal.reason
+    }
     return { targetUnits: schedule.length, offeredUnits }
 }
