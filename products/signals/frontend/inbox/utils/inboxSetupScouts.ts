@@ -62,6 +62,11 @@ const STARTER_SCOUTS: StarterScout[] = [
     },
 ]
 
+export function inboxSetupScoutCopy(skillName: string): { title: string; description: string } | undefined {
+    const starter = STARTER_SCOUTS.find((item) => item.name === skillName)
+    return starter && { title: starter.title, description: starter.description }
+}
+
 export function inboxSetupDefaultScouts(
     configs: SignalScoutConfigApi[],
     sources: InboxSetupSource[],
