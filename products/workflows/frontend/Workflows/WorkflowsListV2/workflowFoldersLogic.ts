@@ -865,10 +865,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
             cache.changes = changeCount(cache) + 1
             const ids = new Set(items.map((item) => item.id))
-            const folders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+            const folders = new Set(
+                items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+            )
             const index = fileIndex(cache)
             for (const [id, entry] of index) {
-                if (ids.has(id) || folders.some((path) => isPathUnder(entry.path, path))) {
+                if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
                     index.delete(id)
                 }
             }
