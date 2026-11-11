@@ -667,8 +667,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                     "'all' is not a wildcard: it matches only runs in repos that review every pull request "
                     "event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' "
                     "(someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog "
-                    "Review run started a silent review, which posts only an approval), and 'self_driving' "
-                    "(stamphog reviewed a bot-authored PR from the inbox)."
+                    "Review run started a silent review, which posts only an approval), 'self_driving' "
+                    "(stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo "
+                    "policy names the bot that authored the PR)."
                 ),
             ),
         ],

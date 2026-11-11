@@ -134,6 +134,25 @@ describe('buildReleaseRow', () => {
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('early-access')
     })
 
+    it('waits for linked flags that have not loaded yet instead of asking to link one', () => {
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id],
+            has_hidden_flags: false,
+            broadcast_ids: [],
+            broadcasts: [],
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex([], [], [], [], { complete: true, resolvedFlagIds: [], unknownFlagIds: [] })
+
+        const result = buildReleaseRow(release, index)
+
+        expect([result.stage, result.status, result.nextStep?.title]).toEqual(['flag', 'Loading flags…', undefined])
+    })
+
     it.each([
         ['every linked flag is visible', false, [FLAG], 'released', 'Clean up the flag', false],
         ['a linked flag is hidden from the caller', true, [FLAG], 'flag', undefined, false],
