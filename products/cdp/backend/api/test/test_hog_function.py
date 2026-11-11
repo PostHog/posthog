@@ -1850,6 +1850,32 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored.refresh_from_db()
         assert "$inbox_report_ready" in [event["id"] for event in stored.filters["events"]]
 
+    def test_an_edit_checked_before_another_added_the_inbox_report_trigger_is_refused(self):
+        stored = HogFunction.objects.create(
+            team=self.team,
+            name="Activity webhook",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters={"source": "internal-events", "events": [{"id": "$activity_log_entry_created", "type": "events"}]},
+            inputs_schema=[],
+            inputs={},
+        )
+        loaded_before_the_other_edit = HogFunction.objects.get(pk=stored.pk)
+        HogFunction.objects.filter(pk=stored.pk).update(filters=INBOX_REPORT_FILTERS)
+
+        with patch(
+            "products.cdp.backend.api.hog_function.HogFunctionViewSet.get_object",
+            return_value=loaded_before_the_other_edit,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{stored.id}/", data={"name": "Renamed"}
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        stored.refresh_from_db()
+        assert (stored.name, stored.filters) == ("Activity webhook", INBOX_REPORT_FILTERS)
+
     def test_generates_filters_bytecode(self, *args):
         action = create_action(
             team=self.team,

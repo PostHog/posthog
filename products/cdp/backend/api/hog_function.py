@@ -53,6 +53,7 @@ from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
+    read_gated_internal_events,
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -311,6 +312,16 @@ def draft_changed_fields(hog_function: HogFunction) -> list[str]:
     if "inputs" not in changed and any(live_secrets.get(key) != value for key, value in staged_secrets.items()):
         changed.append("inputs")
     return sorted(changed)
+
+
+READ_GATED_TRIGGER_CHANGED_MESSAGE = (
+    "This destination's trigger changed while you were editing it. Reload it and try again."
+)
+
+
+def _read_gated_triggers(hog_function: HogFunction) -> set[str]:
+    draft_filters = hog_function.draft.get("filters") if isinstance(hog_function.draft, dict) else None
+    return read_gated_internal_events(hog_function.filters) | read_gated_internal_events(draft_filters)
 
 
 class StaleHogFunctionUpdateError(exceptions.APIException):
@@ -1777,6 +1788,10 @@ class HogFunctionViewSet(
                 guard_timestamp = locked.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleHogFunctionUpdateError()
+            # Access and trigger retention were checked against the row this request loaded. A
+            # read-gated trigger another request added since then would be saved away unchecked.
+            if locked is not None and _read_gated_triggers(locked) != _read_gated_triggers(serializer.instance):
+                raise StaleHogFunctionUpdateError(READ_GATED_TRIGGER_CHANGED_MESSAGE)
             if route_to_draft:
                 assert locked is not None
                 # Preserved before the metadata save clears validated_data below.
