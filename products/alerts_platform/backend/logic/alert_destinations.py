@@ -203,8 +203,11 @@ def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
     """
     removed = 0
     for team_id in team_ids:
-        rows = AlertDestination.objects.for_team(team_id).filter(
-            type__in=[DestinationType.EMAIL, DestinationType.IN_APP]
+        rows = (
+            AlertDestination.objects.for_team(team_id)
+            .filter(type__in=[DestinationType.EMAIL, DestinationType.IN_APP])
+            .only("configuration_id", "type", "config")
+            .iterator(chunk_size=500)
         )
         naming = sorted({row.configuration_id for row in rows if user_id in _subscriber_user_ids(row)})
         for configuration_id in naming:
