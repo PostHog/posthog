@@ -19,7 +19,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, TruthRecord } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
-export type { SesMessage } from './ses'
+export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthPage, TruthRecord } from './truth'
 
@@ -38,6 +38,8 @@ export type ProviderEdge = {
 }
 
 type Reply = { status: number; body?: object; errorType?: string }
+
+type Silence = 'drop-connection' | 'no-answer' | 'stalled-body'
 
 function respond(res: http.ServerResponse, { status, body, errorType }: Reply): void {
     res.writeHead(status, {
@@ -72,7 +74,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const actionIdOf = (trackingCode: string | undefined): string | undefined =>
         trackingCode === undefined ? undefined : signer?.parse(trackingCode)?.actionId
 
-    const sendEmail = (body: unknown, req: http.IncomingMessage): Reply | 'drop-connection' => {
+    const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
         if ('error' in request) {
             truth.append({ kind: 'ses.send', status: request.error.status, detail: { error: request.error.message } })
@@ -82,10 +84,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
         const fault = faults.take(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
-        if (fault?.answer.kind === 'drop-connection') {
+        if (fault && fault.answer.kind !== 'status') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
-            req.socket.destroy()
-            return 'drop-connection'
+            return fault.answer.kind
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
@@ -106,11 +107,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         return { status: 201, body: { id: faults.add(ruleOf(parsed.data)) } }
     }
 
-    const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | 'drop-connection' => {
+    const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | Silence => {
         const faultId = /^\/_faults\/([^/]+)$/.exec(url.pathname)?.[1]
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
-                return sendEmail(body, req)
+                return sendEmail(body)
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -149,7 +150,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         const reply = route(req, url, body)
-        if (reply !== 'drop-connection') {
+        if (reply === 'drop-connection') {
+            req.socket.destroy()
+        } else if (reply === 'stalled-body') {
+            res.writeHead(200, { 'content-type': 'application/json' }).write('{"MessageId":')
+        } else if (reply !== 'no-answer') {
             respond(res, reply)
         }
     }
