@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'child_process'
 import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'fs'
+import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
@@ -132,20 +133,37 @@ export function createEnvironment(): Environment {
 
     async function untilHealthy(roles: Role[], exitsBefore: number): Promise<void> {
         const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
-        for (const role of roles) {
-            while (!(await answersHealth(role))) {
-                const exit = recorded.slice(exitsBefore).find((exit) => exit.role === role)
-                if (exit) {
-                    const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
-                    throw new Error(`${role} exited before it answered /_health (${how}); see ${logOf(role)}`)
-                }
-                if (Date.now() > deadline) {
-                    throw new Error(
-                        `${role} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${logOf(role)}`
-                    )
-                }
-                await sleep(PROBE_INTERVAL_MS)
+        for (;;) {
+            const answering = await Promise.all(roles.map(answersHealth))
+            const exit = recorded.slice(exitsBefore).find((exit) => roles.includes(exit.role))
+            if (exit) {
+                const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
+                throw new Error(`${exit.role} exited while up waited for /_health (${how}); see ${logOf(exit.role)}`)
             }
+            const silent = roles.find((_role, index) => !answering[index])
+            if (silent === undefined) {
+                return
+            }
+            if (Date.now() > deadline) {
+                throw new Error(
+                    `${silent} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${logOf(silent)}`
+                )
+            }
+            await sleep(PROBE_INTERVAL_MS)
+        }
+    }
+
+    async function refuseHeldPorts(roles: Role[]): Promise<void> {
+        const held = (
+            await Promise.all(roles.map(async (role) => ((await acceptsConnections(ROLE_PORTS[role])) ? [role] : [])))
+        ).flat()
+        if (held.length > 0) {
+            throw new StackConflictError(
+                `Role ports already accept connections from processes the runner did not start: ${held
+                    .map((role) => `${ROLE_PORTS[role]} (${role})`)
+                    .join(', ')}.`,
+                `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
+            )
         }
     }
 
@@ -158,6 +176,7 @@ export function createEnvironment(): Environment {
         await terminate(plan, STOP_GRACE_MS)
         await startStack(REPO_ROOT, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+        await refuseHeldPorts(specs.map((spec) => spec.role))
         const group = eventsConsumerGroup(specs)
         await waitForExpect(
             async () => {
@@ -190,9 +209,20 @@ export function createEnvironment(): Environment {
         )
         others.forEach(start)
         await untilHealthy(
-            others.map((spec) => spec.role),
+            specs.map((spec) => spec.role),
             exitsBefore
         )
+    }
+
+    function acceptsConnections(port: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const socket = net.connect(port, '127.0.0.1')
+            socket.once('connect', () => {
+                socket.destroy()
+                resolve(true)
+            })
+            socket.once('error', () => resolve(false))
+        })
     }
 
     async function answersHealth(role: Role): Promise<boolean> {
