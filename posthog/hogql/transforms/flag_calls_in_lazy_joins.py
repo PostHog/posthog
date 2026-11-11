@@ -8,7 +8,6 @@ from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type
-from posthog.hogql.property import has_aggregation, has_window_function
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
@@ -151,6 +150,9 @@ def _join_event_reader(
 
 
 def _passes_rows_through(subquery: ast.SelectQuery) -> bool:
+    # posthog.hogql.property imports posthog.schema, which lazy_tables must not load during django.setup().
+    from posthog.hogql.property import has_aggregation, has_window_function  # noqa: PLC0415
+
     set_clauses = {
         field.name for field in dataclasses.fields(subquery) if getattr(subquery, field.name) not in (None, [], {})
     }
