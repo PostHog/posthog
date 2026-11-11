@@ -447,15 +447,21 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
     describe('sandbox step test', () => {
         let sentTo: string[]
+        let personEmails: string[]
 
         beforeEach(() => {
             sentTo = []
+            personEmails = []
             useMocks({
                 get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
-                        const { configuration } = (await request.json()) as { configuration: HogFlow }
+                        const { configuration, globals } = (await request.json()) as {
+                            configuration: HogFlow
+                            globals: { person: { properties: { email: string } } }
+                        }
                         sentTo.push((configuration.actions[0].config as any).inputs.email.value.to.email)
+                        personEmails.push(globals.person.properties.email)
                         return [200, ACCEPTED]
                     },
                 },
@@ -485,6 +491,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             ])
 
             expect(sentTo).toEqual([expected])
+            expect(personEmails).toEqual([expected])
         })
 
         it.each([

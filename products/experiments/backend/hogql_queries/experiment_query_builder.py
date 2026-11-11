@@ -62,6 +62,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.metric_source_precompute import (
+    spread_metric_events_reads_across_replicas,
+)
 from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
@@ -269,6 +272,7 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, ratio, retention, and quantile metrics are supported. Got {type(self.metric)}"
                 )
 
+        query = spread_metric_events_reads_across_replicas(query)
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 

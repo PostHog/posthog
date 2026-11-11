@@ -11,6 +11,7 @@ import {
     HogFlowEditorMode,
     hogFlowEditorLogic,
 } from '../hogFlowEditorLogic'
+import { isEmailStep } from '../steps/email/emailStepVariants'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -115,12 +116,7 @@ export function HogFlowEditorPanel({ onClose, view }: HogFlowEditorPanelProps = 
                         )}
                         {mode === 'variables' && <HogFlowEditorPanelVariables />}
                         {mode === 'test' &&
-                            (selectedNode?.data?.type === 'function_email' ||
-                            selectedNode?.data?.type === 'email_sandbox' ? (
-                                <EmailActionTestContent />
-                            ) : (
-                                <HogFlowEditorPanelTest />
-                            ))}
+                            (isEmailStep(selectedNode?.data) ? <EmailActionTestContent /> : <HogFlowEditorPanelTest />)}
                         {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                         {mode === 'logs' && <HogFlowEditorPanelLogs />}
                     </>

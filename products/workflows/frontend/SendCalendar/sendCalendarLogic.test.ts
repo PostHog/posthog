@@ -72,14 +72,14 @@ describe('sendCalendarLogic', () => {
     let server: { schedule: HogFlowScheduleApi; runs: SendCalendarBatchJobApi[] }
 
     // The server keeps what the last save wrote, so the check before a move or Undo sees the saved schedule.
-    // Like the real endpoint, the calendar endpoint returns the flow's schedules whatever the range, but only the
-    // runs created in [start, end).
+    // Like the real endpoint, the calendar endpoint returns the flow's open schedules whatever the range, but only
+    // the runs created in [start, end).
     const serveFromStore = (): void => {
         server = { schedule: SCHEDULE, runs: [] }
         jest.mocked(hogFlowsSendCalendarRetrieve).mockImplementation(async (_projectId, { start, end }) => [
             {
                 ...FLOW,
-                schedules: [server.schedule],
+                schedules: [server.schedule].filter((item) => item.status !== 'completed'),
                 batch_jobs: server.runs.filter(
                     (item) => !dayjs(item.created_at).isBefore(start) && dayjs(item.created_at).isBefore(end)
                 ),
@@ -160,17 +160,22 @@ describe('sendCalendarLogic', () => {
     })
 
     it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {
-        const send = logic.values.sends.find((item) => item.flowId === FLOW.id)!
-        const elapsed = { ...send, at: dayjs.utc().subtract(1, 'hour') }
+        const sentSchedule = { ...SCHEDULE, status: 'completed' as const, next_run_at: null }
+        server.schedule = sentSchedule
+        server.runs = [run('run-sent', SEND_AT)]
+        jest.useFakeTimers({ advanceTimers: true, now: SEND_AT.add(1, 'hour').toDate() })
 
-        await expectLogic(logic, () => logic.actions.applyMove(elapsed, 2, MOVED_AT.toISOString())).toDispatchActions([
-            'loadScheduledFlows',
-        ])
+        try {
+            await dropOnMovedDay()
+        } finally {
+            jest.useRealTimers()
+        }
 
-        expect(hogFlowsSchedulesPartialUpdate).not.toHaveBeenCalled()
+        expect(server.schedule).toEqual(sentSchedule)
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't move October product update. This send already went out."
         )
+        expect(logic.values.sends.map((send) => [send.key, send.state])).toEqual([['run-sent', 'sent']])
     })
 
     it('loads the runs of the new range when the person moves to another week', async () => {

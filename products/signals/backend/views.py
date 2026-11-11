@@ -7570,7 +7570,7 @@ class SignalUserAutonomyConfigView(APIView):
             workspace = (
                 defaults["slack_notification_integration"]
                 if integration_in_request
-                else saved_notification_integration(user)
+                else saved_notification_integration(user, request.user.current_team_id)
             )
             if wants_direct_message:
                 defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)

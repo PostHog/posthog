@@ -96,5 +96,9 @@ class NodeEvent:
             prompt_version=read_number(properties.get("$ai_prompt_version")),
         )
 
+    @property
+    def custom_properties(self) -> dict[str, Value]:
+        return {key: value for key, value in self.row.properties.items() if not key.startswith("$")}
+
     def _first_present(self, keys: tuple[str, ...]) -> str | None:
         return next((key for key in keys if self.row.properties.get(key) is not None), None)
