@@ -412,6 +412,20 @@ class TestHogFunctionDrafts(DraftTestCase):
                 "new",
             ),
             (
+                "changes_the_code_after_the_secret_was_entered",
+                [{"inputs": sender_inputs(SENDER_URL, {"value": "new"})}, {"hog": MOVED_SENDER_HOG}],
+                {"reentered": 1, "staged": 1},
+                status.HTTP_400_BAD_REQUEST,
+                "live",
+            ),
+            (
+                "changes_the_url_after_the_secret_was_entered",
+                [{"inputs": sender_inputs(SENDER_URL, {"value": "new"})}, {"inputs": sender_inputs(MOVED_URL)}],
+                {"reentered": 1, "staged": 1},
+                status.HTTP_400_BAD_REQUEST,
+                "live",
+            ),
+            (
                 "enters_the_same_value_again",
                 [{"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL, {"value": "live"})}],
                 {"reentered": 1},

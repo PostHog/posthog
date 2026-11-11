@@ -10,6 +10,7 @@ HOG = "fetch(inputs.url, {'headers': inputs.headers})"
 URL = {"key": "url", "type": "string", "label": "URL"}
 HEADERS = {"key": "headers", "type": "dictionary", "label": "Headers"}
 METHOD = {"key": "method", "type": "string", "label": "Method", "required": True, "default": "POST"}
+TARGET = {"key": "target", "type": "string", "label": "Target", "secret": True}
 
 
 def content(hog: str = HOG, inputs: Any = None, schema: Any = None) -> dict:
@@ -17,7 +18,8 @@ def content(hog: str = HOG, inputs: Any = None, schema: Any = None) -> dict:
 
 
 def guarded(save: dict) -> tuple:
-    return guarded_content(save["hog"], save["inputs"], save["schema"], [], set())
+    secret_keys = {schema["key"] for schema in save["schema"] if schema.get("secret")}
+    return guarded_content(save["hog"], save["inputs"], save["schema"], [], secret_keys)
 
 
 class TestGuardedContent(SimpleTestCase):
@@ -72,6 +74,11 @@ class TestGuardedContent(SimpleTestCase):
                 "value_other_than_the_default",
                 content(schema=[URL, METHOD]),
                 content(inputs={"method": {"value": "GET"}}, schema=[URL, METHOD]),
+            ),
+            (
+                "default_that_fills_an_empty_secret",
+                content(schema=[URL, TARGET]),
+                content(schema=[URL, {**TARGET, "required": True, "default": "https://evil.example.com"}]),
             ),
         ]
     )

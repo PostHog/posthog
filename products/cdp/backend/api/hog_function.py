@@ -358,6 +358,17 @@ def secret_reentry_enforced(team: Team) -> bool:
     )
 
 
+def _draft_guarded_content(content: dict, secrets: dict) -> tuple:
+    secret_keys = set(secrets) | {
+        str(schema.get("key"))
+        for schema in content.get("inputs_schema") or []
+        if isinstance(schema, dict) and schema.get("secret")
+    }
+    return guarded_content(
+        content.get("hog"), content.get("inputs"), content.get("inputs_schema"), content.get("mappings"), secret_keys
+    )
+
+
 def _without_entered_mark(entry: Any) -> Any:
     if not isinstance(entry, dict):
         return entry
@@ -1804,7 +1815,8 @@ class HogFunctionViewSet(
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         # validated_content is passed in because the caller's metadata save clears validated_data.
         sent = self._sent_content_fields()
-        draft = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
+        previous = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
+        draft = dict(previous)
         for field in sent:
             if field in validated_content:
                 draft[field] = validated_content[field]
@@ -1832,7 +1844,17 @@ class HogFunctionViewSet(
         else:
             # This edit didn't touch inputs, so whatever is already staged still applies — and with
             # nothing staged, publish recovers the live secrets.
+            entered = set()
             draft_secrets = staged
+
+        if _draft_guarded_content(previous, draft_secrets) != _draft_guarded_content(draft, draft_secrets):
+            # A secret entered by an earlier draft edit was entered for the code that edit saw, not for this one.
+            draft_secrets = {
+                key: {**value, STAGED_SECRET_ENTERED: False}
+                if isinstance(value, dict) and key not in entered
+                else value
+                for key, value in draft_secrets.items()
+            }
 
         instance.draft = draft
         instance.draft_updated_at = timezone.now()

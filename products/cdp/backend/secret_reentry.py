@@ -52,9 +52,15 @@ def _templating(value: Any) -> Optional[str]:
 
 
 def _schema_signature(inputs_schema: Any) -> dict:
-    # The worker reads the type to coerce a value and the templating flag to decide whether to render it.
+    # The worker reads the type to coerce a value and the templating flag to decide whether to render it. Validation
+    # fills an empty required input with its default, which can give an empty secret input a value nobody typed.
     return {
-        str(schema.get("key")): (schema.get("type"), bool(schema.get("secret")), _templating(schema.get("templating")))
+        str(schema.get("key")): (
+            schema.get("type"),
+            bool(schema.get("secret")),
+            _templating(schema.get("templating")),
+            json.dumps(schema.get("default") if schema.get("required") else None, default=str, sort_keys=True),
+        )
         for schema in inputs_schema or []
         if isinstance(schema, dict)
     }
