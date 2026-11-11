@@ -80,10 +80,6 @@ class ViewEngineSerializer(serializers.Serializer):
 
 
 VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
-IS_RAW_MANAGED_TRINO_HELP_TEXT = (
-    "Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, "
-    "and HogQL queries cannot reference it."
-)
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -107,10 +103,6 @@ class DataWarehouseSavedQuerySerializerMixin:
                 .order_by("-last_run_at")
                 .first()
             )
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_is_raw_managed_trino(self, view: DataWarehouseSavedQuery) -> bool:
-        return view.engine.is_raw_trino
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
@@ -229,7 +221,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
         "whole table, for example on the first run or after the query changes.",
     )
     engine = ViewEngineSerializer(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
-    is_raw_managed_trino = serializers.SerializerMethodField(read_only=True, help_text=IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -256,6 +247,5 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "expires_at",
             "user_access_level",
             "engine",
-            "is_raw_managed_trino",
         ]
         read_only_fields = fields

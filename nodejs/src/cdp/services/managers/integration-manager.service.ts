@@ -6,7 +6,7 @@ import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 
-import { IntegrationSource, IntegrationSourceRecord } from './integration-source'
+import { IntegrationDecryptFailure, IntegrationSource, IntegrationSourceRecord } from './integration-source'
 
 const INTEGRATION_CACHE_TTL_MS = 60_000
 
@@ -55,6 +55,18 @@ export class IntegrationManagerService {
         const result: Record<IntegrationReference, IntegrationType | null> = {}
         for (const reference of references) {
             result[reference] = records[reference]?.integration ?? null
+        }
+        return result
+    }
+
+    public async getDecryptFailures(
+        ids: IntegrationIdInput[]
+    ): Promise<Record<IntegrationReference, IntegrationDecryptFailure[]>> {
+        const references = toReferences(ids)
+        const records = await this.lazyLoader.getMany(references)
+        const result: Record<IntegrationReference, IntegrationDecryptFailure[]> = {}
+        for (const reference of references) {
+            result[reference] = records[reference]?.decryptFailures ?? []
         }
         return result
     }

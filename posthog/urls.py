@@ -31,7 +31,7 @@ from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import app_context, home, home_with_region_redirect
+from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
@@ -415,5 +415,6 @@ urlpatterns = [
     # OAuth redirect target when logging the local frontend into a remote cloud region;
     # the SPA handles the code→token exchange client-side, so it must load without auth.
     re_path(r"^oauth/callback", home),
+    opt_slash_path("device", device_approval_page),
     re_path(r"^.*", home_with_region_redirect),
 ]
