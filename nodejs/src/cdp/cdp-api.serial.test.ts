@@ -2488,16 +2488,6 @@ describe('CDP API', () => {
                     ['transactional_email/send', { ...body, send: codeSend }],
                 ],
                 [
-                    'another scheduled time',
-                    ['transactional_email', { ...body, scheduled_at: inDays(2) }],
-                    ['transactional_email', { ...body, scheduled_at: inDays(3) }],
-                ],
-                [
-                    'a scheduled time added',
-                    ['transactional_email/send', { ...body, send: codeSend }],
-                    ['transactional_email/send', { ...body, send: codeSend, scheduled_at: inDays(2) }],
-                ],
-                [
                     'another named sender',
                     ['transactional_email/send', { ...body, send: codeSend }],
                     [
@@ -2656,6 +2646,28 @@ describe('CDP API', () => {
                     ])
                 }
             )
+
+            it.each([
+                ['another scheduled time', inDays(2), inDays(3)],
+                ['a scheduled time added', undefined, inDays(2)],
+            ])('rejects the key for a retry with %s and keeps only the first job', async (_desc, first, retry) => {
+                const idempotency_key = `key-${new UUIDT().toString()}`
+                const sendKeyedAt = (scheduledAt: string | undefined) =>
+                    sendOn(
+                        'transactional_email/send',
+                        hogFlow.id,
+                        { Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, hogFlow.id)}` },
+                        { ...body, send: codeSend, idempotency_key, ...(scheduledAt && { scheduled_at: scheduledAt }) }
+                    )
+                const accepted = await sendKeyedAt(first)
+
+                const res = await sendKeyedAt(retry)
+
+                expect(res.status).toEqual(422)
+                expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                const emailJobs = await cyclotron.query(`SELECT id FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                expect(emailJobs.rows.map((row) => row.id)).toEqual([accepted.body.invocation_id])
+            })
 
             it('sends at once when the time has passed', async () => {
                 const res = await sendAt('transactional_email', new Date(Date.now() - 60_000).toISOString())

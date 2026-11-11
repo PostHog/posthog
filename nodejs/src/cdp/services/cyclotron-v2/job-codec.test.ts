@@ -5,8 +5,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { CyclotronJobInvocation } from '../../types'
 import { JobRow, encodeJob, v2JobToInvocation, withReschedule } from './job-codec'
 
-// The golden `state` strings are what the Postgres-v2 adapter wrote before the codec existed. Workers of both
-// versions read the same rows during a deploy, so each version must read what the other wrote.
 const codeSend: CyclotronJobInvocation = {
     id: '019a4f3e-7c1d-7000-8000-00000000c0de',
     teamId: 2,

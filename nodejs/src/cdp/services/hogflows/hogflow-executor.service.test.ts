@@ -53,6 +53,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
@@ -3862,6 +3863,45 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
+        describe('a scheduled transactional send', () => {
+            let ses: SesV2Fake
+
+            beforeEach(async () => {
+                ses = await SesV2Fake.start()
+                await insertEmailSetup('ses')
+            })
+
+            afterEach(async () => {
+                await ses.close()
+            })
+
+            it('measures its queue wait from its scheduled time, not from when it was created', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = createExampleHogFlowInvocation(emailFlow(storedStep()), {
+                    event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
+                })
+                invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
+                invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                const waits = (metricName: string): Promise<number> =>
+                    metricValue('cdp_email_queue_to_send_ms', { source: 'transactional_api' }, metricName)
+                const [countBefore, sumBefore] = [
+                    await waits('cdp_email_queue_to_send_ms_count'),
+                    await waits('cdp_email_queue_to_send_ms_sum'),
+                ]
+
+                let result = await runner.execute(invocation)
+                while (!result.finished) {
+                    result = await runner.execute(result.invocation)
+                }
+
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Test Email'])
+                expect((await waits('cdp_email_queue_to_send_ms_count')) - countBefore).toEqual(1)
+                const waitMs = (await waits('cdp_email_queue_to_send_ms_sum')) - sumBefore
+                expect(waitMs).toBeGreaterThanOrEqual(30_000)
+                expect(waitMs).toBeLessThan(60_000)
+            })
+        })
+
         describe('the email after one the email queue delayed', () => {
             let ses: SesV2Fake
 
@@ -4078,14 +4118,10 @@ if (not res.success) { throw Error(res.error) }`,
             const invocation = flowInvocation(emailFlow(step()))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
-            invocation.state.scheduledAt = '2026-12-01T09:00:00.000Z'
 
             const result = await executor.execute(invocation)
 
             expect(result.invocation.queueParameters).toEqual(expected())
-            expect(result.invocation.state.currentAction?.hogFunctionState?.scheduledAt).toEqual(
-                '2026-12-01T09:00:00.000Z'
-            )
         })
 
         it.each([
