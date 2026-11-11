@@ -659,10 +659,11 @@ describe('projectTreeDataLogic', () => {
         // A scan that compares every cached folder with every stale one takes many seconds at this size, and a
         // linear one a few milliseconds, so the budget sits far from both.
         const started = performance.now()
-        const pruned = logic.reducers.folders(folders, {
-            type: logic.actionTypes.dropStaleItems,
-            payload: { items: stale },
-        }) as Record<string, FileSystemEntry[]>
+        const pruned = logic.reducers.folders(
+            folders,
+            { type: logic.actionTypes.dropStaleItems, payload: { items: stale } },
+            {}
+        ) as Record<string, FileSystemEntry[]>
         expect(performance.now() - started).toBeLessThan(2000)
 
         const kept = Object.keys(pruned)
