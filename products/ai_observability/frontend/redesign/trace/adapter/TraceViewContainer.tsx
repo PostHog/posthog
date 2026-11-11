@@ -1,20 +1,31 @@
 import { useActions, useValues } from 'kea'
 import { memo, useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceApi } from '../../../generated/api.schemas'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
+import { traceClustersLogic, traceClustersLogicValues } from '../traceClustersLogic'
 import { traceExportLogic } from '../traceExportLogic'
+import { traceFeedbackLogic, traceFeedbackLogicValues } from '../traceFeedbackLogic'
+import { traceGitPullRequestLogic, traceGitPullRequestLogicValues } from '../traceGitPullRequestLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
 import { traceReviewLogic, traceReviewLogicValues } from '../traceReviewLogic'
+import { traceSearchLogic, traceSearchLogicValues } from '../traceSearchLogic'
+import { traceSummaryLogic } from '../traceSummaryLogic'
+import { traceViewLogic, traceViewLogicValues } from '../traceViewLogic'
 import { traceViewModelLogic, traceViewModelLogicValues } from '../traceViewModelLogic'
 import {
     FeedbackEntry,
     LabeledLink,
     MatchDirection,
     MessagesOpening,
+    SummaryModeState,
+    SummaryRequestError,
     NodeDetailTab,
     SummaryItemKind,
     TraceMode,
@@ -32,39 +43,27 @@ export interface TraceViewContainerProps {
 type ReadyValues = Pick<
     traceViewModelLogicValues,
     | 'trace'
-    | 'clusters'
-    | 'evaluationResults'
-    | 'traceFeedback'
-    | 'pullRequest'
     | 'mode'
-    | 'tree'
     | 'selectedNodeId'
     | 'selectedTreeNode'
     | 'selectedNodeLoad'
-    | 'evaluationResultsFailed'
     | 'detailTab'
-    | 'createdAt'
-    | 'datasetsEnabled'
     | 'selectedRaw'
     | 'canViewInThread'
     | 'thread'
-    | 'timeline'
-    | 'evalOutcomes'
     | 'searchBox'
-    | 'matchingNodeIds'
-    | 'highlightQuery'
     | 'matchStepCount'
-    | 'summaryState'
-    | 'summaryRequesting'
-    | 'summaryRequestError'
-    | 'summaryConsentGiven'
-    | 'feedbackCount'
-    | 'stepFeedback'
-    | 'traceFeedbackFailed'
-    | 'stepLabels'
     | 'feedbackFocusNodeId'
     | 'selectedStepFeedback'
 > &
+    Pick<
+        traceViewLogicValues,
+        'evaluationResults' | 'evaluationResultsFailed' | 'createdAt' | 'evalOutcomes' | 'stepLabels'
+    > &
+    Pick<traceFeedbackLogicValues, 'traceFeedback' | 'traceFeedbackFailed' | 'stepFeedback'> &
+    Pick<traceSearchLogicValues, 'matchingNodeIds' | 'highlightQuery'> &
+    Pick<traceClustersLogicValues, 'clusters'> &
+    Pick<traceGitPullRequestLogicValues, 'pullRequest'> &
     Pick<
         traceReviewLogicValues,
         'reviewStatus' | 'reviewStatusFailed' | 'queueHref' | 'canEditReviews' | 'removeFromQueueLoading'
@@ -74,6 +73,11 @@ type ReadyValues = Pick<
         traceCopying: boolean
         backLink: LabeledLink | null
         messagesOpening: MessagesOpening
+        datasetsEnabled: boolean
+        summaryState: SummaryModeState
+        summaryRequesting: boolean
+        summaryRequestError: SummaryRequestError | null
+        summaryConsentGiven: boolean
     }
 
 interface ReadyActions {
@@ -148,7 +152,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         summary: toSummaryProps(trace, values, actions),
         mode: values.mode,
         onModeChange: actions.setMode,
-        tree: values.tree,
+        tree: trace.tree,
         selectedNodeId: values.selectedNodeId,
         onSelectNode: actions.selectNode,
         onPrefetchNode: actions.prefetchNode,
@@ -187,7 +191,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
               }
             : null,
         thread: values.thread,
-        timeline: values.timeline,
+        timeline: { rows: trace.timeline, totalMs: trace.totalMs },
         evalOutcomes: values.evalOutcomes,
         search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
         matchingNodeIds: values.matchingNodeIds,
@@ -211,7 +215,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             focusNodeId: values.feedbackFocusNodeId,
         },
         onRetryFeedback: actions.retryTraceFeedback,
-        feedbackCount: values.feedbackCount,
+        feedbackCount: values.traceFeedback?.summary.total ?? null,
         stepFeedback: values.stepFeedback,
     }
 }
@@ -225,43 +229,39 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     const logic = traceViewModelLogic({ hostId, traceId, timestampHint })
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
-        status,
-        loadFailure,
         trace,
-        clusters,
-        evaluationResults,
-        traceFeedback,
-        pullRequest,
         mode,
-        tree,
         selectedNodeId,
         selectedTreeNode,
         selectedNodeLoad,
-        evaluationResultsFailed,
         detailTab,
-        createdAt,
-        datasetsEnabled,
         selectedRaw,
         canViewInThread,
         thread,
-        timeline,
-        evalOutcomes,
         searchBox,
-        matchingNodeIds,
-        highlightQuery,
         matchStepCount,
-        summaryState,
-        summaryRequesting,
-        summaryRequestError,
-        summaryConsentGiven,
-        feedbackCount,
-        stepFeedback,
-        traceFeedbackFailed,
-        stepLabels,
         feedbackFocusNodeId,
         selectedStepFeedback,
     } = useValues(logic)
     const actions = useActions(logic)
+    const { status, loadFailure, evaluationResults, evaluationResultsFailed, createdAt, evalOutcomes, stepLabels } =
+        useValues(traceViewLogic({ traceId, timestampHint }))
+    const { traceFeedback, traceFeedbackFailed, stepFeedback } = useValues(
+        traceFeedbackLogic({ traceId, timestampHint })
+    )
+    const { matchingNodeIds, highlightQuery } = useValues(traceSearchLogic({ traceId, timestampHint }))
+    const { clusters } = useValues(traceClustersLogic({ traceId }))
+    const { pullRequest } = useValues(traceGitPullRequestLogic({ traceId, timestampHint }))
+    const summaryLogic = traceSummaryLogic({ traceId })
+    const {
+        state: summaryState,
+        requesting: summaryRequesting,
+        requestError: summaryRequestError,
+        dataProcessingAccepted: summaryConsentGiven,
+    } = useValues(summaryLogic)
+    const { loadSummary } = useActions(summaryLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const datasetsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
     const exportLogic = traceExportLogic({ traceId, timestampHint })
     const { traceExportLoading, traceCopying } = useValues(exportLogic)
     const { exportTrace, copyTrace } = useActions(exportLogic)
@@ -280,50 +280,55 @@ export const TraceViewContainer = memo(function TraceViewContainer({
             ? toReadyProps(
                   {
                       trace,
-                      clusters,
-                      evaluationResults,
-                      traceFeedback,
-                      pullRequest,
                       mode,
-                      tree,
                       selectedNodeId,
                       selectedTreeNode,
                       selectedNodeLoad,
-                      evaluationResultsFailed,
                       detailTab,
-                      createdAt,
-                      datasetsEnabled,
                       selectedRaw,
                       canViewInThread,
                       thread,
-                      timeline,
-                      evalOutcomes,
                       searchBox,
-                      matchingNodeIds,
-                      highlightQuery,
                       matchStepCount,
-                      summaryState,
-                      summaryRequesting,
-                      summaryRequestError,
-                      summaryConsentGiven,
-                      feedbackCount,
-                      stepFeedback,
-                      traceFeedbackFailed,
-                      stepLabels,
                       feedbackFocusNodeId,
                       selectedStepFeedback,
-                      traceExportLoading,
-                      traceCopying,
-                      backLink,
-                      traceId,
+                      evaluationResults,
+                      evaluationResultsFailed,
+                      createdAt,
+                      evalOutcomes,
+                      stepLabels,
+                      traceFeedback,
+                      traceFeedbackFailed,
+                      stepFeedback,
+                      matchingNodeIds,
+                      highlightQuery,
+                      clusters,
+                      pullRequest,
                       reviewStatus,
                       reviewStatusFailed,
                       queueHref,
                       canEditReviews,
                       removeFromQueueLoading,
+                      traceId,
+                      traceExportLoading,
+                      traceCopying,
+                      backLink,
                       messagesOpening,
+                      datasetsEnabled,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
                   },
-                  { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue, setMessagesOpening }
+                  {
+                      ...actions,
+                      exportTrace,
+                      copyTrace,
+                      loadReviewStatus,
+                      removeFromQueue,
+                      setMessagesOpening,
+                      loadSummary,
+                  }
               )
             : null
 
