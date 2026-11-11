@@ -31,8 +31,8 @@ deny:
     stamphog_policy:
         match:
             extend_paths:
-                # The dependency proof publisher and the shared setup-uv action it runs. A PR that edits
-                # either changes what the proof checks.
+                # These paths hold the dependency proof publisher and the setup-uv action it runs.
+                # A PR that edits either one changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
                 - '^\.github/actions/setup-uv/'
