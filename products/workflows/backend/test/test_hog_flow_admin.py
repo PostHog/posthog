@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch
 
@@ -10,6 +12,8 @@ from django.contrib.sessions.backends.db import SessionStore
 from django.http import HttpRequest
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.admin import register_all_admin
 from posthog.models.user import User
@@ -61,6 +65,16 @@ class TestHogFlowAdminEmailAudit(TestCase):
         entry = self._admin_history()
         assert entry.user_id == self.user.pk
         assert "Resumed" in entry.change_message
+
+    @parameterized.expand([("disable", "draft"), ("archive", "archived")])
+    def test_stopping_a_live_workflow_keeps_mcp_edits_in_draft(self, _name: str, target_status: str) -> None:
+        self.flow.status = HogFlow.State.ACTIVE
+        self.flow.save(update_fields=["status"])
+
+        self.flow.status = target_status
+        self.admin.save_model(self._request(), self.flow, SimpleNamespace(changed_data=["status"]), change=True)
+
+        assert HogFlow.objects.get(pk=self.flow.pk).disabled_from_active is True
 
 
 @pytest.mark.parametrize("model", [HogFlow, HogFlowTemplate, HogFlowBatchJob], ids=lambda m: m.__name__)

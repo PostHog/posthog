@@ -180,17 +180,20 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
         _save_live(locked, _track_disabled_from_active(locked, validated_data))
 
 
+def disabled_from_active_after(before: HogFlow, target_status: str) -> bool:
+    # Every status write takes the mark from here, so no way of stopping a live workflow (disable or
+    # archive, from the API, MCP, a canvas or the admin) leaves later MCP content edits landing on the
+    # live config. Restoring an archived workflow keeps the mark; only going live again clears it.
+    return target_status != HogFlow.State.ACTIVE and (
+        before.status == HogFlow.State.ACTIVE or before.disabled_from_active
+    )
+
+
 def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:
-    # Every status write goes through here, so no way of stopping a live workflow (disable or archive,
-    # from the API, MCP or a canvas) leaves later MCP content edits landing on the live config.
-    # Restoring an archived workflow keeps the mark; only going live again clears it.
     target_status = validated_data.get("status")
     if target_status is None or target_status == before.status:
         return validated_data
-    disabled_from_active = target_status != HogFlow.State.ACTIVE and (
-        before.status == HogFlow.State.ACTIVE or before.disabled_from_active
-    )
-    return {**validated_data, "disabled_from_active": disabled_from_active}
+    return {**validated_data, "disabled_from_active": disabled_from_active_after(before, target_status)}
 
 
 def _derive_from_locked_graph(

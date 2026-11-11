@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
@@ -8,6 +10,7 @@ import structlog
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.services.hog_flow_writes import disabled_from_active_after
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     pause_workflow_email_sending,
@@ -86,6 +89,11 @@ class HogFlowAdmin(admin.ModelAdmin):
         "email_sending_paused_reason",
         "email_sending_resumed_at",
     )
+
+    def save_model(self, request: HttpRequest, obj: HogFlow, form: Any, change: bool) -> None:
+        if change and "status" in form.changed_data:
+            obj.disabled_from_active = disabled_from_active_after(HogFlow.objects.get(pk=obj.pk), obj.status)
+        super().save_model(request, obj, form, change)
 
     @admin.display(description="Team")
     def team_link(self, hog_flow: HogFlow):
