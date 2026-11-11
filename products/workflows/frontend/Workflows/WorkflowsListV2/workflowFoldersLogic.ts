@@ -960,14 +960,23 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     }
                 }
             }
+            const renamedFolders: [FileSystemEntry, string][] = []
             for (const entry of present.values()) {
                 if (isIndexed(entry) || !entry.shortcut) {
+                    const oldPath = index.get(entry.id)?.path
                     // A file the tree loads new or at another path, such as a refreshed rename, is newer than a scan in flight.
-                    if (isIndexed(entry) && index.get(entry.id)?.path !== entry.path) {
+                    if (isIndexed(entry) && oldPath !== entry.path) {
                         cache.changes = changeCount(cache) + 1
+                        // A folder renamed elsewhere reloads at its new path while the tree still holds its contents at the old one.
+                        if (entry.type === 'folder' && oldPath !== undefined && oldPath in folders) {
+                            renamedFolders.push([entry, oldPath])
+                        }
                     }
                     index.set(entry.id, entry)
                 }
+            }
+            for (const [entry, oldPath] of renamedFolders) {
+                projectTreeDataLogic.actions.movedItem(entry, oldPath, entry.path)
             }
             // The shared tree still caches what was inside a folder that is gone, which would bring the branch back.
             if (goneFolders.length > 0) {

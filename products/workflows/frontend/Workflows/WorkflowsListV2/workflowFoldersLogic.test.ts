@@ -804,16 +804,51 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.expandedFolders).toContain('project://Billing')
     })
 
-    it('follows the open folder when an ancestor is renamed', async () => {
+    it.each([
+        [
+            'here',
+            (): void =>
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'billing', path: 'Billing', type: 'folder' },
+                    'Billing',
+                    'Archive'
+                ),
+        ],
+        [
+            'in another tab and the shared tree reloads its parent',
+            (): void => {
+                const rootFolders = [
+                    { id: 'billing', path: 'Archive', type: 'folder' },
+                    { id: 'empty', path: 'Empty', type: 'folder' },
+                    { id: 'dashboards', path: 'Reports', type: 'folder' },
+                    { id: 'unfiled', path: 'Unfiled', type: 'folder' },
+                ]
+                projectTreeDataLogic.actions.loadFolderSuccess('', rootFolders, false, rootFolders.length, true)
+            },
+        ],
+    ])('follows the open folder, with its files, when an ancestor is renamed %s', async (_, rename) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing/Cards')
+        let shortcutLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system_shortcut/': () => {
+                    shortcutLoads++
+                    return [200, paginated([])]
+                },
+            },
+        })
 
-        projectTreeDataLogic.actions.movedItem({ id: 'billing', path: 'Billing', type: 'folder' }, 'Billing', 'Archive')
+        rename()
         await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
         expect(logic.values.currentFolder).toBe('Archive/Cards')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
+        expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+        // Pins follow a moved folder through one reload, so a rename is applied to the tree once.
+        expect(shortcutLoads).toBe(1)
     })
 
     it.each([
