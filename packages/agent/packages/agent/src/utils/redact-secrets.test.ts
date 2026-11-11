@@ -274,6 +274,23 @@ describe("redactSecrets", () => {
     },
   );
 
+  it("redacts a loopback token when a GitLab prefix is buffered", () => {
+    const previous = process.env.GITLAB_TOKEN;
+    process.env.GITLAB_TOKEN = "glpat-example-secret";
+    try {
+      expect(
+        streamText([
+          `http://127.0.0.1:53211/${"A".repeat(31)}`,
+          "g",
+          `${"Z".repeat(11)}/v1`,
+        ]),
+      ).toBe("http://127.0.0.1:53211/[REDACTED]/v1");
+    } finally {
+      if (previous === undefined) delete process.env.GITLAB_TOKEN;
+      else process.env.GITLAB_TOKEN = previous;
+    }
+  });
+
   it("redacts a proxy URL spread over many small chunks", () => {
     const text = `x http://127.0.0.1:53211/${"b".repeat(43)}/v1`;
     const parts = text.match(/.{1,3}/g) ?? [];

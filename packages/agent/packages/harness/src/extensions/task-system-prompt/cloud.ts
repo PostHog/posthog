@@ -39,7 +39,7 @@ export class CloudTaskPrompt {
 
   private buildExistingPrCheckoutInstruction(prUrl: string): string {
     if (this.isGitlab) {
-      return `Continue working on the existing merge request branch. If it is not already checked out, read its \`source_branch\` with the \`gitlab_merge_request\` tool (operation "view", \`merge_request\` = ${prUrl}), then run \`git fetch origin <branch>\` and \`git checkout <branch>\`. Do not check it out again when it is already active.`;
+      return `Continue working on the existing merge request branch. If it is not already checked out, read its \`source_branch\` with the \`gitlab_merge_request\` tool (operation "view", \`merge_request\` = ${prUrl}), then run \`git remote set-branches --add origin <branch>\` and \`git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>\`. Check out the local branch if it exists; otherwise run \`git checkout -b <branch> --track origin/<branch>\`. Do not check it out again when it is already active.`;
     }
     return `Continue working on the existing PR branch. If it is not already checked out, check it out with \`gh pr checkout ${prUrl}\`. Do not check it out again when it is already active.`;
   }

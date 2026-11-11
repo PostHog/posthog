@@ -240,6 +240,7 @@ export const gitlabMergeRequestTool = defineLocalTool({
             taskId: ctx.taskId,
             taskRunId: ctx.taskRunId,
             repository: projectPath,
+            updateCheckoutBranch: cwd === taskRepositoryCwd,
             branch,
           }),
       },

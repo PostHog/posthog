@@ -1,5 +1,13 @@
+import { execGit } from "@posthog/git/git-exec";
 import { describe, expect, it, vi } from "vitest";
-import { runGitlabMergeRequest } from "./gitlab-merge-request";
+import { reportTaskRunBranch } from "../signed-commit-artefacts";
+import {
+  gitlabMergeRequestTool,
+  runGitlabMergeRequest,
+} from "./gitlab-merge-request";
+
+vi.mock("@posthog/git/git-exec", () => ({ execGit: vi.fn() }));
+vi.mock("../signed-commit-artefacts", () => ({ reportTaskRunBranch: vi.fn() }));
 
 const MR = {
   iid: 12,
@@ -139,6 +147,44 @@ describe("gitlab_merge_request tool", () => {
       );
     },
   );
+
+  it("reports a sibling MR without changing the primary checkout branch", async () => {
+    vi.stubEnv("GITLAB_TOKEN", "glpat-test");
+    vi.mocked(execGit).mockResolvedValue({
+      exitCode: 0,
+      stdout: "https://gitlab.com/acme/platform/api.git",
+      stderr: "",
+    } as never);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse(MR, 201));
+    try {
+      await gitlabMergeRequestTool.handler(
+        {
+          cwd: "/workspace/primary",
+          taskId: "task",
+          taskRunId: "run",
+        } as never,
+        {
+          operation: "create",
+          cwd: "../sibling",
+          source_branch: "feature",
+          target_branch: "main",
+          title: "Fix",
+        },
+      );
+      expect(reportTaskRunBranch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: "acme/platform/api",
+          branch: MR.source_branch,
+          updateCheckoutBranch: false,
+        }),
+      );
+    } finally {
+      fetchMock.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
 
   it("refuses an MR URL from another project without a request", async () => {
     const { deps, fetchMock } = setup([]);

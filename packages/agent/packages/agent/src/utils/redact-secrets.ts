@@ -298,6 +298,12 @@ export class SecretEventRedactor {
         })
         .slice(context.length);
     }
+    if (this.active && gitlabSuffix) {
+      const match = this.active.tail.exec(gitlabSuffix)?.[0] ?? "";
+      gitlabSuffix = gitlabSuffix.slice(match.length);
+      if (gitlabSuffix) this.active = null;
+    }
+    text += gitlabSuffix;
     text = text.replace(
       LOOPBACK_PROXY_TOKEN,
       (match, host: string, offset: number, source: string) => {
@@ -308,12 +314,6 @@ export class SecretEventRedactor {
         return host + REDACTED;
       },
     );
-    if (this.active && gitlabSuffix) {
-      const match = this.active.tail.exec(gitlabSuffix)?.[0] ?? "";
-      gitlabSuffix = gitlabSuffix.slice(match.length);
-      if (gitlabSuffix) this.active = null;
-    }
-    text += gitlabSuffix;
     // The rule loop has already redacted the text; this covers the other fields.
     const redacted = withText(
       redactSecrets(withText(event, "")) as TextEvent,
