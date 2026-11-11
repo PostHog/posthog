@@ -39,7 +39,6 @@ export function TransactionalEmailsTable(): JSX.Element {
         codeEmailsLoading,
         filters,
         isFiltered,
-        tags: allTags,
         savingTagsFor,
     } = useValues(transactionalEmailsLogic)
     const { setFilters, saveTransactionalTags } = useActions(transactionalEmailsLogic)
@@ -198,7 +197,6 @@ export function TransactionalEmailsTable(): JSX.Element {
                                     {...shown}
                                     onChange={(tags) => saveTransactionalTags(row, tags)}
                                     saving={savingTagsFor === row.id}
-                                    tagsAvailable={allTags}
                                 />
                             )
                         },

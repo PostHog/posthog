@@ -46,6 +46,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '../../src/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
 import {
     FlagEvaluationsMode,
@@ -473,7 +474,10 @@ export async function createIngestionTestInfra(
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const integrationManager = new IntegrationManagerService(
+        pubSub,
+        new PostgresIntegrationSource(postgres, encryptedFields)
+    )
 
     const close = async (): Promise<void> => {
         await pubSub.stop()

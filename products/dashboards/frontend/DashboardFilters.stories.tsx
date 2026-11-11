@@ -121,7 +121,7 @@ function dashboardFilters(filterKinds: DashboardChangeKind[]): DashboardFilter {
 function applyUnsavedFilters(logic: ReturnType<typeof dashboardLogic.build>, filterKinds: DashboardChangeKind[]): void {
     const filters = dashboardFilters(filterKinds)
 
-    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+    logic.actions.setDashboardEditing(true, DashboardEventSource.DashboardFilters)
     if (filters.date_from) {
         logic.actions.setDates(filters.date_from, null)
     }

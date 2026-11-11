@@ -72,6 +72,13 @@ const expectProgress = (text: string): void => {
     expect(screen.getAllByText(text).length).toBeGreaterThan(0)
 }
 
+const expectBackToChannels = (): void => {
+    expect(screen.getByText('Back to workflows').closest('a')).toHaveAttribute(
+        'href',
+        expect.stringMatching(new RegExp(`${urls.workflows('channels')}$`))
+    )
+}
+
 describe('EmailDomainScene', () => {
     let backend: FakeEmailDomainBackend
 
@@ -118,6 +125,7 @@ describe('EmailDomainScene', () => {
     it('takes a typed domain through the manual path to a verified first sender', async () => {
         await open(urls.workflowsEmailDomain('new'))
         expectStep('Which domain should your emails come from?')
+        expectBackToChannels()
 
         typeInto('email-domain-another-domain', 'acme.com')
         click('email-domain-use-custom-domain')
@@ -158,6 +166,7 @@ describe('EmailDomainScene', () => {
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
         expectStep(/You can send from/)
+        expectBackToChannels()
         expect(screen.getByText('Your first sender')).toBeInTheDocument()
         expect(screen.getByText(`Send your first email from ${DOMAIN}`)).toBeInTheDocument()
 

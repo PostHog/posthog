@@ -43,7 +43,6 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     start_requested_implementation,
 )
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
@@ -52,11 +51,6 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalSpend,
     SignalTeamConfig,
-)
-from products.signals.backend.quota import (
-    capture_signal_report_quota_paused,
-    record_quota_check_failed_open,
-    self_driving_quota_gate,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice, ReportLayer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -527,14 +521,11 @@ class SignalReportSummaryWorkflow:
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
-        # 0. Quota gate: a team whose org is over its self-driving credits quota gets no new research or PRs. The
-        # report stays candidate and re-promotes on the first matching signal after the quota
-        # lifts. patched(): executions recorded before the gate existed replay the old command
-        # sequence (see also the two mid-run gates below, same patch id).
+        # Keep the recorded gate command; report-pass admission owns the limits.
         if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
             inputs, stage="summary_entry"
         ):
-            log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
+            log.info("Report run paused: daily report limit reached", stage="summary_entry")
             return False
         # Pending signals and the implementation buffer may cause more research passes in
         # this same pipeline. Admission covers all of them through the final implementation.
@@ -642,7 +633,7 @@ class SignalReportSummaryWorkflow:
             if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                 inputs, stage="pre_repo_selection"
             ):
-                log.info("Report run paused: org over self-driving credits quota", stage="pre_repo_selection")
+                log.info("Report run paused: daily report limit reached", stage="pre_repo_selection")
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
@@ -694,7 +685,7 @@ class SignalReportSummaryWorkflow:
                 if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                     inputs, stage="pre_research"
                 ):
-                    log.info("Report run paused: org over self-driving credits quota", stage="pre_research")
+                    log.info("Report run paused: daily report limit reached", stage="pre_research")
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -971,42 +962,8 @@ class CheckReportQuotaGateInput:
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Check limits before accepting a report pipeline, never between its stages."""
-    # Existing histories still schedule these activities. Returning False preserves replay
-    # compatibility while letting the admitted pass finish repository selection and research.
-    if input.operator_rerun or input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
-        return False
-    try:
-        if await (
-            SignalReport.objects.filter(team_id=input.team_id, id=input.report_id)
-            .exclude(billing_exempt_reason__isnull=True)
-            .exclude(billing_exempt_reason="")
-            .aexists()
-        ):
-            return False
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
-            team, signal_id=input.signal_id
-        )
-        if gate.limited:
-            capture_signal_report_quota_paused(
-                team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
-            )
-        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-        if daily_gate.limited:
-            capture_signal_report_daily_limit_paused(
-                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
-            )
-        return gate.enforced or daily_gate.limited
-    except Exception:
-        record_quota_check_failed_open()
-        logger.exception(
-            "Self-driving quota gate check failed open",
-            report_id=input.report_id,
-            team_id=input.team_id,
-            stage=input.stage,
-        )
-        return False
+    """Recorded histories still call this activity; report-pass admission owns the limits."""
+    return False
 
 
 @frozen
