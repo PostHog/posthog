@@ -17,7 +17,7 @@ const READY: TraceSummaryApi = {
         bullets: [{ text: 'The user asks for a refund.', nodeId: 'gen-1' }],
         notes: [],
         flow: 'ask → refuse',
-        model: 'gpt-4.1-mini',
+        model: 'gpt-6-luna',
         generatedAt: '2026-09-01T10:00:00Z',
     },
     failure: null,

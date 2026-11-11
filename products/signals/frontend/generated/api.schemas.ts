@@ -2797,7 +2797,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
      * @nullable
      */
     repository?: string | null
@@ -10335,6 +10335,12 @@ export interface EditReportRequestApi {
      */
     source_issues?: SourceIssueWriteApi[]
     /**
+     * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+     * @maxItems 5
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
@@ -10393,6 +10399,8 @@ export interface EditReportResponseApi {
     links_appended: number
     /** How many source issues this edit added that the report did not name yet; 0 if none. */
     source_issues_appended: number
+    /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+    pull_requests_linked: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -11817,7 +11825,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**
@@ -11845,7 +11853,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
