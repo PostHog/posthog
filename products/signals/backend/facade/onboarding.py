@@ -41,7 +41,7 @@ from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
 from products.signals.backend.scout_harness.create_access import can_create_scout
-from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import setup_default_skills_for_team, withheld_skills_for_team
 
 if TYPE_CHECKING:
     from django.utils.functional import Promise
@@ -109,6 +109,7 @@ class InboxOnboarding:
             jobs["recommendations"] = "failed"
         return {
             "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
+            "setup_default_skills": setup_default_skills_for_team(self.team.parent_team_id or self.team_id),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
             **({"jobs": jobs} if "jobs" in state else {}),

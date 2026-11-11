@@ -98,7 +98,6 @@ dashboards.Dashboard posthog.Team.primary_dashboard reverse-accessor(primary_das
 dashboards.Dashboard product_analytics.Insight.dashboard reverse-accessor(items) 1
 dashboards.Dashboard products.dashboards.backend.facade.api.InsightTilePlacement.__init__ facade-accepts(dashboards) 1
 dashboards.Dashboard products.dashboards.backend.facade.api.tile_for_render facade-accepts(dashboard) 1
-dashboards.Dashboard products.product_analytics.backend.facade.models.generate_insight_filters_hash facade-accepts(dashboard) 1
 dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_insight_on_dashboard facade-returns 1
 dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_render facade-returns 1
 data_catalog.Metric products.data_catalog.backend.facade.api.approve_metric facade-accepts(metric) 1
@@ -530,7 +529,6 @@ product_analytics.Insight posthog.api.search in-collection 1
 product_analytics.Insight posthog.api.sharing instance-many(filter) 1
 product_analytics.Insight posthog.api.sharing instance-single 1
 product_analytics.Insight posthog.api.sharing_publish_gate isinstance 1
-product_analytics.Insight posthog.caching.calculate_results isinstance 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1

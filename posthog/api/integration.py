@@ -2976,6 +2976,8 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/verify is only supported for email integrations")
         email = EmailIntegration(instance)
         verification_result = email.verify(
             on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
@@ -3043,6 +3045,8 @@ class IntegrationViewSet(
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("Only email integrations can be updated here")
         config = request.data.get("config", {})
 
         serializer = NativeEmailIntegrationSerializer(data=config)
