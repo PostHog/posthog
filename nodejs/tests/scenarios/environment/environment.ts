@@ -106,31 +106,12 @@ export function createEnvironment({
 
         async reset(settings) {
             const edge = startedEdge('reset')
-            const exitsBefore = supervisor.exits().length
-            await supervisor.stop()
-            const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
-            const groups = consumerGroupsOf(specs)
-            await waitForExpect(
-                async () => {
-                    const busy = await groupsWithMembers(groups, docker)
-                    if (busy.length > 0) {
-                        throw new Error(
-                            `The consumer groups ${busy.join(', ')} still have members ${GROUPS_EMPTY_WITHIN_MS / 1000}s after the roles stopped.`
-                        )
-                    }
-                },
-                GROUPS_EMPTY_WITHIN_MS,
-                PROBE_INTERVAL_MS
-            )
-            edge.clearFaults()
-            await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
-            await forgetSesBucket(sesRateLimiterValkey)
-            for (const group of groups) {
-                await seekToEnd(group, docker)
+            try {
+                await resetRoles(edge, settings)
+            } catch (error) {
+                await stop()
+                throw error
             }
-            await refuseHeldPorts(specs.map((spec) => spec.role))
-            await supervisor.start(specs)
-            await untilHealthy(specs, exitsBefore)
         },
 
         edgeUrl: () => startedEdge('edgeUrl').url,
@@ -152,6 +133,34 @@ export function createEnvironment({
             throw new Error(`Start the environment with up() before ${caller}().`)
         }
         return edge
+    }
+
+    async function resetRoles(edge: ProviderEdge, settings: Profile['settings']): Promise<void> {
+        const exitsBefore = supervisor.exits().length
+        await supervisor.stop()
+        const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
+        const groups = consumerGroupsOf(specs)
+        await waitForExpect(
+            async () => {
+                const busy = await groupsWithMembers(groups, docker)
+                if (busy.length > 0) {
+                    throw new Error(
+                        `The consumer groups ${busy.join(', ')} still have members ${GROUPS_EMPTY_WITHIN_MS / 1000}s after the roles stopped.`
+                    )
+                }
+            },
+            GROUPS_EMPTY_WITHIN_MS,
+            PROBE_INTERVAL_MS
+        )
+        edge.clearFaults()
+        await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
+        await forgetSesBucket(sesRateLimiterValkey)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
+        await refuseHeldPorts(specs.map((spec) => spec.role))
+        await supervisor.start(specs)
+        await untilHealthy(specs, exitsBefore)
     }
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
