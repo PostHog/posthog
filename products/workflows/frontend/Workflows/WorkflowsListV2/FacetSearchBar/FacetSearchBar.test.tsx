@@ -207,6 +207,26 @@ describe('FacetSearchBar', () => {
         expect(input()).toHaveValue('')
     })
 
+    it.each([
+        ['pasted', (text: string) => changeInput(text)],
+        ['typed one character at a time', typeText],
+    ])('reads a long query with quotes and escapes the same way when %s', (_, enter) => {
+        const filters = [
+            ...Array.from({ length: 12 }, (_, index) => ({
+                facet: 'sends',
+                value: `Deal ${index} "x status:active \\`,
+                negated: false,
+            })),
+            { facet: 'status', value: 'draft', negated: false },
+        ]
+        const openQuote = 'sends:"Open status:archived '
+        setup()
+        clickInput()
+        enter(`${serializeFacetQuery(filters)} ${openQuote}`)
+        expect(shown('query')).toEqual(serializeFacetQuery(filters))
+        expect(input()).toHaveValue(openQuote)
+    })
+
     it('adds a pasted token once, even when the paste repeats it', () => {
         setup()
         clickInput()
