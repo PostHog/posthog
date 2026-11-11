@@ -14,7 +14,11 @@ import { IconArchive, IconFunnels, IconInfo, IconLineGraph, IconPlusSmall, IconR
 import { LemonButton } from '@posthog/lemon-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
+import {
+    CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE,
+    NOT_AUTHENTICATED_ERROR_CODE,
+    TABLE_ACCESS_DENIED_ERROR_CODE,
+} from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -751,6 +755,7 @@ type InsightErrorKind =
     | 'memory_limit'
     | 'invalid_query'
     | 'permission'
+    | 'not_authenticated'
     | 'transient'
     | 'server'
     | 'unknown'
@@ -775,6 +780,11 @@ function getInsightErrorKind(status?: number | null, code?: string | null): Insi
     if (code === TABLE_ACCESS_DENIED_ERROR_CODE) {
         return 'permission'
     }
+    // The browser lost the login for this tab: the session ended, or the user started impersonating
+    // someone in another tab. Access settings are not the cause, so do not tell the user to ask an admin.
+    if (code === NOT_AUTHENTICATED_ERROR_CODE || status === 401) {
+        return 'not_authenticated'
+    }
     if (status === 429) {
         return 'rate_limit'
     }
@@ -787,7 +797,7 @@ function getInsightErrorKind(status?: number | null, code?: string | null): Insi
     if (status === 400 || status === 422) {
         return 'invalid_query'
     }
-    if (status === 401 || status === 403) {
+    if (status === 403) {
         return 'permission'
     }
     if (status === 502 || status === 503 || status === 504) {
@@ -806,6 +816,9 @@ function getInsightErrorTitle(
 ): string | JSX.Element {
     if (kind === 'memory_limit') {
         return "This query couldn't finish"
+    }
+    if (kind === 'not_authenticated') {
+        return 'Your login changed'
     }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
@@ -841,6 +854,8 @@ function getInsightErrorRemediation(
             return 'Open the query debugger and correct the query.'
         case 'permission':
             return 'Ask a project admin to grant you access to this insight.'
+        case 'not_authenticated':
+            return 'Reload the page, or stop impersonating and then reload. This happens when you start impersonating a user in another tab, or when your session ends.'
         case 'transient':
             return 'Try again in a moment.'
         case 'server':
@@ -855,6 +870,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** DRF `code` of the failed response, which identifies failures that the status alone cannot */
+    errorCode?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -871,6 +888,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    errorCode,
     query,
     queryId,
     retryAfter,
@@ -884,8 +902,8 @@ export function InsightErrorState({
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const [, setTick] = useState(0)
-    const errorKind = getInsightErrorKind(titleStatus)
-    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    const errorKind = getInsightErrorKind(titleStatus, errorCode)
+    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission' && errorKind !== 'not_authenticated'
     // InsightCard passes the later of its own and its embedded query's deadlines, so a non-503 card error can carry one.
     const capacityRetryAt = canRetry ? retryAfterTimestamp : null
     const {
@@ -961,7 +979,8 @@ export function InsightErrorState({
             }
             actions={
                 !excludeActions &&
-                errorKind !== 'permission' && (
+                errorKind !== 'permission' &&
+                errorKind !== 'not_authenticated' && (
                     <>
                         {onRetry && canRetry ? (
                             <RetryButton

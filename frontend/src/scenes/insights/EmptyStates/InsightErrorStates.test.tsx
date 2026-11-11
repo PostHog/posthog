@@ -168,31 +168,64 @@ describe('insight error states', () => {
     })
 
     it.each([
-        { status: 429, expectedCopy: 'Try again in 2 minutes.', retry: true },
+        { status: 429, code: undefined, expectedCopy: 'Try again in 2 minutes.', retry: true },
         {
             status: 513,
+            code: undefined,
             title: CLUSTER_MEMORY_DETAIL,
             expectedCopy: CLUSTER_MEMORY_DETAIL,
             retry: true,
         },
-        { status: 400, expectedCopy: 'Open the query debugger and correct the query.', retry: false },
+        { status: 400, code: undefined, expectedCopy: 'Open the query debugger and correct the query.', retry: false },
         {
             status: 403,
+            code: undefined,
             expectedCopy: 'Ask a project admin to grant you access to this insight.',
             retry: false,
             queryDebugger: false,
             bugReport: false,
         },
-        { status: 503, expectedCopy: 'Try again in a moment.', retry: true, queryDebugger: false, bugReport: true },
+        {
+            status: 503,
+            code: undefined,
+            expectedCopy: 'Try again in a moment.',
+            retry: true,
+            queryDebugger: false,
+            bugReport: true,
+        },
+        ...[
+            { status: 401, code: undefined },
+            { status: 403, code: 'not_authenticated' },
+            // Data visualization callers pass the code without a status
+            { status: undefined, code: 'not_authenticated' },
+        ].map(({ status, code }) => ({
+            status,
+            code,
+            title: 'Authentication credentials were not provided.',
+            expectedCopy:
+                'Reload the page, or stop impersonating and then reload. This happens when you start impersonating a user in another tab, or when your session ends.',
+            retry: false,
+            queryDebugger: false,
+            bugReport: false,
+        })),
     ])(
-        'shows the correct action for HTTP $status errors',
-        ({ status, expectedCopy, retry, title = 'The query failed.', queryDebugger = !retry, bugReport = false }) => {
+        'shows the correct action for HTTP $status errors (code: $code)',
+        ({
+            status,
+            code,
+            expectedCopy,
+            retry,
+            title = 'The query failed.',
+            queryDebugger = !retry,
+            bugReport = false,
+        }) => {
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
 
             const { container } = render(
                 <InsightErrorState
                     title={title}
                     titleStatus={status}
+                    errorCode={code}
                     retryAfter={status === 429 ? 'in 2 minutes' : undefined}
                     query={{ kind: 'InsightVizNode' }}
                     onRetry={() => {}}

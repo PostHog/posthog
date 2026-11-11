@@ -693,6 +693,7 @@ export interface dataVisualizationLogicValues {
         | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     responseError: string | null // dataNodeLogic
+    responseErrorObject: Record<string, any> | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
     activeSceneId: string | null // sceneLogic
     currentTeamId: number | null // teamLogic
@@ -1009,6 +1010,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 'response as rawResponse',
                 'responseLoading',
                 'responseError',
+                'responseErrorObject',
                 'queryCancelled',
                 'hasMoreData as rawHasMoreData',
             ],
