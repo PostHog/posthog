@@ -56,7 +56,7 @@
   },
   {
     "temporal_workflow_type": "ai-sync-vectors",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
@@ -96,7 +96,7 @@
   },
   {
     "temporal_workflow_type": "anomaly-investigation",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
@@ -151,12 +151,12 @@
   },
   {
     "temporal_workflow_type": "backfill-group-type-created-at",
-    "product": "groups",
+    "product": "temporal/backfill_group_type_created_at",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "backfill-materialized-properties-batch",
-    "product": "product_analytics",
+    "product": "temporal/backfill_materialized_property",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -241,12 +241,12 @@
   },
   {
     "temporal_workflow_type": "chat-agent",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "check-alert",
-    "product": "alerts",
+    "product": "temporal/alerts",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
@@ -256,12 +256,12 @@
   },
   {
     "temporal_workflow_type": "checkpoint-compaction-sweep",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "cleanup-alert-checks",
-    "product": "alerts",
+    "product": "temporal/alerts",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
@@ -271,7 +271,7 @@
   },
   {
     "temporal_workflow_type": "cleanup-property-definitions",
-    "product": "event_definitions",
+    "product": "temporal/cleanup_property_definitions",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -296,7 +296,7 @@
   },
   {
     "temporal_workflow_type": "conversation-processing",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
@@ -306,22 +306,22 @@
   },
   {
     "temporal_workflow_type": "copy-recordings",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "count-all-playlists",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "count-playlist",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "create-proxy",
-    "product": "platform_features",
+    "product": "temporal/proxy_service",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -391,17 +391,17 @@
   },
   {
     "temporal_workflow_type": "data-modeling-enrich-view-semantics",
-    "product": "data_modeling",
+    "product": "temporal/data_modeling",
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-execute-dag",
-    "product": "data_modeling",
+    "product": "temporal/data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-materialize-view",
-    "product": "data_modeling",
+    "product": "temporal/data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
@@ -421,47 +421,47 @@
   },
   {
     "temporal_workflow_type": "delete-organization",
-    "product": "platform_features",
+    "product": "temporal/delete_teams",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-persons",
-    "product": "persons",
+    "product": "temporal/delete_persons",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-project-data",
-    "product": "platform_features",
+    "product": "temporal/delete_teams",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-proxy",
-    "product": "platform_features",
+    "product": "temporal/proxy_service",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-recordings-with-person",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-recordings-with-query",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-recordings-with-session-ids",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-recordings-with-team",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "delete-teams-data",
-    "product": "platform_features",
+    "product": "temporal/delete_teams",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -471,7 +471,7 @@
   },
   {
     "temporal_workflow_type": "dlq-replay",
-    "product": "ingestion",
+    "product": "temporal/dlq_replay",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -511,7 +511,7 @@
   },
   {
     "temporal_workflow_type": "emit-eval-report-signal",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
@@ -526,7 +526,7 @@
   },
   {
     "temporal_workflow_type": "enforce-max-replay-retention",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
@@ -611,12 +611,12 @@
   },
   {
     "temporal_workflow_type": "experiment-regular-metrics-workflow",
-    "product": "experiments",
+    "product": "temporal/experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "experiment-saved-metrics-workflow",
-    "product": "experiments",
+    "product": "temporal/experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -626,12 +626,12 @@
   },
   {
     "temporal_workflow_type": "experiment-timeseries-recalculation-workflow",
-    "product": "experiments",
+    "product": "temporal/experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "export-asset",
-    "product": "exports",
+    "product": "temporal/exports",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
@@ -656,12 +656,12 @@
   },
   {
     "temporal_workflow_type": "generate-digest-data",
-    "product": "growth",
+    "product": "temporal/weekly_digest",
     "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "generate-event-screenshots",
-    "product": "product_analytics",
+    "product": "temporal/event_screenshots",
     "task_queues": "EVENT_SCREENSHOTS_TASK_QUEUE"
   },
   {
@@ -686,7 +686,7 @@
   },
   {
     "temporal_workflow_type": "health-check-workflow",
-    "product": "platform_features",
+    "product": "temporal/health_checks",
     "task_queues": "HEALTH_CHECK_TASK_QUEUE"
   },
   {
@@ -716,7 +716,7 @@
   },
   {
     "temporal_workflow_type": "ingestion-acceptance-test",
-    "product": "ingestion",
+    "product": "temporal/ingestion_acceptance_test",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -751,17 +751,17 @@
   },
   {
     "temporal_workflow_type": "llma-eval-reports-count-triggered-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-eval-reports-generate-and-deliver",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-eval-reports-scheduled-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
@@ -776,47 +776,47 @@
   },
   {
     "temporal_workflow_type": "llma-evaluation-backfill",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-evaluation-clustering",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-evaluation-clustering-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-evaluation-sampler",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-evaluation-sampler-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-trace-clustering",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-trace-clustering-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-trace-summarization",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "llma-trace-summarization-coordinator",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
@@ -851,12 +851,12 @@
   },
   {
     "temporal_workflow_type": "mcpa-intent-clustering",
-    "product": "mcp_analytics",
+    "product": "temporal/mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
-    "product": "mcp_analytics",
+    "product": "temporal/mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
   },
   {
@@ -891,7 +891,7 @@
   },
   {
     "temporal_workflow_type": "monitor-proxy",
-    "product": "platform_features",
+    "product": "temporal/proxy_service",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -966,17 +966,17 @@
   },
   {
     "temporal_workflow_type": "purge-deleted-recording-metadata",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "rasterize-recording",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "reconcile-organization-active-state-to-billing",
-    "product": "billing",
+    "product": "temporal/billing_active_sync",
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
@@ -986,7 +986,7 @@
   },
   {
     "temporal_workflow_type": "replay-count-metrics",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
@@ -1051,7 +1051,7 @@
   },
   {
     "temporal_workflow_type": "research-agent",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
@@ -1086,22 +1086,22 @@
   },
   {
     "temporal_workflow_type": "run-aggregate-evaluation",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "LLMA_EVALS_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-evaluation",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_EVALS_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-investigation-safety-net",
-    "product": "alerts",
+    "product": "temporal/alerts",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-quota-limiting",
-    "product": "billing",
+    "product": "temporal/quota_limiting",
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
@@ -1121,17 +1121,17 @@
   },
   {
     "temporal_workflow_type": "run-tagger",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "LLMA_EVALS_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-trace-evaluation",
-    "product": "ai_observability",
+    "product": "temporal/ai_observability",
     "task_queues": "LLMA_EVALS_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-usage-reports",
-    "product": "billing",
+    "product": "temporal/usage_report",
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
@@ -1141,22 +1141,22 @@
   },
   {
     "temporal_workflow_type": "salesforce-conversations-slack-enrichment",
-    "product": "growth",
+    "product": "temporal/salesforce_enrichment",
     "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "salesforce-enrichment-async",
-    "product": "growth",
+    "product": "temporal/salesforce_enrichment",
     "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "salesforce-stripe-enrichment",
-    "product": "growth",
+    "product": "temporal/salesforce_enrichment",
     "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "salesforce-usage-enrichment",
-    "product": "growth",
+    "product": "temporal/salesforce_enrichment",
     "task_queues": "BILLING_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -1166,7 +1166,7 @@
   },
   {
     "temporal_workflow_type": "schedule-due-alert-checks",
-    "product": "alerts",
+    "product": "temporal/alerts",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
@@ -1176,7 +1176,7 @@
   },
   {
     "temporal_workflow_type": "score-sessions-batch",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
@@ -1186,7 +1186,7 @@
   },
   {
     "temporal_workflow_type": "send-weekly-digest",
-    "product": "growth",
+    "product": "temporal/weekly_digest",
     "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
   },
   {
@@ -1286,7 +1286,7 @@
   },
   {
     "temporal_workflow_type": "summarize-llm-traces",
-    "product": "posthog_ai",
+    "product": "temporal/ai",
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
@@ -1301,17 +1301,17 @@
   },
   {
     "temporal_workflow_type": "surfacing-score-export-sweep",
-    "product": "session_replay",
+    "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "sync-events-retention",
-    "product": "product_analytics",
+    "product": "temporal/sync_events_retention",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE,GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "sync-organization-active-state-to-billing",
-    "product": "billing",
+    "product": "temporal/billing_active_sync",
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
@@ -1391,7 +1391,7 @@
   },
   {
     "temporal_workflow_type": "wait",
-    "product": "platform_features",
+    "product": "temporal/tests",
     "task_queues": "TEST_TASK_QUEUE"
   },
   {
@@ -1406,7 +1406,7 @@
   },
   {
     "temporal_workflow_type": "warehouse-sources-queue-partition-management",
-    "product": "warehouse_sources_queue",
+    "product": "temporal/warehouse_sources_queue_partition_management",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -1416,7 +1416,7 @@
   },
   {
     "temporal_workflow_type": "weekly-digest",
-    "product": "growth",
+    "product": "temporal/weekly_digest",
     "task_queues": "WEEKLY_DIGEST_TASK_QUEUE"
   },
   {

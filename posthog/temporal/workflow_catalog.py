@@ -1,9 +1,7 @@
-"""Map each Temporal workflow type to the product that owns its code.
+"""Map each Temporal workflow type to the product whose code defines it.
 
-Temporal Cloud bills actions per workflow type (`temporal_cloud_v1_billable_action_count`), so
-this map turns the namespace-level invoice into a per-product cost. `workflow_catalog.json` is
-the generated copy that cost dashboards read; regenerate it with
-`python manage.py export_temporal_workflow_catalog`.
+Temporal Cloud bills actions per workflow type, so this turns the namespace-level invoice into a
+per-product cost. Regenerate `workflow_catalog.json` with `python manage.py export_temporal_workflow_catalog`.
 """
 
 import ast
@@ -16,37 +14,6 @@ from temporalio.workflow import _Definition
 
 CATALOG_PATH = Path(__file__).with_name("workflow_catalog.json")
 
-# `posthog/temporal/<area>/` package -> `products/` directory. Code under `products/<name>/` needs no entry.
-TEMPORAL_AREA_PRODUCTS: dict[str, str] = {
-    "ai": "posthog_ai",
-    "ai_observability": "ai_observability",
-    "alerts": "alerts",
-    "backfill_group_type_created_at": "groups",
-    "backfill_materialized_property": "product_analytics",
-    "billing_active_sync": "billing",
-    "cleanup_property_definitions": "event_definitions",
-    "data_modeling": "data_modeling",
-    "delete_persons": "persons",
-    "delete_teams": "platform_features",
-    "dlq_replay": "ingestion",
-    "event_screenshots": "product_analytics",
-    "experiments": "experiments",
-    "exports": "exports",
-    "health_checks": "platform_features",
-    "ingestion_acceptance_test": "ingestion",
-    "logs_alerting": "logs",
-    "mcp_analytics": "mcp_analytics",
-    "proxy_service": "platform_features",
-    "quota_limiting": "billing",
-    "salesforce_enrichment": "growth",
-    "session_replay": "session_replay",
-    "sync_events_retention": "product_analytics",
-    "tests": "platform_features",
-    "usage_report": "billing",
-    "warehouse_sources_queue_partition_management": "warehouse_sources_queue",
-    "weekly_digest": "growth",
-}
-
 UNKNOWN_PRODUCT = "unknown"
 
 
@@ -56,19 +23,19 @@ def workflow_type(workflow: type) -> str:
 
 
 def workflow_product(workflow: type) -> str:
+    """`products/<name>/` gives the product; code still under `posthog/temporal/<area>/` reports its area."""
     parts = workflow.__module__.split(".")
     if len(parts) > 1 and parts[0] == "products":
         return parts[1]
     if len(parts) > 2 and parts[:2] == ["posthog", "temporal"]:
-        return TEMPORAL_AREA_PRODUCTS.get(parts[2], UNKNOWN_PRODUCT)
+        return f"temporal/{parts[2]}"
     return UNKNOWN_PRODUCT
 
 
 def task_queue_setting_names() -> list[str]:
     """Return the settings name of each `_task_queue_specs` entry, in order.
 
-    Every queue setting resolves to one development queue under DEBUG, so the names are read from
-    the source to keep the catalog the same in every environment.
+    Every queue setting resolves to one development queue under DEBUG, so the names come from source.
     """
     from posthog.management.commands import start_temporal_worker
 
@@ -89,20 +56,22 @@ def build_catalog() -> list[dict[str, str]]:
     if len(queue_names) != len(_task_queue_specs):
         raise ValueError("_task_queue_specs must be a list literal so its queue settings can be read")
 
-    products: dict[str, set[str]] = collections.defaultdict(set)
+    classes: dict[str, type] = {}
     queues: dict[str, set[str]] = collections.defaultdict(set)
     for queue_name, spec in zip(queue_names, _task_queue_specs):
         for workflow in spec[1]:
-            products[workflow_type(workflow)].add(workflow_product(workflow))
-            queues[workflow_type(workflow)].add(queue_name)
+            name = workflow_type(workflow)
+            if classes.setdefault(name, workflow) is not workflow:
+                raise ValueError(f"workflow type {name!r} is defined by more than one class")
+            queues[name].add(queue_name)
 
     return [
         {
             "temporal_workflow_type": name,
-            "product": ",".join(sorted(products[name])),
+            "product": workflow_product(classes[name]),
             "task_queues": ",".join(sorted(queues[name])),
         }
-        for name in sorted(products)
+        for name in sorted(classes)
     ]
 
 
