@@ -5,6 +5,7 @@ Answers two questions for a project: **are AI answer engines citing our domain**
 Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
+- **Perplexity** (off by default) runs `posthog/perplexity/sonar` with the `web_search` tool through the AI gateway's `/responses` path, like the OpenAI engine. See [Perplexity engine](#perplexity-engine).
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation record is a Postgres table read through HogQL as `system.aeo_citation_checks`, so insights, the SQL editor, the query API, and MCP all read it while the runner stays the only writer. Events were the first design and were wrong for this: anyone holding a project's public capture token can submit them, which would let a stranger forge citation results and feed text to the alerting scout. The prompt set is a second small table (`posthog_aeo_prompt`). No new ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
@@ -14,12 +15,14 @@ Everything is built from existing machinery:
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                        |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines. |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                        |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
+| Variable                                   | Purpose                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
+| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -79,6 +82,14 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
   `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
+### Weekly dashboard
+
+`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`, off until the route is deployed) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
+Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
+Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
+This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.
+People get it weekly through a regular dashboard subscription, in Slack or email.
+
 ### Editing, versions and archiving
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.
@@ -95,6 +106,27 @@ A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000
 It takes one prompt per topic in turn, so a capped run still samples every topic.
 Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates, and a run cut short by a worker restart resumes on the next dispatch.
 
+## Perplexity engine
+
+`perplexity-web-search` sends each prompt to the AI gateway's `/responses` path, which routes it to Perplexity through the gateway's perplexity host.
+The request carries model `AEO_PERPLEXITY_MODEL` (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`), the `web_search` tool with `search_type: "fast"`, one research step, and instructions that ask for inline `[n]` citation markers.
+Like the other gateway engines, each call emits a `$ai_generation` event tagged with `aeo_prompt_id` and `aeo_run_id`.
+
+- **Off by default.** The engine runs only when the AI gateway is configured **and** `AEO_PERPLEXITY_ENABLED` is true. Legal sign-off is still pending: do not turn it on until legal confirms which Perplexity terms cover the `web_search` output that the runner stores and shows.
+- **Parsing.** The `search_results` output item gives the search queries and the retrieved results. The cited URLs come from `url_citation` annotations when the answer has them. Otherwise each inline `[n]` (or `[web:n]`) marker maps to the result whose `id` is `n`, in citation order. The markers are removed from the stored answer text. An answer without annotations or markers cites nothing.
+- **Failures.** A body that is not `completed`, carries an `error`, has no output list, or has no answer text is a failed check, never an uncited answer. So are HTTP errors after the gateway retries.
+- **Cost.** `cost_usd` is `usage.cost.total_cost` when the response carries it. The `$ai_generation` event joins on `gateway_trace_id` either way.
+
+### Measure cost before you enable it
+
+With the gateway configured and `AEO_PERPLEXITY_ENABLED` off, the management command runs Perplexity in dry-run mode.
+It makes real, billed calls, records nothing, and prints the total engine-reported cost.
+Without `--dry-run` it refuses Perplexity until `AEO_PERPLEXITY_ENABLED` is on.
+
+```bash
+python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --limit 50 --dry-run
+```
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -104,13 +136,13 @@ Within a topic, prompts never checked come first, then the least recently checke
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
 | `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `perplexity-web-search`.                                 |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Perplexity expose retrieved results; others don't).                   |
 | `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
 | `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| `cost_usd` / `gateway_trace_id`                                          | Exa or Perplexity cost, or the trace id joining to the gateway's `$ai_generation` event (token + web-search costs). |
 
 ## The join (the product thesis)
 
@@ -142,6 +174,18 @@ After each daily run, `sync_brands_from_run` in `catalog.py` adds every domain t
 A newly cited domain is only ever labeled `publisher` or `unknown`; a domain becomes `own` only when a person adds or relabels it.
 It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
 People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
+
+## Keywords
+
+`posthog_aeo_keyword` holds the project's keyword list, at most 200 keywords, stored lowercased with whitespace collapsed.
+Keywords belong to the project, not to a prompt. Each one is measured over the checks already stored, as a case-insensitive phrase match, in three places: the prompts, the engines' web searches and the answers.
+
+- `GET /api/projects/<id>/aeo_keywords/` lists the keywords, `POST` with `{"keywords": [...]}` adds many at once and reports `created` and `skipped` (blank entries and keywords already listed are skipped, and passing the cap fails with 400), and `DELETE <keyword_id>/` removes one.
+- `GET aeo_keywords/report/?days=7` (at most 30, in the project's timezone) returns one row per keyword over answered checks: the prompts that contain it with their mention and citation rates, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, the citation position and how early the brand is named.
+- `GET aeo_keywords/modifiers/?days=7&keyword=` returns the words and two-word phrases the engines added to their searches beyond the prompt, each counted once per answer, with a kind (freshness, pricing, comparison, docs, site, competitor or other), its citation rate against the baseline, the engines that used it and example searches. `keyword` restricts it to answers whose searches contain that keyword. The kinds come from a fixed word list in `keywords.py`, and competitor terms come from the brand catalog.
+- The MCP tools (`aeo-keywords-list`, `aeo-keywords-create`, `aeo-keywords-delete`, `aeo-keywords-report-get` and `aeo-keywords-modifiers-get`) ship disabled until the route is deployed.
+
+The AI visibility page has a Keywords tab with the list, the report and the modifiers.
 
 ## Content autopilot
 

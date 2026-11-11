@@ -20,8 +20,9 @@ from typing import assert_never
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SlackIntegration
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.slack.channels import post_message
 from posthog.slack.markdown import slack_markdown_block
@@ -71,16 +72,12 @@ class SlackCommandRequest:
 
 def _installation_id(owner: str, organization_ids: Collection[str]) -> str | None:
     """The PostHog GitHub App installation on the repository owner, in one of these organizations."""
-    # nosemgrep: github-installation-first-team -- only the installation id is read; the newest row wins over one left from an earlier install
-    integration = (
-        Integration.objects.filter(
-            kind="github", config__account__name__iexact=owner, team__organization_id__in=organization_ids
-        )
-        .order_by("-id")
-        .only("integration_id")
-        .first()
+    team_ids = list(Team.objects.filter(organization_id__in=organization_ids).values_list("id", flat=True))
+    # Only the installation id is read. The newest row wins over one left from an earlier install.
+    rows = IntegrationManager.github.oauth.list_across_teams(
+        CrossTeamFilter(team_ids=tuple(team_ids), where_iexact={"account.name": owner}, newest_first=True, limit=1)
     )
-    return integration.integration_id if integration is not None else None
+    return rows[0].integration_id if rows else None
 
 
 def _subject_ref(url: SubjectUrl, organization_ids: Collection[str]) -> SubjectRef | None:
