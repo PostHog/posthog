@@ -137,81 +137,6 @@ export interface CertificationCreateApi {
 }
 
 /**
- * * `proposed` - proposed
- * * `approved` - approved
- */
-export type DataCatalogMetricSearchRequestStatusEnumApi =
-    (typeof DataCatalogMetricSearchRequestStatusEnumApi)[keyof typeof DataCatalogMetricSearchRequestStatusEnumApi]
-
-export const DataCatalogMetricSearchRequestStatusEnumApi = {
-    Proposed: 'proposed',
-    Approved: 'approved',
-} as const
-
-/**
- * Body of a catalog search. Phrasings are alternatives for one need, not separate searches.
- */
-export interface DataCatalogMetricSearchRequestApi {
-    /**
-     * One to 5 phrasings of the measure you need, such as ['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. A metric that matches any phrasing is returned.
-     * @minItems 1
-     * @maxItems 5
-     * @items.maxLength 200
-     */
-    query: string[]
-    /** Only metrics with this review status. Omit to search both. Approved metrics rank above proposed ones with an equal match.
-     *
-     * * `proposed` - proposed
-     * * `approved` - approved */
-    status?: DataCatalogMetricSearchRequestStatusEnumApi
-    /**
-     * Most hits to return, at most 50.
-     * @minimum 1
-     * @maximum 50
-     */
-    limit?: number
-}
-
-/**
- * One ranked hit: the compact catalog entry plus why it matched.
- */
-export interface DataCatalogMetricSearchHitApi {
-    /** Run handle of the metric. */
-    name: string
-    /** Human-friendly label. */
-    display_name: string
-    /** What the number is. */
-    description: string
-    /** Lifecycle state: 'proposed' or 'approved'. */
-    status: string
-    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
-    readonly is_drifted: boolean
-    /** Unit of the result, e.g. usd, percent. */
-    unit: string
-    /**
-     * Query kind of the definition, or null.
-     * @nullable
-     */
-    definition_kind: string | null
-    /** Rank score. Compare it only with other hits in the same response. */
-    score: number
-    /** Why the metric matched, e.g. 'name match', 'acronym of the name', 'description match', 'similar meaning (0.42)'. */
-    match_reason: string
-}
-
-/**
- * Ranked hits and whether any of them is a confident match.
- */
-export interface DataCatalogMetricSearchResponseApi {
-    /** Hits, best first. */
-    results: DataCatalogMetricSearchHitApi[]
-    /** False when no hit matches the whole of any phrasing. The catalog then probably has no metric for this need: check the weak hits with metric-describe, or read the full catalog with metric-list before deriving the number yourself. */
-    confident_match: boolean
-    /** 'lexical' for word matching only, 'hybrid' when meaning-based matching also ran. */
-    search_mode: string
-}
-
-/**
  * * `user` - user
  * * `ai_generated` - ai_generated
  */
@@ -272,6 +197,11 @@ export interface DataCatalogMetricApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -368,6 +298,11 @@ export interface DataCatalogMetricCreateApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -488,6 +423,11 @@ export interface PatchedDataCatalogMetricApi {
     readonly status?: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted?: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason?: string | null
     /** @nullable */
     readonly approved_at?: string | null
     /** User who approved this metric as canonical, or null. */
@@ -818,7 +758,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * Words to match against the metric name, display name, description, and definition. Results come best match first. A metric matches when it contains any word, compared by stem. A quoted phrase must match all its words, and common words such as 'what' or 'our' are ignored. Partial words, synonyms, and acronyms do not match: 'rev' does not find 'revenue', and 'mrr' does not find 'monthly recurring revenue'.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

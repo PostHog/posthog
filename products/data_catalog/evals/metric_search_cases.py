@@ -6,7 +6,8 @@ types matter; none of their metric names or queries are here.
 
 Each case has one case type, and the eval reports recall per type, so a lane's gain shows where it
 comes from. The fixture metrics carry only the fields every real metric has: a name, a display name, a
-description and a unit.
+description and a unit. About 100 distractor metrics sit next to the 25 that cases expect, so a hit has to
+beat close neighbors to land in the returned results.
 
 A RELATED_WORD case shares no word stem with the name, display name or description of its expected
 metric, so only meaning can find it. ``test_metric_search.py`` checks this mechanically.
@@ -70,7 +71,8 @@ class SearchCase:
 APPROVED = "approved"
 PROPOSED = "proposed"
 
-FIXTURE_METRICS: tuple[FixtureMetric, ...] = (
+# The metrics the cases expect.
+TARGET_METRICS: tuple[FixtureMetric, ...] = (
     FixtureMetric(
         name="mrr",
         display_name="MRR",
@@ -250,6 +252,412 @@ FIXTURE_METRICS: tuple[FixtureMetric, ...] = (
 )
 
 
+def _distractor(name: str, display_name: str, description: str, unit: str, status: str = PROPOSED) -> FixtureMetric:
+    return FixtureMetric(name=name, display_name=display_name, description=description, unit=unit, status=status)
+
+
+# Look-alike and unrelated metrics, so a correct hit has to win against close neighbors. None of them is a
+# right answer to a case, and none holds a word of a real-gap query.
+DISTRACTOR_METRICS: tuple[FixtureMetric, ...] = (
+    # Revenue and billing.
+    _distractor(
+        "new_mrr", "New MRR", "MRR from customers whose first paid month is this month, in USD.", "usd", APPROVED
+    ),
+    _distractor(
+        "expansion_mrr",
+        "Expansion MRR",
+        "MRR added by existing customers who added seats or moved to a larger plan, per month.",
+        "usd",
+        APPROVED,
+    ),
+    _distractor(
+        "contraction_mrr",
+        "Contraction MRR",
+        "MRR lost when existing customers removed seats or moved to a smaller plan, per month.",
+        "usd",
+        APPROVED,
+    ),
+    _distractor("mrr_by_plan", "MRR by plan", "Month-end MRR split by pricing plan.", "usd"),
+    _distractor(
+        "mrr_growth_rate",
+        "MRR growth rate",
+        "Month-over-month change in month-end MRR, as a percent.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "gross_revenue_retention",
+        "Gross revenue retention",
+        "Revenue kept from the customers of a year ago, counting downgrades and cancellations but not expansion.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor("bookings", "Bookings", "Total contract value of the deals signed in the period, in USD.", "usd"),
+    _distractor("billings", "Billings", "Amount invoiced in the period, before any payment arrives, in USD.", "usd"),
+    _distractor("deferred_revenue", "Deferred revenue", "Invoiced amounts not yet earned at month end, in USD.", "usd"),
+    _distractor(
+        "one_time_revenue",
+        "One-time revenue",
+        "Revenue from setup fees and services that do not recur, per month.",
+        "usd",
+    ),
+    _distractor(
+        "average_contract_value",
+        "Average contract value",
+        "Mean first-year value of the annual contracts signed in the month.",
+        "usd",
+    ),
+    _distractor(
+        "customer_lifetime_value",
+        "LTV",
+        "Mean gross margin a paying organization brings before it cancels.",
+        "usd",
+        APPROVED,
+    ),
+    _distractor(
+        "ltv_to_cac_ratio",
+        "LTV to CAC ratio",
+        "Customer lifetime value divided by the cost of winning the customer.",
+        "ratio",
+    ),
+    _distractor(
+        "cac_payback_months",
+        "CAC payback",
+        "Months of gross margin needed to earn back what it cost to win a customer.",
+        "months",
+    ),
+    _distractor(
+        "gross_margin",
+        "Gross margin",
+        "Revenue minus hosting and support costs, as a percent of revenue.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor("hosting_cost", "Hosting cost", "Cloud infrastructure spend per month, in USD.", "usd"),
+    _distractor(
+        "discount_amount",
+        "Discounts given",
+        "Sum of the coupon and negotiated discounts applied to invoices, in USD.",
+        "usd",
+    ),
+    _distractor(
+        "failed_payments", "Failed payments", "Card charges that the payment provider declined, per week.", "count"
+    ),
+    _distractor(
+        "dunning_recovery_rate",
+        "Dunning recovery rate",
+        "Share of declined card charges collected within 14 days.",
+        "percent",
+    ),
+    _distractor(
+        "overdue_invoices", "Overdue invoices", "Invoices still unpaid 30 days after their due date.", "count", APPROVED
+    ),
+    _distractor("average_revenue_per_user", "ARPU", "MRR divided by the number of paying users.", "usd", APPROVED),
+    _distractor("annual_plan_share", "Annual plan share", "Share of paying organizations on a yearly plan.", "percent"),
+    _distractor(
+        "trial_to_paid_conversion",
+        "Trial to paid conversion",
+        "Share of trials that move to a paid plan before the trial ends.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "quote_to_close_rate",
+        "Quote to close rate",
+        "Share of sales quotes that become signed contracts within 90 days.",
+        "percent",
+    ),
+    _distractor(
+        "pipeline_value",
+        "Sales pipeline value",
+        "Total value of the open sales opportunities at the end of the week, in USD.",
+        "usd",
+    ),
+    _distractor(
+        "sales_cycle_length",
+        "Sales cycle length",
+        "Median days from the first sales call to a signed contract.",
+        "days",
+    ),
+    _distractor(
+        "marketing_spend", "Marketing spend", "Paid ads, sponsorships and events spend per month, in USD.", "usd"
+    ),
+    _distractor(
+        "cost_per_lead", "Cost per lead", "Marketing spend divided by the leads it brought in, per month.", "usd"
+    ),
+    _distractor(
+        "tax_collected", "Sales tax collected", "Sales tax and VAT charged on invoices in the period, in USD.", "usd"
+    ),
+    _distractor(
+        "credits_granted",
+        "Credits granted",
+        "Account credits given to customers as goodwill or promotions, in USD.",
+        "usd",
+    ),
+    # Users and engagement.
+    _distractor(
+        "weekly_active_users_mobile",
+        "Weekly active users (mobile)",
+        "Distinct people active in the mobile app in the last 7 days.",
+        "count",
+        APPROVED,
+    ),
+    _distractor(
+        "daily_active_organizations",
+        "Daily active organizations",
+        "Distinct customer organizations with an active member on the day.",
+        "count",
+    ),
+    _distractor(
+        "monthly_active_organizations",
+        "Monthly active organizations",
+        "Distinct customer organizations with an active member in the last 30 days.",
+        "count",
+        APPROVED,
+    ),
+    _distractor(
+        "dau_mau_ratio",
+        "DAU/MAU ratio",
+        "Daily active users divided by monthly active users, as a percent.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "weekly_api_usage", "Weekly API usage", "Calls made to the public API in the last 7 days.", "count", APPROVED
+    ),
+    _distractor("power_users", "Power users", "People active on at least 4 of the last 7 days.", "count"),
+    _distractor("session_count", "Sessions", "Sessions started across web and mobile, per day.", "count"),
+    _distractor(
+        "average_session_duration", "Average session duration", "Mean length of a session, in minutes.", "minutes"
+    ),
+    _distractor("pageviews", "Pageviews", "Page loads on the marketing site and the app, per day.", "count"),
+    _distractor("seats_used", "Seats used", "Paid seats assigned to a person, across all organizations.", "count"),
+    _distractor("invites_sent", "Invites sent", "Team invitations sent by existing users, per week.", "count"),
+    _distractor(
+        "invite_acceptance_rate", "Invite acceptance rate", "Share of invitations accepted within 7 days.", "percent"
+    ),
+    _distractor(
+        "activation_rate",
+        "Activation rate",
+        "Share of new signups who finish the setup checklist within 7 days.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "time_to_activation",
+        "Time to activation",
+        "Median hours from signup to finishing the setup checklist.",
+        "hours",
+    ),
+    _distractor(
+        "onboarding_completion_rate",
+        "Onboarding completion rate",
+        "Share of new organizations that finish every onboarding step.",
+        "percent",
+    ),
+    _distractor(
+        "d7_retention_rate",
+        "Day 7 retention",
+        "Share of a signup cohort active again 7 days after signup.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "d90_retention_rate",
+        "Day 90 retention",
+        "Share of a signup cohort active again 90 days after signup.",
+        "percent",
+    ),
+    _distractor(
+        "resurrected_users", "Resurrected users", "People active this week after at least 4 inactive weeks.", "count"
+    ),
+    _distractor(
+        "dormant_organizations",
+        "Dormant organizations",
+        "Paying organizations with no active member for 30 days.",
+        "count",
+    ),
+    _distractor(
+        "customer_activation_count",
+        "Customer activation count",
+        "Organizations that reached their first key action this week.",
+        "count",
+        APPROVED,
+    ),
+    _distractor("dashboard_views", "Dashboard views", "Times a dashboard was opened, per day.", "count"),
+    _distractor("reports_created", "Reports created", "Saved reports created by users, per week.", "count"),
+    _distractor(
+        "mobile_app_installs",
+        "Mobile app installs",
+        "First launches of the mobile app on a new device, per day.",
+        "count",
+    ),
+    _distractor(
+        "email_open_rate", "Email open rate", "Share of product emails opened within 3 days of sending.", "percent"
+    ),
+    _distractor(
+        "push_opt_in_rate", "Push opt-in rate", "Share of mobile users who allow push notifications.", "percent"
+    ),
+    _distractor(
+        "feature_requests", "Feature requests", "Ideas submitted on the public roadmap board, per month.", "count"
+    ),
+    _distractor(
+        "referral_signups",
+        "Referral signups",
+        "New accounts that came from a customer referral link, per week.",
+        "count",
+    ),
+    _distractor("waitlist_size", "Waitlist size", "People on the waitlist for features in private beta.", "count"),
+    _distractor(
+        "country_count",
+        "Countries with users",
+        "Distinct countries with at least one active user in the last 30 days.",
+        "count",
+    ),
+    _distractor(
+        "average_seats_per_organization",
+        "Average seats per organization",
+        "Paid seats divided by paying organizations.",
+        "count",
+    ),
+    # Support and success.
+    _distractor(
+        "support_tickets_closed",
+        "Support tickets closed",
+        "Support tickets marked solved per week, across email and chat.",
+        "count",
+        APPROVED,
+    ),
+    _distractor(
+        "median_time_to_resolution",
+        "Median time to resolution",
+        "Median hours from a ticket being opened to it being solved.",
+        "hours",
+        APPROVED,
+    ),
+    _distractor(
+        "csat_score",
+        "CSAT",
+        "Share of support conversations rated good or great in the follow-up survey.",
+        "percent",
+        APPROVED,
+    ),
+    _distractor(
+        "ticket_backlog", "Ticket backlog", "Open support tickets older than 2 days at the end of the day.", "count"
+    ),
+    _distractor("escalation_rate", "Escalation rate", "Share of support tickets passed to engineering.", "percent"),
+    _distractor("chat_volume", "Chat volume", "Live chat conversations started per day.", "count"),
+    _distractor("help_article_views", "Help article views", "Views of help center articles, per day.", "count"),
+    _distractor(
+        "onboarding_calls_booked",
+        "Onboarding calls booked",
+        "Calls booked with the customer success team, per week.",
+        "count",
+    ),
+    _distractor(
+        "health_score",
+        "Account health score",
+        "Weighted mix of usage, support load and payment status per paying organization.",
+        "score",
+    ),
+    _distractor("renewal_rate", "Renewal rate", "Share of annual contracts that renew at their end date.", "percent"),
+    # Engineering and infrastructure.
+    _distractor("deploy_frequency", "Deploy frequency", "Production deploys per day.", "count"),
+    _distractor(
+        "change_failure_rate", "Change failure rate", "Share of deploys that need a rollback or a hotfix.", "percent"
+    ),
+    _distractor(
+        "mean_time_to_recovery", "MTTR", "Mean minutes from an alert firing to the service working again.", "minutes"
+    ),
+    _distractor(
+        "uptime", "Uptime", "Share of minutes in the month when the app answered health checks.", "percent", APPROVED
+    ),
+    _distractor(
+        "page_load_time_p75",
+        "Page load time p75",
+        "75th percentile time for an app page to finish loading, in milliseconds.",
+        "ms",
+    ),
+    _distractor(
+        "javascript_exceptions", "Browser exceptions", "Uncaught browser exceptions per 1,000 pageviews.", "ratio"
+    ),
+    _distractor(
+        "query_duration_p95",
+        "Insight query duration p95",
+        "95th percentile time to compute a saved insight, in seconds.",
+        "seconds",
+    ),
+    _distractor(
+        "events_ingested", "Events ingested", "Analytics events written to storage per day.", "count", APPROVED
+    ),
+    _distractor(
+        "ingestion_lag_seconds",
+        "Ingestion lag",
+        "Seconds between an event arriving and it being queryable, at the 95th percentile.",
+        "seconds",
+    ),
+    _distractor(
+        "queue_depth", "Queue depth", "Jobs waiting in the background job queue at the top of the hour.", "count"
+    ),
+    _distractor(
+        "cpu_utilization", "CPU utilization", "Mean CPU use across the application servers, as a percent.", "percent"
+    ),
+    _distractor("bandwidth_egress_gb", "Bandwidth out", "Data served from the CDN per day, in gigabytes.", "gb"),
+    _distractor("build_duration", "Build duration", "Median minutes for the main branch build to finish.", "minutes"),
+    _distractor("open_pull_requests", "Open pull requests", "Pull requests open at the end of the day.", "count"),
+    _distractor(
+        "security_vulnerabilities_open",
+        "Open vulnerabilities",
+        "Known security vulnerabilities not yet fixed.",
+        "count",
+    ),
+    _distractor(
+        "webhook_delivery_success_rate",
+        "Webhook delivery success rate",
+        "Share of outgoing webhooks that the receiver accepted on the first try.",
+        "percent",
+    ),
+    _distractor("email_bounce_rate", "Email bounce rate", "Share of sent emails that bounced.", "percent"),
+    _distractor("cache_hit_rate", "Cache hit rate", "Share of query results served from the cache.", "percent"),
+    _distractor(
+        "rate_limited_requests",
+        "Rate-limited requests",
+        "Public API requests rejected for going over the rate limit, per day.",
+        "count",
+    ),
+    _distractor(
+        "sdk_versions_outdated",
+        "Outdated SDK share",
+        "Share of events sent by an SDK more than two major versions old.",
+        "percent",
+    ),
+    # Teams, content and other.
+    _distractor("blog_visitors", "Blog visitors", "Distinct visitors to the company blog, per week.", "count"),
+    _distractor(
+        "newsletter_subscribers", "Newsletter subscribers", "People subscribed to the product newsletter.", "count"
+    ),
+    _distractor("community_posts", "Community posts", "Posts in the community forum, per week.", "count"),
+    _distractor(
+        "docs_search_queries", "Docs search queries", "Searches run on the documentation site, per day.", "count"
+    ),
+    _distractor(
+        "partner_referrals", "Partner referrals", "Leads sent by agency and reseller partners, per month.", "count"
+    ),
+    _distractor(
+        "event_attendance", "Event attendance", "People who attended a hosted webinar or meetup, per month.", "count"
+    ),
+    _distractor("hiring_pipeline", "Candidates in pipeline", "Job candidates in an active interview stage.", "count"),
+    _distractor("office_cost", "Office cost", "Rent and facilities spend per month, in USD.", "usd"),
+    _distractor(
+        "carbon_footprint", "Carbon footprint", "Estimated tonnes of CO2 from cloud hosting per month.", "tonnes"
+    ),
+    # Created with a name and description only, as many metrics are.
+    _distractor("legacy_revenue_v1", "", "Old revenue total kept for comparison with past board reports.", "usd"),
+)
+
+FIXTURE_METRICS: tuple[FixtureMetric, ...] = (*TARGET_METRICS, *DISTRACTOR_METRICS)
+
+
 def _case(
     name: str,
     case_type: CaseType,
@@ -417,6 +825,10 @@ SEARCH_CASES: tuple[SearchCase, ...] = (
     _case("gap_flaky_tests", CaseType.REAL_GAP, "flaky tests"),
     _case("gap_employee_headcount", CaseType.REAL_GAP, "employee headcount"),
     _case("gap_warehouse_sync_failures", CaseType.REAL_GAP, "warehouse sync failures"),
+    # No word survives normalization, so a metric with no display name must not match as a name.
+    _case("gap_punctuation_only", CaseType.REAL_GAP, "???"),
+    # A leading "-" is a search operator that would match every metric without the word.
+    _case("gap_operator_only", CaseType.REAL_GAP, "-sandbox"),
     # Several phrasings of one need.
     _case("phrasings_mrr", CaseType.SEVERAL_PHRASINGS, "mrr", "monthly revenue", expected=("mrr",)),
     _case("phrasings_churn", CaseType.SEVERAL_PHRASINGS, "churn", "customers lost", expected=("logo_churn_rate",)),

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -63,49 +63,6 @@ export const DataCatalogCertificationsDeprecateCreateParams = () => zod.object({
 })
 
 /**
- * Rank the catalog's metrics against one or more phrasings of a measure. Matches names, display names, descriptions, and definition strings.
- */
-export const DataCatalogMetricSearchCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const dataCatalogMetricSearchCreateBodyQueryItemMax = 200
-
-export const dataCatalogMetricSearchCreateBodyQueryMax = 5
-
-export const dataCatalogMetricSearchCreateBodyLimitDefault = 10
-export const dataCatalogMetricSearchCreateBodyLimitMax = 50
-
-export const DataCatalogMetricSearchCreateBody = () => zod
-    .object({
-        query: zod
-            .array(zod.string().max(dataCatalogMetricSearchCreateBodyQueryItemMax))
-            .min(1)
-            .max(dataCatalogMetricSearchCreateBodyQueryMax)
-            .describe(
-                "One to 5 phrasings of the measure you need, such as ['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. A metric that matches any phrasing is returned."
-            ),
-        status: zod
-            .enum(['proposed', 'approved'])
-            .describe('\* `proposed` - proposed\n\* `approved` - approved')
-            .optional()
-            .describe(
-                'Only metrics with this review status. Omit to search both. Approved metrics rank above proposed ones with an equal match.\n\n\* `proposed` - proposed\n\* `approved` - approved'
-            ),
-        limit: zod
-            .number()
-            .min(1)
-            .max(dataCatalogMetricSearchCreateBodyLimitMax)
-            .default(dataCatalogMetricSearchCreateBodyLimitDefault)
-            .describe('Most hits to return, at most 50.'),
-    })
-    .describe('Body of a catalog search. Phrasings are alternatives for one need, not separate searches.')
-
-/**
  * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const DataCatalogMetricsListParams = () => zod.object({
@@ -124,7 +81,7 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Words to match against the metric name, display name, description, and definition. Results come best match first. A metric matches when it contains any word, compared by stem. A quoted phrase must match all its words, and common words such as 'what' or 'our' are ignored. Partial words, synonyms, and acronyms do not match: 'rev' does not find 'revenue', and 'mrr' does not find 'monthly recurring revenue'."
+            "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them."
         ),
     status: zod.string().optional().describe('Only metrics with this review status.'),
 })

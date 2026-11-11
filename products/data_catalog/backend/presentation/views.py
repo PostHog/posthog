@@ -19,8 +19,10 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.filters import SearchFilter
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
@@ -49,8 +51,6 @@ from .serializers import (
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
-    MetricSearchRequestSerializer,
-    MetricSearchResponseSerializer,
     MetricSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
@@ -95,11 +95,11 @@ class CatalogSearchFilter(SearchFilter):
 
 class MetricSearchFilter(CatalogSearchFilter):
     search_description = (
-        "Words to match against the metric name, display name, description, and definition. Results come "
-        "best match first. A metric matches when it contains any word, compared by stem. A quoted phrase "
-        "must match all its words, and common words such as 'what' or 'our' are ignored. Partial words, "
-        "synonyms, and acronyms do not match: 'rev' does not find 'revenue', and 'mrr' does not find "
-        "'monthly recurring revenue'."
+        "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely "
+        "metric name, and the spelled-out form of an acronym, separated by commas, such as "
+        "'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason "
+        "says why each one matched. Words match by stem in the name, display name, description, and "
+        "definition. Synonyms do not match unless the metric's text contains them."
     )
 
     def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
@@ -177,6 +177,9 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        search = request.query_params.get(api_settings.SEARCH_PARAM, "").strip()
+        if search:
+            return self._ranked_search_list(request, search)
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
         # into a per-metric insight lookup (an N+1 over the catalog list).
         queryset = self.filter_queryset(self.get_queryset())
@@ -184,6 +187,34 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         metrics = page if page is not None else list(queryset)
         context = {**self.get_serializer_context(), "drift_map": api.compute_drift(metrics)}
         serializer = self.get_serializer(metrics, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def _ranked_search_list(self, request: Request, search: str) -> Response:
+        result = api.search_catalog(
+            team=self.team,
+            user=cast(User, request.user),
+            user_access_control=self.user_access_control,
+            search=search,
+            status=request.query_params.get("status"),
+            definition_kind=request.query_params.get("definition_kind"),
+            analytics_props=get_request_analytics_properties(request),
+        )
+        if (
+            isinstance(self.paginator, LimitOffsetPagination)
+            and self.paginator.limit_query_param not in request.query_params
+        ):
+            self.paginator.default_limit = api.SEARCH_DEFAULT_LIMIT
+        metrics = [hit.metric for hit in result.hits]
+        page = self.paginate_queryset(metrics)
+        shown = page if page is not None else metrics
+        context = {
+            **self.get_serializer_context(),
+            "drift_map": api.compute_drift(shown),
+            "match_reasons": {hit.metric.id: hit.match_reason for hit in result.hits},
+        }
+        serializer = self.get_serializer(shown, many=True, context=context)
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
@@ -397,42 +428,6 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=request,
         )
         return Response(envelope)
-
-
-class MetricSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Ranked catalog search. On its own route, so no metric name can shadow it under /metrics/."""
-
-    scope_object = "data_catalog"
-    queryset = Metric.objects.unscoped()
-
-    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
-        # A search reads the catalog, although it is a POST with a body.
-        return ["data_catalog:read"]
-
-    @extend_schema(
-        description="Rank the catalog's metrics against one or more phrasings of a measure. Matches names, "
-        "display names, descriptions, and definition strings.",
-        request=MetricSearchRequestSerializer,
-        responses={200: MetricSearchResponseSerializer},
-    )
-    @validated_request(request_serializer=MetricSearchRequestSerializer)
-    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        user = cast(User, request.user)
-        result = api.search_catalog(
-            self.team,
-            api.metrics_visible_to_user(self.team, user, self.user_access_control),
-            request.validated_data["query"],
-            user=user,
-            status=request.validated_data.get("status"),
-            limit=request.validated_data["limit"],
-            request=request,
-        )
-        drift_map = api.compute_drift([hit.metric for hit in result.hits])
-        payload = MetricSearchResponseSerializer(
-            {"results": result.hits, "confident_match": result.confident_match, "search_mode": result.search_mode},
-            context={"drift_map": drift_map},
-        )
-        return Response(payload.data)
 
 
 class CertificationSearchFilter(CatalogSearchFilter):

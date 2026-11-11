@@ -22,8 +22,6 @@ import type {
     DataCatalogMetricCreateApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
-    DataCatalogMetricSearchRequestApi,
-    DataCatalogMetricSearchResponseApi,
     DataCatalogMetricsListParams,
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
@@ -177,26 +175,6 @@ export const dataCatalogCertificationsDeprecateCreate = async (
     return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsDeprecateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getDataCatalogMetricSearchCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_catalog/metric_search/`
-}
-
-/**
- * Rank the catalog's metrics against one or more phrasings of a measure. Matches names, display names, descriptions, and definition strings.
- */
-export const dataCatalogMetricSearchCreate = async (
-    projectId: string,
-    dataCatalogMetricSearchRequestApi: DataCatalogMetricSearchRequestApi,
-    options?: RequestInit
-): Promise<DataCatalogMetricSearchResponseApi> => {
-    return apiMutator<DataCatalogMetricSearchResponseApi>(getDataCatalogMetricSearchCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogMetricSearchRequestApi),
     })
 }
 

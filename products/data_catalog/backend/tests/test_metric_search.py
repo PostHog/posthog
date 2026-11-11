@@ -5,9 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.data_catalog.backend.logic.metric_search import search_metrics
 from products.data_catalog.backend.models import Metric
@@ -72,38 +70,41 @@ class TestScoreCase(SimpleTestCase):
         }
 
 
-class TestMetricSearchAPI(APIBaseTest):
+class TestMetricListSearch(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/data_catalog/metric_search/"
+        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/"
 
-    def test_metric_created_through_the_api_is_searchable(self) -> None:
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/data_catalog/metrics/",
-            {"name": "mrr", "description": "Monthly recurring revenue from paid subscriptions."},
-            format="json",
-        )
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
+    def test_search_ranks_metrics_and_says_why_each_one_matched(self) -> None:
+        for name, description in [
+            ("mrr", "Monthly recurring revenue from paid subscriptions."),
+            ("arr", "Annual recurring revenue."),
+            ("nps_score", "Net promoter score from the in-app survey."),
+        ]:
+            created = self.client.post(self.url, {"name": name, "description": description}, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
 
-        response = self.client.post(self.url, {"query": ["subscription revenue", "sandbox"]}, format="json")
+        searched = self.client.get(self.url, {"search": "arr, subscription revenue"})
+        plain = self.client.get(self.url)
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        body = response.json()
-        assert [hit["name"] for hit in body["results"]] == ["mrr"]
-        assert body["results"][0]["match_reason"] == "description match"
-        assert body["results"][0]["is_drifted"] is False
-        assert body["confident_match"] is True
-        assert body["search_mode"] == "lexical"
-
-    @parameterized.expand(
-        [
-            ("read_scope", ["data_catalog:read"], status.HTTP_200_OK),
-            ("other_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        assert searched.status_code == status.HTTP_200_OK, searched.json()
+        results = searched.json()["results"]
+        assert [(row["name"], row["match_reason"]) for row in results] == [
+            ("arr", "name match"),
+            ("mrr", "all words in the description"),
         ]
-    )
-    def test_search_needs_only_the_read_scope(self, _name: str, scopes: list[str], expected: int) -> None:
-        raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
-        self.client.logout()
-        response = self.client.post(self.url, {"query": ["mrr"]}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}")
-        assert response.status_code == expected, response.json()
+        assert results[0]["is_drifted"] is False
+        assert {row["match_reason"] for row in plain.json()["results"]} == {None}
+
+    def test_search_returns_a_short_page_unless_a_limit_is_sent(self) -> None:
+        with team_scope(self.team.id):
+            for index in range(12):
+                Metric.objects.for_team(self.team.id).create(
+                    team=self.team, name=f"revenue_{index}", description="Revenue from one region."
+                )
+
+        default = self.client.get(self.url, {"search": "revenue"}).json()
+        larger = self.client.get(self.url, {"search": "revenue", "limit": "20"}).json()
+
+        assert (len(default["results"]), default["next"] is not None) == (10, True)
+        assert len(larger["results"]) == 12

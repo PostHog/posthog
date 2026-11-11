@@ -1,4 +1,4 @@
-"""Ranked catalog search over a team's metrics.
+"""Ranked catalog search over a team's metrics, behind the ``search`` parameter of the metric list.
 
 Postgres full-text search over weighted metric fields, exact and acronym matches on names, and a
 trigram fallback for typos. Every hit carries the reason it matched, and the result says whether any
@@ -29,15 +29,16 @@ from posthog.models import Team, User
 
 from ..facade.enums import MetricStatus
 from ..models import Metric
-from .analytics import capture_metric_search_event
+from .analytics import AnalyticsProps, capture_metric_search_event
+from .metrics import metrics_visible_to_user
 
 if TYPE_CHECKING:
-    from rest_framework.request import Request
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_SEARCH_PHRASINGS = 5
 MAX_SEARCH_PHRASING_LENGTH = 200
+# A search answers with a short ranked page unless the caller asks for more.
 SEARCH_DEFAULT_LIMIT = 10
-SEARCH_MAX_LIMIT = 50
 
 # A hit scores 1 / (RRF_K + its rank), the scale of reciprocal rank fusion.
 RRF_K = 60
@@ -95,6 +96,11 @@ def normalize_phrasings(queries: Sequence[str]) -> list[str]:
     return list(seen)[:MAX_SEARCH_PHRASINGS]
 
 
+def split_search(search: str) -> list[str]:
+    """Phrasings in a metric list ``search``: commas separate alternative phrasings of one need."""
+    return normalize_phrasings(search.split(","))
+
+
 def _words(text: str) -> list[str]:
     return _WORD_RE.findall(text.lower())
 
@@ -132,6 +138,8 @@ def _definition_vector() -> Func:
 def _exact_matches(candidates: list[tuple[UUID, str, str]], phrasing: str) -> dict[UUID, _LexicalMatch]:
     """Name and acronym matches, decided in Python over the team's candidate names."""
     squashed = _squash(phrasing)
+    if not squashed:
+        return {}
     compact = squashed.replace(" ", "")
     matches: dict[UUID, _LexicalMatch] = {}
     for metric_id, name, display_name in candidates:
@@ -149,7 +157,8 @@ def _full_text_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID
     words = _words(phrasing)
     if not words:
         return {}
-    all_words = SearchQuery(phrasing, search_type="websearch", config="english")
+    # A plain query ANDs the words, so operators a person typed, such as a leading "-", never exclude one.
+    all_words = SearchQuery(" ".join(words), search_type="plain", config="english")
     any_word = reduce(or_, [SearchQuery(word, search_type="plain", config="english") for word in words])
 
     name_vector = SearchVector("name", "display_name", weight="A", config="english")
@@ -181,14 +190,10 @@ def _full_text_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID
 
     matches: dict[UUID, _LexicalMatch] = {}
     for row in rows:
-        if row["_hit_name"]:
-            reason = "name match"
-        elif row["_hit_description"]:
-            reason = "description match"
-        else:
-            reason = "definition match"
+        place = "name" if row["_hit_name"] else "description" if row["_hit_description"] else "definition"
         # A match only inside the query definition (a table or column name) never counts as all words.
         tier = MatchTier.ALL_WORDS if row["_all_text"] else MatchTier.SOME_WORDS
+        reason = f"all words in the {place}" if tier == MatchTier.ALL_WORDS else f"some words in the {place}"
         matches[row["id"]] = _LexicalMatch(tier=tier, rank=float(row["_rank"]), reason=reason)
     return matches
 
@@ -237,62 +242,74 @@ def search_metrics(
     queries: Sequence[str],
     *,
     status: str | None = None,
-    limit: int = SEARCH_DEFAULT_LIMIT,
+    limit: int | None = SEARCH_DEFAULT_LIMIT,
 ) -> MetricSearchResult:
     """Rank ``candidates`` against one or more phrasings of the same need.
 
-    ``candidates`` must already be the metrics the caller may see.
+    ``candidates`` must already be the metrics the caller may see. ``limit=None`` returns every hit.
     """
     phrasings = normalize_phrasings(queries)
-    limit = max(1, min(limit, SEARCH_MAX_LIMIT))
     if status:
         candidates = candidates.filter(status=status)
     if not phrasings:
         return MetricSearchResult(hits=[], confident_match=False, search_mode="lexical")
 
     lexical = _lexical_lane(candidates, phrasings)
-    metrics = {metric.id: metric for metric in candidates.filter(id__in=set(lexical)).select_related("owner")}
-    approved = {metric_id for metric_id, metric in metrics.items() if metric.status == MetricStatus.APPROVED}
-
-    def lexical_order(metric_id: UUID) -> tuple[int, bool, float, str]:
-        match = lexical[metric_id]
-        return (-match.tier, metric_id not in approved, -match.rank, metrics[metric_id].name)
-
-    ranked = sorted((metric_id for metric_id in lexical if metric_id in metrics), key=lexical_order)
+    # Rank on light rows, then load full metrics only for the hits that are returned.
+    rows = {
+        metric_id: (name, status)
+        for metric_id, name, status in candidates.filter(id__in=set(lexical)).values_list("id", "name", "status")
+    }
+    ranked = sorted(
+        rows,
+        key=lambda metric_id: (
+            -lexical[metric_id].tier,
+            rows[metric_id][1] != MetricStatus.APPROVED,
+            -lexical[metric_id].rank,
+            rows[metric_id][0],
+        ),
+    )[:limit]
+    metrics = {metric.id: metric for metric in candidates.filter(id__in=ranked).select_related("created_by", "owner")}
     hits = [
         MetricSearchHit(
             metric=metrics[metric_id],
             score=round(1.0 / (RRF_K + position), 6),
             match_reason=lexical[metric_id].reason,
         )
-        for position, metric_id in enumerate(ranked[:limit], start=1)
+        for position, metric_id in enumerate(ranked, start=1)
+        if metric_id in metrics
     ]
     confident = any(match.tier >= CONFIDENT_TIER for match in lexical.values())
     return MetricSearchResult(hits=hits, confident_match=confident, search_mode="lexical")
 
 
 def search_catalog(
-    team: Team,
-    candidates: QuerySet[Metric],
-    queries: Sequence[str],
     *,
-    user: User | None,
+    team: Team,
+    user: User,
+    user_access_control: "UserAccessControl",
+    search: str,
     status: str | None = None,
-    limit: int = SEARCH_DEFAULT_LIMIT,
-    request: "Request | None" = None,
+    definition_kind: str | None = None,
+    limit: int | None = None,
+    analytics_props: AnalyticsProps | None = None,
 ) -> MetricSearchResult:
-    """Search the metrics the caller may see, and record the search without its text."""
-    result = search_metrics(candidates, queries, status=status, limit=limit)
+    """Search the metrics the user may see, and record the search without its text."""
+    candidates = metrics_visible_to_user(team, user, user_access_control)
+    if definition_kind:
+        candidates = candidates.filter(definition__kind=definition_kind)
+    phrasings = split_search(search)
+    result = search_metrics(candidates, phrasings, status=status, limit=limit)
     top = result.hits[0] if result.hits else None
     capture_metric_search_event(
         team=team,
         user=user,
-        phrasing_count=len(normalize_phrasings(queries)),
+        phrasing_count=len(phrasings),
         result_count=len(result.hits),
         confident_match=result.confident_match,
         search_mode=result.search_mode,
         top_metric_name=top.metric.name if top else None,
         top_match_reason=top.match_reason if top else None,
-        request=request,
+        analytics_props=analytics_props,
     )
     return result

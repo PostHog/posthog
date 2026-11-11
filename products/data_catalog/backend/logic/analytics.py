@@ -88,7 +88,7 @@ def capture_metric_search_event(
     search_mode: str,
     top_metric_name: Optional[str],
     top_match_reason: Optional[str],
-    request: "Request | None" = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> None:
     # The query text stays out: it can hold whatever a person typed.
     _report(
@@ -103,7 +103,8 @@ def capture_metric_search_event(
         },
         team=team,
         user=user,
-        request=request,
+        request=None,
+        analytics_props=analytics_props,
     )
 
 

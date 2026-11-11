@@ -69,10 +69,8 @@ async def _run_variant(ctx: EvalContext, variant: SearchVariant, suite_key: str)
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict[str, Any]:
         search_case: SearchCase = _CASES_BY_NAME[case.name]
-        try:
-            output = await asyncio.to_thread(run_case, await team_id(), search_case, variant)
-        except Exception as error:
-            return {"case_type": search_case.case_type.value, "ranked": [], "error": f"{type(error).__name__}: {error}"}
+        # A seeding or query error propagates, so the harness counts it as an infra error, not a 0 score.
+        output = await asyncio.to_thread(run_case, await team_id(), search_case, variant)
         output["scores"] = score_case(search_case, output["ranked"], output["confident_match"])
         output["last_message"] = ", ".join(output["ranked"]) or "no hits"
         return output

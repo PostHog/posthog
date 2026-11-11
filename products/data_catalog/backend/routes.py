@@ -2,7 +2,6 @@ from posthog.api.routing import RouterRegistry
 
 from products.data_catalog.backend.presentation.views import (
     CertificationViewSet,
-    MetricSearchViewSet,
     MetricViewSet,
     RelationshipProposalViewSet,
 )
@@ -10,12 +9,6 @@ from products.data_catalog.backend.presentation.views import (
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"data_catalog/metrics", MetricViewSet, "environment_data_catalog_metrics", ["team_id"])
-    routers.projects.register(
-        r"data_catalog/metric_search",
-        MetricSearchViewSet,
-        "environment_data_catalog_metric_search",
-        ["team_id"],
-    )
     routers.projects.register(
         r"data_catalog/certifications",
         CertificationViewSet,

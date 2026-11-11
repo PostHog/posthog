@@ -32,41 +32,6 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
 /**
- * Rank the catalog's metrics against one or more phrasings of a measure. Matches names, display names, descriptions, and definition strings.
- */
-export const dataCatalogMetricSearchCreateBodyQueryItemMax = 200
-
-export const dataCatalogMetricSearchCreateBodyQueryMax = 5
-
-export const dataCatalogMetricSearchCreateBodyLimitDefault = 10
-export const dataCatalogMetricSearchCreateBodyLimitMax = 50
-
-export const DataCatalogMetricSearchCreateBody = /* @__PURE__ */ zod
-    .object({
-        query: zod
-            .array(zod.string().max(dataCatalogMetricSearchCreateBodyQueryItemMax))
-            .min(1)
-            .max(dataCatalogMetricSearchCreateBodyQueryMax)
-            .describe(
-                "One to 5 phrasings of the measure you need, such as ['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. A metric that matches any phrasing is returned."
-            ),
-        status: zod
-            .enum(['proposed', 'approved'])
-            .describe('\* `proposed` - proposed\n\* `approved` - approved')
-            .optional()
-            .describe(
-                'Only metrics with this review status. Omit to search both. Approved metrics rank above proposed ones with an equal match.\n\n\* `proposed` - proposed\n\* `approved` - approved'
-            ),
-        limit: zod
-            .number()
-            .min(1)
-            .max(dataCatalogMetricSearchCreateBodyLimitMax)
-            .default(dataCatalogMetricSearchCreateBodyLimitDefault)
-            .describe('Most hits to return, at most 50.'),
-    })
-    .describe('Body of a catalog search. Phrasings are alternatives for one need, not separate searches.')
-
-/**
  * Create a metric. When a live metric already holds the name, returns 409 unless overwrite is true, in which case the existing metric is refined with the fields sent.
  */
 export const dataCatalogMetricsCreateBodyNameMax = 128
