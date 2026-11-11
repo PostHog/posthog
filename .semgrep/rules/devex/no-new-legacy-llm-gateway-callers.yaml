@@ -1,0 +1,104 @@
+rules:
+    - id: no-new-legacy-llm-gateway-callers-python
+      message: |
+          This reaches the legacy Python LLM gateway (`services/llm-gateway`), which is being shut down.
+          A call that still depends on it will fail once the gateway is gone.
+
+          Build the client with `build_openai_client`, `build_async_openai_client`,
+          `build_anthropic_client` or `build_async_anthropic_client` from `posthog/llm/gateway_client.py`.
+          They use the Go ai-gateway (`AI_GATEWAY_URL`). Follow `/migrating-llm-gateway-callers`.
+
+          The excluded files are the legacy references that remain: the gateway client module, the
+          explicit Go-unset fallbacks, sandbox wiring and callers with an open migration. Remove a file
+          from the list once it no longer references the legacy gateway. Do not add one.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          - pattern: posthog.llm.gateway_client.get_llm_client
+          - pattern: posthog.llm.gateway_client.get_async_llm_client
+          - pattern: posthog.llm.gateway_client.get_anthropic_gateway_client
+          - pattern: posthog.llm.gateway_client.get_async_anthropic_gateway_client
+          - pattern: settings.LLM_GATEWAY_URL
+          - pattern: settings.LLM_GATEWAY_API_KEY
+          - pattern: settings.SANDBOX_LLM_GATEWAY_URL
+          - pattern: getattr(settings, "=~/^(SANDBOX_)?LLM_GATEWAY_(URL|API_KEY)$/", ...)
+          - pattern: |
+                "=~/^(SANDBOX_)?LLM_GATEWAY_(URL|API_KEY|PERSONAL_API_KEY)$/"
+          - pattern: |
+                "=~/(^|[^-a-z0-9])(gateway\.(us|eu|dev)\.posthog\.(com|dev)|llm-gateway\.llm-gateway\.svc)/"
+      paths:
+          include:
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+              - /services/**/*.py
+              - /tools/**/*.py
+          exclude:
+              - /services/llm-gateway/**
+              - /posthog/llm/gateway_client.py
+              - /ee/settings.py
+              - /posthog/settings/temporal.py
+              - /posthog/llm/semantic_enrichment.py
+              - /products/tasks/backend/logic/services/model_catalogue.py
+              - /products/tasks/backend/constants.py
+              - /products/tasks/backend/logic/services/agentsh.py
+              - /products/tasks/backend/logic/services/agent_server_launcher.py
+              - /products/tasks/backend/logic/services/docker_sandbox.py
+              - /products/tasks/backend/temporal/process_task/utils.py
+              - /products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
+              - /products/posthog_ai/eval_harness/**
+              - /products/*/eval/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest.py'
+
+    - id: no-new-legacy-llm-gateway-callers-typescript
+      message: |
+          This reaches the legacy Python LLM gateway (`services/llm-gateway`), which is being shut down.
+          A call that still depends on it will fail once the gateway is gone.
+
+          Route the request through the Go ai-gateway: the slugless `AI_GATEWAY_URL` with a `phs_`,
+          `pha_` or minted per-run token, as `resolveGatewayTarget` does for routed products.
+
+          The excluded files are the legacy references that remain in the agent runtime. Remove a file
+          from the list once it no longer references the legacy gateway. Do not add one.
+      languages: [typescript, javascript]
+      severity: ERROR
+      pattern-either:
+          - pattern: getLlmGatewayUrl(...)
+          - pattern: $API.getLlmGatewayUrl(...)
+          - pattern: getGatewayUsageUrl(...)
+          - pattern: resolveLlmGatewayUrl($ENV, $HOST)
+          - pattern: resolveLlmGatewayUrl($ENV, $HOST, $PRODUCT)
+          - pattern: process.env.LLM_GATEWAY_URL
+          - pattern: |
+                "=~/(^|[^-a-z0-9])(gateway\.(us|eu|dev)\.posthog\.(com|dev)|llm-gateway\.llm-gateway\.svc)/"
+      paths:
+          include:
+              - /common/**
+              - /frontend/**
+              - /nodejs/**
+              - /packages/**
+              - /products/**
+              - /services/**
+          exclude:
+              - /products/desktop/**
+              - /packages/agent/packages/agent/src/agent.ts
+              - /packages/agent/packages/agent/src/utils/gateway.ts
+              - /packages/agent/packages/agent/src/posthog-api.ts
+              - /packages/agent/packages/agent/src/server/gateway-env.ts
+              - /packages/agent/packages/agent/src/server/agent-server.ts
+              - /packages/agent/packages/agent/src/server/pi-agent-server.ts
+              - /packages/agent/packages/agent-contracts/src/cloud-task-models.ts
+              - /packages/agent/packages/harness/src/extensions/posthog-provider/gateway.ts
+              - /packages/agent/packages/harness/src/extensions/posthog-provider/gateway-auth.ts
+              - /packages/agent/packages/harness/src/extensions/posthog-provider/models.ts
+              - /packages/agent/packages/harness/src/extensions/posthog-provider/provider.ts
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/__tests__/**'
+              - '**/e2e/**'
