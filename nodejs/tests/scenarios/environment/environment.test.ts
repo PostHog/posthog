@@ -439,25 +439,24 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             const command = args.join(' ')
-            const flags = { with: [], without: [] }
-            const words = []
-            for (let i = 0; i < args.length; i++) {
-                const [flag, inline] = args[i].split('=')
-                if (['--with', '--without', '--custom', '--timeout'].includes(flag)) {
-                    const value = inline ?? args[++i]
-                    const name = flag.slice(2)
-                    Array.isArray(flags[name]) ? flags[name].push(value) : (flags[name] = value)
-                } else {
-                    words.push(args[i])
-                }
-            }
+            const { values: flags, positionals } = require('util').parseArgs({
+                args,
+                allowPositionals: true,
+                options: {
+                    with: { type: 'string', multiple: true, default: [] },
+                    without: { type: 'string', multiple: true, default: [] },
+                    custom: { type: 'string' },
+                    timeout: { type: 'string' },
+                    d: { type: 'boolean' },
+                },
+            })
             const stateFile = path.join(__dirname, 'stack.json')
             const stack = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
             const fail = (why) => {
                 process.stderr.write(why + '\\n')
                 process.exit(1)
             }
-            const verb = words.join(' ')
+            const verb = positionals.join(' ')
             if (verb === 'wait') {
                 if (flags.timeout === '0') {
                     process.exit(stack.ready ? 0 : 3)
@@ -472,7 +471,7 @@ describe('scenario environment', () => {
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
                 )
-            } else if (verb === 'up -d' && flags.custom) {
+            } else if (verb === 'up' && flags.d && flags.custom) {
                 if (stack.running) {
                     fail('phrocs: detached phrocs already running')
                 }
@@ -483,7 +482,7 @@ describe('scenario environment', () => {
                     fail('The config at ' + flags.custom + ' starts nodejs')
                 }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: false }))
-            } else if (command === 'dev:sync-hog-templates') {
+            } else if (verb === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
                 const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
                 client
