@@ -1110,6 +1110,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [(result["compare_label"], result["count"]) for result in response.results],
         )
 
+    def test_metric_display_total_skips_the_excluded_incomplete_week(self):
+        self._create_test_events()
+        self._create_events(
+            [
+                SeriesFixture(
+                    distinct_id="p5",
+                    events=[Series(event="$pageview", timestamps=["2020-01-20T12:00:00Z"])],
+                    properties={},
+                )
+            ]
+        )
+
+        with time_machine.travel("2020-01-21T12:00:00Z", tick=False):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview", math=BaseMathType.DAU)],
+                dateRange=DateRange(date_from="-9d", excludeIncompletePeriods=True),
+                interval=IntervalType.WEEK,
+                trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual((["2020-01-12"], 4), (response.results[0]["days"], response.results[0]["count"]))
+
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
 

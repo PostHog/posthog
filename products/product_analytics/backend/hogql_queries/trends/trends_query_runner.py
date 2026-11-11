@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -617,16 +618,41 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             limit_context=self.limit_context,
             user=self.user,
             workload=self.workload,
+            ch_user=self.ch_user,
             hogql_settings=self.hogql_settings,
         )
         runner._shared_database = self._shared_database
-        totals = {
-            self._range_total_key(item): item.get("aggregated_value") for item in runner.calculate().results or []
-        }
+        # BoldNumber would resolve a daily range, so the totals would cover different days than the sparkline.
+        runner.query_date_range = self.query_date_range
+        runner.query_previous_date_range = self.query_previous_date_range
+        range_results = runner.calculate().results or []
+
+        totals = {self._range_total_key(item): item.get("aggregated_value") for item in range_results}
+        named_breakdowns = self._named_breakdowns_by_series(results)
+        range_named_breakdowns = self._named_breakdowns_by_series(range_results)
         for item in results:
+            if (
+                self.breakdown_enabled
+                and self._is_other_breakdown(item.get("breakdown_value"))
+                and named_breakdowns[self._range_total_series(item)]
+                != range_named_breakdowns[self._range_total_series(item)]
+            ):
+                continue
             total = totals.get(self._range_total_key(item))
             if total is not None:
                 item["count"] = total
+
+    def _named_breakdowns_by_series(self, results: list[dict[str, Any]]) -> defaultdict[tuple[Any, Any], set[str]]:
+        named: defaultdict[tuple[Any, Any], set[str]] = defaultdict(set)
+        for item in results:
+            breakdown_value = item.get("breakdown_value")
+            if breakdown_value is not None and not self._is_other_breakdown(breakdown_value):
+                named[self._range_total_series(item)].add(repr(breakdown_value))
+        return named
+
+    @staticmethod
+    def _range_total_series(item: dict[str, Any]) -> tuple[Any, Any]:
+        return item.get("order"), item.get("compare_label")
 
     @staticmethod
     def _range_total_key(item: dict[str, Any]) -> tuple[Any, str, Any]:
