@@ -75,6 +75,10 @@ interface ReleaseLogicValues {
 
 interface ReleaseLogicActions {
     reload: (force?: boolean) => { force: boolean }
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, string | boolean>
+    ) => { flags: string[]; variants: Record<string, string | boolean> }
     loadReleases: () => void
     loadReleasesFailure: (error: string) => { error: string }
     setReleaseLocally: (update: { id: string; changes: PatchedUpdateReleaseApi }) => {
@@ -185,6 +189,7 @@ export const releaseLogic = kea<releaseLogicType>([
     path(['products', 'release', 'frontend', 'releaseLogic']),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
         reload: (force?: boolean) => ({ force: !!force }),
@@ -490,6 +495,11 @@ export const releaseLogic = kea<releaseLogicType>([
         decisionRows: [(s) => [s.rows], (rows: ReleaseRow[]) => rows.filter((row) => row.needsDecision)],
     }),
     listeners(({ actions, values, cache }) => ({
+        setFeatureFlags: () => {
+            if (values.releasesEnabled && !cache.lastReloadAt) {
+                actions.reload()
+            }
+        },
         reload: ({ force }) => {
             if (!values.releasesEnabled) {
                 return

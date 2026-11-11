@@ -438,7 +438,48 @@ export function buildReleaseIndex(
     }
 }
 
-export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseRow {
+interface ReleaseFacts {
+    today: dayjs.Dayjs
+    flags: FeatureFlagApi[]
+    unloadedFlagIds: number[]
+    missingFlagIds: number[]
+    complete: boolean
+    experiments: ExperimentBasicApi[]
+    earlyAccess: EarlyAccessFeatureApi[]
+    drafts: ExperimentBasicApi[]
+    done: ExperimentBasicApi[]
+    running: ExperimentBasicApi[]
+    paused: ExperimentBasicApi[]
+    openEarlyAccess: EarlyAccessFeatureApi | undefined
+    prelaunchEarlyAccess: EarlyAccessFeatureApi | undefined
+    ended: boolean
+    released: boolean
+    finished: boolean
+    current: ExperimentBasicApi | undefined
+    firstStart: string | null | undefined
+    runningDays: number
+    lastDone: ExperimentBasicApi | undefined
+    audiences: ReleaseFlagAudience[]
+    audienceSummary: string | undefined
+    firstFlagCreated: string | null
+}
+
+function isReleased(facts: Omit<ReleaseFacts, 'released' | 'finished'>): boolean {
+    const { ended, complete, flags, unloadedFlagIds, running, paused, drafts, openEarlyAccess } = facts
+    return (
+        !ended &&
+        complete &&
+        flags.length > 0 &&
+        !unloadedFlagIds.length &&
+        flags.every(isFullyRolledOut) &&
+        !running.length &&
+        !paused.length &&
+        !drafts.length &&
+        !openEarlyAccess
+    )
+}
+
+function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts {
     const today = dayjs()
     const flags = release.feature_flag_ids
         .map((id) => index.flagsById.get(id))
@@ -449,188 +490,250 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         index.complete &&
         missingFlagIds.length === unloadedFlagIds.length &&
         !flags.some((flag) => index.unknownFlagIds.has(flag.id))
-    const flagById = new Map(flags.map((flag) => [String(flag.id), flag]))
     const experiments = flags
         .flatMap((flag) => index.experimentsByFlagKey.get(flag.key) ?? [])
         .filter((experiment) => !experiment.archived || isExperimentDone(experiment))
     const earlyAccess = flags
         .flatMap((flag) => index.earlyAccessByFlagKey.get(flag.key) ?? [])
         .filter((item) => item.stage !== 'archived')
-    const changes = flags
-        .flatMap((flag) => index.changesByFlagId.get(String(flag.id)) ?? [])
-        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
-    const firstFlagCreated = flags.map((flag) => flag.created_at).sort()[0] ?? null
-
-    const drafts = experiments.filter(isExperimentDraft)
-    const done = experiments.filter(isExperimentDone)
     const running = experiments.filter(isExperimentRunning)
-    const paused = experiments.filter(isExperimentPaused)
+    const done = experiments.filter(isExperimentDone)
     const openEarlyAccess = earlyAccess.find(isEnrollingEarlyAccess)
-    const prelaunchEarlyAccess = openEarlyAccess
-        ? undefined
-        : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept')
-    const ended = flags.length > 0 && !unloadedFlagIds.length && flags.every((flag) => flag.archived)
-    const released =
-        !ended &&
-        complete &&
-        flags.length > 0 &&
-        !unloadedFlagIds.length &&
-        flags.every(isFullyRolledOut) &&
-        !running.length &&
-        !paused.length &&
-        !drafts.length &&
-        !openEarlyAccess
-    const finished = released || ended
-
-    const stage: ReleaseStage = ended
-        ? 'ended'
-        : released
-          ? 'released'
-          : running.length || paused.length || drafts.length || done.length
-            ? 'experiment'
-            : openEarlyAccess
-              ? 'early_access'
-              : flags.length
-                ? 'flag'
-                : 'planned'
-
     const current = [...running].sort((a, b) => (a.start_date as string).localeCompare(b.start_date as string))[0]
     const firstStart = current?.start_date
-    const runningDays = firstStart ? today.diff(dayjs(firstStart), 'day') + 1 : 0
-    const lastDone = [...done].sort((a, b) => (b.end_date ?? '').localeCompare(a.end_date ?? ''))[0]
     const optInKeys = new Set(earlyAccess.filter(isEnrollingEarlyAccess).map((item) => item.feature_flag?.key))
     const audiences = flags.map((flag) =>
         flagAudienceRow(flag, optInKeys.has(flag.key) || !!flagFilters(flag).feature_enrollment)
     )
-    const mainAudience = audiences[0]
-    const audienceSummary =
-        new Set(audiences.map((audience) => audience.summary)).size > 1
-            ? `Differs across ${audiences.length} flags`
-            : mainAudience?.summary
-    let status = 'No feature flag yet'
-    let headline = 'Not started'
-    let detail = 'Link the feature flag that controls who gets this release.'
-    if (ended) {
-        status = 'Ended, flags archived'
-        headline = 'Release ended'
-        detail = 'The flags of this release are archived, so it no longer changes.'
-    } else if (released) {
-        status = 'Rolled out to all users'
-        headline = 'Rolled out to all users'
-        detail = 'Every flag of this release serves it to everyone.'
-    } else if (running.length) {
-        status = `Experiment running, day ${runningDays}`
-        headline = `Experiment running for ${runningDays} day${runningDays === 1 ? '' : 's'}`
-        detail = `Started on ${dayjs(firstStart).format(DAY_FORMAT)}. Results are worth reading after about two weeks.`
-    } else if (paused.length) {
-        status = 'Experiment paused'
-        headline = 'Experiment paused'
-        detail = `${paused[0].name} is paused, so it collects no new data.`
-    } else if (drafts.length) {
-        status = 'Experiment in draft'
-        headline = 'Experiment ready to launch'
-        detail = `${drafts[0].name} is in draft. Nobody is in it yet.`
-    } else if (lastDone) {
-        status = 'Experiment complete'
-        headline = lastDone.end_date
-            ? `Experiment ended on ${dayjs(lastDone.end_date).format(DAY_FORMAT)}`
-            : 'Experiment stopped'
-        detail = lastDone.conclusion
-            ? `${CONCLUSION_LABEL[lastDone.conclusion] ?? lastDone.conclusion}.${lastDone.conclusion_comment ? ` ${lastDone.conclusion_comment}` : ''}`
-            : 'No result is recorded on the experiment yet.'
-    } else if (openEarlyAccess) {
-        status = `Early access, ${openEarlyAccess.stage}`
-        headline = `In early access, ${openEarlyAccess.stage}`
-        detail = 'Users can opt in to it before everyone gets it.'
-    } else if (flags.length) {
-        status = 'Behind a flag'
-        headline = 'Behind a flag'
-        detail = audienceSummary ? `${audienceSummary}.` : ''
+    const base = {
+        today,
+        flags,
+        unloadedFlagIds,
+        missingFlagIds,
+        complete,
+        experiments,
+        earlyAccess,
+        drafts: experiments.filter(isExperimentDraft),
+        done,
+        running,
+        paused: experiments.filter(isExperimentPaused),
+        openEarlyAccess,
+        prelaunchEarlyAccess: openEarlyAccess
+            ? undefined
+            : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept'),
+        ended: flags.length > 0 && !unloadedFlagIds.length && flags.every((flag) => flag.archived),
+        current,
+        firstStart,
+        runningDays: firstStart ? today.diff(dayjs(firstStart), 'day') + 1 : 0,
+        lastDone: [...done].sort((a, b) => (b.end_date ?? '').localeCompare(a.end_date ?? ''))[0],
+        audiences,
+        audienceSummary:
+            new Set(audiences.map((audience) => audience.summary)).size > 1
+                ? `Differs across ${audiences.length} flags`
+                : audiences[0]?.summary,
+        firstFlagCreated: flags.map((flag) => flag.created_at).sort()[0] ?? null,
     }
+    const released = isReleased(base)
+    return { ...base, released, finished: released || base.ended }
+}
 
-    let nextStep: ReleaseNextStep | null = null
-    if (!flags.length) {
-        nextStep = {
-            title: 'Link a feature flag',
-            detail: 'Pick the flag your code checks for this change, or create one.',
+function releaseStage(facts: ReleaseFacts): ReleaseStage {
+    const { ended, released, running, paused, drafts, done, openEarlyAccess, flags } = facts
+    if (ended) {
+        return 'ended'
+    }
+    if (released) {
+        return 'released'
+    }
+    if (running.length || paused.length || drafts.length || done.length) {
+        return 'experiment'
+    }
+    if (openEarlyAccess) {
+        return 'early_access'
+    }
+    return flags.length ? 'flag' : 'planned'
+}
+
+function lastDoneCopy(lastDone: ExperimentBasicApi): { headline: string; detail: string } {
+    return {
+        headline: lastDone.end_date
+            ? `Experiment ended on ${dayjs(lastDone.end_date).format(DAY_FORMAT)}`
+            : 'Experiment stopped',
+        detail: lastDone.conclusion
+            ? `${CONCLUSION_LABEL[lastDone.conclusion] ?? lastDone.conclusion}.${lastDone.conclusion_comment ? ` ${lastDone.conclusion_comment}` : ''}`
+            : 'No result is recorded on the experiment yet.',
+    }
+}
+
+function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; detail: string } {
+    const { ended, released, running, paused, drafts, lastDone, openEarlyAccess, flags } = facts
+    const { runningDays, firstStart, audienceSummary } = facts
+    if (ended) {
+        return {
+            status: 'Ended, flags archived',
+            headline: 'Release ended',
+            detail: 'The flags of this release are archived, so it no longer changes.',
         }
-    } else if (!complete) {
-        nextStep = null
-    } else if (drafts.length && !running.length) {
-        nextStep = {
+    }
+    if (released) {
+        return {
+            status: 'Rolled out to all users',
+            headline: 'Rolled out to all users',
+            detail: 'Every flag of this release serves it to everyone.',
+        }
+    }
+    if (running.length) {
+        return {
+            status: `Experiment running, day ${runningDays}`,
+            headline: `Experiment running for ${runningDays} day${runningDays === 1 ? '' : 's'}`,
+            detail: `Started on ${dayjs(firstStart).format(DAY_FORMAT)}. Results are worth reading after about two weeks.`,
+        }
+    }
+    if (paused.length) {
+        return {
+            status: 'Experiment paused',
+            headline: 'Experiment paused',
+            detail: `${paused[0].name} is paused, so it collects no new data.`,
+        }
+    }
+    if (drafts.length) {
+        return {
+            status: 'Experiment in draft',
+            headline: 'Experiment ready to launch',
+            detail: `${drafts[0].name} is in draft. Nobody is in it yet.`,
+        }
+    }
+    if (lastDone) {
+        return { status: 'Experiment complete', ...lastDoneCopy(lastDone) }
+    }
+    if (openEarlyAccess) {
+        return {
+            status: `Early access, ${openEarlyAccess.stage}`,
+            headline: `In early access, ${openEarlyAccess.stage}`,
+            detail: 'Users can opt in to it before everyone gets it.',
+        }
+    }
+    if (flags.length) {
+        return {
+            status: 'Behind a flag',
+            headline: 'Behind a flag',
+            detail: audienceSummary ? `${audienceSummary}.` : '',
+        }
+    }
+    return {
+        status: 'No feature flag yet',
+        headline: 'Not started',
+        detail: 'Link the feature flag that controls who gets this release.',
+    }
+}
+
+function experimentNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
+    const { drafts, running, paused, current, runningDays, firstStart, lastDone, finished } = facts
+    if (drafts.length && !running.length) {
+        return {
             title: 'Launch the experiment',
             detail: `${drafts[0].name} is ready. Launch it to start collecting results.`,
             label: 'Open experiment',
             to: urls.experiment(drafts[0].id),
             urgent: true,
         }
-    } else if (running.length && runningDays >= REVIEW_AFTER_DAYS - 2) {
-        nextStep = {
+    }
+    if (current && runningDays >= REVIEW_AFTER_DAYS - 2) {
+        return {
             title: 'Review the results',
             detail: `${current.name} has ${runningDays} days of data. Decide if the test variant should ship.`,
             label: 'Open results',
             to: urls.experiment(current.id),
             urgent: true,
         }
-    } else if (running.length) {
-        nextStep = {
+    }
+    if (current) {
+        return {
             title: 'Let the experiment run',
             detail: `Check the results around ${dayjs(firstStart).add(REVIEW_AFTER_DAYS, 'day').format(DAY_FORMAT)}, when it has two weeks of data.`,
             secondaryLabel: 'Open experiment',
             secondaryTo: urls.experiment(current.id),
         }
-    } else if (paused.length) {
-        nextStep = {
+    }
+    if (paused.length) {
+        return {
             title: 'Resume or end the experiment',
             detail: `${paused[0].name} is paused. Resume it to collect more data, or end it and record the result.`,
             label: 'Open experiment',
             to: urls.experiment(paused[0].id),
             urgent: true,
         }
-    } else if (lastDone && !finished && !lastDone.conclusion) {
-        nextStep = {
+    }
+    if (lastDone && !finished && !lastDone.conclusion) {
+        return {
             title: 'Record the result',
             detail: `${lastDone.name} ended without a recorded result. Record it so the team knows what to ship.`,
             label: 'Open experiment',
             to: urls.experiment(lastDone.id),
             urgent: true,
         }
-    } else if (!finished && prelaunchEarlyAccess) {
-        nextStep = {
+    }
+    return null
+}
+
+function rolloutNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
+    const { flags, finished, prelaunchEarlyAccess, openEarlyAccess, lastDone, released } = facts
+    if (!finished && prelaunchEarlyAccess) {
+        return {
             title: EARLY_ACCESS_NEXT[prelaunchEarlyAccess.stage],
             detail: `${prelaunchEarlyAccess.name} is in ${prelaunchEarlyAccess.stage}, so nobody can opt in yet.`,
             label: 'Open early access',
             to: urls.earlyAccessFeature(prelaunchEarlyAccess.id),
         }
-    } else if (!finished && !openEarlyAccess && flags.some(canWidenRollout)) {
-        const flag = flags.find(canWidenRollout) ?? flags[0]
-        nextStep = {
+    }
+    const widen = finished || openEarlyAccess ? undefined : flags.find(canWidenRollout)
+    if (widen) {
+        return {
             title: lastDone ? 'Roll out the winner' : 'Roll out to more users',
             detail: lastDone
-                ? `Not everyone gets the winning variant yet. Roll ${flag.key} out to all users now or on a date.`
-                : `Not everyone gets it yet. Widen the release conditions of ${flag.key}, or schedule a rollout to everyone.`,
+                ? `Not everyone gets the winning variant yet. Roll ${widen.key} out to all users now or on a date.`
+                : `Not everyone gets it yet. Widen the release conditions of ${widen.key}, or schedule a rollout to everyone.`,
             label: 'Schedule rollout',
-            scheduleFlagId: flag.id,
+            scheduleFlagId: widen.id,
             secondaryLabel: 'Open flag',
-            secondaryTo: urls.featureFlag(flag.id),
+            secondaryTo: urls.featureFlag(widen.id),
             urgent: !!lastDone,
         }
-    } else if (openEarlyAccess && EARLY_ACCESS_NEXT[openEarlyAccess.stage]) {
-        nextStep = {
+    }
+    if (openEarlyAccess && EARLY_ACCESS_NEXT[openEarlyAccess.stage]) {
+        return {
             title: EARLY_ACCESS_NEXT[openEarlyAccess.stage],
             detail: `${openEarlyAccess.name} is in ${openEarlyAccess.stage}. Move it on when the feedback is good.`,
             label: 'Open early access',
             to: urls.earlyAccessFeature(openEarlyAccess.id),
         }
-    } else if (released) {
-        nextStep = {
+    }
+    if (released) {
+        return {
             title: 'Clean up the flag',
             detail: 'Everyone gets the release now. Remove the flag check from your code, then archive the flag.',
             label: 'Open flag',
             to: urls.featureFlag(flags[0].id),
         }
     }
+    return null
+}
 
+function releaseNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
+    if (!facts.flags.length) {
+        return {
+            title: 'Link a feature flag',
+            detail: 'Pick the flag your code checks for this change, or create one.',
+        }
+    }
+    if (!facts.complete) {
+        return null
+    }
+    return experimentNextStep(facts) ?? rolloutNextStep(facts)
+}
+
+function releaseLifecycle(release: ReleaseDTOApi, facts: ReleaseFacts, stage: ReleaseStage): ReleaseLifecycleStep[] {
+    const { experiments, earlyAccess, firstFlagCreated, ended, finished } = facts
     const testingStarts = [
         ...experiments
             .filter((experiment) => experiment.start_date)
@@ -638,7 +741,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         ...earlyAccess.map((item) => ({ date: item.created_at, label: 'Early access' })),
     ].sort((a, b) => a.date.localeCompare(b.date))
     const stageIndex = { planned: 0, flag: 1, experiment: 2, early_access: 2, released: 3, ended: 3 }[stage]
-    const lifecycle: ReleaseLifecycleStep[] = [
+    return [
         {
             key: 'planned' as const,
             label: 'Planned',
@@ -661,8 +764,39 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
                   ? 'current'
                   : 'upcoming',
     }))
+}
 
+function experimentEvents(experiment: ExperimentBasicApi): ReleaseEvent[] {
+    const href = urls.experiment(experiment.id)
     const events: ReleaseEvent[] = [
+        {
+            key: `exp-start-${experiment.id}`,
+            date: experiment.start_date ?? experiment.created_at,
+            kind: 'experiment',
+            title: `${experiment.start_date ? 'Experiment launched' : 'Experiment drafted'}: ${experiment.name}`,
+            href,
+        },
+    ]
+    if (experiment.end_date) {
+        events.push({
+            key: `exp-end-${experiment.id}`,
+            date: experiment.end_date,
+            kind: 'experiment',
+            title: `Experiment ended: ${experiment.name}`,
+            detail: experiment.conclusion ? CONCLUSION_LABEL[experiment.conclusion] : 'No result recorded',
+            href,
+        })
+    }
+    return events
+}
+
+function releaseEvents(release: ReleaseDTOApi, facts: ReleaseFacts, index: ReleaseIndex): ReleaseEvent[] {
+    const { flags, earlyAccess, experiments } = facts
+    const flagById = new Map(flags.map((flag) => [String(flag.id), flag]))
+    const changes = flags
+        .flatMap((flag) => index.changesByFlagId.get(String(flag.id)) ?? [])
+        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
+    return [
         {
             key: 'release',
             date: release.created_at,
@@ -684,33 +818,18 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             detail: `Now in ${item.stage}`,
             href: urls.earlyAccessFeature(item.id),
         })),
+        ...experiments.flatMap(experimentEvents),
+        ...changes.flatMap((change) => scheduleEvents(change, flagById.get(String(change.record_id))?.key)),
     ]
-    for (const experiment of experiments) {
-        const href = urls.experiment(experiment.id)
-        events.push({
-            key: `exp-start-${experiment.id}`,
-            date: experiment.start_date ?? experiment.created_at,
-            kind: 'experiment',
-            title: `${experiment.start_date ? 'Experiment launched' : 'Experiment drafted'}: ${experiment.name}`,
-            href,
-        })
-        if (experiment.end_date) {
-            events.push({
-                key: `exp-end-${experiment.id}`,
-                date: experiment.end_date,
-                kind: 'experiment',
-                title: `Experiment ended: ${experiment.name}`,
-                detail: experiment.conclusion ? CONCLUSION_LABEL[experiment.conclusion] : 'No result recorded',
-                href,
-            })
-        }
-    }
-    for (const change of changes) {
-        events.push(...scheduleEvents(change, flagById.get(String(change.record_id))?.key))
-    }
+}
 
+function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage): ReleaseSuggestion[] {
+    const { complete, flags, experiments, earlyAccess, finished } = facts
+    if (!complete || !flags.length || finished) {
+        return []
+    }
     const suggestions: ReleaseSuggestion[] = []
-    if (complete && flags.length && !experiments.length && !finished) {
+    if (!experiments.length) {
         suggestions.push({
             key: 'experiment',
             title: 'Measure the impact',
@@ -719,7 +838,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.experiment('new'),
         })
     }
-    if (complete && flags.length && !earlyAccess.length && !finished && stage === 'flag') {
+    if (!earlyAccess.length && stage === 'flag') {
         suggestions.push({
             key: 'early-access',
             title: 'Let users opt in first',
@@ -728,7 +847,28 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.earlyAccessFeature('new'),
         })
     }
+    return suggestions
+}
 
+function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end: string): ReleaseSpan {
+    const from = (experiment.start_date as string).slice(0, 10)
+    const finished = isExperimentDone(experiment)
+    return {
+        key: `exp-${experiment.id}`,
+        kind: finished ? 'experiment_done' : 'experiment',
+        from,
+        to: finished && experiment.end_date ? experiment.end_date.slice(0, 10) : end,
+        label: finished
+            ? 'Experiment complete'
+            : isExperimentPaused(experiment)
+              ? 'Experiment paused'
+              : `Experiment, day ${today.diff(dayjs(from), 'day') + 1}`,
+        href: urls.experiment(experiment.id),
+    }
+}
+
+function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
+    const { today, flags, firstFlagCreated, earlyAccess, running, paused, done } = facts
     const end = today.format('YYYY-MM-DD')
     const spans: ReleaseSpan[] = []
     if (firstFlagCreated) {
@@ -750,56 +890,49 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         })
     }
     for (const experiment of [...running, ...paused, ...done]) {
-        if (!experiment.start_date) {
-            continue
+        if (experiment.start_date) {
+            spans.push(experimentSpan(experiment, today, end))
         }
-        const from = experiment.start_date.slice(0, 10)
-        const finished = isExperimentDone(experiment)
-        spans.push({
-            key: `exp-${experiment.id}`,
-            kind: finished ? 'experiment_done' : 'experiment',
-            from,
-            to: finished && experiment.end_date ? experiment.end_date.slice(0, 10) : end,
-            label: finished
-                ? 'Experiment complete'
-                : isExperimentPaused(experiment)
-                  ? 'Experiment paused'
-                  : `Experiment, day ${today.diff(dayjs(from), 'day') + 1}`,
-            href: urls.experiment(experiment.id),
-        })
     }
+    return spans
+}
 
-    const audience = openEarlyAccess
-        ? 'Users who opt in'
-        : running.length
-          ? 'Experiment participants'
-          : audienceSummary
-            ? audienceSummary
-            : 'Nobody yet'
+function releaseAudience(facts: ReleaseFacts): string {
+    if (facts.openEarlyAccess) {
+        return 'Users who opt in'
+    }
+    if (facts.running.length) {
+        return 'Experiment participants'
+    }
+    return facts.audienceSummary || 'Nobody yet'
+}
 
+export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseRow {
+    const facts = releaseFacts(release, index)
+    const stage = releaseStage(facts)
+    const nextStep = releaseNextStep(facts)
+    const events = releaseEvents(release, facts, index)
     return {
         id: release.id,
         name: release.name,
         description: release.description,
         createdAt: release.created_at,
         owner: release.owner,
-        missingFlagIds,
-        headline,
-        detail,
-        lifecycle,
-        audiences,
+        missingFlagIds: facts.missingFlagIds,
+        ...releaseCopy(facts),
+        lifecycle: releaseLifecycle(release, facts, stage),
+        audiences: facts.audiences,
         events,
-        suggestions,
-        flags,
-        experiments,
-        earlyAccess,
+        suggestions: releaseSuggestions(facts, stage),
+        flags: facts.flags,
+        experiments: facts.experiments,
+        earlyAccess: facts.earlyAccess,
         stage,
-        status,
-        audience,
+        audience: releaseAudience(facts),
         nextStep,
-        needsDecision: !flags.length || !!nextStep?.urgent,
-        runningDays,
+        needsDecision: !facts.flags.length || !!nextStep?.urgent,
+        runningDays: facts.runningDays,
         nextDate: events.find((event) => event.upcoming)?.date ?? null,
-        spans,
+        spans: releaseSpans(facts),
     }
 }
