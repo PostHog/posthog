@@ -376,6 +376,73 @@ def test_persisted_research_reviewers_require_confirmation(organization, team, c
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("case", "team_threshold", "expected_reason"),
+    [
+        ("reviewer_below_own_threshold", Priority.P0, "below_threshold"),
+        ("reviewer_not_a_member", Priority.P0, "no_identity_candidates"),
+        ("no_enabler_or_admin", Priority.P4, "no_fallback_user"),
+        ("editor_below_own_threshold", Priority.P4, "below_threshold"),
+    ],
+)
+def test_a_missing_runner_says_why_on_the_report_and_the_event(
+    organization, team, case, team_threshold, expected_reason
+):
+    # One `no_runner` slug covers a threshold setting, reviewers who cannot run the report, and a
+    # project with nobody to fall back to. A team can only act when the report and the event say
+    # which one it was, and the event must not carry the reviewer's login.
+    reviewer = _create_org_member_with_github("reviewer@example.com", organization, "reviewerlogin")
+    SignalUserAutonomyConfig.objects.create(user=reviewer, autostart_priority=Priority.P0)
+    SignalTeamConfig.objects.update_or_create(team=team, defaults={"default_autostart_priority": team_threshold})
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="Report", summary="Summary")
+    reviewers = {
+        "reviewer_below_own_threshold": [_reviewer("reviewerlogin")],
+        "reviewer_not_a_member": [_reviewer("strangerlogin")],
+        "no_enabler_or_admin": [],
+        "editor_below_own_threshold": [_reviewer("reviewerlogin")],
+    }[case]
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch.object(tasks_facade, "create_and_run_task") as create,
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/app",
+            title="Report",
+            summary="Summary",
+            actionability=ActionabilityAssessment(
+                explanation="A code fix is available.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects the component.", priority=Priority.P2),
+            reviewers_content=reviewers,
+            triggering_user_id=reviewer.id if case == "editor_below_own_threshold" else None,
+        )
+
+    assert outcome.status == "blocked"
+    create.assert_not_called()
+    skips = [
+        json.loads(row.content)
+        for row in SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip")
+    ]
+    assert [skip["skip_reason"] for skip in skips] == [expected_reason]
+    assert ("last edited its reviewers" in skips[0]["detail"]) is (case == "editor_below_own_threshold")
+    skipped = [
+        c.kwargs["properties"] for c in capture.call_args_list if c.kwargs.get("event") == "signals_autostart_skipped"
+    ]
+    assert [(p["skip_reason"], p["no_runner_reason"]) for p in skipped] == [("no_runner", expected_reason)]
+    assert "reviewerlogin" not in json.dumps(skipped)
+    assert str(reviewer.id) not in {str(value) for value in skipped[0].values()}
+
+
+@pytest.mark.django_db
 def test_resolve_autostart_assignee_excludes_live_owners_past_a_stale_stamp(organization, team):
     # The stored `is_skill_owner` stamp is a write-time snapshot: an owner added after the stamp
     # leaves a stale False, and trusting it would let the run mint its session under a now
