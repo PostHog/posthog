@@ -1,6 +1,6 @@
 import re
 from contextlib import nullcontext
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -136,33 +136,26 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
+            ("window_in_range", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-10T00:00:00+00:00", None),
+            ("end_tomorrow", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-16T00:00:00+00:00", None),
+            ("start_before_2015", "UTC", "2014-12-31T00:00:00+00:00", "2024-01-10T00:00:00+00:00", "before 2015"),
+            ("start_in_year_one_east_of_utc", "Asia/Tokyo", "0001-01-01T00:00:00+00:00", None, "before 2015"),
             (
-                "window_in_range",
+                "end_in_year_9999_west_of_utc",
+                "America/New_York",
                 "2024-01-01T00:00:00+00:00",
-                "2024-01-10T00:00:00+00:00",
-                date(2024, 1, 1),
-                date(2024, 1, 10),
+                "9999-12-31T23:00:00+00:00",
+                "in the future",
             ),
-            (
-                "start_in_year_one",
-                "0001-01-01T00:00:00+00:00",
-                "2024-01-10T00:00:00+00:00",
-                date(2015, 1, 1),
-                date(2024, 1, 10),
-            ),
-            (
-                "end_in_year_9999",
-                "2024-01-01T00:00:00+00:00",
-                "9999-12-31T00:00:00+00:00",
-                date(2024, 1, 1),
-                date(2024, 1, 16),
-            ),
+            ("naive_start_in_year_one", "UTC", "0001-01-01T00:00:00", "2024-01-10T00:00:00", "before 2015"),
         ]
     )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_fill_date_gaps_stays_within_the_event_floor_and_tomorrow(
-        self, _name: str, start_date: str, end_date: str, first_day: date, last_day: date
+    def test_out_of_range_window_is_a_validation_error(
+        self, _name: str, timezone: str, start_date: str, end_date: str | None, error: str | None
     ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -172,13 +165,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             end_date=end_date,
             exposure_criteria=None,
         )
-        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        rows = runner._fill_date_gaps([])
-
-        days = sorted({day for day, _, _ in rows})
-        assert (days[0], days[-1]) == (first_day, last_day)
-        assert len(rows) == len(days) * len(runner.variants)
+        if error is None:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+        else:
+            with self.assertRaisesMessage(ValidationError, error):
+                ExperimentExposuresQueryRunner(team=self.team, query=query)
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
@@ -1172,7 +1164,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_using_group_aggregation(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
-        self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
+        self.experiment.end_date = datetime(2024, 1, 8).replace(tzinfo=ZoneInfo("UTC"))
         if use_precomputation:
             self._enable_precomputation()
         self.experiment.save()

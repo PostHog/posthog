@@ -134,6 +134,10 @@ def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposur
     )
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
@@ -172,6 +176,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # and the cache TTL governs refresh.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
+        # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
+        # precompute window. The check runs before any timezone conversion, which raises OverflowError near year 1 or 9999.
+        if self.window_start is not None and _as_utc(self.window_start) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
+            raise ValidationError("The experiment start date is before 2015. Set a later start date.")
+        if self.window_end_date is not None and _as_utc(self.window_end_date) > datetime.now(UTC) + timedelta(days=1):
+            raise ValidationError("The experiment end date is in the future. Set an end date that has passed.")
         self.as_of = self.window_end_date or datetime.now(UTC)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -621,15 +631,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not date_range.date_from:
             return []
 
-        # The query window comes from the request, so a crafted start_date or end_date could make this loop allocate
-        # millions of rows. No event is older than the floor, and tomorrow in UTC covers today in every timezone.
-        start_date = max(
-            datetime.fromisoformat(date_range.date_from).date(), UNFILTERED_EARLIEST_TIMESTAMP_FLOOR.date()
-        )
-        end_date = min(
-            datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date(),
-            datetime.now(UTC).date() + timedelta(days=1),
-        )
+        start_date = datetime.fromisoformat(date_range.date_from).date()
+        end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
 
         result_dict = {}
         variants = set(self.variants)
