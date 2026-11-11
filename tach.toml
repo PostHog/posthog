@@ -1132,6 +1132,8 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # The canvas experiment needs the new navigation (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 
@@ -2069,4 +2071,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]

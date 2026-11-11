@@ -5779,6 +5779,10 @@ export type ExperimentsListParams = {
      */
     feature_flag_id?: number
     /**
+     * Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.
+     */
+    feature_flag_ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5884,6 +5888,10 @@ export type ExperimentsMatchingIdsRetrieveParams = {
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number
+    /**
+     * Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.
+     */
+    feature_flag_ids?: string
     /**
      * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
      */

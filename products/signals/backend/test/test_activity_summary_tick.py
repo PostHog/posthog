@@ -130,6 +130,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "rebuild_before": "not a time",
             "max_org_share": 2,
             "rebuild_budget_share": 2,
+            "inbox_visit_budget_share": 0,
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
@@ -165,6 +166,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "count_views": True,
             "target_interval_days_free": 7,
             "max_org_share": 0.3,
+            "inbox_visit_budget_share": 0.5,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
             "min_score": 4.5,
@@ -192,6 +194,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             count_views=True,
             target_interval_days_free=7.0,
             max_org_share=0.3,
+            inbox_visit_budget_share=0.5,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
             source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
@@ -870,6 +873,10 @@ class TestActivitySummaryQueue(BaseTest):
             ),
             ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
             ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+            ("no summary and one Inbox visit", True, False, [("scene:Inbox", [1])], "inbox_visit"),
+            ("no summary and one visit to another scene", True, False, [("scene:Insight", [1])], None),
+            ("no summary and one Inbox visit when views do not count", False, False, [("scene:Inbox", [1])], None),
+            ("a summary and an Inbox visit", True, True, [("scene:Inbox", [1])], None),
         ]
     )
     def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
@@ -893,8 +900,56 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
         assert selection.due_by_trigger == {
-            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale", "mcp")
+            name: int(name == trigger)
+            for name in ("activity", "views", "cold_start_views", "stale", "mcp", "inbox_visit")
         }
+
+    @parameterized.expand(
+        [
+            (
+                "the share takes the Inbox visits first, paying pairs first",
+                2,
+                ["paying", "free0", "busy0", "busy1", "busy2"],
+            ),
+            ("the unused share goes back to the other passes", 0, ["paying", "busy0", "busy1", "busy2", "busy3"]),
+        ]
+    )
+    def test_inbox_visits_fill_a_reserved_share_of_the_tick(
+        self, _name: str, free_inbox_users: int, expected: list[str]
+    ) -> None:
+        paying_org = Organization.objects.create(name="Paying", has_active_subscription=True)
+        paying_team = Team.objects.create(organization=paying_org, name="Paying")
+        users: dict[str, tuple[Team, User]] = {}
+        summarized = NOW - datetime.timedelta(days=10)
+        for index in range(4):
+            busy = self._user(f"busy{index}@example.com")
+            self._summary(busy, generated_at=summarized, input_watermark=summarized)
+            self._changes(busy, 20, days_ago=0.5)
+            users[f"busy{index}"] = (self.team, busy)
+        for index in range(free_inbox_users):
+            users[f"free{index}"] = (self.team, self._user(f"free{index}@example.com"))
+        users["paying"] = (paying_team, User.objects.create_and_join(paying_org, "paying@example.com", None))
+        for name, (team, user) in users.items():
+            if not name.startswith("busy"):
+                FileSystemViewLog.objects.create(
+                    team=team,
+                    user=user,
+                    type="scene",
+                    ref="Inbox",
+                    viewed_at=NOW - datetime.timedelta(days=1),
+                    view_days=[(NOW - datetime.timedelta(days=1)).date()],
+                )
+        config = ActivitySummaryConfig(
+            enabled=True, enroll_all_approved=True, count_views=True, max_org_share=1, inbox_visit_budget_share=0.4
+        )
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 5)
+
+        assert [(pair.team_id, pair.user_id) for pair in selection.pairs] == [
+            (users[name][0].id, users[name][1].id) for name in expected
+        ]
+        assert selection.due_by_trigger["inbox_visit"] == free_inbox_users + 1
 
     def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
         watermark = NOW - datetime.timedelta(days=2)
@@ -1047,7 +1102,9 @@ class TestActivitySummaryQueue(BaseTest):
         assert plan.mcp_feed.sessions == 3 * (1 - members_left)
         assert [pair.trigger for pair in plan.pairs] == ["mcp"][: 1 - members_left]
 
-    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    @parameterized.expand(
+        [("activity", 24), ("views", 168), ("cold_start_views", 168), ("inbox_visit", 24), (None, 24)]
+    )
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
         self, trigger: str | None, wait_hours: int
     ) -> None:

@@ -24219,6 +24219,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator
+     * * `permission_denied` - Permission denied
+     */
+    export type CanvasCreatorRequiredCodeEnum = typeof CanvasCreatorRequiredCodeEnum[keyof typeof CanvasCreatorRequiredCodeEnum];
+
+
+    export const CanvasCreatorRequiredCodeEnum = {
+      CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+      PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+      PermissionDenied: 'permission_denied',
+    } as const;
+
+    /**
+     * 403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+     * or pinning a component version other than that component's live version.
+     */
+    export interface CanvasCreatorRequired {
+      /** Human-readable description of the refusal. */
+      detail: string;
+      /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component. `permission_denied`: a publish or edit supplied a name and the caller did not create the canvas.
+       *
+       * * `capability_widening_requires_creator` - Capability widening requires creator
+       * * `pinned_version_requires_creator` - Pinned version requires creator
+       * * `permission_denied` - Permission denied */
+      code: CanvasCreatorRequiredCodeEnum;
+      /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+      capability_widening?: CanvasCapabilityWidening;
+      /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+      components?: string[];
+    }
+
+    /**
      * A staged draft version and the status of its latest build. Preview a
      * draft's files with `source?version_id=`, then make it live with `promote`.
      */
@@ -32729,13 +32762,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
@@ -32902,13 +32928,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
@@ -34857,8 +34876,6 @@ export namespace Schemas {
       readonly suspended: DataWarehouseSavedQuerySuspended;
       /** The engine that runs this view, and what the product can do with it. */
       readonly engine: ViewEngine;
-      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-      readonly is_raw_managed_trino: boolean;
     }
 
     /**
@@ -35004,8 +35021,6 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** The engine that runs this view, and what the product can do with it. */
       readonly engine: ViewEngine;
-      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-      readonly is_raw_managed_trino: boolean;
     }
 
     export type DataWarehouseSourceCategory = typeof DataWarehouseSourceCategory[keyof typeof DataWarehouseSourceCategory];
@@ -43625,6 +43640,275 @@ export namespace Schemas {
     export interface EvaluationRuns {
       /** Newest first. */
       results: EvaluationRun[];
+    }
+
+    export interface EvaluationSampleTrafficItem {
+      /** Generation event UUID, trace ID, or session ID, matching `target`. */
+      sample_id: string;
+      /** Type of unit: generation, trace, or session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      sample_type: EvaluationTargetEnum;
+      /**
+         * Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** When the unit's latest generation happened. */
+      timestamp: string;
+      /** First 200 characters of the last user message in the unit's latest generation. */
+      input_preview: string;
+      /** First 200 characters of the last assistant message in the unit's latest generation. */
+      output_preview: string;
+    }
+
+    export type PreviewConditionPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * A trigger condition set, as on an evaluation. The id is optional here.
+     */
+    export interface PreviewCondition {
+      /**
+         * Identifier of this condition set, if any.
+         * @maxLength 100
+         */
+      id?: string;
+      /**
+         * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage?: number;
+      /** Property filters (event or person) that scope which generations match this condition set. */
+      properties?: PreviewConditionPropertiesItem[];
+    }
+
+    /**
+     * * `fixed_window` - Fixed window
+     * * `inactivity` - Inactivity
+     */
+    export type PreviewSettleStrategyEnum = typeof PreviewSettleStrategyEnum[keyof typeof PreviewSettleStrategyEnum];
+
+
+    export const PreviewSettleStrategyEnum = {
+      FixedWindow: 'fixed_window',
+      Inactivity: 'inactivity',
+    } as const;
+
+    /**
+     * The evaluation's own `target_config` works here, so a client sends it as it is.
+     */
+    export interface TestHogTargetConfig {
+      /** The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.
+       *
+       * * `fixed_window` - Fixed window
+       * * `inactivity` - Inactivity */
+      strategy?: PreviewSettleStrategyEnum;
+      /**
+         * Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.
+         * @minimum 10
+         * @maximum 604800
+         */
+      window_seconds?: number;
+      /**
+         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.
+         * @minimum 10
+         * @maximum 86400
+         */
+      quiet_period_seconds?: number;
+    }
+
+    /**
+     * What a preview samples from: the unsaved evaluation's conditions and target.
+     */
+    export interface EvaluationSampleTrafficRequest {
+      /** Optional trigger conditions to filter which events are sampled. */
+      conditions?: PreviewCondition[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
+      /**
+         * How many units to return, 5 by default. Sessions return at most 3, the number a session test covers.
+         * @minimum 1
+         * @maximum 10
+         */
+      count?: number;
+    }
+
+    export interface EvaluationSampleTrafficResponse {
+      results: EvaluationSampleTrafficItem[];
+    }
+
+    /**
+     * Same as on an evaluation: {prompt, judge_method}.
+     */
+    export type EvaluationTestOnSampleRequestEvaluationConfig = {
+      /**
+         * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+         * @minLength 1
+         */
+      prompt: string;
+      /**
+         * Judge method. Omit to keep the saved method; null restores automatic routing.
+         * @nullable
+         */
+      judge_method?: 'llm' | 'decision' | null;
+      /** Set to false to judge text only. */
+      include_media?: boolean;
+      /**
+         * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+         * @nullable
+         */
+      reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null;
+    } | {
+      /**
+         * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
+         * @minLength 1
+         */
+      source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
+      source?: 'user_messages';
+    };
+
+    export type EvaluationTestOnSampleRequestOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
+    /**
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type EvaluationTestOnSampleRequestOutputConfigSelectionMode = typeof EvaluationTestOnSampleRequestOutputConfigSelectionMode[keyof typeof EvaluationTestOnSampleRequestOutputConfigSelectionMode];
+
+
+    export const EvaluationTestOnSampleRequestOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+     */
+    export type EvaluationTestOnSampleRequestOutputConfigPassingRule = {
+      /** Pass at or above (gte), or at or below (lte), the threshold. */
+      operator: 'gte' | 'lte';
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    } | {
+      /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+      categories: string[];
+    } | null;
+
+    /**
+     * Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.
+     */
+    export type EvaluationTestOnSampleRequestOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
+      /**
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional positive input increment. Does not round evaluation results.
+         * @minimum 0
+         * @exclusiveMinimum true
+         * @nullable
+         */
+      step?: number | null;
+      /**
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
+         * @maxItems 100
+         */
+      options?: EvaluationTestOnSampleRequestOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: EvaluationTestOnSampleRequestOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+      passing_rule?: EvaluationTestOnSampleRequestOutputConfigPassingRule;
+    };
+
+    /**
+     * * `llm_judge` - LLM as a judge
+     */
+    export type TestOnSampleEvaluationTypeEnum = typeof TestOnSampleEvaluationTypeEnum[keyof typeof TestOnSampleEvaluationTypeEnum];
+
+
+    export const TestOnSampleEvaluationTypeEnum = {
+      LlmJudge: 'llm_judge',
+    } as const;
+
+    /**
+     * What a preview samples from: the unsaved evaluation's conditions and target.
+     */
+    export interface EvaluationTestOnSampleRequest {
+      /** Optional trigger conditions to filter which events are sampled. */
+      conditions?: PreviewCondition[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
+      /** 'llm_judge' runs the judge, or the decision model, on your own provider key.
+       *
+       * * `llm_judge` - LLM as a judge */
+      evaluation_type: TestOnSampleEvaluationTypeEnum;
+      /** Same as on an evaluation: {prompt, judge_method}. */
+      evaluation_config: EvaluationTestOnSampleRequestEvaluationConfig;
+      /** Provider and model for an llm_judge, as on an evaluation. Required for llm_judge. */
+      model_configuration?: ModelConfiguration | null;
+      /** Expected output: boolean, numeric, or categorical.
+       *
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `numeric` - Numeric
+       * * `categorical` - Categorical
+       * * `sentiment` - Sentiment */
+      output_type?: OutputTypeEnum;
+      /** Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules. */
+      output_config?: EvaluationTestOnSampleRequestOutputConfig;
+      /**
+         * Test exactly these units instead of sampling, up to 3: generation event UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and unknown IDs are skipped.
+         * @maxItems 3
+         * @items.maxLength 400
+         */
+      sample_ids?: string[];
     }
 
     export type EvaluationsOverviewIntervalEnum = typeof EvaluationsOverviewIntervalEnum[keyof typeof EvaluationsOverviewIntervalEnum];
@@ -61767,6 +62051,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -61822,6 +62107,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
@@ -61877,6 +62163,7 @@ export namespace Schemas {
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
        * * `email` - Email
+       * * `email_sandbox` - Email Sandbox
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
@@ -62043,6 +62330,7 @@ export namespace Schemas {
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
        * * `email` - Email
+       * * `email_sandbox` - Email Sandbox
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
@@ -74798,7 +75086,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source: string;
@@ -75416,6 +75704,31 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
+    export interface ReleaseOwnerDTO {
+      id: number;
+      first_name: string;
+    }
+
+    export interface ReleaseDTO {
+      /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
+      readonly has_hidden_flags: boolean;
+      id: string;
+      name: string;
+      description: string;
+      owner: ReleaseOwnerDTO | null;
+      feature_flag_ids: number[];
+      created_at: string;
+    }
+
+    export interface PaginatedReleaseDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReleaseDTO[];
+    }
+
     /**
      * * `daily` - Daily
      * * `weekly` - Weekly
@@ -75891,17 +76204,19 @@ export namespace Schemas {
     }
 
     /**
-     * * `self_driving` - SELF_DRIVING
-     * * `manual` - MANUAL
-     * * `label` - LABEL
-     * * `all` - ALL
+     * * `self_driving` - Self-driving
+     * * `manual` - Manual
+     * * `reviewhog_clean` - Clean PostHog Review
+     * * `label` - Label
+     * * `all` - All
      */
-    export type ReviewRunTriggerEnum = typeof ReviewRunTriggerEnum[keyof typeof ReviewRunTriggerEnum];
+    export type ReviewTriggerEnum = typeof ReviewTriggerEnum[keyof typeof ReviewTriggerEnum];
 
 
-    export const ReviewRunTriggerEnum = {
+    export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
       Manual: 'manual',
+      ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
       All: 'all',
     } as const;
@@ -76024,13 +76339,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly delivery_id: string | null;
-      /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
+      /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
-       * * `self_driving` - SELF_DRIVING
-       * * `manual` - MANUAL
-       * * `label` - LABEL
-       * * `all` - ALL */
-      readonly trigger: ReviewRunTriggerEnum;
+       * * `self_driving` - Self-driving
+       * * `manual` - Manual
+       * * `reviewhog_clean` - Clean PostHog Review
+       * * `label` - Label
+       * * `all` - All */
+      readonly trigger: ReviewTriggerEnum;
       /** Current stage of the review run's lifecycle.
        *
        * * `queued` - QUEUED
@@ -78012,8 +78328,10 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
       readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      readonly review_on_clean_external_review: boolean;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode or routing_fork_labels.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -83920,13 +84238,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
@@ -84246,8 +84557,6 @@ export namespace Schemas {
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
       /** The engine that runs this view, and what the product can do with it. */
       readonly engine?: ViewEngine;
-      /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-      readonly is_raw_managed_trino?: boolean;
     }
 
     /**
@@ -87951,7 +88260,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source?: string;
@@ -90703,6 +91012,8 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      review_on_clean_external_review?: boolean;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -92509,6 +92820,27 @@ export namespace Schemas {
          * @maxItems 10
          */
       widgets?: UpdateDashboardWidgetRequest[];
+    }
+
+    export interface PatchedUpdateRelease {
+      /**
+         * Name of the release.
+         * @maxLength 255
+         */
+      name?: string;
+      /** What changes for the people who get the release. */
+      description?: string;
+      /**
+         * ID of the user who owns the release. Must be a member of the project's organization.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /**
+         * IDs of the feature flags that control who gets the release.
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      feature_flag_ids?: number[];
     }
 
     /**
@@ -94711,6 +95043,22 @@ export namespace Schemas {
       preferences_url: string;
     }
 
+    /**
+     * * `pass` - Pass
+     * * `fail` - Fail
+     * * `na` - Not applicable
+     * * `error` - Error
+     */
+    export type PreviewOutcomeEnum = typeof PreviewOutcomeEnum[keyof typeof PreviewOutcomeEnum];
+
+
+    export const PreviewOutcomeEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Na: 'na',
+      Error: 'error',
+    } as const;
+
     export interface PreviewPathCleaningSuggestionResponse {
       /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
       examples: PathCleaningPreviewExample[];
@@ -96660,9 +97008,9 @@ export namespace Schemas {
     }
 
     export interface ProjectLimits {
-      /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+      /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
       max_training_runs_per_day: number;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       training_runs_used: number;
       /**
          * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
@@ -112923,6 +113271,8 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      review_on_clean_external_review?: boolean;
     }
 
     export interface StamphogRoutingFile {
@@ -117196,24 +117546,20 @@ export namespace Schemas {
       passing_rule?: TestHogRequestOutputConfigPassingRule;
     };
 
-    export type TestHogRequestConditionsItem = { [key: string]: unknown };
-
-    export interface TestHogTargetConfig {
-      /**
-         * Aggregation window for trace samples, in seconds.
-         * @minimum 10
-         * @maximum 7200
-         */
-      window_seconds?: number;
-      /**
-         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
-         * @minimum 10
-         * @maximum 86400
-         */
-      quiet_period_seconds?: number;
-    }
-
+    /**
+     * What a preview samples from: the unsaved evaluation's conditions and target.
+     */
     export interface TestHogRequest {
+      /** Optional trigger conditions to filter which events are sampled. */
+      conditions?: PreviewCondition[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
       /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
        *
        * * `boolean` - Boolean (Pass/Fail)
@@ -117235,16 +117581,12 @@ export namespace Schemas {
       sample_count?: number;
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Optional trigger conditions to filter which events are sampled. */
-      conditions?: TestHogRequestConditionsItem[];
-      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
-       *
-       * * `generation` - Generation
-       * * `trace` - Trace
-       * * `session` - Session */
-      target?: EvaluationTargetEnum;
-      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
-      target_config?: TestHogTargetConfig;
+      /**
+         * Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.
+         * @maxItems 10
+         * @items.maxLength 400
+         */
+      sample_ids?: string[];
     }
 
     export interface TestHogResultItem {
@@ -117295,6 +117637,13 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** How the evaluation's passing rule grades this result: pass, fail, na for a not-applicable result, or error. Null when there is no rule to grade it, such as a score with no passing rule.
+       *
+       * * `pass` - Pass
+       * * `fail` - Fail
+       * * `na` - Not applicable
+       * * `error` - Error */
+      outcome: PreviewOutcomeEnum | null;
     }
 
     export interface TestHogResponse {
@@ -117634,6 +117983,8 @@ export namespace Schemas {
       id: string;
       kind: TraceNodeKindEnum;
       name: string;
+      /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+      label: string;
       model: string | null;
       stats: TraceNodeStats;
       hasError: boolean;
@@ -117730,6 +118081,8 @@ export namespace Schemas {
       /** The cluster's id within its run. -1 is the run's outliers. */
       clusterId: number;
       title: string | null;
+      /** The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title. */
+      label: string;
       description: string | null;
       /** The trace fit no cluster in this run. */
       isOutlier: boolean;
@@ -117948,6 +118301,16 @@ export namespace Schemas {
       thumbsDown: number;
     }
 
+    export interface TraceStepFeedback {
+      /** The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      responseCount: number;
+      /** Scores plus responses. */
+      total: number;
+    }
+
     export interface TraceFeedback {
       /** Oldest first. */
       scores: TraceFeedbackScore[];
@@ -117958,6 +118321,8 @@ export namespace Schemas {
       /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
       surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
+      /** One entry per node with feedback, sorted by node id. */
+      steps: TraceStepFeedback[];
     }
 
     export interface TraceHumanReviewScore {
@@ -118196,9 +118561,9 @@ export namespace Schemas {
     export interface TrainingRunCapReached {
       /** Why the run did not start. */
       detail: string;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       used: number;
-      /** Sandbox training runs the project may start in any 24 hours. */
+      /** The project's daily limit of sandbox training runs. */
       limit: number;
       /**
          * When the next training run can start. Null when training runs are turned off for the project.
@@ -121938,6 +122303,27 @@ export namespace Schemas {
       grantable_scopes: string[];
       /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
       risky_scopes: WorkloadProvidersResponseRiskyScopes;
+    }
+
+    export interface WriteRelease {
+      /**
+         * Name of the release.
+         * @maxLength 255
+         */
+      name: string;
+      /** What changes for the people who get the release. */
+      description?: string;
+      /**
+         * ID of the user who owns the release. Must be a member of the project's organization.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /**
+         * IDs of the feature flags that control who gets the release.
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      feature_flag_ids?: number[];
     }
 
     export interface ZendeskImportError {
@@ -127327,13 +127713,6 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    export type AiObservabilityTracesRetrieveParams = {
-    /**
-     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
-     */
-    timestamp_hint?: string;
-    };
-
     export type AiObservabilityTracesClustersRetrieveParams = {
     /**
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
@@ -127402,6 +127781,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -130426,6 +130812,10 @@ export namespace Schemas {
 
     export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated early access feature IDs, at most 200.
+     */
+    ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -132350,6 +132740,10 @@ export namespace Schemas {
      */
     feature_flag_id?: number;
     /**
+     * Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.
+     */
+    feature_flag_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -132456,6 +132850,10 @@ export namespace Schemas {
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number;
+    /**
+     * Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.
+     */
+    feature_flag_ids?: string;
     /**
      * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
      */
@@ -132800,6 +133198,10 @@ export namespace Schemas {
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts;
+    /**
+     * Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.
+     */
+    ids?: string;
     /**
      * Filter by exact feature flag key match. Case insensitive.
      */
@@ -134929,6 +135331,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -134995,6 +135398,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
@@ -137476,6 +137880,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -137867,6 +138283,10 @@ export namespace Schemas {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string;
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string;
     };
 
     export type SchemaPropertyGroupsListParams = {
@@ -139089,7 +139509,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -139101,6 +139521,7 @@ export namespace Schemas {
       All: 'all',
       Label: 'label',
       Manual: 'manual',
+      ReviewhogClean: 'reviewhog_clean',
       SelfDriving: 'self_driving',
     } as const;
 

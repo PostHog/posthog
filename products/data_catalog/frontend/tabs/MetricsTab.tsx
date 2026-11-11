@@ -63,12 +63,10 @@ function SourceTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     if (metric.created_source !== 'ai_generated') {
         return <span className="text-secondary">User</span>
     }
-    const confidencePercent = metric.confidence != null ? `${Math.round(metric.confidence * 100)}%` : 'unknown'
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <span>Confidence: {confidencePercent}</span>
                     {metric.ai_model && <span>Model: {metric.ai_model}</span>}
                     {metric.reasoning && <span>{metric.reasoning}</span>}
                 </div>
@@ -505,7 +503,7 @@ export function MetricsTab(): JSX.Element {
                                     <span>{`(${reviewQueue.length})`}</span>
                                 </h3>
                                 <span className="text-xs text-secondary">
-                                    Drifted metrics come first, then your proposals, then AI proposals by confidence.
+                                    Drifted metrics come first, then your proposals, then AI proposals.
                                 </span>
                             </div>
                             <LemonTable
