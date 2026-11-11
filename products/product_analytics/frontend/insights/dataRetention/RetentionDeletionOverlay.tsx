@@ -43,14 +43,15 @@ export function RetentionDeletionOverlay(chart: RetentionDeletionChart): JSX.Ele
     const { timezone } = useValues(teamLogic)
     const { labels, scales, dimensions } = useChartLayout()
     const { x: xScale, extent: bandWidth } = scales
+    const cutoff = showsRetentionDeletion(chart) ? deletionCutoff : null
 
     const edgeX = useMemo(
-        () => (deletionCutoff ? deletionEdgeX(labels, xScale, bandWidth, deletionCutoff, timezone) : null),
-        [labels, xScale, bandWidth, deletionCutoff, timezone]
+        () => (cutoff ? deletionEdgeX(labels, xScale, bandWidth, cutoff, timezone) : null),
+        [labels, xScale, bandWidth, cutoff, timezone]
     )
 
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
-    if (edgeX === null || !showsRetentionDeletion(chart)) {
+    if (edgeX === null) {
         return null
     }
     const plotRight = plotLeft + plotWidth
