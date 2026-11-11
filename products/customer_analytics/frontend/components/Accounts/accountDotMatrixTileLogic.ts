@@ -148,7 +148,7 @@ export interface accountDotMatrixTileLogicActions {
         selectedSeries: string[]
     }
     setWeeks: (weeks: DotMatrixWeeks) => {
-        weeks: 4 | 8 | 12 | 26
+        weeks: number
     }
 }
 
@@ -547,7 +547,10 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                     return
                 }
                 const result = values.matrixResult
-                const query = values.lastRunQuery ?? (result?.kind === 'hogql' ? result.query : null)
+                const source = values.config.source
+                const query =
+                    values.lastRunQuery ??
+                    (result?.kind === 'hogql' ? result.query : source?.kind === 'hogql' ? source.query : null)
                 if (query !== null) {
                     actions.loadMatrix({ kind: 'hogql', query, mapping: values.mappingDraft })
                 } else if (result) {

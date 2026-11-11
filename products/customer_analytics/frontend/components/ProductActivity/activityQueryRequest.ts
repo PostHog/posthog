@@ -1,6 +1,7 @@
 import type { DisposablesManager } from 'kea-disposables'
 
 import { uuid } from 'lib/utils/dom'
+import { shouldCancelQuery } from 'lib/utils/requests'
 
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
@@ -9,8 +10,10 @@ import type { DataNode, RefreshType } from '~/queries/schema/schema-general'
 export class ActivityQueryRequest {
     private readonly controller = new AbortController()
     private readonly pending = new Set<string>()
+    private readonly teamId: number | null
 
     constructor(disposables: DisposablesManager, key: string, teamId: number | null) {
+        this.teamId = teamId
         disposables.add(
             () => () => {
                 this.controller.abort()
@@ -38,6 +41,11 @@ export class ActivityQueryRequest {
         this.pending.add(queryId)
         try {
             return await execute(this.signal, queryId)
+        } catch (error) {
+            if (shouldCancelQuery(error) && !this.signal.aborted) {
+                void cancelQueryOnServer(this.teamId, queryId)
+            }
+            throw error
         } finally {
             this.pending.delete(queryId)
         }

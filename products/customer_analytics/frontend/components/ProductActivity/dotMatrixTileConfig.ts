@@ -1,5 +1,5 @@
 export const DOT_MATRIX_WEEK_OPTIONS = [4, 8, 12, 26] as const
-export type DotMatrixWeeks = (typeof DOT_MATRIX_WEEK_OPTIONS)[number]
+export type DotMatrixWeeks = number
 const DEFAULT_WEEKS: DotMatrixWeeks = 8
 
 // Matches ACCOUNT_VIEW_CONFIG_MAX_BYTES in the backend's account view validation.
@@ -87,7 +87,11 @@ export function getDotMatrixTileSource(source: unknown): DotMatrixTileSource | n
 
 export function getDotMatrixTileConfig(config?: Record<string, unknown>): DotMatrixTileConfig {
     const selectedSeries = config?.selectedSeries
-    const weeks = DOT_MATRIX_WEEK_OPTIONS.find((option) => option === config?.weeks) ?? DEFAULT_WEEKS
+    const savedWeeks = config?.weeks
+    const weeks =
+        typeof savedWeeks === 'number' && Number.isInteger(savedWeeks) && savedWeeks >= 4 && savedWeeks <= 26
+            ? savedWeeks
+            : DEFAULT_WEEKS
     const source = getDotMatrixTileSource(config?.source)
     return {
         mode: config?.mode === 'count' ? 'count' : 'dots',
