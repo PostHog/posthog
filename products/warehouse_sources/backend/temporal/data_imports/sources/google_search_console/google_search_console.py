@@ -770,6 +770,25 @@ def google_search_console_source(
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
 
+        if "searchAppearance" in dimensions:
+            # A property without rich results never gets a watermark, so the walk below would make one
+            # slow call per day of the full history. One call over the window says whether any day has rows.
+            probe_start = max(start_date.isoformat(), resume_date or "")
+            probe_end = end_date.isoformat()
+            if probe_start > probe_end:
+                return
+            if probe_start < probe_end and not _query_search_analytics(
+                session=session,
+                site_url=site_url,
+                start_date=probe_start,
+                end_date=probe_end,
+                dimensions=dimensions,
+                start_row=0,
+                data_state=data_state,
+                search_type=search_type,
+            ):
+                return
+
         for current in _iter_dates(start_date, end_date):
             iso = current.isoformat()
             # Skip past dates already fully fetched on resume.
