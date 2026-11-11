@@ -217,6 +217,7 @@ describe('traceViewModelLogic', () => {
         ['a node in the tree', { requestedStepId: 'span-1' }, 'span-1'],
         ['an SDK id through its alias', { requestedStepId: 'sdk-gen-1' }, 'gen-1'],
         ['a stale id as the root', { requestedStepId: 'missing' }, 'trace-1'],
+        ['a stale id named like an object member as the root', { requestedStepId: 'constructor' }, 'trace-1'],
         ['the trace itself as the root, not the default node', { requestedStepId: 'trace-1' }, 'trace-1'],
         ['no id as the default node', {}, 'gen-1'],
         ['a trace-level link as the root', { openingMode: 'summary' }, 'trace-1'],
@@ -640,13 +641,13 @@ describe('traceViewModelLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadRawNode('span-1')
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'error' })
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'error' })
 
         logic.actions.selectNode('span-1')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(rawRequests).toEqual(['span-1', 'span-1'])
-        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
     })
 
     it('keeps mode and step tab when the trace changes', async () => {
