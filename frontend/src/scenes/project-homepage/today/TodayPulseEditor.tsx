@@ -30,6 +30,7 @@ import {
     suggestionsOnHome,
     withoutKeys,
 } from './todayPulseEditorRows'
+import { TodayPulseInsightHover } from './TodayPulseInsightHover'
 
 function IgnoredToggleItem({ count, open }: { count: number; open: boolean }): JSX.Element {
     const Chevron = open ? IconChevronDown : IconChevronRight
@@ -227,7 +228,13 @@ export function TodayPulseEditor(): JSX.Element {
                                             }
                                             data-attr="today-pulse-pin"
                                         >
-                                            <span className="min-w-0 truncate">{rowByKey.get(key)?.name}</span>
+                                            {key.startsWith('insight:') ? (
+                                                <TodayPulseInsightHover shortId={key.slice('insight:'.length)}>
+                                                    {rowByKey.get(key)?.name}
+                                                </TodayPulseInsightHover>
+                                            ) : (
+                                                <span className="min-w-0 truncate">{rowByKey.get(key)?.name}</span>
+                                            )}
                                         </ComboboxItem>
                                     )
                                 }}
