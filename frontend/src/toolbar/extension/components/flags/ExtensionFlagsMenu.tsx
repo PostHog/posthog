@@ -7,12 +7,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { FeatureFlagRow } from '~/toolbar/shared/flags/FeatureFlagRow'
+import { FlagCompareButton } from '~/toolbar/shared/flags/FlagCompareButton'
 import { urls } from '~/toolbar/shared/urls'
 
 import { extensionFlagsLogic } from '../../logics/panel/extensionFlagsLogic'
 import { extensionPanelLogic } from '../../logics/panel/extensionPanelLogic'
 import { ExtensionToolLoading } from '../panel/ExtensionToolLoading'
 import { NoPagePosthogBanner } from '../panel/NoPagePosthogBanner'
+import { ExtensionFlagComparison } from './ExtensionFlagComparison'
 
 export function ExtensionFlagsMenu(): JSX.Element {
     const {
@@ -23,6 +25,9 @@ export function ExtensionFlagsMenu(): JSX.Element {
         impersonationOpen,
         draftDistinctId,
         draftPayloads,
+        flagComparison,
+        comparingFlagKey,
+        comparisonError,
     } = useValues(extensionFlagsLogic)
     const { projectUrl } = useValues(extensionPanelLogic)
     const {
@@ -39,10 +44,15 @@ export function ExtensionFlagsMenu(): JSX.Element {
         setDraftDistinctId,
         impersonate,
         clearImpersonation,
+        compareFlag,
+        closeComparison,
     } = useActions(extensionFlagsLogic)
 
     if (!flagsState) {
         return <ExtensionToolLoading />
+    }
+    if (flagComparison) {
+        return <ExtensionFlagComparison />
     }
     const { available, loading, countFlagsOverridden, impersonatedDistinctId, mutationError } = flagsState
     const submitDistinctId = (): void => {
@@ -61,6 +71,24 @@ export function ExtensionFlagsMenu(): JSX.Element {
                     Couldn't change the flags on this page: {mutationError} Reload the page and try again.
                 </LemonBanner>
             )}
+            {comparisonError === 'overrides_changed' ? (
+                <LemonBanner type="info" onClose={closeComparison}>
+                    The comparison stopped because the flag overrides changed. Start it again to compare.
+                </LemonBanner>
+            ) : comparisonError === 'capture_still_running' ? (
+                <LemonBanner type="info" onClose={closeComparison}>
+                    The last capture is still finishing. Try again in a few seconds.
+                </LemonBanner>
+            ) : comparisonError === 'captures_too_large' ? (
+                <LemonBanner type="error" onClose={closeComparison}>
+                    The page is too long to show its comparison here. Try a shorter page, or a flag with fewer variants.
+                </LemonBanner>
+            ) : comparisonError ? (
+                <LemonBanner type="error" onClose={closeComparison}>
+                    Couldn't capture the page. Images or fonts from other sites can block the capture. Try again on a
+                    page without them.
+                </LemonBanner>
+            ) : null}
             <div className="flex items-center gap-1">
                 <LemonInput
                     className="flex-1 min-w-0"
@@ -110,7 +138,13 @@ export function ExtensionFlagsMenu(): JSX.Element {
                     <LemonButton
                         size="small"
                         type="secondary"
-                        disabledReason={draftDistinctId.trim() ? null : 'Enter a distinct ID'}
+                        disabledReason={
+                            comparingFlagKey
+                                ? 'Wait for the comparison to finish'
+                                : draftDistinctId.trim()
+                                  ? null
+                                  : 'Enter a distinct ID'
+                        }
                         onClick={submitDistinctId}
                     >
                         Load
@@ -133,6 +167,14 @@ export function ExtensionFlagsMenu(): JSX.Element {
                             onPayloadDraftChange={(draft) => setDraftPayload(flag.key, draft)}
                             onSavePayload={() => savePayload(flag.key)}
                             onClosePayloadEditor={() => closePayloadEditor(flag.key)}
+                            actions={
+                                <FlagCompareButton
+                                    comparing={comparingFlagKey === flag.key}
+                                    disabledReason={mutationDisabledReason}
+                                    onCompare={() => compareFlag(flag)}
+                                    dataAttr="toolbar-extension-flag-compare"
+                                />
+                            }
                             dataAttrPrefix="toolbar-extension-flag"
                         />
                     ))}
