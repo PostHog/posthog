@@ -95,16 +95,20 @@ describe('WorkflowsActivationReporter', () => {
         expect(capture).not.toHaveBeenCalled()
     })
 
-    it('reports no email sent and reads the organization members once a minute while they cannot be read', async () => {
+    it('reports no email sent for a minute after the organization members cannot be read', async () => {
         jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z'), doNotFake: ['setTimeout', 'clearTimeout'] })
+        unreachablePostgres.query
+            .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+            .mockResolvedValue({ rows: [{ organization_id: 'org-id', email: 'member@example.com' }] })
 
         await reporter.reportEmailSent(2, 'flow-1', ['outsider@example.com'])
         await reporter.reportEmailSent(2, 'flow-2', ['outsider@example.com'])
         jest.setSystemTime(new Date('2026-10-03T10:01:00Z'))
         await reporter.reportEmailSent(2, 'flow-3', ['outsider@example.com'])
 
-        expect(capture).not.toHaveBeenCalled()
-        expect(unreachablePostgres.query).toHaveBeenCalledTimes(2)
+        expect(capture.mock.calls).toEqual([
+            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: true, workflow_id: 'flow-3' }],
+        ])
     })
 
     it('reports no email sent beyond the pending limit while the organization members load', async () => {
