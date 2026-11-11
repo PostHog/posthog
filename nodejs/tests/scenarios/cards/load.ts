@@ -143,9 +143,6 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
         ...Object.keys(profile.settings)
             .filter((name) => !Object.hasOwn(defaults, name) && !PROCESS_ENV_SETTINGS.includes(name))
             .map((name) => `profile.settings.${name}: not a setting the roles read`),
-        ...(profile.name === card.profile
-            ? []
-            : [`profile.name: ${profile.name} is not the card profile ${card.profile}`]),
         ...card.drive.traffic.flatMap(({ name }) => {
             const definition = definitions.traffic.find((traffic) => traffic.name === name)
             const traffic = definition?.profile.safeParse(profile.traffic[name])
