@@ -161,7 +161,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -921,15 +921,18 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    dashboard = serializers.IntegerField(help_text="ID of the dashboard to show for the scene, in the current team.")
+
     class Meta:
         model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
         read_only_fields = ["user", "team"]
 
-    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+    def validate_dashboard(self, value: int) -> int:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        dashboard_team_id = find_dashboard_team_id(dashboard_id=value)
+        if dashboard_team_id is None or instance.current_team is None or dashboard_team_id != instance.current_team.id:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
@@ -955,7 +958,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
-            defaults={"dashboard": validated_data["dashboard"]},
+            defaults={"dashboard_id": validated_data["dashboard"]},
         )
 
 

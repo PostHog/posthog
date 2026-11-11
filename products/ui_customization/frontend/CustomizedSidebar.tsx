@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SortableSidebarList } from '~/layout/today/sidebar/SortableSidebarList'
 
 import type {
     AnalyticsFragmentButtonApi,
@@ -48,6 +49,8 @@ export interface CustomizedSidebarProps {
             item: AnalyticsFragmentLinkApi | AnalyticsFragmentButtonApi
         ) => Omit<SidebarNavigationItem, 'value'> | null
         lists: Partial<Record<AnalyticsListSourceApi, SidebarNavigationItem[]>>
+        /** Lists whose rows can be dragged into a new order. Indexes refer to the list as given. */
+        reorder?: Partial<Record<AnalyticsListSourceApi, (fromIndex: number, toIndex: number) => void>>
         metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
     customization: { prompt: string; event: string }
@@ -71,6 +74,15 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
         const row = <SidebarRow {...item} />
         return <Fragment key={item.value}>{item.wrap ? item.wrap(row) : row}</Fragment>
     }
+    const renderList = (source: AnalyticsListSourceApi, key: string): JSX.Element[] => {
+        const rows = props.navigation.lists[source] ?? []
+        const onReorder = props.navigation.reorder?.[source]
+        // A filtered list hides rows, so a drop there has no clear place in the full order.
+        if (onReorder && rows.length > 1 && !props.search.query.trim()) {
+            return [<SortableSidebarList key={key} rows={rows} renderRow={renderRow} onReorder={onReorder} />]
+        }
+        return rows.filter((row) => matches(row.label)).map(renderRow)
+    }
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <SidebarSearchList
@@ -93,9 +105,7 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                     renderItem={(section, item, index) => {
                         const value = `${section.id}:${index}`
                         if (item.type === 'list') {
-                            return (props.navigation.lists[item.source] ?? [])
-                                .filter((row) => matches(row.label))
-                                .map(renderRow)
+                            return renderList(item.source, value)
                         }
                         if (item.type === 'metric') {
                             return matches(item.label)

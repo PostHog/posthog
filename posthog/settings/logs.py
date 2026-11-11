@@ -184,6 +184,10 @@ LOGGING: dict[str, Any] = {
         # while the refusal beside it logs at WARNING, so the gap is invisible without this.
         "posthog.security.url_validation": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.dns_hosts": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.domain_connect": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.models.organization_domain": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.temporal.proxy_service.create": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.temporal.proxy_service.monitor": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.
