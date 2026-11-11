@@ -24,11 +24,12 @@ const PUBLIC: &str = "public:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageDecline {
-    /// The dataset keeps no AVIF image, inline or fetched.
+    /// An AVIF that is not a still image the image scrub decodes: an animation, or AVIF only as a compatible brand under
+    /// another major brand.
     Avif,
     OverLimit,
     Undecodable,
-    /// Bytes of another format than PNG, JPEG, GIF or WebP, the formats the image scrub reads.
+    /// Bytes of another format than PNG, JPEG, GIF, WebP or still AVIF, the formats the image scrub reads.
     Unsupported,
 }
 
