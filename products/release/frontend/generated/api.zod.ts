@@ -14,6 +14,8 @@ import * as zod from 'zod'
  */
 export const releasesCreateBodyNameMax = 255
 
+export const releasesCreateBodyFeatureFlagIdsItemMax = 2147483647
+
 export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesCreateBodyNameMax).describe('Name of the release.'),
     description: zod.string().optional().describe('What changes for the people who get the release.'),
@@ -22,7 +24,7 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe("ID of the user who owns the release. Must be a member of the project's organization."),
     feature_flag_ids: zod
-        .array(zod.number())
+        .array(zod.number().min(1).max(releasesCreateBodyFeatureFlagIdsItemMax))
         .optional()
         .describe('IDs of the feature flags that control who gets the release.'),
 })
@@ -32,6 +34,8 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const releasesPartialUpdateBodyNameMax = 255
 
+export const releasesPartialUpdateBodyFeatureFlagIdsItemMax = 2147483647
+
 export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesPartialUpdateBodyNameMax).optional().describe('Name of the release.'),
     description: zod.string().optional().describe('What changes for the people who get the release.'),
@@ -40,7 +44,7 @@ export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe("ID of the user who owns the release. Must be a member of the project's organization."),
     feature_flag_ids: zod
-        .array(zod.number())
+        .array(zod.number().min(1).max(releasesPartialUpdateBodyFeatureFlagIdsItemMax))
         .optional()
         .describe('IDs of the feature flags that control who gets the release.'),
 })

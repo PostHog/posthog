@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { Badge, Dot, Text, cn } from '@posthog/quill'
 
@@ -14,6 +15,8 @@ const BEFORE = 17
 const AFTER = 60
 const NAME = 280
 const ROW = 48
+const HEADER = 56
+const OVERSCAN = 6
 
 const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badge?: 'info' | 'warning' | 'default' }> =
     {
@@ -31,11 +34,26 @@ export function ReleaseTimeline(): JSX.Element {
     const days = Array.from({ length: total }, (_, index) => start.add(index, 'day'))
     const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
     const months = days.filter((day, index) => index === 0 || day.date() === 1)
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const [scrollTop, setScrollTop] = useState(0)
+    const [viewHeight, setViewHeight] = useState(0)
+
+    useEffect(() => {
+        setViewHeight(scrollRef.current?.clientHeight ?? 0)
+    }, [filteredRows.length])
+
+    const first = Math.max(0, Math.floor((scrollTop - HEADER) / ROW) - OVERSCAN)
+    const last = Math.min(filteredRows.length, Math.ceil((scrollTop + viewHeight) / ROW) + OVERSCAN)
 
     return (
         <div
+            ref={scrollRef}
             className="overflow-auto rounded-lg border border-border bg-background"
             style={{ maxHeight: 'calc(100vh - 230px)' }}
+            onScroll={(event) => {
+                setScrollTop(event.currentTarget.scrollTop)
+                setViewHeight(event.currentTarget.clientHeight)
+            }}
             data-attr="release-timeline"
         >
             <div className="relative" style={{ width: NAME + total * DAY }}>
@@ -87,7 +105,8 @@ export function ReleaseTimeline(): JSX.Element {
                         ))}
                     </div>
                 </div>
-                {filteredRows.map((row) => (
+                {first > 0 && <div style={{ height: first * ROW }} />}
+                {filteredRows.slice(first, last).map((row) => (
                     <div
                         key={row.id}
                         className="group flex border-b border-border last:border-b-0"
@@ -168,6 +187,7 @@ export function ReleaseTimeline(): JSX.Element {
                         </div>
                     </div>
                 ))}
+                {last < filteredRows.length && <div style={{ height: (filteredRows.length - last) * ROW }} />}
                 {!filteredRows.length && (
                     <div className="sticky left-0 p-8 text-xs text-muted-foreground">
                         {dataLoading ? 'Loading releases…' : 'No release matches these filters.'}

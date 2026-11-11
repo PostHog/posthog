@@ -513,10 +513,14 @@ export function buildReleaseRow(
             key: `change-${change.id}`,
             date: change.executed_at ?? change.scheduled_at,
             kind: 'schedule',
-            title: scheduledChangeLabel(change),
-            detail: flagById.get(String(change.record_id))?.key,
+            title: change.failure_reason
+                ? `Not applied: ${scheduledChangeLabel(change)}`
+                : scheduledChangeLabel(change),
+            detail: change.failure_reason
+                ? `${flagById.get(String(change.record_id))?.key}, the change failed`
+                : flagById.get(String(change.record_id))?.key,
             href: urls.featureFlag(Number(change.record_id)),
-            upcoming: !change.executed_at,
+            upcoming: !change.executed_at && !change.failure_reason,
         })
     }
 

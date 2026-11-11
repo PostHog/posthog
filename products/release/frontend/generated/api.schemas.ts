@@ -43,7 +43,11 @@ export interface WriteReleaseApi {
      * @nullable
      */
     owner_id?: number | null
-    /** IDs of the feature flags that control who gets the release. */
+    /**
+     * IDs of the feature flags that control who gets the release.
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
     feature_flag_ids?: number[]
 }
 
@@ -60,7 +64,11 @@ export interface PatchedUpdateReleaseApi {
      * @nullable
      */
     owner_id?: number | null
-    /** IDs of the feature flags that control who gets the release. */
+    /**
+     * IDs of the feature flags that control who gets the release.
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
     feature_flag_ids?: number[]
 }
 

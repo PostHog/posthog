@@ -13,7 +13,11 @@ import { earlyAccessFeatureList } from 'products/early_access_features/frontend/
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
-import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
+import {
+    featureFlagsList,
+    featureFlagsRetrieve,
+    scheduledChangesList,
+} from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
@@ -27,6 +31,9 @@ interface ReleaseLogicValues {
     releasesLoading: boolean
     flags: FeatureFlagApi[]
     flagsLoading: boolean
+    flagsReady: boolean
+    flagSearchResults: FeatureFlagApi[]
+    flagCount: number
     experiments: ExperimentBasicApi[]
     experimentsLoading: boolean
     earlyAccessFeatures: EarlyAccessFeatureApi[]
@@ -39,7 +46,6 @@ interface ReleaseLogicValues {
     loadFailed: boolean
     scheduleFlagId: number | null
     dataLoading: boolean
-    activeFlags: FeatureFlagApi[]
     rows: ReleaseRow[]
     filteredRows: ReleaseRow[]
     decisionRows: ReleaseRow[]
@@ -54,7 +60,11 @@ interface ReleaseLogicActions {
         changes: PatchedUpdateReleaseApi
     ) => { id: string; changes: PatchedUpdateReleaseApi }
     loadFlags: () => void
+    loadFlagsSuccess: (flags: FeatureFlagApi[]) => { flags: FeatureFlagApi[] }
     loadFlagsFailure: (error: string) => { error: string }
+    loadReleasesSuccess: (releases: ReleaseDTOApi[]) => { releases: ReleaseDTOApi[] }
+    searchFlags: (search: string) => string
+    loadFlagCount: () => void
     loadExperiments: () => void
     loadExperimentsFailure: (error: string) => { error: string }
     loadEarlyAccessFeatures: () => void
@@ -82,6 +92,8 @@ type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
 
 const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
+const FLAG_SEARCH_LIMIT = 50
+const FLAG_FETCH_CONCURRENCY = 8
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
 
@@ -147,15 +159,45 @@ export const releaseLogic = kea<releaseLogicType>([
             {
                 loadFlags: async () => {
                     const projectId = String(values.currentProjectId)
-                    const [active, archived] = await Promise.all([
-                        allPages((offset) => featureFlagsList(projectId, { limit: PAGE_SIZE, offset })),
-                        allPages((offset) =>
-                            featureFlagsList(projectId, { archived: 'true', limit: PAGE_SIZE, offset })
-                        ),
-                    ])
-                    const seen = new Set(active.map((flag) => flag.id))
-                    return [...active, ...archived.filter((flag) => !seen.has(flag.id))]
+                    const ids = [...new Set(values.releases.flatMap((release) => release.feature_flag_ids))]
+                    const flags: FeatureFlagApi[] = []
+                    for (let start = 0; start < ids.length; start += FLAG_FETCH_CONCURRENCY) {
+                        const batch = await Promise.allSettled(
+                            ids
+                                .slice(start, start + FLAG_FETCH_CONCURRENCY)
+                                .map((id) => featureFlagsRetrieve(projectId, id))
+                        )
+                        for (const result of batch) {
+                            if (result.status === 'fulfilled') {
+                                flags.push(result.value)
+                            } else if ((result.reason as { status?: number })?.status !== 404) {
+                                throw result.reason
+                            }
+                        }
+                    }
+                    return flags
                 },
+            },
+        ],
+        flagSearchResults: [
+            [] as FeatureFlagApi[],
+            {
+                searchFlags: async (search: string, breakpoint) => {
+                    await breakpoint(250)
+                    const page = await featureFlagsList(String(values.currentProjectId), {
+                        search: search || undefined,
+                        limit: FLAG_SEARCH_LIMIT,
+                    })
+                    breakpoint()
+                    return page.results ?? []
+                },
+            },
+        ],
+        flagCount: [
+            0,
+            {
+                loadFlagCount: async () =>
+                    (await featureFlagsList(String(values.currentProjectId), { limit: 1 })).count ?? 0,
             },
         ],
         experiments: [
@@ -194,6 +236,7 @@ export const releaseLogic = kea<releaseLogicType>([
         decisionOnly: [false, { setDecisionOnly: (_, { decisionOnly }) => decisionOnly }],
         newReleaseOpen: [false, { setNewReleaseOpen: (_, { open }) => open }],
         creatingRelease: [false, { createRelease: () => true, createReleaseDone: () => false }],
+        flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         loadFailed: [
             false,
             {
@@ -215,22 +258,30 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     selectors({
         dataLoading: [
-            (s) => [s.releasesLoading, s.flagsLoading, s.experimentsLoading, s.flags],
-            (releasesLoading: boolean, flagsLoading: boolean, experimentsLoading: boolean, flags: FeatureFlagApi[]) =>
-                releasesLoading || experimentsLoading || (flagsLoading && !flags.length),
+            (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady],
+            (releasesLoading: boolean, experimentsLoading: boolean, flagsReady: boolean) =>
+                releasesLoading || experimentsLoading || !flagsReady,
         ],
-        activeFlags: [(s) => [s.flags], (flags: FeatureFlagApi[]) => flags.filter((flag) => !flag.archived)],
         rows: [
-            (s) => [s.releases, s.flags, s.experiments, s.earlyAccessFeatures, s.scheduledChanges, s.dataLoading],
+            (s) => [
+                s.releases,
+                s.flags,
+                s.experiments,
+                s.earlyAccessFeatures,
+                s.scheduledChanges,
+                s.flagsReady,
+                s.loadFailed,
+            ],
             (
                 releases: ReleaseDTOApi[],
                 flags: FeatureFlagApi[],
                 experiments: ExperimentBasicApi[],
                 earlyAccessFeatures: EarlyAccessFeatureApi[],
                 scheduledChanges: ScheduledChangeApi[],
-                dataLoading: boolean
+                flagsReady: boolean,
+                loadFailed: boolean
             ): ReleaseRow[] =>
-                dataLoading && !flags.length
+                !flagsReady || loadFailed
                     ? []
                     : releases.map((release) =>
                           buildReleaseRow(release, flags, experiments, earlyAccessFeatures, scheduledChanges)
@@ -260,7 +311,7 @@ export const releaseLogic = kea<releaseLogicType>([
             }
             cache.lastReloadAt = now
             actions.loadReleases()
-            actions.loadFlags()
+            actions.loadFlagCount()
             actions.loadExperiments()
             actions.loadEarlyAccessFeatures()
             actions.loadScheduledChanges()
@@ -294,6 +345,9 @@ export const releaseLogic = kea<releaseLogicType>([
                     if (changes.owner_id !== undefined) {
                         actions.loadReleases()
                     }
+                    if (changes.feature_flag_ids !== undefined) {
+                        actions.loadFlags()
+                    }
                 } catch {
                     lemonToast.error('The change could not be saved. Try again.')
                     actions.loadReleases()
@@ -318,6 +372,9 @@ export const releaseLogic = kea<releaseLogicType>([
                     feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId),
                 })
             }
+        },
+        loadReleasesSuccess: () => {
+            actions.loadFlags()
         },
         closeSchedule: () => {
             actions.loadScheduledChanges()

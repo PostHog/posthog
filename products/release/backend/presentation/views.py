@@ -27,7 +27,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     requires_resource_level_access = True
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
-    lookup_value_regex = "[0-9a-f-]{36}"
+    path_parameters = {"pk": UUID}
 
     @extend_schema(responses={200: ReleaseSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:

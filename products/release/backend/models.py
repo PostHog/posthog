@@ -6,16 +6,15 @@ Avoid ForeignKeys to models outside this app; if needed,
 disallow reverse relations with related_name='+'.
 """
 
-import uuid
-
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import uuid7
 
 
 class Release(TeamScopedRootMixin):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")

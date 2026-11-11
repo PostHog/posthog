@@ -39,7 +39,7 @@ def update_release(release_id: UUID, changes: dict) -> Release:
     release = get_release(release_id)
     for field, value in changes.items():
         setattr(release, field, value)
-    release.save()
+    release.save(update_fields=[*changes.keys(), "updated_at"])
     return get_release(release_id)
 
 

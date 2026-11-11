@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
+import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 
@@ -115,7 +116,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 ]
 
 export function ReleaseList(): JSX.Element {
-    const { filteredRows, dataLoading } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, loadFailed } = useValues(releaseLogic)
 
     return (
         <SceneContent>
@@ -131,7 +132,9 @@ export function ReleaseList(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3">
                 <ReleaseFilters />
-                {dataLoading && !filteredRows.length ? (
+                {loadFailed ? (
+                    <ReleaseLoadError title="Releases could not load" />
+                ) : dataLoading && !filteredRows.length ? (
                     <Skeleton className="h-64 w-full" />
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">

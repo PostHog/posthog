@@ -6,16 +6,19 @@ import { releaseLogic } from './releaseLogic'
 import { ReleaseRow } from './releaseUtils'
 
 export function ReleaseLinkFlagCombobox({ row, placeholder }: { row: ReleaseRow; placeholder?: string }): JSX.Element {
-    const { activeFlags } = useValues(releaseLogic)
-    const { linkFlag } = useActions(releaseLogic)
+    const { flagSearchResults } = useValues(releaseLogic)
+    const { linkFlag, searchFlags } = useActions(releaseLogic)
     const linked = new Set(row.flags.map((flag) => flag.id))
-    const candidates = activeFlags.filter((flag) => !linked.has(flag.id))
+    const candidates = flagSearchResults.filter((flag) => !linked.has(flag.id) && !flag.archived)
     const keys = new Map(candidates.map((flag) => [flag.id, flag.key]))
 
     return (
         <Combobox
             items={candidates.map((flag) => flag.id)}
+            filter={null}
             value={null}
+            onOpenChange={(open: boolean) => open && searchFlags('')}
+            onInputValueChange={(value: string) => searchFlags(value)}
             onValueChange={(flagId: number | null) => flagId !== null && linkFlag(row.id, flagId)}
             itemToStringLabel={(flagId: number) => keys.get(flagId) ?? ''}
         >

@@ -1,5 +1,7 @@
 {
-    "extends": ["//"],
+    "extends": [
+        "//"
+    ],
     "tasks": {
         "backend:contract-check": {
             "inputs": [
@@ -7,6 +9,7 @@
                 "backend/presentation/**",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
+                "backend/routes.py",
                 "backend/models.py",
                 "backend/migrations/**"
             ],

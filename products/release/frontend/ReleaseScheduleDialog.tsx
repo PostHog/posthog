@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import {
     Button,
@@ -15,6 +16,7 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import FeatureFlagSchedule from 'scenes/feature-flags/FeatureFlagSchedule'
+import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
 import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
@@ -23,7 +25,11 @@ import { releaseLogic } from './releaseLogic'
 
 function ScheduleBody({ flagId }: { flagId: number }): JSX.Element {
     const { featureFlag, featureFlagLoading } = useValues(featureFlagLogic)
-    const { loadFeatureFlag } = useActions(featureFlagLogic)
+    const { loadFeatureFlag, setSelectedTab } = useActions(featureFlagLogic)
+
+    useEffect(() => {
+        setSelectedTab(FeatureFlagsTab.SCHEDULE)
+    }, [setSelectedTab])
 
     if (featureFlag.id !== flagId) {
         return featureFlagLoading ? (

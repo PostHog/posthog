@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { IconFlag } from '@posthog/icons'
 
 import { SceneExport } from 'scenes/sceneTypes'
@@ -6,6 +8,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
+import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseTimeline } from './ReleaseTimeline'
 
@@ -15,6 +18,7 @@ export const scene: SceneExport = {
 }
 
 export function ReleaseCalendar(): JSX.Element {
+    const { loadFailed } = useValues(releaseLogic)
     return (
         <SceneContent>
             <SceneTitleSection
@@ -29,7 +33,7 @@ export function ReleaseCalendar(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3">
                 <ReleaseFilters />
-                <ReleaseTimeline />
+                {loadFailed ? <ReleaseLoadError title="Releases could not load" /> : <ReleaseTimeline />}
                 <NewReleaseDialog />
             </div>
         </SceneContent>

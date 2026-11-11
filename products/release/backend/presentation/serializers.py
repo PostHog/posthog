@@ -24,7 +24,7 @@ class WriteReleaseSerializer(serializers.Serializer):
         help_text="ID of the user who owns the release. Must be a member of the project's organization.",
     )
     feature_flag_ids = serializers.ListField(
-        child=serializers.IntegerField(),
+        child=serializers.IntegerField(min_value=1, max_value=2**31 - 1),
         required=False,
         help_text="IDs of the feature flags that control who gets the release.",
     )
