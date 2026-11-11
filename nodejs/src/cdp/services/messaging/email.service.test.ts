@@ -1791,6 +1791,20 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('claims the workflow limit for an email that carries the pacing marker of another email step', async () => {
+                    const emailService = sender()
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    const paid = await emailService.executeSendEmail(invocation)
+                    invocation.id = new UUIDT().toString()
+                    invocation.queueMetadata = { workflowRateClaimed: 'another-email-step' }
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect(paid.finished).toBe(true)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                })
+
                 it('keeps a retry that pacing denies queued with its budget paid, and sends it once pacing lets it', async () => {
                     const emailService = sender({ teamDailyCap: 2 })
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }

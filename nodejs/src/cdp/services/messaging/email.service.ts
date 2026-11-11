@@ -842,7 +842,8 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === true
+            const sendStep = invocation.state.actionId ?? invocation.id
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -960,7 +961,7 @@ export class EmailService {
                     ...invocation.queueMetadata,
                     ownershipCheckRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
-                    ...(workflowRateClaimed ? { workflowRateClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({
                     milliseconds: pickAttachmentLoadRetryDelayMs(retries),
