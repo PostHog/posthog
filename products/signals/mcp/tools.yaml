@@ -126,11 +126,11 @@ tools:
             (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A
             null field follows the project default. `has_overrides: false` means the user saved no overrides, so the
             project defaults apply to every setting.
-        hooks: signals/inboxMySettingsHooks
         param_overrides:
             user_id:
                 description: Always `@me`. The tool reads the settings of the authenticated user and ignores other values.
                 default: '@me'
+        hooks: signals/inboxMySettingsHooks
     inbox-my-settings-update:
         operation: users_signal_autonomy_create
         enabled: true
@@ -148,11 +148,11 @@ tools:
             make it follow the project default again. The API checks `slack_notification_integration_id` against the
             current project of the user, so take the id from integrations-list in that project. Read
             inbox-my-settings-get first and confirm the change with the user.
-        hooks: signals/inboxMySettingsHooks
         param_overrides:
             user_id:
                 description: Always `@me`. The tool changes the settings of the authenticated user and ignores other values.
                 default: '@me'
+        hooks: signals/inboxMySettingsHooks
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
         enabled: true
