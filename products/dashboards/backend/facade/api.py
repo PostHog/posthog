@@ -653,7 +653,7 @@ def plan_insight_tile_placement(
         # The dashboard's public link or subscription must not expose a query the editor can't run.
         from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -690,7 +690,7 @@ def _place_insight_tile(
     # The dashboard's public link or subscription must not expose a query the editor can't run.
     from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
-    check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
+    check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
 
     insight_lookup: dict[str, Any] = (
         {"insight": loaded_insight} if loaded_insight is not None else {"insight_id": insight_id}
@@ -865,6 +865,16 @@ def dashboards_by_last_access(
         return []
     dashboards = usage_logic.by_last_access(team_ids=team_ids, user_access_control=user_access_control, limit=limit)
     return [_to_summary(dashboard) for dashboard in dashboards]
+
+
+def get_project_dashboard(*, project_id: int, dashboard_id: int) -> DashboardSummary | None:
+    """The live dashboard with this id stored on any team of this project, or None.
+
+    Unlike `get_dashboard`, which reads through the project's root team, this also finds a row stored
+    directly on one of the project's environment teams. Does not check object-level access.
+    """
+    dashboard = Dashboard.objects.filter(team__project_id=project_id, pk=dashboard_id).first()
+    return _to_summary(dashboard) if dashboard is not None else None
 
 
 def find_dashboard_team_id(*, dashboard_id: int) -> int | None:
@@ -1054,6 +1064,7 @@ __all__ = [
     "dashboards_created_between",
     "delete_widget_tiles_for_teams",
     "find_dashboard_team_id",
+    "get_project_dashboard",
     "has_user_created_dashboard",
     "home_tab_dashboard_id",
     "insight_ids_on_template_dashboards",

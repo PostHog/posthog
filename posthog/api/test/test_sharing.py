@@ -255,6 +255,8 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
+        exported_data = TestSharedCohortInlining._parse_exported_data(response.content.decode())
+        assert exported_data["dashboard"]["last_accessed_at"] is not None
 
     @parameterized.expand(["shared_dashboard", "shared", "embedded"])
     def test_shared_password_submission_outside_management_ip_policy(self, route: str) -> None:
@@ -2220,6 +2222,33 @@ class TestSharingConfigurationReadAccess(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert (f"{resource}_share_secret" in response.content.decode()) == (expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("stored_on_an_environment", "environment", False, status.HTTP_200_OK),
+            ("another_project", "other_project", False, status.HTTP_404_NOT_FOUND),
+            ("soft_deleted", "root", True, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_sharing_config_reads_only_live_dashboards_of_the_project(
+        self, _name: str, stored_on: str, deleted: bool, expected_status: int
+    ) -> None:
+        owner = Team.objects.create(organization=self.organization) if stored_on == "other_project" else self.team
+        dashboard = Dashboard.objects.create(team=owner, name="Board", deleted=deleted)
+        if stored_on == "environment":
+            environment = Team.objects.create(
+                organization=self.organization, parent_team=self.team, project_id=self.team.project_id
+            )
+            # Saving moves a dashboard to the root team, so only an update stores one on an environment.
+            Dashboard.objects_including_soft_deleted.filter(pk=dashboard.pk).update(team_id=environment.id)
+        SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, access_token="project_board_secret"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == expected_status, response.json()
+        assert ("project_board_secret" in response.content.decode()) == (expected_status == status.HTTP_200_OK)
 
 
 def _warehouse_ac_flag(key: str, *args, **kwargs) -> bool:
