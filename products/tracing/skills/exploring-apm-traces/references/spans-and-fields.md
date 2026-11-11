@@ -24,7 +24,7 @@ Fields returned by `apm-trace-get` and `query-apm-spans`.
 
 **Returned in the payload:** span-level `attributes` (above) — read them straight off the span.
 
-**Not returned in the payload:** resource attributes (k8s labels, `service.version`, deployment metadata). Discover them via `apm-attributes-list` (type `resource`) and fetch values via `apm-attribute-values-list`.
+**Not returned in the payload:** resource attributes (k8s labels, `service.version`, deployment metadata). Discover them via `apm-attributes-list` with `attribute_type: "span_resource_attribute"` and fetch values via `apm-attribute-values-list`.
 
 ## `kind` enum (OpenTelemetry span kind)
 
