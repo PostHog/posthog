@@ -26,7 +26,8 @@ The flow:
 The setup call repeats every consent check, because membership, plan and domains can change
 in between. A failure is an RFC 6749 style `error` and `error_description`, which the client
 shows to the admin: `access_denied` when the person no longer administers the organization or
-it can't use XAA, `issuer_in_use` when any other configuration already trusts the issuer, and
+it can't use XAA, `issuer_in_use` when another configuration in the organization or another
+organization's client-registered configuration already trusts the issuer, and
 `invalid_request` for a malformed issuer. A second registration from the same client replaces
 its configuration, so ID-JAGs from the previous issuer stop working.
 
@@ -42,6 +43,7 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 from django.db import connection, transaction
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -55,6 +57,7 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, lock_id_jag_issuer
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel
 from posthog.models.organization import Organization, OrganizationMembership
@@ -103,7 +106,7 @@ def _verified_domains_by_organization(organization_ids: Iterable[Any]) -> dict[s
 
 
 def _ineligibility_reason(
-    organization: Organization, membership_level: int | None, verified_domains: list[str]
+    user: User, organization: Organization, membership_level: int | None, verified_domains: list[str]
 ) -> str | None:
     """Why this organization can't register an issuer, or None when it can.
 
@@ -112,6 +115,10 @@ def _ineligibility_reason(
     """
     if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
         return "Only admins of this organization can set up enterprise-managed auth."
+    if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+        return (
+            "This organization only admits emails on its verified domains. Sign in with one of those, then try again."
+        )
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         return "This organization's plan doesn't include XAA. Upgrade the plan, then try again."
     if not verified_domains:
@@ -132,7 +139,7 @@ def ema_consent_context(user: User) -> dict[str, object]:
                 "id": str(organization.id),
                 "name": organization.name,
                 "verified_domains": verified_domains,
-                "disabled_reason": _ineligibility_reason(organization, membership.level, verified_domains),
+                "disabled_reason": _ineligibility_reason(user, organization, membership.level, verified_domains),
             }
         )
     organizations.sort(key=lambda org: (org["disabled_reason"] is not None, str(org["name"]).lower()))
@@ -183,7 +190,7 @@ def validate_ema_grant(
         raise EmaSetupError("access_denied", "You aren't a member of this organization.", status.HTTP_403_FORBIDDEN)
     organization = membership.organization
     verified_domains = _verified_domains_by_organization([organization.id]).get(str(organization.id), [])
-    reason = _ineligibility_reason(organization, membership.level, verified_domains)
+    reason = _ineligibility_reason(user, organization, membership.level, verified_domains)
     if reason:
         raise EmaSetupError("access_denied", reason, status.HTTP_403_FORBIDDEN)
     return organization
@@ -256,7 +263,14 @@ def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: str) -> EmaR
             .filter(organization=organization, id_jag_registered_by_application=application)
             .first()
         )
-        others_with_issuer = IdentityProviderConfig.objects.for_scope(ConfigScope.ID_JAG).with_id_jag_issuer(issuer)
+        # A hand-entered config in another organization doesn't conflict: the verified email domain
+        # already decides which organization an ID-JAG is for, and counting it would let any
+        # organization block another's setup by typing in its issuer.
+        others_with_issuer = (
+            IdentityProviderConfig.objects.for_scope(ConfigScope.ID_JAG)
+            .with_id_jag_issuer(issuer)
+            .filter(Q(organization=organization) | Q(id_jag_registered_by_application__isnull=False))
+        )
         if own_config is not None:
             others_with_issuer = others_with_issuer.exclude(pk=own_config.pk)
         conflicting_organization_id = others_with_issuer.values_list("organization_id", flat=True).first()
@@ -333,6 +347,12 @@ class EmaTrustedIssuerView(APIView):
 
         serializer = EmaTrustedIssuerSerializer(data=request.data)
         try:
+            try:
+                enforce_credential_ip_restrictions(
+                    request, [str(org_id) for org_id in access_token.scoped_organizations or []], []
+                )
+            except exceptions.PermissionDenied as error:
+                raise EmaSetupError("access_denied", str(error.detail), status.HTTP_403_FORBIDDEN)
             if not serializer.is_valid():
                 raise EmaSetupError(
                     "invalid_request",

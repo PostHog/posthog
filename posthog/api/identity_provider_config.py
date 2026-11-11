@@ -223,17 +223,19 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         return getattr(self.instance, "id_jag_issuer_url", None)
 
     def _check_issuer_not_client_managed(self, issuer: str | None) -> None:
-        """A hand-entered configuration can't trust an issuer that a client registered through EMA setup."""
+        """A hand-entered configuration can't trust an issuer that a client registered for the same organization."""
         if not issuer:
             return
         managed = IdentityProviderConfig.objects.with_id_jag_issuer(issuer).filter(
-            id_jag_registered_by_application__isnull=False
+            organization=self.context["view"].organization, id_jag_registered_by_application__isnull=False
         )
         if self.instance is not None:
             managed = managed.exclude(pk=self.instance.pk)
         if managed.exists():
             raise serializers.ValidationError(
-                {"id_jag_issuer_url": "An application already manages this issuer through enterprise-managed auth."},
+                {
+                    "id_jag_issuer_url": "An application already manages this issuer for this organization through enterprise-managed auth."
+                },
                 code="issuer_in_use",
             )
 

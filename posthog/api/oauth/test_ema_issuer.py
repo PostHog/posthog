@@ -21,6 +21,7 @@ from posthog.models.identity_provider_config import ConfigScope, DomainScope, Id
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 CLIENT_ID = "ema-test-client"
 CLIENT_SECRET = "ema-test-secret"
@@ -232,8 +233,11 @@ class TestEmaIssuerSetup(APIBaseTest):
         issuer = ISSUER
         token = self._setup_token(scope="feature_flag:read" if case == "other_scope" else EMA_ISSUER_MANAGE_SCOPE)
         if case == "taken":
-            other_organization = Organization.objects.create(name="Other organization")
-            IdentityProviderConfig.objects.create(organization=other_organization, id_jag_issuer_url=f"{ISSUER}/")
+            IdentityProviderConfig.objects.create(
+                organization=Organization.objects.create(name="Other organization"),
+                id_jag_issuer_url=f"{ISSUER}/",
+                id_jag_registered_by_application=self.application,
+            )
         elif case == "demoted":
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -246,6 +250,51 @@ class TestEmaIssuerSetup(APIBaseTest):
         self.assertEqual(response.json()["error"], expected_error)
         self.assertFalse(IdentityProviderConfig.objects.filter(organization=self.organization).exists())
         self.assertTrue(OAuthAccessToken.objects.filter(pk=token.pk).exists())
+
+    def test_hand_entered_issuer_in_another_organization_does_not_block_setup(self):
+        IdentityProviderConfig.objects.create(
+            organization=Organization.objects.create(name="Other organization"), id_jag_issuer_url=ISSUER
+        )
+
+        response = self._put_issuer(self._setup_token(), ISSUER)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def _other_admin_organization(self, **fields) -> Organization:
+        organization = Organization.objects.create(name="Restricted organization", **fields)
+        organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        organization.save()
+        OrganizationMembership.objects.create(
+            user=self.user, organization=organization, level=OrganizationMembership.Level.ADMIN
+        )
+        OrganizationDomain.objects.create(
+            organization=organization, domain="restricted.example.com", verified_at=timezone.now()
+        )
+        return organization
+
+    def test_admin_outside_the_enforced_domains_cannot_grant_setup(self):
+        organization = self._other_admin_organization(enforce_verified_domains=True)
+
+        response = self.client.post(
+            "/oauth/authorize/", self._consent(scoped_organizations=[str(organization.id)]), format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertEqual(response.json()["error"], "access_denied")
+
+    def test_setup_call_respects_the_token_organization_ip_restrictions(self):
+        organization = self._other_admin_organization()
+        OrganizationIPRestrictions.objects.create(
+            organization=organization, enabled=True, ip_restrictions=["192.0.2.0/24"]
+        )
+
+        response = self._put_issuer(self._setup_token(organization_id=organization.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(IdentityProviderConfig.objects.filter(organization=organization).exists())
 
     def test_second_registration_replaces_the_first_issuer(self):
         self.assertEqual(self._put_issuer(self._setup_token(), ISSUER).status_code, status.HTTP_200_OK)

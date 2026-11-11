@@ -601,7 +601,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             algorithm="RS256",
         )
         IdentityProviderConfig.objects.create(
-            organization=Organization.objects.create(name="Other organization"),
+            organization=self.organization,
             config_scope="xaa",
             id_jag_issuer_url="https://identity.example.com/issuers/1",
             id_jag_registered_by_application=application,
