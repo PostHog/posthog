@@ -12,6 +12,7 @@ from products.review_hog.backend.models import ReviewReport, ReviewRepository, R
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
 from products.review_hog.backend.review_request_rules import full_review_published
+from products.stamphog.backend.facade.tasks import queue_routing_after_external_review
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
@@ -157,6 +158,7 @@ class AuthoredPRReview:
     github_repo_id: int | None = None
     draft: bool = False
     skip_agent_review: bool = False
+    action: str | None = None
 
     @property
     def ref(self) -> RepositoryRef:
@@ -164,26 +166,31 @@ class AuthoredPRReview:
             installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
         )
 
-    def start(self) -> None:
+    @property
+    def marks_ready(self) -> bool:
+        """The event says the PR is ready for review: it was marked ready, or it opened as a non-draft."""
+        return self.action == "ready_for_review" or (self.action == "opened" and not self.draft)
+
+    def _dispatch(self) -> AutomaticDispatch:
+        """Start the automatic review if the rules allow it. The outcome tells whether a workflow started."""
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
         from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH  # noqa: PLC0415
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
+        # Only a ready head is reported to stamphog, which needs the project even when no review starts.
+        owner = None
+        if self.marks_ready or not self.skip_agent_review:
+            owner = RepositoryOwnership.find(self.ref, backfill=True)
         if self.skip_agent_review:
             observe_dispatch("label_skipped")
-            return
-        dispatch = plan_automatic_review(
-            self.ref,
-            RepositoryOwnership.find(self.ref, backfill=True),
-            author_login=self.author_login,
-            draft=self.draft,
-        )
+            return AutomaticDispatch(outcome="label_skipped", team_id=None if owner is None else owner.team_id)
+        dispatch = plan_automatic_review(self.ref, owner, author_login=self.author_login, draft=self.draft)
         if dispatch.team_id is None or dispatch.run_as_user_id is None:
             # Most pushes get no automatic review, so the counter carries the signal and the logs
             # stay quiet.
             observe_dispatch(dispatch.outcome)
-            return
+            return dispatch
         report = (
             ReviewReport.objects.for_team(dispatch.team_id)
             .filter(repository__iexact=self.repository, pr_number=self.pr_number)
@@ -191,7 +198,7 @@ class AuthoredPRReview:
         )
         if full_review_published(report):
             observe_dispatch("full_review_published")
-            return
+            return AutomaticDispatch(outcome="full_review_published", team_id=dispatch.team_id)
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=dispatch.team_id,
@@ -202,8 +209,20 @@ class AuthoredPRReview:
             review_mode=REVIEW_MODE_FLASH,
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
+            trigger_action=self.action,
+            marks_ready=self.marks_ready,
             installation_id=self.installation_id,
             github_repo_id=self.github_repo_id,
         )
         # After the start, so a retried task cannot count a dispatch it never made.
         observe_dispatch("started")
+        return dispatch
+
+    def start(self) -> None:
+        dispatch = self._dispatch()
+        if dispatch.outcome == "started" or dispatch.team_id is None or not self.marks_ready:
+            return
+        # No turn will review this ready head, so stamphog must not wait for one.
+        queue_routing_after_external_review(
+            team_id=dispatch.team_id, repository=self.repository, pr_number=self.pr_number, head_sha=self.head_sha
+        )

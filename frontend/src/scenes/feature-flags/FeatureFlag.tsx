@@ -64,7 +64,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -190,7 +189,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         refreshFeatureFlagAfterAgentChange,
     } = useActions(featureFlagLogic)
 
-    const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
 
@@ -434,7 +432,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 evaluationContextsDisabledReason={
                                     isV1Config ? null : "Evaluation contexts can't be changed on this flag yet."
                                 }
-                                tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                 flagId={featureFlag.id}
                                 context="sidebar"
                             />
@@ -443,7 +440,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 onSave={(tags) => saveSidebarTags(tags)}
                                 canEdit
                                 tags={featureFlag.tags}
-                                tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                 dataAttrKey={RESOURCE_TYPE}
                             />
                         )}
@@ -729,7 +725,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     onSave={(updatedTags) => saveTagsInline(updatedTags)}
                                     canEdit
                                     tags={featureFlag.tags}
-                                    tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
                                     dataAttrKey={RESOURCE_TYPE}
                                 />
                             </SceneMenuBarPopover>

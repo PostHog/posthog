@@ -6,6 +6,7 @@ import { ApiError } from 'lib/api'
 import { slugify } from 'lib/utils/strings'
 
 import type {
+    DataCatalogMetricApi,
     DataCatalogMetricNameConflictApi,
     DataCatalogMetricNameConflictExistingApi,
 } from './generated/api.schemas'
@@ -47,6 +48,10 @@ export function sqlNameFromDisplayName(displayName: string): string {
     return /^[0-9]/.test(sqlName) ? `metric_${sqlName}` : sqlName
 }
 
+export function sqlNameAfterDisplayNameChange(displayName: string, sqlName: string, nextDisplayName: string): string {
+    return sqlName === sqlNameFromDisplayName(displayName) ? sqlNameFromDisplayName(nextDisplayName) : sqlName
+}
+
 export function validateMetricName(name: string): string | undefined {
     if (!name) {
         return 'SQL name is required'
@@ -78,6 +83,10 @@ export function reportCatalogTableSorted(table: DataCatalogTable, sorting: Sorti
         column: sorting?.columnKey ?? null,
         order: sorting ? (sorting.order === 1 ? 'asc' : 'desc') : null,
     })
+}
+
+export function metricDisplayName(metric: Pick<DataCatalogMetricApi, 'name' | 'display_name'>): string {
+    return metric.display_name || metric.name
 }
 
 export function metricCount(count: number): string {

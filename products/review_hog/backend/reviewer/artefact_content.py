@@ -347,6 +347,13 @@ class TurnMarkerArtefact(BaseModel):
     review_design: str | None = Field(
         default=None, description="The design the turn ran on (pipeline or single_agent)."
     )
+    clean_full_coverage: bool | None = Field(
+        default=None,
+        description=(
+            "Set when a Standard automatic turn finished: true when it kept no valid finding, read every file, "
+            "and reviewed the PR without capping the lens parts. None on every other turn."
+        ),
+    )
 
 
 RUN_OUTCOME_NOTE_AUTHOR = "review_hog_run_outcome"

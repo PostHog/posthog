@@ -986,6 +986,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "posthog_events_person_id_through_distinct_ids",
                 f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
+                PersonsOnEventsMode.DISABLED,
             ),
             (
                 "posthog_events_qualifier_that_a_joined_column_takes",
