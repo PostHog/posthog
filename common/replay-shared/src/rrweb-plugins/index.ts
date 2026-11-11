@@ -1,6 +1,6 @@
 import { ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
 
-import { BLOCKED_ELEMENT_STYLE_RULE } from './blocked-element'
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
@@ -81,6 +81,7 @@ export function createCorsPlugin(getProxyToken: () => string | null | undefined)
 // The headless renderer has no proxy token, so it calls the proxy without one.
 export const CorsPlugin = createCorsPlugin(() => null)
 
+const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 // Language picker prepended to <body> by the "Translator, dictionary - accurate translate" extension.
@@ -90,7 +91,7 @@ const translatorExtensionPopupFix =
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [BLOCKED_ELEMENT_STYLE_RULE, shopifyShorthandCSSFix, translatorExtensionPopupFix],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, translatorExtensionPopupFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
@@ -111,6 +112,7 @@ export function speedDependentStyleRules(speed: number): string[] {
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
+export { BLOCKED_ELEMENT_STYLE_RULE } from './blocked-element'
 export { WindowTitlePlugin } from './window-title-plugin'
 
 export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {
