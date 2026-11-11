@@ -369,7 +369,6 @@ export type CyclotronJobInvocation = {
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
-    // Wait wakes the hogflow subscription matcher recorded while this job was in flight.
     pendingWake?: PendingWake
 }
 

@@ -169,12 +169,9 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
-    // 'running' means a worker holds the job, so it cannot be woken now; a match is recorded on
-    // the row for the worker's release write to act on.
     status: 'available' | 'running'
 }
 
-// A wake for a job a worker held when the matcher saw the signal, keyed by wait step action id.
 type PendingWakeWrite = {
     id: string
     wakes: Record<
@@ -578,15 +575,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
     }
 
-    // Records wakes for jobs a worker holds. The worker's release write wakes the job at once when it
-    // parks on a wait with a wake recorded during its hold (FRESH_PENDING_WAKE in the cyclotron
-    // worker). A job released before this write is already parked, so it is woken here instead.
+    // The worker's park write acts on these. A job released before this write is woken here instead.
     private async recordPendingWakes(writes: PendingWakeWrite[]): Promise<void> {
         const sorted = [...writes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
-            // Same lock order as processMatchedJobs, so concurrent batches can't deadlock.
             await client.query(`SELECT id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [
                 sorted.map((w) => w.id),
             ])
@@ -691,7 +685,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
     // a conversion countable after the run it belongs to has finished.
-    // Returns how many jobs were woken, and the matched jobs that were no longer parked.
     private async processMatchedJobs(matched: MatchedJob[]): Promise<{ woken: number; inFlight: MatchedJob[] }> {
         if (matched.length === 0) {
             return { woken: 0, inFlight: [] }
@@ -1253,8 +1246,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             await client.query('BEGIN')
             // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
             // with processMatchedJobs so concurrent move/match batches can't deadlock.
-            // A running job is locked too, but only to queue a re-check: its worker rewrites the state on
-            // release, so the anchor is fixed by the worker re-reading the person when it wakes.
+            // A running job's state is rewritten on release, so it gets a re-check instead of a re-key.
             const rows = await client.query(
                 `SELECT id, team_id, distinct_id, function_id, action_id, state, status
                  FROM cyclotron_jobs
@@ -1674,8 +1666,6 @@ function rewriteStatePersonId(
 
 type WaitUntilConditionAction = Extract<HogFlowAction, { type: 'wait_until_condition' }>
 
-// A cohort membership change carries no person properties, so only event entries that do not read
-// the person can judge it.
 function eventsOnlyWait(wait: WaitUntilConditionAction): WaitUntilConditionAction {
     return {
         ...wait,

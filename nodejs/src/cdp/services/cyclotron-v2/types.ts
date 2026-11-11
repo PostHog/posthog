@@ -51,8 +51,8 @@ export type CyclotronV2IdempotentJobInit = {
 }
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
-// A wake the subscription matcher recorded while the job was running, keyed by the
-// wait_until_condition action id it applies to. `at` is the database clock when it was written.
+
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
 export type PendingWakeEntry = {
     kind: 'match' | 'recheck'
     at: string

@@ -28,9 +28,8 @@ import {
     PendingWake,
 } from './types'
 
-// A pending wake counts only if the matcher wrote it while this worker held the job, i.e. after
-// the dequeue set last_transition. An older entry is for an earlier visit to the step.
-// Reads the pre-update row, so last_transition is still the dequeue time.
+// Only a wake written after this dequeue counts; an older one belongs to an earlier visit to the step.
+// SET reads the pre-update row, so last_transition is still the dequeue time.
 const FRESH_PENDING_WAKE = `(pending_wake -> COALESCE($4::text, action_id) ->> 'at')::timestamptz >= last_transition`
 
 export interface RawJobRow {
