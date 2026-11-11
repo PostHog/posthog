@@ -331,6 +331,31 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert error in response.json()["detail"]
         assert HogFlow.objects.get(id=flow.id).actions == [_trigger()]
 
+    @parameterized.expand([("new_value", False), ("unchanged_stored_value", True)])
+    def test_publishing_rejects_a_sender_id_written_as_a_string(self, _name: str, stored: bool) -> None:
+        sync_template_to_db(_email_function_template())
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"email": "hello@example.com"}
+        )
+        step = _own_email_step(sender.id)
+        step["config"]["inputs"]["email"]["value"]["from"]["integrationId"] = str(sender.id)
+        stored_actions = [_trigger(), step] if stored else [_trigger()]
+        flow = HogFlow.objects.create(team=self.team, name="Own email flow", status="draft", actions=stored_actions)
+
+        response = self.client.patch(
+            self._url(str(flow.id)),
+            {
+                "status": "active",
+                "actions": [_trigger(), step],
+                "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Expected 'from.integrationId' to be an Integration ID" in response.json()["detail"]
+        assert HogFlow.objects.get(id=flow.id).actions == stored_actions
+
     @parameterized.expand(
         [
             ("delay_step", "delay", {"delay_duration": "1h", "template_id": "template-email"}),
