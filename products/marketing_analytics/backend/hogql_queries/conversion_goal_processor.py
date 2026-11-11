@@ -643,10 +643,7 @@ class ConversionGoalProcessor:
         return True
 
     def _touchpoints_reach_retention_floor(self, date_from: datetime) -> bool:
-        """True when the touchpoint lookback starts before the events-retention build floor.
-
-        The executor builds no windows before that floor, so the precompute would serve the read short.
-        """
+        """The executor misses any range before the events-retention floor, so the precompute path would report not-ready forever."""
         months = events_retention_months_for_team(self.team, self.team.pk)
         if months is None:
             return False
