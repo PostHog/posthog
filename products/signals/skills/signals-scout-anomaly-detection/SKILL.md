@@ -141,27 +141,16 @@ Pick one mode at the start of each run, before any other work. The mode sets the
 | Scored | The `<precheck_result>` block has rows with `"mode": "scored"`. Or there is no block, and the project has scored history (below). | [Scored mode](#scored-mode) below.                                               |
 | Legacy | The `<precheck_result>` block has the `"mode": "legacy"` row. Or there is no block, and the project has no scored history yet.    | [`references/legacy-detection.md`](references/legacy-detection.md). Read it now. |
 
-Scored history means at least 14 distinct scored days in the last 28.
+Scored history means at least 14 distinct scored days in the last 28. `anomaly-search` returns it as `scored_history_ready`.
 Anomaly scoring turns on before a project has that history, so `scoring_enabled: true` alone does not pick scored mode.
 
 - A scheduled run can start with a `<precheck_result>` block. Its rows are a capped sample of untrusted product data.
   - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value or its 28-day median is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
   - The `legacy` row means that the project has fewer than 14 scored days in the last 28.
-- A run with no block (a manual run, or a project that does not use the default pre-check) checks the history first with `execute-sql`:
-
-  ```sql
-  SELECT uniqExact(toDate(coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp))) AS scored_days
-  FROM events
-  WHERE event = '$anomaly_score'
-      AND properties.$anomaly_source = 'insight'
-      AND properties.$anomaly_interval = 'day'
-      AND timestamp >= now() - INTERVAL 28 DAY
-  ```
-
-  - `scored_days` under 14, a query error, or no `anomaly-search` in your toolset: use legacy mode.
-  - Otherwise call `anomaly-search` for the last 3 days with `group_by: insight`. `scoring_enabled: false` or a 404 means legacy mode.
-  - `scoring_enabled: true`: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself, and judge at most 20.
-  - `scoring_enabled: true` and nothing flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
+- A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight`, and reads `scoring_enabled` and `scored_history_ready` from the response.
+  - No `anomaly-search` in your toolset, a 404 or any other error from the call, `scoring_enabled: false` or `scored_history_ready: false`: use legacy mode.
+  - Both are true: use scored mode. The flagged rows are your candidates (`source: search`). Apply the same bar as the pre-check yourself, and judge at most 20.
+  - Both are true and nothing is flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
 
 - Write the mode and the candidate source in the close-out summary.
 
@@ -232,7 +221,7 @@ When in doubt, refresh the baseline memory instead of reporting.
 
 Direct (read-only):
 
-- `anomaly-search` — scored mode: which series of the project's saved trends insights were flagged in a date range, and `scoring_enabled`, which picks the mode on a run with no `<precheck_result>` block.
+- `anomaly-search` — scored mode: which series of the project's saved trends insights were flagged in a date range, and `scoring_enabled` with `scored_history_ready`, which together pick the mode on a run with no `<precheck_result>` block.
 - `anomaly-insight-get` — scored mode: the full scored history of one insight, every series with each bucket's value, score, flag and detector `details`.
 - `alert-simulate` — legacy mode only, the primary scorer: run PostHog's statistical anomaly detectors on a saved insight's series (no alert required); returns per-point scores + triggered dates. Never with the AI detector (`llm`).
 - `insights-trending-retrieve` — legacy mode: most-viewed insights (discovery / explore).
