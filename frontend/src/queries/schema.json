@@ -57929,7 +57929,6 @@
         },
         "SessionReplayListConfiguration": {
             "additionalProperties": false,
-            "description": "One person's defaults for the session replay list.",
             "properties": {
                 "filter_test_accounts": {
                     "description": "Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference.",

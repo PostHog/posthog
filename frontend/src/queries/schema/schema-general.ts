@@ -9876,7 +9876,6 @@ export interface TicketSidebarConfiguration {
     hidden?: string[]
 }
 
-/** One person's defaults for the session replay list. */
 export interface SessionReplayListConfiguration {
     /** Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference. */
     filter_test_accounts?: boolean

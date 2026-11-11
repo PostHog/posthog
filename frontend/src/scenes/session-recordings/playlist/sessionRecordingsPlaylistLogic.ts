@@ -227,8 +227,6 @@ const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse,
 export const clearMemoizedListResponses = (): void => landedListResponses().clear()
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    // uiCustomizationLogic holds the optimistic value while a save is in flight, but it is only mounted
-    // once a filters panel renders, so the loaded user is the fallback.
     const uiConfiguration =
         uiCustomizationLogic.findMounted()?.values.uiConfiguration ??
         userLogic.findMounted()?.values.user?.ui_configuration
@@ -236,7 +234,6 @@ const getDefaultFilterTestAccounts = (): boolean => {
     if (saved !== undefined) {
         return saved
     }
-    // The per-browser value from before the preference was saved to the account.
     return localStorage.getItem('default_filter_test_accounts') === 'true'
 }
 
