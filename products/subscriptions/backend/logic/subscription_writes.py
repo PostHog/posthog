@@ -1121,7 +1121,7 @@ def take_subscription_ownership(
         was_impersonated=get_was_impersonated(),
         item_id=updated.id,
         scope="Subscription",
-        activity="took_ownership",
+        activity="took_ownership" if owner.pk == actor.pk else "transferred_ownership",
         detail=Detail(
             name=updated.display_name,
             changes=[

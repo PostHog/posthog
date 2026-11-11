@@ -1205,7 +1205,9 @@ class TestSubscriptionTemporal(APILicensedTest):
             assert subscription.created_by == previous_owner
             assert subscription.enabled is False
             assert not ActivityLog.objects.filter(
-                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
             return
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -1214,7 +1216,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["created_by"]["id"] == owner.id
         # created_by is excluded from the save diff, so the takeover logs its own activity.
         takeover = ActivityLog.objects.get(
-            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            scope="Subscription",
+            item_id=str(subscription.id),
+            activity="transferred_ownership" if another_member else "took_ownership",
         )
         assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
@@ -4924,7 +4928,9 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             assert subscription.created_by == admin
             assert subscription.enabled is False
             assert not ActivityLog.objects.filter(
-                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
         else:
             assert response.status_code == status.HTTP_200_OK, response.content
@@ -4956,7 +4962,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert subscription.created_by == admin
         assert subscription.enabled is False
         assert not ActivityLog.objects.filter(
-            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            scope="Subscription", item_id=str(subscription.id), activity__in=["took_ownership", "transferred_ownership"]
         ).exists()
 
     def _create_on_a_restricted_dashboard(self):
@@ -5174,7 +5180,9 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             assert subscription.created_by == self.user
             assert subscription.enabled is enabled
             assert not ActivityLog.objects.filter(
-                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
         else:
             assert response.status_code == status.HTTP_200_OK, response.content
