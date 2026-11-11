@@ -43,7 +43,6 @@ export function WizardRailButtonView({
                             state === 'running' ? `${STATE_LABEL[state]}, ${percent}% done` : STATE_LABEL[state]
                         }
                         aria-pressed={open}
-                        // The panel covers the tooltip, so the tooltip stays off while the panel is open.
                         tooltip={open ? null : 'Wizard'}
                         className="relative shrink-0 aria-pressed:bg-[var(--fill-selected)]"
                         // pinned: autocapture data-attr kept from when the button sat on the rail
