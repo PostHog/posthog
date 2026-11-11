@@ -54,7 +54,10 @@ class TestInboxReportReadyEvent(BaseTest):
         report.refresh_from_db()
         assert report.ready_event_delivered_at is not None
 
-    def test_a_settled_plan_sends_each_of_its_layers_once(self):
+    @parameterized.expand(
+        [("nothing hidden", None), ("a layer its scout hid from the inbox", 2), ("a plan its scout hid", 0)]
+    )
+    def test_a_settled_plan_sends_each_of_its_layers_once(self, _name: str, hidden: int | None):
         plan = self._report()
         layer_ids = create_layer_reports(
             parent=plan,
@@ -64,15 +67,16 @@ class TestInboxReportReadyEvent(BaseTest):
             ],
             attribution=ArtefactAttribution.system(),
         )
+        report_ids = [str(plan.id), *layer_ids]
+        if hidden is not None:
+            self._hide_from_inbox(SignalReport.objects.get(id=report_ids[hidden]))
 
         with recorded_internal_events() as (sent, _):
             emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(plan.id), source_products=["scout"])
             emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(plan.id), source_products=["scout"])
 
         assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
-            (str(plan.id), ["scout"]),
-            (layer_ids[0], ["scout"]),
-            (layer_ids[1], ["scout"]),
+            (report_id, ["scout"]) for index, report_id in enumerate(report_ids) if hidden not in (0, index)
         ]
 
     def _hide_from_inbox(self, report: SignalReport) -> None:
@@ -142,12 +146,17 @@ class TestInboxReportReadyEvent(BaseTest):
 
     @parameterized.expand(
         [
-            ("report no longer ready", SignalReport.Status.IN_PROGRESS, True),
-            ("destinations turned off", SignalReport.Status.READY, False),
+            ("report no longer ready", SignalReport.Status.IN_PROGRESS, True, False),
+            ("destinations turned off", SignalReport.Status.READY, False, False),
+            ("scout hid the report from the inbox", SignalReport.Status.READY, True, True),
         ]
     )
-    def test_the_sweep_releases_a_claim_it_must_not_send(self, _name: str, status: str, flag_enabled: bool):
+    def test_the_sweep_releases_a_claim_it_must_not_send(
+        self, _name: str, status: str, flag_enabled: bool, hidden_from_inbox: bool
+    ):
         report = self._report()
+        if hidden_from_inbox:
+            self._hide_from_inbox(report)
         SignalReport.objects.filter(id=report.id).update(
             status=status,
             ready_event_emitted_at=timezone.now() - timedelta(hours=1),
@@ -156,12 +165,10 @@ class TestInboxReportReadyEvent(BaseTest):
 
         with recorded_internal_events(flag_enabled=flag_enabled) as (swept, _):
             reconcile_stranded_ready_events()
-        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
-        with recorded_internal_events() as (settled, _):
-            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
 
+        report.refresh_from_db()
         assert swept == []
-        assert len(settled) == 1
+        assert report.ready_event_emitted_at is None
 
     def test_the_sweep_keeps_a_claim_whose_flag_could_not_be_evaluated(self):
         report = self._report()

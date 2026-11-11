@@ -137,9 +137,9 @@ def reconcile_stranded_ready_events() -> None:
 
     A delivery still pending after the flush, or a worker that died between the claim and the
     publish, leaves such a claim. Works through the claims batch by batch until none is left or the
-    time budget runs out. A project whose flag is off gets its claims back unsent, so the flag stops
-    retries as well as first sends. A project whose flag could not be evaluated keeps its claims for
-    a later sweep.
+    time budget runs out. A project whose flag is off, or a report its scout has since hidden from
+    the Inbox, gets its claim back unsent, so they stop retries as well as first sends. A project
+    whose flag could not be evaluated keeps its claims for a later sweep.
     """
     deadline = time.monotonic() + _SWEEP_TIME_BUDGET.total_seconds()
     while True:
@@ -153,8 +153,11 @@ def reconcile_stranded_ready_events() -> None:
                 if time.monotonic() >= deadline:
                     break
                 flags[claim.team_id] = _destinations_flag(claim.team_id)
+            destinations_enabled = flags[claim.team_id]
+            if destinations_enabled and report_is_hidden_from_inbox(claim.team_id, claim.report_id):
+                destinations_enabled = False
             if _renew_stale_claim(
-                claim.team_id, claim.report_id, claimed_at, destinations_enabled=flags[claim.team_id]
+                claim.team_id, claim.report_id, claimed_at, destinations_enabled=destinations_enabled
             ):
                 renewed.append(claim)
         _publish_ready_events(renewed)
@@ -236,6 +239,8 @@ def _confirm_delivery(claim: _ReadyEventClaim, delivery: ProduceResult) -> None:
 
 
 def _claim_ready_event(team_id: int, report_id: str, source_products: list[str]) -> bool:
+    if report_is_hidden_from_inbox(team_id, report_id):
+        return False
     return bool(
         SignalReport.objects.filter(
             id=report_id, team_id=team_id, status=SignalReport.Status.READY, ready_event_emitted_at__isnull=True

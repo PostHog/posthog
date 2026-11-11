@@ -1356,6 +1356,15 @@ def _replay_result(existing: ExistingScoutReport) -> EmitReportResult:
     )
 
 
+def _replay_existing_report(*, team: Team, author: ReportAuthor, existing: ExistingScoutReport) -> EmitReportResult:
+    """`_replay_result`, after sending the event that a first call which failed after its commit never sent.
+
+    The report's claim keeps the event from going out twice when the first call did send it.
+    """
+    _emit_report_ready_event(team_id=team.id, report_id=existing.report_id, created_by_id=author.user_id)
+    return _replay_result(existing)
+
+
 def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> EmitReportResult:
     return EmitReportResult(
         report_id=persisted_report_id,
@@ -2408,7 +2417,11 @@ async def emit_report(
             team_id=team.id, idempotency_key=emit_key
         )
     if existing is not None:
-        return await finish(_replay_result(existing))
+        return await finish(
+            await database_sync_to_async(_replay_existing_report, thread_sensitive=False)(
+                team=team, author=author, existing=existing
+            )
+        )
 
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
     # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
@@ -2631,7 +2644,7 @@ def emit_report_sync(
     else:
         existing = find_scout_report_by_idempotency_key(team_id=team.id, idempotency_key=emit_key)
     if existing is not None:
-        return finish(_replay_result(existing))
+        return finish(_replay_existing_report(team=team, author=author, existing=existing))
 
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
 

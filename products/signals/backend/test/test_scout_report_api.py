@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -82,6 +83,7 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+EMIT_READY_EVENT_PATH = "products.signals.backend.scout_harness.tools.report._emit_report_ready_event"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -264,8 +266,10 @@ class TestScoutReportAPI(APIBaseTest):
             assert json.loads(selection.content)["research_context"]["mode"] == ("code" if code_access else "data_only")
         embed_mock.assert_called_once()
 
-    @parameterized.expand([(False, False), (True, False), (True, True)])
-    def test_emit_report_retry_returns_the_first_report(self, first_report: bool, close_gate: bool) -> None:
+    @parameterized.expand([(False, False, False), (True, False, False), (True, True, False), (False, False, True)])
+    def test_emit_report_retry_returns_the_first_report(
+        self, first_report: bool, close_gate: bool, first_event_lost: bool
+    ) -> None:
         # The failure this exists for: the caller times out at a proxy, the server keeps working, and
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team, skill_name="signals-scout-first-report" if first_report else "signals-scout-general")
@@ -276,7 +280,9 @@ class TestScoutReportAPI(APIBaseTest):
             patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
             recorded_internal_events() as (sent, _),
         ):
-            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            # A first call that committed the report and then died before its event.
+            with patch(EMIT_READY_EVENT_PATH) if first_event_lost else nullcontext():
+                first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
             if close_gate:
                 SignalSourceConfig.objects.filter(team=self.team, source_product="signals_scout").update(enabled=False)
             with patch(CAPTURE_PATH) as capture:
