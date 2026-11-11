@@ -28,6 +28,28 @@ import digitalocean  # type: ignore
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 FALLBACK_SIZE = "g-8vcpu-32gb"
 
+# The most memory, in MiB, that the containers of a fresh Hobby install may use together once the
+# smoke test has passed. Hobby has to fit on a small host. Each Python service loads the whole app,
+# so one more process or one more import at startup costs hundreds of MiB. A change that needs more
+# memory raises this number in the same pull request and says why in its description.
+HOBBY_MEMORY_BUDGET_MIB = 9500
+# A total below this means the measurement failed, because no working install is this small.
+HOBBY_MEMORY_FLOOR_MIB = 2000
+
+DOCKER_MEMORY_UNITS_IN_MIB = {"B": 1 / 1024**2, "KiB": 1 / 1024, "MiB": 1, "GiB": 1024}
+
+
+def parse_docker_stats_memory(output: str) -> dict[str, float]:
+    """Map container name to MiB, from `docker stats` lines such as `hobby-web-1 1.8GiB / 15.6GiB`."""
+    usage: dict[str, float] = {}
+    for line in output.strip().splitlines():
+        name, used = line.split()[:2]
+        match = re.fullmatch(r"([\d.]+)(B|KiB|MiB|GiB)", used)
+        if not match:
+            raise ValueError(f"Unrecognised docker stats memory value: {line!r}")
+        usage[name] = float(match.group(1)) * DOCKER_MEMORY_UNITS_IN_MIB[match.group(2)]
+    return usage
+
 
 class HobbyTester:
     def __init__(
@@ -883,6 +905,26 @@ runcmd:
             return f"Feature flag test evaluation failed: HTTP {test_resp.status_code} - {test_resp.text[:200]}"
         print("✅ Test evaluation returned true", flush=True)
         return None
+
+    def check_memory_budget(self, budget_mib=HOBBY_MEMORY_BUDGET_MIB):
+        output = self.run_command_on_droplet("docker stats --no-stream --format '{{.Name}} {{.MemUsage}}'", timeout=120)
+        if not output:
+            return False, "Could not read container memory from the droplet"
+
+        usage = parse_docker_stats_memory(output)
+        for name, mib in sorted(usage.items(), key=lambda item: item[1], reverse=True):
+            print(f"  {mib:8.0f} MiB  {name}", flush=True)
+
+        total_mib = sum(usage.values())
+        if total_mib < HOBBY_MEMORY_FLOOR_MIB:
+            return False, f"Containers report {total_mib:.0f} MiB in total, which is too low to be a real reading"
+        if total_mib > budget_mib:
+            return False, (
+                f"Containers use {total_mib:.0f} MiB, over the {budget_mib} MiB budget. "
+                "The list above shows which container grew. If the change needs the memory, raise "
+                "HOBBY_MEMORY_BUDGET_MIB in bin/hobby-ci.py in the same pull request and say why."
+            )
+        return True, f"Containers use {total_mib:.0f} MiB of the {budget_mib} MiB budget"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
@@ -1988,6 +2030,15 @@ def main():
 
         ht = HobbyTester(droplet_id=droplet_id)
         success, message = ht.smoke_test_ingestion()
+        print(f"{'✅' if success else '❌'} {message}", flush=True)
+        exit(0 if success else 1)
+
+    if command == "check-memory-budget":
+        print("Checking container memory against the budget", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+
+        ht = HobbyTester(droplet_id=droplet_id)
+        success, message = ht.check_memory_budget()
         print(f"{'✅' if success else '❌'} {message}", flush=True)
         exit(0 if success else 1)
 
