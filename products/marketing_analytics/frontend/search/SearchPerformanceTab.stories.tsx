@@ -292,6 +292,7 @@ const MOCKS: Mocks = {
         },
     },
     post: {
+        '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] },
         '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({ request }) => {
             const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
             return [
