@@ -1,7 +1,7 @@
 import path from 'path'
 
 import { load } from './cards'
-import { runCards } from './main'
+import { main, runCards } from './main'
 import { RunResult, Runner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 
@@ -52,5 +52,56 @@ describe('runCards', () => {
         }
 
         expect(await runCards(runner, [SMOKE, SMOKE], interrupt.signal)).toBe(code)
+    })
+
+    it.each<[string, Partial<RunResult>, string[]]>([
+        [
+            'the scorecard write failed',
+            { scorecardError: 'capture answered 503' },
+            ['smoke: passed, every invariant held\n', 'scorecard: capture answered 503\n'],
+        ],
+        [
+            'both the evidence and the scorecard write failed',
+            {
+                status: 'invalid',
+                statusReason: 'every invariant held; the evidence could not be written: ENOSPC',
+                scorecardError: 'capture answered 503',
+            },
+            [
+                'smoke: invalid, every invariant held; the evidence could not be written: ENOSPC\n',
+                'scorecard: capture answered 503\n',
+            ],
+        ],
+    ])('exits 3 and prints every error when %s', async (_story, outcome, printed) => {
+        const runner: Runner = {
+            up: () => Promise.resolve(),
+            run: (loaded) => Promise.resolve({ ...passed(loaded.card.id), ...outcome }),
+            down: () => Promise.resolve(),
+        }
+
+        expect(await runCards(runner, [SMOKE], new AbortController().signal)).toBe(EXIT_CODE.writeFailed)
+        const stdout = jest.mocked(process.stdout.write).mock.calls.map(([text]) => text)
+        expect(stdout).toEqual(expect.arrayContaining(printed))
+    })
+
+    it('refuses partial scorecard credentials before it starts the stack', async () => {
+        const started: string[] = []
+        const runner: Runner = {
+            up: () => Promise.resolve(void started.push('up')),
+            run: (loaded) => Promise.resolve(passed(loaded.card.id)),
+            down: () => Promise.resolve(),
+        }
+
+        const code = await main(
+            ['run', 'smoke'],
+            { SCENARIO_RUNS_HOST: 'http://127.0.0.1:1', SCENARIO_RUNS_PROJECT_TOKEN: 'phc_fake_token' },
+            () => runner
+        )
+
+        expect(code).toBe(EXIT_CODE.invalid)
+        expect(started).toEqual([])
+        expect(jest.mocked(process.stderr.write)).toHaveBeenCalledWith(
+            expect.stringContaining('Missing: SCENARIO_RUNS_PROJECT_ID, SCENARIO_RUNS_READ_KEY')
+        )
     })
 })

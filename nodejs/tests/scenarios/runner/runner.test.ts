@@ -4,6 +4,7 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import { Environment } from '../environment/environment'
+import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { createRunner } from './runner'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
@@ -20,6 +21,7 @@ describe('runner', () => {
     let cacheHome: string
     let stateDir: string
     let duringReset: () => void
+    let api: FakeProjectApi
 
     const environment: Environment = {
         up: () => Promise.resolve(),
@@ -31,16 +33,23 @@ describe('runner', () => {
     }
 
     const runner = () =>
-        createRunner(environment, { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL })
+        createRunner(environment, {
+            ...process.env,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+            ...api.credentials,
+        })
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         rmSync(cacheHome, { recursive: true, force: true })
+        await api.close()
     })
 
     it.each<[string, () => void, LoadedCard, RegExp]>([
@@ -62,6 +71,9 @@ describe('runner', () => {
         const result = await runner().run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
+        expect(api.captured.map(({ properties }) => properties)).toEqual([
+            expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
+        ])
     })
 
     it("keeps only this run's part of each role log", async () => {
