@@ -203,6 +203,13 @@ def _finish_review(
     )
 
 
+def _post_approval(chain: RoutingChain, review_id: int, state: str = "APPROVED") -> None:
+    # Stamphog's own review as GitHub lists it. A maintainer's dismissal on GitHub turns its state to DISMISSED.
+    chain.recorder.pr_reviews.setdefault((REPO, PR_NUMBER), []).append(
+        {"id": review_id, "state": state, "user": {"login": f"{ROUTING_APP_SLUG}[bot]", "type": "Bot"}}
+    )
+
+
 @pytest.mark.parametrize(
     "name,setup_kwargs,action,later_verdict",
     [
@@ -684,19 +691,30 @@ _LABEL = [{"name": "stamphog"}]
 
 
 @pytest.mark.parametrize(
-    "name,first_verdict,later_routing_mode,push,live_labels,approval_stands,expected",
+    "name,first_verdict,later_routing_mode,push,live_labels,github_approval,expected",
     [
-        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], False, "routed"),
+        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], None, "routed"),
         # The trigger label starts a visible review of the live head, and its verdict routes it.
-        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, _LABEL, False, "unchanged"),
-        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], False, "unchanged"),
-        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], False, "unchanged"),
+        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, _LABEL, None, "unchanged"),
+        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], None, "unchanged"),
+        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], None, "unchanged"),
         # A base retarget keeps the head, and the approving run of that head is no review of the new diff.
-        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], False, "routed"),
+        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], None, "routed"),
         # The label brings a visible review, so the head waits for it, and the net routes it if a gate refuses it.
-        ("base_retarget_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", False, _LABEL, False, "waits"),
+        ("base_retarget_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", False, _LABEL, None, "waits"),
+        # The dismissed approving run is still the head's latest finished review, so a ready event must not end the
+        # wait with a pinned-only routing.
+        (
+            "base_retarget_then_draft_and_ready",
+            ReviewVerdict.APPROVED,
+            "fallback",
+            False,
+            _LABEL,
+            "DISMISSED",
+            "waits_through_ready",
+        ),
         # A later review approved the live head again, so this retraction is stale.
-        ("stale_retraction", ReviewVerdict.APPROVED, "fallback", False, [], True, "unchanged"),
+        ("stale_retraction", ReviewVerdict.APPROVED, "fallback", False, [], "APPROVED", "unchanged"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -706,7 +724,7 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
     later_routing_mode: str,
     push: bool,
     live_labels: list[dict[str, str]],
-    approval_stands: bool,
+    github_approval: str | None,
     expected: str,
     team,
     user,
@@ -727,8 +745,10 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
             head_sha=HEAD_SHA,
             status=ReviewRunStatus.COMPLETED,
             verdict=first_verdict,
-            posted_review_id=901 if approval_stands else None,
+            posted_review_id=901 if github_approval else None,
         )
+    if github_approval:
+        _post_approval(routing_chain, 901, github_approval)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, first_verdict, silent=True)
     requests_before = len(_writes(routing_chain, "request_reviewers"))
     record_before = _stored(team.id)
@@ -750,9 +770,16 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
             "full",
             "done",
         )
-    elif expected == "waits":
+    elif expected in ("waits", "waits_through_ready"):
         assert len(_writes(routing_chain, "request_reviewers")) == requests_before
         assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
+        if expected == "waits_through_ready":
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = True
+            _route("converted_to_draft")
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = False
+            _route("ready_for_review")
+            assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+            assert _stored(team.id)["status"] == "waiting"
         # No verdict comes, such as when a gate refuses the visible review.
         _fire_safety_net(safety_net)
         assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
@@ -850,7 +877,10 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
             status=ReviewRunStatus.COMPLETED,
             verdict=verdict,
             output={"review_trigger": "reviewhog_clean"} if silent else {},
+            posted_review_id=903 if verdict == ReviewVerdict.APPROVED else None,
         )
+    if verdict == ReviewVerdict.APPROVED:
+        _post_approval(routing_chain, 903)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict, silent=silent)
     if drafted:
         _fire_safety_net(safety_net)
@@ -873,8 +903,9 @@ _SILENT_WAIT = ("silent_verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVer
 _PUSH = ("push", _HEAD_2)
 _NET = ("net",)
 # A clean base merge kept the approval of head 1 on head 2, which no verdict routes.
-_RETAINED = ("retained", False)
-_RETAINED_DISMISSED = ("retained", True)
+_RETAINED = ("retained", "active")
+_RETAINED_DISMISSED = ("retained", "dismissed_in_db")
+_RETAINED_DISMISSED_ON_GITHUB = ("retained", "dismissed_on_github")
 
 
 def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -929,10 +960,19 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
             HEAD_SHA,
             1,
         ),
-        # A maintainer dismissed the retained approval, so head 2 has no approval and the net routes it.
+        # A dismissed retained approval leaves head 2 with no approval, so the net routes it.
         (
             "dismissed_retained_approval_routes_in_full",
             [_APPROVED, _PUSH, _RETAINED_DISMISSED, _NET],
+            2,
+            "safety_net",
+            _HEAD_2,
+            1,
+        ),
+        # A maintainer's dismissal on GitHub updates nothing in the product DB.
+        (
+            "retained_approval_dismissed_on_github_routes_in_full",
+            [_APPROVED, _PUSH, _RETAINED_DISMISSED_ON_GITHUB, _NET],
             2,
             "safety_net",
             _HEAD_2,
@@ -969,9 +1009,10 @@ def test_fallback_routes_each_pull_request_once_in_full(
                     status=ReviewRunStatus.COMPLETED,
                     verdict=ReviewVerdict.APPROVED,
                     posted_review_id=902,
-                    approval_dismissed_at=datetime.now(UTC) if step[1] else None,
+                    approval_dismissed_at=datetime.now(UTC) if step[1] == "dismissed_in_db" else None,
                     output={"retained_head_shas": [_HEAD_2]},
                 )
+            _post_approval(routing_chain, 902, "DISMISSED" if step[1] == "dismissed_on_github" else "APPROVED")
         else:
             _fire_safety_net(safety_net)
 

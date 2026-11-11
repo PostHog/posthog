@@ -2082,8 +2082,13 @@ def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sh
 
 
 def _approval_stands_over_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> bool:
-    """Whether an approval that nobody dismissed covers this head, as posted or retained. Writer-pinned."""
-    standing = (
+    """Whether a stamphog approval that is still active on GitHub covers this head, as posted or retained.
+
+    A maintainer who dismisses the approval on GitHub updates nothing in the product DB, so the stored run
+    alone would keep reporting an approval that the pull request no longer has. Writer-pinned, because
+    routing decides on it.
+    """
+    approving_runs = (
         ReviewRun.objects.for_team(repo_config.team_id)
         .using(router.db_for_write(ReviewRun))
         .filter(
@@ -2094,10 +2099,16 @@ def _approval_stands_over_head(repo_config: StamphogRepoConfig, pr_number: int, 
             approval_dismissed_at__isnull=True,
         )
     )
-    return (
-        standing.filter(head_sha=head_sha).exists()
-        or standing.filter(**{f"output__{RETAINED_HEADS_KEY}__contains": [head_sha]}).exists()
+    covering_ids = set(
+        approving_runs.filter(Q(head_sha=head_sha) | Q(output__retained_head_shas__contains=[head_sha])).values_list(
+            "posted_review_id", flat=True
+        )
     )
+    if not covering_ids:
+        return False
+    client = StamphogGitHubClient(repo_config.installation_id)
+    active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
+    return not covering_ids.isdisjoint(active_ids)
 
 
 _ROUTING_REVIEW_PATH = ReviewPath(

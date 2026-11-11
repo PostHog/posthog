@@ -220,6 +220,12 @@ def _finished_review_step(
     if finished is None or _reviews_again(finished.outcome, silent=finished.silent):
         return None
     outcome = finished.outcome
+    # A retraction after the review, such as a base retarget, leaves the approving run as the head's latest finished
+    # review. Only an approval that still stands may hold the head to its pinned owners, so the head keeps waiting.
+    if outcome == ReviewVerdict.APPROVED and not review_path.approval_stands(
+        state.repo_config, state.pr_number, head_sha
+    ):
+        return None
     scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
 
