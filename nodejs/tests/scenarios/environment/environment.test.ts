@@ -7,8 +7,10 @@ import path from 'path'
 
 import { CdpRole } from '../cards'
 import { createEnvironment } from './environment'
+import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { roleSpecs, secretsOf } from './roles'
+import * as stack from './stack'
 import { eventsConsumerGroup, membersOf, pingRedis } from './stack'
 
 const SELF = 100
@@ -298,12 +300,18 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
         }, 20_000)
 
-        it('refuses a state dir a frozen runner holds without naming a pid it cannot read', async () => {
+        it('names a suspended runner that holds the state dir, and how to stop it', async () => {
             const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
             const other = await lockFromAnotherRunner(stateDir)
             other.child.kill('SIGSTOP')
 
-            await expect(holdRunLock(stateDir)).rejects.toThrow(`Another scenario runner holds ${stateDir}`)
+            await expect(holdRunLock(stateDir)).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringContaining(
+                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer`
+                ),
+                stopCommand: `kill -CONT ${other.child.pid}; kill ${other.child.pid}`,
+            })
         }, 20_000)
 
         it('frees the state dir for the next runner when released', async () => {
@@ -368,14 +376,34 @@ describe('scenario environment', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         let stranger: ChildProcess | undefined
 
+        beforeEach(() => {
+            const realTerminate = processes.terminate
+            jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) =>
+                plan.groups.length + plan.pids.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${[...plan.groups, ...plan.pids].join(', ')}.`))
+                    : realTerminate(plan, graceMs)
+            )
+            jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The up test reached the dev stack.'))
+        })
+
         afterEach(() => {
+            jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
-            process.env.XDG_CACHE_HOME = cacheHome
+            if (cacheHome === undefined) {
+                delete process.env.XDG_CACHE_HOME
+            } else {
+                process.env.XDG_CACHE_HOME = cacheHome
+            }
         })
 
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
-            const { SCENARIO_RUNNER: _marker, PLUGIN_SERVER_MODE: _mode, ...plainEnv } = process.env
+            const {
+                SCENARIO_RUNNER: _marker,
+                PLUGIN_SERVER_MODE: _mode,
+                NODEJS_CAPABILITY_GROUPS: _groups,
+                ...plainEnv
+            } = process.env
             stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'src/index.ts'], {
                 cwd: NODEJS_DIR,
                 env: plainEnv,
