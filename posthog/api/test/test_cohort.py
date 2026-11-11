@@ -41,6 +41,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType, Property
@@ -4945,7 +4946,12 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("event", [_FLAG_CALLED_CRITERION], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, None),
+            (
+                "event",
+                [_FLAG_CALLED_CRITERION],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
             (
                 "multiple_times",
                 [
@@ -4957,13 +4963,13 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                None,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
             ),
             (
                 "did_not_complete_event",
                 [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                None,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
             ),
             (
                 "multiple_times_without_flag_key",
@@ -5067,6 +5073,8 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     def test_create_cohort_with_criterion_on_hidden_event(self, _name, criteria, mode, expected_refusal, patch_capture):
         self._set_flag_evaluations_mode(mode)
+        if isinstance(expected_refusal, dict):
+            expected_refusal = expected_refusal[use_new_events_schema(self.team.id)]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5102,7 +5110,12 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("adds_within_retention", [_PAGEVIEW_CRITERION], [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION], None),
+            (
+                "adds_within_retention",
+                [_PAGEVIEW_CRITERION],
+                [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
             (
                 "adds_past_retention",
                 [_PAGEVIEW_CRITERION],
@@ -5121,7 +5134,12 @@ email@example.org,
                 [_FLAG_CALLED_PAST_RETENTION_CRITERION],
                 _FLAG_CALL_WINDOW_REFUSAL,
             ),
-            ("drops_flag_key", [_FLAG_CALLED_CRITERION], [_FLAG_CALLED_ANY_FLAG_CRITERION], _FLAG_CALL_KEY_REFUSAL),
+            (
+                "drops_flag_key",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
+            ),
             (
                 "adds_beside_unresolvable",
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
@@ -5132,7 +5150,7 @@ email@example.org,
                 "adds_unresolvable_flag_calls_in_another_criterion",
                 [_FLAG_CALLED_CRITERION],
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
-                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
+                {False: _FLAG_CALL_SQL_EXPRESSION_REFUSAL, True: _FLAG_CALL_KEY_REFUSAL},
             ),
             (
                 "keeps_unresolvable_flag_calls_in_another_criterion",
@@ -5186,6 +5204,8 @@ email@example.org,
         mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
     ):
         self._set_flag_evaluations_mode(mode)
+        if isinstance(expected_refusal, dict):
+            expected_refusal = expected_refusal[use_new_events_schema(self.team.id)]
         # A cohort that filters out test accounts is a batch cohort.
         # The realtime block refuses only realtime cohorts.
         cohort = Cohort.objects.create(
@@ -5284,7 +5304,7 @@ email@example.org,
     @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
     @patch("posthog.api.cohort.report_user_action")
     def test_create_cohort_with_longest_flag_call_window_at_the_tightest_hour(self, _name, timezone, patch_capture):
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         self.team.timezone = timezone
         self.team.save()
         criterion = {**_FLAG_CALLED_CRITERION, "time_value": FLAG_EVALUATIONS_COMPLETE_DAYS - 1}
@@ -5292,7 +5312,10 @@ email@example.org,
         with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts",
-                data={"name": "flag callers", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
+                data={
+                    "name": "flag callers",
+                    "filters": {"properties": {"type": "OR", "values": [criterion]}, "filterTestAccounts": True},
+                },
             )
 
         self.assertEqual(response.status_code, 201, response.json())

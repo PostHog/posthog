@@ -137,6 +137,31 @@ describe('reportGithubAccessLogic', () => {
         }
     )
 
+    it.each([
+        ['no installation', []],
+        ['an unavailable installation', [{ id: 1, kind: 'github', installation_status: 'unavailable' }]],
+    ])('asks to connect GitHub outside the pilot with %s', async (_, results) => {
+        let installations: Record<string, unknown>[] = results
+        githubOptional = false
+        useMocks({
+            get: {
+                '/api/projects/:project/integrations/': () => [200, { results: installations, next: null }],
+            },
+        })
+        logic = reportGithubAccessLogic({ report: makeReport({ repo_slug: null }) })
+        logic.mount()
+        await waitFor(() => expect(logic.values.loading).toBe(false))
+        expect(logic.values.repairNeeded).toBe(true)
+        expect(logic.values.disabledReason).toBe('Connect or repair GitHub access to create a pull request')
+
+        logic.actions.setConnectionOpen(true)
+        installations = [{ id: 1, kind: 'github', installation_status: 'connected' }]
+        logic.actions.retryAccess()
+        await waitFor(() => expect(logic.values.connectionOpen).toBe(false))
+        expect(logic.values.repairNeeded).toBe(false)
+        expect(logic.values.disabledReason).toBeNull()
+    })
+
     it('enables implementation before an unrelated installation finishes checking', async () => {
         let finishSlowCheck!: () => void
         const slowCheck = new Promise<void>((resolve) => (finishSlowCheck = resolve))

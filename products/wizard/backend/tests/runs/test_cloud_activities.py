@@ -224,6 +224,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user,
     clone.assert_called_once_with(
         GitRepositoryCloneRequest(
             sandbox_id=worker.sandbox_id,
+            team_id=team.id,
             github_integration_id=456,
             repository="posthog/posthog",
             branch=branch,
