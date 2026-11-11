@@ -61,7 +61,9 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         return []
     }
 
-    const teamIds = [...indicesByTeam.keys()]
+    // Concurrent batches lock their teams' rows in one shared order, ascending
+    // team_id, so two batches that share teams cannot deadlock.
+    const teamIds = [...indicesByTeam.keys()].sort((a, b) => a - b)
     const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
 
     // New-team rows insert at `MAX + increment`. The ON CONFLICT branch
@@ -73,6 +75,7 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
          INSERT INTO cyclotron_email_team_seq (team_id, counter)
          SELECT team_id, increment + (SELECT m FROM max_counter)
          FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+         ORDER BY team_id
          ON CONFLICT (team_id) DO UPDATE
             SET counter = cyclotron_email_team_seq.counter
                         + (EXCLUDED.counter - (SELECT m FROM max_counter))

@@ -2606,41 +2606,67 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(1n)
             })
 
-            it("writes the team's counter row once for a batch of reroutes into the email queue", async () => {
-                const teamId = 42
-                await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
-                const reroutes = 5
-                await manager.bulkCreateJobs(Array.from({ length: reroutes }, () => ({ teamId, queueName: 'hogflow' })))
+            it("gives each team's concurrent reroutes into the email queue their own turn in fair order", async () => {
+                const [teamA, teamB] = [41, 42]
+                await manager.bulkCreateJobs(
+                    [teamA, teamA, teamA, teamB, teamB, teamB].map((teamId) => ({ teamId, queueName: 'hogflow' }))
+                )
                 const hogflowJobs = await dequeueOneBatch(createWorker('hogflow'))
-                expect(hogflowJobs).toHaveLength(reroutes)
+                expect(hogflowJobs).toHaveLength(6)
 
-                await assertPool.query('CREATE TABLE test_counter_row_writes (team_id int)')
-                await assertPool.query(
-                    `CREATE FUNCTION test_record_counter_row_write() RETURNS trigger LANGUAGE plpgsql AS $$
-                     BEGIN INSERT INTO test_counter_row_writes VALUES (NEW.team_id); RETURN NEW; END $$`
-                )
-                await assertPool.query(
-                    `CREATE TRIGGER test_record_counter_row_write AFTER UPDATE ON cyclotron_email_team_seq
-                     FOR EACH ROW EXECUTE FUNCTION test_record_counter_row_write()`
-                )
+                await Promise.all(hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
+
+                const drained: number[] = []
+                for (let i = 0; i < 6; i++) {
+                    const [emailJob] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                    drained.push(emailJob.teamId)
+                    await emailJob.ack()
+                }
+                expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB])
+                expect(await readTeamCounter(teamA)).toBe(3n)
+                expect(await readTeamCounter(teamB)).toBe(3n)
+            })
+
+            it("lets a team's email insert proceed while a reroute batch waits on another team's counter row", async () => {
+                const [lowTeam, highTeam] = [41, 42]
+                await manager.bulkCreateJobs([
+                    { teamId: lowTeam, queueName: EMAIL_QUEUE },
+                    { teamId: highTeam, queueName: EMAIL_QUEUE },
+                ])
+                await manager.bulkCreateJobs([
+                    { teamId: highTeam, queueName: 'hogflow' },
+                    { teamId: lowTeam, queueName: 'hogflow' },
+                ])
+                const hogflowJobs = await dequeueOneBatch(createWorker('hogflow'))
+                const highTeamFirst = [...hogflowJobs].sort((a, b) => b.teamId - a.teamId)
+
+                const holder = await assertPool.connect()
+                const lockTimeoutManager = createManager({
+                    pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` },
+                })
+                await lockTimeoutManager.connect()
+                await holder.query('BEGIN')
+                await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [
+                    lowTeam,
+                ])
+                const reroutes = Promise.all(highTeamFirst.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
                 try {
-                    await Promise.all(hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
+                    await waitForExpect(async () => {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity
+                             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO cyclotron_email_team_seq%'`
+                        )
+                        expect(waiting.rows).toHaveLength(1)
+                    })
 
-                    const writes = await assertPool.query<{ n: number }>(
-                        'SELECT count(*)::int AS n FROM test_counter_row_writes WHERE team_id = $1',
-                        [teamId]
-                    )
-                    expect(writes.rows[0].n).toBe(1)
-                    const seqs = await assertPool.query(
-                        'SELECT DISTINCT dequeue_seq FROM cyclotron_jobs WHERE id = ANY($1)',
-                        [hogflowJobs.map((job) => job.id)]
-                    )
-                    expect(seqs.rows).toHaveLength(reroutes)
-                    expect(await readTeamCounter(teamId)).toBe(BigInt(1 + reroutes))
+                    await expect(
+                        lockTimeoutManager.bulkCreateJobs([{ teamId: highTeam, queueName: EMAIL_QUEUE }])
+                    ).resolves.toHaveLength(1)
                 } finally {
-                    await assertPool.query('DROP TRIGGER test_record_counter_row_write ON cyclotron_email_team_seq')
-                    await assertPool.query('DROP FUNCTION test_record_counter_row_write()')
-                    await assertPool.query('DROP TABLE test_counter_row_writes')
+                    await holder.query('ROLLBACK')
+                    holder.release()
+                    await reroutes
+                    await lockTimeoutManager.disconnect()
                 }
             })
 
