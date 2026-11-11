@@ -5313,6 +5313,11 @@ class TestHogFlowAPI(APIBaseTest):
                 {"type": "AND", "values": [{"key": "plan", "type": "person", "value": [], "operator": "is_not"}]},
                 "An audience filter is incomplete. Finish it or remove it.",
             ),
+            (
+                "group_without_a_list_of_values",
+                [{"type": "AND", "values": {"key": "email", "type": "person", "value": "a@b.com"}}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
         ]
     )
     def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
