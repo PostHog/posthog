@@ -181,8 +181,12 @@ class TestDashboardQuerySharing(SimpleTestCase):
             self.assertIn(b'"id":2', await anext(iterator))
             await iterator.aclose()
 
+        slots = BoundedSemaphore(1)
         try:
-            with patch("products.dashboards.backend.query_sharing_stream.cancel_query_on_cluster") as cancel:
+            with (
+                patch("products.dashboards.backend.query_sharing_stream.cancel_query_on_cluster") as cancel,
+                patch("products.dashboards.backend.query_sharing_stream._stream_slots", slots),
+            ):
                 if asynchronous:
                     asyncio.run(disconnect())
                 else:
@@ -191,9 +195,11 @@ class TestDashboardQuerySharing(SimpleTestCase):
                     iterator.close()
                 self.assertTrue(stream.closed.wait(timeout=10))
                 cancel.assert_any_call(team_id=1, client_query_id="test-tile-0-")
+                self.assertFalse(slots.acquire(blocking=False))
         finally:
             release.set()
         self.assertTrue(finished.wait(timeout=10))
+        self.assertTrue(slots.acquire(timeout=10))
         executor.execute.assert_not_called()
 
     @parameterized.expand(

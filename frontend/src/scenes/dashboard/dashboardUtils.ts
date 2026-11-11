@@ -351,17 +351,17 @@ interface TileLoad<Refresh> {
 export class TileLoads<Refresh> {
     private readonly loads = new Map<number, TileLoad<Refresh>>()
 
-    /** Starts one load of these tiles. Call `finish` once it settles, however it ends. */
+    /** Starts one load of these tiles. Call `release` as each tile arrives, and `finish` once the load settles. */
     start(
         tileIds: number[],
         refreshSignal: AbortSignal,
         refresh: Refresh
-    ): { signal: AbortSignal; finish: () => void } {
+    ): { signal: AbortSignal; release: (tileId: number) => void; finish: () => void } {
         const controller = new AbortController()
         const abort = (): void => controller.abort()
         let settle: () => void = () => {}
         const load: TileLoad<Refresh> = {
-            tileIds,
+            tileIds: [...tileIds],
             controller,
             refresh,
             settled: new Promise<void>((resolve) => (settle = resolve)),
@@ -381,7 +381,13 @@ export class TileLoads<Refresh> {
             }
             settle()
         }
-        return { signal: controller.signal, finish }
+        const release = (tileId: number): void => {
+            load.tileIds = load.tileIds.filter((id) => id !== tileId)
+            if (this.loads.get(tileId) === load) {
+                this.loads.delete(tileId)
+            }
+        }
+        return { signal: controller.signal, release, finish }
     }
 
     /**

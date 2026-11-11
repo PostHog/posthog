@@ -4193,7 +4193,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it.each(['success', 'disconnect', 'rate_limited', 'abort'] as const)(
+        it.each(['success', 'disconnect', 'rate_limited', 'query_failed', 'abort'] as const)(
             'delivers shared tiles progressively and handles %s independently',
             async (outcome) => {
                 featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_QUERY_SHARING], {
@@ -4237,7 +4237,7 @@ describe('dashboardLogic', () => {
                                     ...tile,
                                     insight: {
                                         ...tile.insight,
-                                        result: [],
+                                        result: tile.insight?.result === null ? null : [],
                                         is_cached: true,
                                         query_status: tile.insight?.query_status?.error
                                             ? tile.insight.query_status
@@ -4270,7 +4270,24 @@ describe('dashboardLogic', () => {
                                           },
                                       },
                                   }
-                                : tile
+                                : outcome === 'query_failed'
+                                  ? {
+                                        ...tile,
+                                        insight: {
+                                            ...tile.insight!,
+                                            result: null,
+                                            query_status: {
+                                                id: 'test',
+                                                query_async: true,
+                                                team_id: 1,
+                                                complete: true,
+                                                error: true,
+                                                error_code: 'CHQueryErrorTimeoutExceeded',
+                                                error_message: 'Timeout exceeded',
+                                            },
+                                        },
+                                    }
+                                  : tile
                         )
                     }
                     if (outcome === 'rate_limited') {
@@ -4310,6 +4327,11 @@ describe('dashboardLogic', () => {
                         receivedTiles: outcome === 'abort' || outcome === 'disconnect' ? 1 : tiles.length,
                     })
                     expect(individual).toHaveBeenCalledTimes(retry ? tiles.length - 1 : 0)
+                    if (outcome === 'query_failed') {
+                        for (const tile of tiles.slice(1)) {
+                            expect(logic.values.refreshStatus[tile.insight!.short_id]?.errored).toBe(true)
+                        }
+                    }
                     if (retry) {
                         expect(individual.mock.calls.every((call) => call[1].id !== tiles[0].insight!.id)).toBe(true)
                     }

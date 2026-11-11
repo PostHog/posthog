@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from queue import Queue
 from threading import BoundedSemaphore, Event, Lock, Thread
@@ -65,6 +65,9 @@ class DashboardQuerySharingStream:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._async_queue: asyncio.Queue[DashboardQuerySharingStreamEvent] | None = None
         self._pool: ThreadPoolExecutor | None = None
+        self._futures: list[Future[None]] = []
+        self._slots = _stream_slots
+        self._unfinished_workers = 0
         self._active: set[str] = set()
         self._lock = Lock()
         self._admitted = False
@@ -115,19 +118,42 @@ class DashboardQuerySharingStream:
             connections.close_all()
 
     def _start(self) -> bool:
-        self._admitted = _stream_slots.acquire(blocking=False)
+        self._slots = _stream_slots
+        self._admitted = self._slots.acquire(blocking=False)
         if not self._admitted:
             return False
         self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_STREAM, thread_name_prefix="dashboard-sharing")
         for index, job in enumerate(self._jobs):
-            self._pool.submit(
+            future = self._pool.submit(
                 self._context.copy().run,
                 self._run,
                 job,
                 f"{self._query_id}-tile-{index}-",
                 self._debug_tile_ids[index] if self._debug_tile_ids else None,
             )
+            self._futures.append(future)
         return True
+
+    def _worker_finished(self, _future: Future[None]) -> None:
+        with self._lock:
+            self._unfinished_workers -= 1
+            release = self._unfinished_workers == 0 and self._admitted
+            if release:
+                self._admitted = False
+        if release:
+            self._slots.release()
+
+    def _release_slot_when_workers_finish(self) -> None:
+        # A running tile keeps its thread and database connection after a disconnect, so the slot stays taken until it ends.
+        with self._lock:
+            self._unfinished_workers = len(self._futures)
+            release = not self._futures and self._admitted
+            if release:
+                self._admitted = False
+        if release:
+            self._slots.release()
+        for future in self._futures:
+            future.add_done_callback(self._worker_finished)
 
     def _close(self, complete: bool) -> None:
         try:
@@ -137,9 +163,6 @@ class DashboardQuerySharingStream:
             self._emit({"type": "error"})
             if self._pool:
                 self._pool.shutdown(wait=False, cancel_futures=True)
-            if self._admitted:
-                self._admitted = False
-                _stream_slots.release()
             if not complete:
                 for query_id in active:
                     try:
@@ -147,6 +170,8 @@ class DashboardQuerySharingStream:
                     except Exception:
                         logger.exception("Failed to cancel dashboard query sharing execution")
         finally:
+            if self._admitted:
+                self._release_slot_when_workers_finish()
             self.closed.set()
 
     @staticmethod
