@@ -220,8 +220,20 @@ def _compare_with_second_candidate(
     """
     from .logic import artifact_store
 
+    # Only the storage read is guarded. A swallowed database error would hide a broken transaction.
     artifact = Artifact.objects.filter(repo_id=snapshot.run.repo_id, content_hash=second_hash).first()
-    second_bytes = artifact_store.read_artifact_bytes(snapshot.run.repo_id, second_hash) if artifact else None
+    second_bytes = None
+    if artifact is not None:
+        try:
+            second_bytes = artifact_store.read_artifact_bytes(snapshot.run.repo_id, second_hash)
+        except Exception:
+            logger.warning(
+                "visual_review.second_candidate_read_failed",
+                snapshot_id=str(snapshot.id),
+                identifier=snapshot.identifier,
+                exc_info=True,
+            )
+            return None
     if artifact is None or not second_bytes:
         logger.warning(
             "visual_review.second_candidate_artifact_missing",

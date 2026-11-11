@@ -30,6 +30,7 @@ from products.visual_review.backend.facade.enums import (
 from products.visual_review.backend.logic import artifact_store, debt_digest, github_api, ledger_advance, runs
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot, ToleratedHash
+from products.visual_review.backend.storage import ArtifactStorage
 from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tasks.tasks import (
     post_approval_comment,
@@ -403,24 +404,34 @@ class TestProcessRunDiffs:
         assert compare_images.call_count == 1
 
     @pytest.mark.parametrize(
-        ("mode", "overlay_readable", "expected_result", "expected_baseline"),
+        ("mode", "overlay_storage", "expected_result", "expected_baseline"),
         [
-            (BaselineMode.LEDGER, True, SnapshotResult.UNCHANGED, "overlay_hash"),
-            (BaselineMode.LEDGER, False, SnapshotResult.CHANGED, "old_hash"),
+            (BaselineMode.LEDGER, "readable", SnapshotResult.UNCHANGED, "overlay_hash"),
+            (BaselineMode.LEDGER, "missing", SnapshotResult.CHANGED, "old_hash"),
+            (BaselineMode.LEDGER, "read_fails", SnapshotResult.CHANGED, "old_hash"),
             # A shadow-mode run is decided by the YAML file, so its record never re-points a snapshot.
-            (BaselineMode.SHADOW, True, SnapshotResult.CHANGED, "old_hash"),
+            (BaselineMode.SHADOW, "readable", SnapshotResult.CHANGED, "old_hash"),
         ],
     )
     def test_process_diffs_tries_the_second_candidate_over_a_threshold(
-        self, repo, mocker, mode, overlay_readable, expected_result, expected_baseline
+        self, repo, mocker, mode, overlay_storage, expected_result, expected_baseline
     ):
         run_id, _write = _prepare_one_diff(
             repo,
             mocker,
             baseline_png=_make_png((0, 255, 0, 255), size=(100, 100)),
             current_png=_make_png((255, 0, 0, 255), size=(100, 100)),
-            other_pngs={"overlay_hash": _make_png_with_single_changed_pixel()} if overlay_readable else {},
+            other_pngs={"overlay_hash": _make_png_with_single_changed_pixel()} if overlay_storage == "readable" else {},
         )
+        if overlay_storage == "read_fails":
+            read_stored = ArtifactStorage.read.side_effect
+
+            def read(storage, content_hash):
+                if content_hash == "overlay_hash":
+                    raise OSError("object storage unavailable")
+                return read_stored(storage, content_hash)
+
+            ArtifactStorage.read.side_effect = read
         artifact_store.get_or_create_artifact(repo.id, "overlay_hash", "visual_review/overlay_hash")
         record = BaselineRecord(
             mode=mode,
@@ -435,7 +446,7 @@ class TestProcessRunDiffs:
         )
         Run.objects.filter(id=run_id).update(metadata={METADATA_KEY: record.to_json()})
 
-        process_diffs(run_id)
+        assert process_diffs(run_id) == 1
 
         snapshot = RunSnapshot.objects.get(run_id=run_id)
         assert (snapshot.result, snapshot.baseline_hash) == (expected_result, expected_baseline)
