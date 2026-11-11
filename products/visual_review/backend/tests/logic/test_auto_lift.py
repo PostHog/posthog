@@ -40,8 +40,7 @@ class TestIsClean:
         [
             ("lifts_a_clean_window", _streak(), True),
             ("refuses_too_few_default_branch_runs", _streak(default_branch_runs=AUTO_LIFT_CLEAN_RUNS - 1), False),
-            # The hard row count covers every result but `unchanged`, so a quarantined, approved or
-            # tolerated change blocks the same way.
+            # Every result but `unchanged` counts, so a quarantined, approved or tolerated change blocks too.
             ("refuses_one_hard_row", _streak(hard_rows=1), False),
             ("refuses_a_quarantine_younger_than_the_window", _streak(quarantined_at=_WINDOW_START), False),
             (
@@ -102,7 +101,6 @@ def _quarantine(repo: Repo, hours_ago: int) -> QuarantinedIdentifier:
 class TestReleaseCleanQuarantines:
     @pytest.fixture(autouse=True)
     def commit_contains(self):
-        # A window of three default-branch runs keeps the fixture small; the rule itself is covered above.
         with (
             patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"),
             patch("products.visual_review.backend.logic.github_api.default_branch_head_sha", return_value="h" * 40),
@@ -169,7 +167,6 @@ class TestReleaseCleanQuarantines:
         [
             (SnapshotResult.CHANGED, 72, True),
             (SnapshotResult.UNCHANGED, 36, True),
-            # The client names the default branch, but GitHub does not find the commit on it.
             (SnapshotResult.UNCHANGED, 72, False),
         ],
     )

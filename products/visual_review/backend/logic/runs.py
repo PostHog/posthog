@@ -448,8 +448,7 @@ def _enqueue_quarantine_lift_check(run: Run) -> None:
         logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
-# A clean week does not end within an hour, so checking once an hour per repo and run type is enough,
-# and a busy default branch does not run the grouped read on every run.
+# A clean window does not end within an hour, so a busy default branch skips the grouped read on most runs.
 _CLEAN_RELEASE_THROTTLE_SECONDS = 60 * 60
 
 

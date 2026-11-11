@@ -694,8 +694,7 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
 
-# Short, so a story does not stay hidden for long. Automatic release lifts a story that renders
-# clean again, and the weekly debt digest reminds the owning team in the week before the expiry.
+# Short, because automatic release and the weekly debt digest follow up on the story.
 AUTO_QUARANTINE_DAYS = 14
 
 # The runs of a flake proof must be close in time, because the further apart two trees are, the more
@@ -708,9 +707,7 @@ AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 # and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
 
-# Newest full default-branch runs that must render a quarantined story clean, together with every
-# trusted run since the first of them, before the quarantine lifts itself. A run count adapts to how
-# busy the repo is, and a day count does not: a slow week would lift a story on too little evidence.
+# A run count and not days, because a slow week would lift a story on too little evidence.
 # As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
 # against 15 percent after 300.
 AUTO_LIFT_CLEAN_RUNS = 500

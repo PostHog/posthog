@@ -51,7 +51,6 @@ class CleanStreak:
     default_branch_runs: int
     # Rows other than `unchanged`, whatever their quarantine, approval or toleration state
     hard_rows: int
-    # Rows of the story in the window's default-branch runs. With no hard row, every one is `unchanged`.
     default_branch_renders: int
     # The finishing run's own result and baseline for the story, empty when it did not render it
     finishing_result: str
@@ -97,8 +96,7 @@ class _Window:
 
 def _window(run: Run, default_branch: str) -> _Window | None:
     """The `AUTO_LIFT_CLEAN_RUNS` full default-branch runs up to and including `run`, or None."""
-    # Runs newer than `run` stay out, because the lift records `run`'s commit and the evidence must
-    # describe that commit, also when the task runs late.
+    # Runs newer than `run` stay out, because the lift records `run`'s commit.
     newest = list(
         Run.objects.using(WRITER_DB)
         .filter(
@@ -137,8 +135,7 @@ def _newest_active_quarantines(run: Run, now: datetime) -> dict[str, datetime]:
 
 
 def _hard_rows(run: Run, run_ids: list[UUID], identifiers: list[str]) -> dict[str, int]:
-    # Only the rows other than `unchanged`, and a list of run ids rather than a subquery, so the read
-    # stays an index-only scan on the covering run, result and reason index.
+    # A list of run ids and not a subquery keeps the read an index-only scan on the covering index.
     return dict(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id__in=run_ids, team_id=run.team_id, result__in=_HARD_RESULTS, identifier__in=identifiers)
@@ -205,9 +202,8 @@ def _clean_streaks(
 
 
 def _lift(run: Run, identifier: str, reason: str, now: datetime) -> None:
-    # Like a manual lift. The verifying run's commit scopes it, as for a lift on merge, so a branch
-    # that forked before that commit keeps the quarantine. A pending lift request on this
-    # quarantine is marked superseded the next time a default-branch run reconciles requests.
+    # The run's commit scopes the lift, so a branch that forked before it keeps the quarantine.
+    # A pending lift request is marked superseded the next time a default-branch run reconciles requests.
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=run.repo_id,
         team_id=run.team_id,
@@ -262,8 +258,7 @@ def release_clean_quarantines(run_id: UUID) -> None:
     mode = repo.auto_quarantine_mode
     if mode == AutoQuarantineMode.OFF:
         return
-    # Not the branch name alone: a run on a branch called master is not on the default branch of
-    # a repo whose default branch is main.
+    # A branch called master is not the default branch of a repo whose default branch is main.
     if github_api.default_branch_name(repo) != run.branch:
         return
 
@@ -271,11 +266,9 @@ def release_clean_quarantines(run_id: UUID) -> None:
     quarantined = _newest_active_quarantines(run, now)
     if not quarantined:
         return
-    # The branch name and commit come from the client, and the lift writes the commit as
-    # `lifted_at_sha`. An off-branch commit there would keep the quarantine on every real
-    # default-branch run, so GitHub must confirm the commit is on the default branch. The check
-    # runs before the evidence read, so a run that completes during the GitHub request is still
-    # read before the write. This costs one GitHub lookup per hourly check, also when nothing lifts.
+    # The commit is client-supplied and becomes `lifted_at_sha`, where an off-branch commit would keep
+    # the quarantine on real default-branch runs. Checked before the evidence read so that read is the
+    # last step before the write, at the cost of one GitHub lookup per hourly check.
     if not _is_on_default_branch(repo, run.commit_sha):
         logger.warning("visual_review.auto_lift_commit_not_on_default_branch", repo_id=str(repo.id), run_id=str(run.id))
         return
