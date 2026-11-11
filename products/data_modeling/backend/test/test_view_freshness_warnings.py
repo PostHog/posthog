@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.hogql.query import execute_hogql_query
 
+from products.data_modeling.backend.logic import view_freshness_warnings
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.models import DataModelingJob
 from products.data_modeling.backend.models.dag import DAG
@@ -113,3 +114,19 @@ class TestViewFreshnessWarnings(BaseTest):
         response = execute_hogql_query("SELECT mrr FROM mrr_daily", team=self.team)
 
         assert not response.warnings
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_repeat_queries_reuse_the_dag_cadences(self, _sync_execute: Any) -> None:
+        view = self._materialized_view()
+        self._target(view, HOUR)
+        self._job(view, "Completed", 3)
+
+        with patch.object(
+            view_freshness_warnings,
+            "scheduled_cadences_by_node",
+            wraps=view_freshness_warnings.scheduled_cadences_by_node,
+        ) as build:
+            responses = [execute_hogql_query("SELECT mrr FROM mrr_daily", team=self.team) for _ in range(2)]
+
+        assert build.call_count == 1
+        assert [[w.status for w in r.warnings or []] for r in responses] == [["Stale"], ["Stale"]]

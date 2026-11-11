@@ -8,6 +8,7 @@ warehouse source sync warnings, which every query surface (the UI, PostHog AI, M
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
+from django.core.cache import cache
 from django.db.models import OuterRef, Subquery
 
 import humanize
@@ -27,6 +28,10 @@ from products.data_modeling.backend.models.node import Node
 STALE_MULTIPLIER = 2
 
 VIEW_STATUS_STALE = "Stale"
+
+# Every query that reads a materialized view needs its DAG's cadences, and building them reads the
+# whole DAG. A target change can take this long to move the warning threshold.
+CADENCE_CACHE_TTL_SECONDS = 300
 
 
 def view_freshness_warnings(
@@ -107,7 +112,7 @@ def _scheduled_cadences(team_id: int, saved_query_ids: list[str]) -> dict[str, t
     )
     if not nodes:
         return {}
-    by_node = scheduled_cadences_by_node(team_id, {node.dag_id for node in nodes})
+    by_node = _cached_cadences_by_node(team_id, {str(node.dag_id) for node in nodes})
     finest: dict[str, timedelta] = {}
     for node in nodes:
         cadence = by_node.get(str(node.id))
@@ -115,6 +120,19 @@ def _scheduled_cadences(team_id: int, saved_query_ids: list[str]) -> dict[str, t
         if cadence is not None and (query_id not in finest or cadence < finest[query_id]):
             finest[query_id] = cadence
     return finest
+
+
+def _cached_cadences_by_node(team_id: int, dag_ids: set[str]) -> dict[str, timedelta | None]:
+    keys = {dag_id: f"data_modeling:view_freshness:cadences:{team_id}:{dag_id}" for dag_id in dag_ids}
+    cached: dict[str, dict[str, timedelta | None]] = cache.get_many(list(keys.values()))
+    by_node: dict[str, timedelta | None] = {}
+    for dag_id, key in keys.items():
+        cadences = cached.get(key)
+        if cadences is None:
+            cadences = scheduled_cadences_by_node(team_id, [dag_id])
+            cache.set(key, cadences, CADENCE_CACHE_TTL_SECONDS)
+        by_node.update(cadences)
+    return by_node
 
 
 def _stale_view_message(view_name: str, *, ago: str, cadence: str) -> str:

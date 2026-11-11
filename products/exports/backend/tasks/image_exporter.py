@@ -281,9 +281,11 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
+            ok, err = is_heatmap_url_allowed(
+                heatmap_url, exported_asset.export_context.get("heatmap_type"), exported_asset.team
+            )
             if not ok:
-                raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
+                raise InvalidExportContext(f"heatmap_url not allowed: {err}")
 
             # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
             # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt

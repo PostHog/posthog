@@ -62,6 +62,7 @@ export interface definitionPopoverLogicValues {
     isCohort: boolean
     isDataWarehouse: boolean
     isDataWarehousePersonProperty: boolean
+    isEditable: boolean
     isEvent: boolean
     isProperty: any
     isViewable: boolean
@@ -149,6 +150,11 @@ export interface definitionPopoverLogicMeta {
             localDefinition: Partial<TaxonomicDefinitionTypes>
         ) => boolean
         isViewable: (type: any) => boolean
+        isEditable: (
+            isViewable: boolean,
+            isEvent: boolean,
+            resolvedDefinition: Partial<TaxonomicDefinitionTypes>
+        ) => boolean
         isAction: (type: any) => boolean
         isEvent: (type: any) => boolean
         isProperty: (type: any) => any
@@ -165,7 +171,7 @@ export interface definitionPopoverLogicMeta {
                 s: TaxonomicFilterValue,
                 type: PropertyDefinitionType,
                 groupTypeIndex?: number
-            ) => PropertyDefinition | null
+            ) => PropertyDefinition | null // propertyDefinitionsModel
         ) => Partial<TaxonomicDefinitionTypes>
         viewFullDetailUrl: (
             resolvedDefinition: Partial<TaxonomicDefinitionTypes>,
@@ -346,6 +352,12 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.EventFeatureFlags,
                 ].includes(type)
             },
+        ],
+        // An event with no id has no saved definition for Save to update, as with a hidden event's stand-in row.
+        isEditable: [
+            (s) => [s.isViewable, s.isEvent, s.resolvedDefinition],
+            (isViewable: boolean, isEvent: boolean, resolvedDefinition: Partial<TaxonomicDefinitionTypes>): boolean =>
+                isViewable && !(isEvent && !(resolvedDefinition as Partial<EventDefinition>)?.id),
         ],
         isAction: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Actions],
         isEvent: [
