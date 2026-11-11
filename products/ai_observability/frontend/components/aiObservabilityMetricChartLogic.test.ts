@@ -37,7 +37,9 @@ describe('aiObservabilityMetricChartLogic', () => {
         const logic = aiObservabilityMetricChartLogic({})
         logic.mount()
 
-        await expectLogic(logic, () => logic.actions.openBucketTrace('2026-11-10 18:28:00')).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.openBucketTrace({ label: '2026-11-10 18:28:00' })
+        ).toFinishAllListeners()
 
         expect(router.values.searchParams.trace).toBe(openTrace)
     })
@@ -48,7 +50,9 @@ describe('aiObservabilityMetricChartLogic', () => {
         const logic = aiObservabilityMetricChartLogic({ metric: 'users' })
         logic.mount()
 
-        await expectLogic(logic, () => logic.actions.openBucketTrace('2026-11-10 18:28:00')).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.openBucketTrace({ label: '2026-11-10 18:28:00' })
+        ).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('trace-1'))
     })

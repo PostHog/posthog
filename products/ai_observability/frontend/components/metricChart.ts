@@ -28,7 +28,10 @@ export const METRIC_CHART_DEFINITIONS: Record<MetricChartKey, MetricChartDefinit
     traces: {
         label: 'Traces',
         eventFilter: TRACE_EVENTS,
-        series: { math: HogQLMathType.HogQL, math_hogql: 'count(DISTINCT properties.$ai_trace_id)' },
+        series: {
+            math: HogQLMathType.HogQL,
+            math_hogql: 'countDistinctIf(properties.$ai_trace_id, notEmpty(toString(properties.$ai_trace_id)))',
+        },
         format: count,
     },
     users: {

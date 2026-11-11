@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -56,6 +57,8 @@ export interface aiObservabilityMetricChartLogicValues {
     drawerEnabled: boolean // traceDrawerLogic
     user: UserType | null // userLogic
     activeMetric: MetricChartKey
+    bucketTrace: TraceListRow | null
+    bucketTraceLoading: boolean
     canZoom: boolean
     interval: IntervalType
     metric: MetricChartKey
@@ -75,8 +78,26 @@ export interface aiObservabilityMetricChartLogicActions {
     openRow: (row: TraceListRow) => {
         row: TraceListRow
     } // traceDrawerLogic
-    openBucketTrace: (label: string) => {
+    openBucketTrace: ({ label }: { label: string }) => {
         label: string
+    }
+    openBucketTraceFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    openBucketTraceSuccess: (
+        bucketTrace: TraceListRow | null,
+        payload?: {
+            label: string
+        }
+    ) => {
+        bucketTrace: TraceListRow | null
+        payload?: {
+            label: string
+        }
     }
     setMetric: (metric: MetricChartKey) => {
         metric: MetricChartKey
@@ -138,7 +159,6 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
         actions: [aiObservabilitySharedLogic, ['setDates'], traceDrawerLogic({ listId: 'traces' }), ['openRow']],
     })),
     actions({
-        openBucketTrace: (label: string) => ({ label }),
         setMetric: (metric: MetricChartKey) => ({ metric }),
         zoomTo: (startLabel: string, endLabel: string) => ({ startLabel, endLabel }),
     }),
@@ -196,12 +216,42 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
                     })
                 ),
                 interval,
-                dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                // Verbatim bounds keep a rolling range's first bar to the rows the table shows.
+                dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo, explicitDate: true },
                 filterTestAccounts: shouldFilterTestAccounts,
                 properties: scopeFilters,
             }),
         ],
     }),
+    loaders(({ values }) => ({
+        bucketTrace: [
+            null as TraceListRow | null,
+            {
+                openBucketTrace: async ({ label }: { label: string }): Promise<TraceListRow | null> => {
+                    const range = metricChartBucketRange(label, label, values.interval)
+                    const response = await performQuery<HogQLQuery>({
+                        kind: NodeKind.HogQLQuery,
+                        query: BUCKET_TRACES_QUERY,
+                        filters: {
+                            dateRange: { date_from: range.dateFrom, date_to: range.dateTo },
+                            filterTestAccounts: values.shouldFilterTestAccounts,
+                            properties: values.scopeFilters,
+                        },
+                    }).catch(() => null)
+                    if (!response) {
+                        lemonToast.error("Couldn't open the trace. Click the bar to try again.")
+                        return null
+                    }
+                    const rows = response.results ?? []
+                    if (rows.length !== 1) {
+                        return null
+                    }
+                    const [traceId, firstSeen] = rows[0] as [string, string]
+                    return { traceId, timestamp: getTraceTimestamp(firstSeen), stepId: null }
+                },
+            },
+        ],
+    })),
     listeners(({ actions, values }) => ({
         setMetric: ({ metric }) => {
             posthog.capture('llma metric chart metric changed', { metric })
@@ -211,37 +261,20 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
             posthog.capture('llma metric chart zoomed', { metric: values.activeMetric, from_interval: values.interval })
             actions.setDates(range.dateFrom, range.dateTo)
         },
-        openBucketTrace: async ({ label }, breakpoint) => {
-            const range = metricChartBucketRange(label, label, values.interval)
-            const response = await performQuery<HogQLQuery>({
-                kind: NodeKind.HogQLQuery,
-                query: BUCKET_TRACES_QUERY,
-                filters: {
-                    dateRange: { date_from: range.dateFrom, date_to: range.dateTo },
-                    filterTestAccounts: values.shouldFilterTestAccounts,
-                    properties: values.scopeFilters,
-                },
-            }).catch(() => null)
-            breakpoint()
-            if (!response) {
-                lemonToast.error("Couldn't open the trace. Click the bar to try again.")
+        openBucketTraceSuccess: ({ bucketTrace }) => {
+            if (!bucketTrace) {
                 return
             }
-            const rows = response.results ?? []
-            if (rows.length !== 1) {
-                return
-            }
-            const [traceId, firstSeen] = rows[0] as [string, string]
-            const timestamp = getTraceTimestamp(firstSeen)
+            const { traceId, timestamp } = bucketTrace
             posthog.capture('llma metric chart trace opened', { metric: values.activeMetric })
             // The drawer only renders on the traces tab, so anywhere else the trace opens as a page.
             const onTracesTab = TRACE_DRAWER_LISTS.traces.pathMatcher.test(
                 removeProjectIdIfPresent(router.values.location.pathname)
             )
             if (values.drawerEnabled && onTracesTab) {
-                actions.openRow({ traceId, timestamp, stepId: null })
+                actions.openRow(bucketTrace)
             } else {
-                router.actions.push(urls.aiObservabilityTrace(traceId, { timestamp }))
+                router.actions.push(urls.aiObservabilityTrace(traceId, { timestamp: timestamp ?? undefined }))
             }
         },
     })),

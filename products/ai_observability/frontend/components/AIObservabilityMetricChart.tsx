@@ -31,7 +31,7 @@ const METRIC_OPTIONS = (Object.keys(METRIC_CHART_DEFINITIONS) as MetricChartKey[
 
 export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: MetricChartKey }): JSX.Element {
     const logic = aiObservabilityMetricChartLogic({ metric: pinnedMetric })
-    const { activeMetric: metric, interval, canZoom, query } = useValues(logic)
+    const { activeMetric: metric, interval, canZoom, query, bucketTraceLoading } = useValues(logic)
     const { setMetric, zoomTo, openBucketTrace } = useActions(logic)
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
@@ -62,7 +62,11 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
         [timezone, interval, definition]
     )
     // Past the smallest bucket there is nothing to zoom into, so a bar holding one trace opens it instead.
-    const opensTrace = useCallback((index: number) => !canZoom && traceCounts?.[index] === 1, [canZoom, traceCounts])
+    // One lookup at a time, so repeated clicks on a slow bar don't stack queries.
+    const opensTrace = useCallback(
+        (index: number) => !canZoom && !bucketTraceLoading && traceCounts?.[index] === 1,
+        [canZoom, bucketTraceLoading, traceCounts]
+    )
     const labelFormatter = useMemo(
         () => createTooltipDateFormatter({ interval, timezone, allDays: labels }),
         [interval, timezone, labels]
@@ -71,9 +75,11 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
         (ctx: TooltipContext) => {
             const clickHint = canZoom
                 ? 'Click to zoom in'
-                : opensTrace(ctx.dataIndex)
-                  ? 'Click to open the trace'
-                  : null
+                : bucketTraceLoading
+                  ? 'Opening the trace…'
+                  : opensTrace(ctx.dataIndex)
+                    ? 'Click to open the trace'
+                    : null
             return (
                 <DefaultTooltip
                     {...ctx}
@@ -83,12 +89,12 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
                 />
             )
         },
-        [labelFormatter, definition, canZoom, opensTrace]
+        [labelFormatter, definition, canZoom, bucketTraceLoading, opensTrace]
     )
     const isPointClickable = useCallback((index: number) => canZoom || opensTrace(index), [canZoom, opensTrace])
     const onPointClick = useCallback(
         ({ label, dataIndex }: { label: string; dataIndex: number }) =>
-            canZoom ? zoomTo(label, label) : opensTrace(dataIndex) && openBucketTrace(label),
+            canZoom ? zoomTo(label, label) : opensTrace(dataIndex) && openBucketTrace({ label }),
         [canZoom, zoomTo, opensTrace, openBucketTrace]
     )
     const onDateRangeZoom = useCallback(
