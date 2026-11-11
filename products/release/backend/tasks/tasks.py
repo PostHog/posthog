@@ -2,7 +2,7 @@ from django.db import DatabaseError, transaction
 
 from celery import shared_task
 
-from .facade import api
+from ..facade import api
 
 OWNERSHIP_DELAY = 60
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from django.apps import apps as django_apps
 from django.db.models import Prefetch, Q, QuerySet
 from django.db.models.signals import post_save, pre_save
 
@@ -62,8 +63,8 @@ def list_release_import_flags(
     access_control: UserAccessControl | None,
     flag_ids: list[int] | None = None,
 ) -> list[ReleaseImportFlag]:
-    experiment_model = FeatureFlag.experiment_set.rel.related_model
-    early_access_model = FeatureFlag.features.rel.related_model
+    experiment_model = django_apps.get_model("experiments", "Experiment")
+    early_access_model = django_apps.get_model("early_access_features", "EarlyAccessFeature")
     experiments = _visible(
         experiment_model._default_manager.filter(deleted=False, archived=False).only("id", "name", "feature_flag_id"),
         access_control,
