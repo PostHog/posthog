@@ -1802,8 +1802,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("an agent", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, False, 1),
-            ("an agent by short id", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, 1),
+            ("an agent", {"X-PostHog-Client": "mcp"}, False, 1),
+            ("an agent by short id", {"X-PostHog-Client": "mcp"}, True, 1),
             ("the web app", {}, False, 0),
         ]
     )
@@ -1818,7 +1818,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             else f"/api/projects/{self.team.id}/insights/{insight_id}"
         )
 
-        self.client.get(path, **headers)
+        self.client.get(path, headers=headers)
 
         self.assertEqual(
             InsightAgentRead.objects.for_team(self.team.id).filter(user=self.user, insight_id=insight_id).count(),
