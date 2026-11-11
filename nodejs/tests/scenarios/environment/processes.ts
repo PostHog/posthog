@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { readFileSync, readdirSync, readlinkSync, realpathSync } from 'fs'
+import { readFileSync, readdirSync, readlinkSync } from 'fs'
 import net from 'net'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
@@ -8,8 +8,6 @@ import { getPluginServerCapabilities } from '~/capabilities'
 import { stringToPluginServerMode } from '~/common/config'
 
 export const MARKER_KEY = 'SCENARIO_RUNNER'
-
-const markerOf = (stateDir: string): string => `${MARKER_KEY}=${stateDir}`
 
 const PROC_ROOT = '/proc'
 const HOLDER_READ_TIMEOUT_MS = 2000
@@ -31,13 +29,12 @@ export class StackConflictError extends Error {
     }
 }
 
-const isMarkedFor = (entry: ProcEntry, stateDir: string): boolean =>
-    entry.environ?.includes(markerOf(stateDir)) ?? false
-
 const isMarked = (entry: ProcEntry): boolean =>
     entry.environ?.some((variable) => variable.startsWith(`${MARKER_KEY}=`)) ?? false
 
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
+const NODE_LAUNCHERS = ['node', 'tsx']
+const SHELLS = ['sh', 'bash', 'dash', 'zsh']
 
 const entryPointsOf = (nodejsDir: string): string[] => [
     path.join(path.dirname(nodejsDir), 'bin', 'posthog-node'),
@@ -46,9 +43,11 @@ const entryPointsOf = (nodejsDir: string): string[] => [
 
 function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
     const args = entry.cmdline.split(' ')
-    const cwd = entry.cwd
     const entryPoints = entryPointsOf(nodejsDir)
-    return args.some((arg) => entryPoints.includes(cwd === null ? arg : path.resolve(cwd, arg)))
+    const isEntryPoint = (arg: string): boolean =>
+        entryPoints.includes(entry.cwd === null ? arg : path.resolve(entry.cwd, arg))
+    const [program = '', ...rest] = SHELLS.includes(path.basename(args[0])) ? args.slice(1) : args
+    return isEntryPoint(program) || (NODE_LAUNCHERS.includes(path.basename(program)) && rest.some(isEntryPoint))
 }
 
 function servesCdp(environ: string[]): boolean {
@@ -73,7 +72,7 @@ function runsCdp(entry: ProcEntry, nodejsDir: string): boolean {
 export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: string, stateDir: string): CleanupPlan {
     const selfPgid = entries.find((entry) => entry.pid === selfPid)?.pgid
     const others = entries.filter((entry) => entry.pid !== selfPid)
-    const ours = (entry: ProcEntry): boolean => isMarkedFor(entry, stateDir)
+    const ours = (entry: ProcEntry): boolean => entry.environ?.includes(`${MARKER_KEY}=${stateDir}`) ?? false
     const leftovers = others.filter(ours)
     const sharedWithOthers = (pgid: number): boolean =>
         pgid === selfPgid || others.some((entry) => entry.pgid === pgid && !ours(entry))
@@ -172,7 +171,7 @@ function listenerOf(address: string): string | undefined {
 }
 
 export const lockAddress = (stateDir: string): string =>
-    `\0posthog-scenarios-${createHash('sha256').update(realpathSync(stateDir)).digest('hex').slice(0, 16)}`
+    `\0posthog-scenarios-${createHash('sha256').update(stateDir).digest('hex').slice(0, 16)}`
 
 export async function holdRunLock(stateDir: string, retried = false): Promise<() => Promise<void>> {
     const address = lockAddress(stateDir)
