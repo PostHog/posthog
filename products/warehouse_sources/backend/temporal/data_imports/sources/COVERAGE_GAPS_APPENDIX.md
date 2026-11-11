@@ -12354,14 +12354,14 @@ Note: The official OpenAPI specification supplied all operations and confirmed t
 
 ## Testrail — gaps
 
-Today (13): `case_types`, `cases`, `milestones`, `plans`, `priorities`, `projects`, `results`, `runs`, `sections`, `statuses`, `suites`, `tests`, `users`
+Today (17): `case_fields`, `case_types`, `cases`, `configs`, `milestones`, `plans`, `priorities`, `projects`, `result_fields`, `results`, `runs`, `sections`, `statuses`, `suites`, `templates`, `tests`, `users`
 
 Diffed against: <https://support.testrail.com/api/v2/help_center/en-us/categories/7076541806228/articles.json?per_page=100>
 
-- [ ] `get_case_fields` — lookup that decodes the custom\_\* columns on every synced case into names, types and dropdown values (high)
-- [ ] `get_result_fields` — same for the custom\_\* columns on results, the largest table in a TestRail sync (high)
-- [ ] `get_templates` — lookup resolving template_id on cases; without it case rows carry an unresolvable integer (high)
-- [ ] `get_configs` — configuration groups/values that resolve the config ids on plan entries and runs (browser/OS matrix reporting) (medium)
+- [x] `get_case_fields` — lookup that decodes the custom\_\* columns on every synced case into names, types and dropdown values (high)
+- [x] `get_result_fields` — same for the custom\_\* columns on results, the largest table in a TestRail sync (high)
+- [x] `get_templates` — lookup resolving template_id on cases; without it case rows carry an unresolvable integer (high)
+- [x] `get_configs` — configuration groups/values that resolve the config ids on plan entries and runs (browser/OS matrix reporting) (medium)
 - [ ] `get_history_for_case` — per-case change history, the state-transition data for tracking test case churn (medium)
 - [ ] `get_case_statuses` — lookup for case approval statuses, distinct from the test result statuses already synced (medium)
 - [ ] `get_labels` — labels applied to cases and tests, a standard breakdown dimension (medium)
