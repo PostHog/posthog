@@ -902,11 +902,14 @@ export class RerunPaginatorService {
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
-                sandboxEmail: _sandboxEmail,
+                sandboxEmail,
                 sandboxEmailRetries: _sandboxEmailRetries,
-                sandboxEmailUncertainSends: _sandboxEmailUncertainSends,
-                ...restoredCurrentAction
+                ...resumableCurrentAction
             } = persistedState.currentAction ?? {}
+            const restoredCurrentAction =
+                sandboxEmail?.outcome === 'accepted'
+                    ? { ...resumableCurrentAction, sandboxEmail }
+                    : resumableCurrentAction
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null

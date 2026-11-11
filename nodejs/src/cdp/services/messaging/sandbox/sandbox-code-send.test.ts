@@ -434,29 +434,51 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         return rerunQueued
     }
 
-    it('delivers a rerun of a send that SES rejected on the sandbox sender', async () => {
-        hub.HOG_INVOCATION_RESULTS_ENABLED = true
-        hogFlow = await insertFlow('abort')
-        const res = await sendFromCode(request(sandboxSend()))
-        expect(res.status).toEqual(202)
-        world.ses.replyNext(SES_REJECTED)
-        await deliver(queued[0])
-        expect(world.ses.delivered).toEqual([])
+    const cancelOnceSent = (): ((invocation: CyclotronJobInvocation) => void) => {
+        let sent = false
+        return (invocation) => {
+            sent ||= world.ses.delivered.length > 0
+            if (sent && invocation.queue === 'hogflow') {
+                invocation.cancelRequestedAt = DateTime.now()
+            }
+        }
+    }
 
-        const rerun = await rerunFromStoredRun(queued[0].id)
-        expect(rerun).toHaveLength(1)
-        const results = await deliver(rerun[0])
+    it.each<[string, () => Promise<unknown>, () => void, number]>([
+        ['SES rejected the send', () => (world.ses.replyNext(SES_REJECTED), deliver(queued[0])), () => {}, 0],
+        [
+            'SES throttled every attempt',
+            () => (world.ses.replyAlways(SES_THROTTLE), deliver(queued[0])),
+            () => (world.ses.replyAlways(null), world.ses.replyNext(SES_THROTTLE)),
+            0,
+        ],
+        ['SES accepted the send and the run was canceled', () => deliver(queued[0], cancelOnceSent()), () => {}, 1],
+    ])(
+        'delivers a rerun on the sandbox sender exactly once after %s',
+        async (_desc, firstRun, beforeRerun, sentBeforeRerun) => {
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            hogFlow = await insertFlow('abort')
+            const res = await sendFromCode(request(sandboxSend()))
+            expect(res.status).toEqual(202)
+            await firstRun()
+            expect(world.ses.delivered).toHaveLength(sentBeforeRerun)
+            beforeRerun()
 
-        expect(results.at(-1)).toMatchObject({ finished: true })
-        expect(world.ses.delivered).toEqual([
-            expect.objectContaining({
-                from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
-                to: [{ name: '', address: member }],
-                subject: content.subject,
-            }),
-        ])
-        expect(finalStatus(queued[0].id)).toEqual('sent')
-    })
+            const rerun = await rerunFromStoredRun(queued[0].id)
+            expect(rerun).toHaveLength(1)
+            const results = await deliver(rerun[0])
+
+            expect(results.at(-1)).toMatchObject({ finished: true })
+            expect(world.ses.delivered).toEqual([
+                expect.objectContaining({
+                    from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
+                    to: [{ name: '', address: member }],
+                    subject: content.subject,
+                }),
+            ])
+            expect(finalStatus(queued[0].id)).toEqual('sent')
+        }
+    )
 
     it.each([
         ['a recipient outside the organization', true],
