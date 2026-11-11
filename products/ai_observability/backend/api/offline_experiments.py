@@ -9,7 +9,7 @@ from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -17,7 +17,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.event_usage import report_user_action
-from posthog.permissions import is_service_auth
+from posthog.permissions import is_service_auth, scopes_caller_lacks
 
 from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -46,6 +46,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationConflict,
     OfflineEvaluationIngestionService,
     OfflineEvaluationNotFound,
+    OfflineEvaluationPermissionDenied,
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
@@ -205,6 +206,8 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
             )
         if isinstance(exc, OfflineEvaluationNotFound):
             exc = NotFound("Experiment not found.")
+        elif isinstance(exc, OfflineEvaluationPermissionDenied):
+            exc = PermissionDenied(str(exc))
         response = OfflineEvaluationViewSet.handle_exception(self, exc)
         OFFLINE_UPLOAD_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
@@ -254,7 +257,10 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     def upload(self, request: TypedRequest[UploadSubmission], **kwargs: object) -> Response:
         experiment_id = self._experiment_id()
         receipt = OfflineEvaluationIngestionService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id,
+            user_access_control=self._reference_access_control(),
+            can_read_results=not is_service_auth(request)
+            and not scopes_caller_lacks(request, ["evaluation:read", "llm_analytics:read"]),
         ).upload(experiment_id, request.validated_data)
         for created in (True, False):
             OFFLINE_UPLOAD_RESULTS.labels(outcome="created" if created else "duplicate").inc(

@@ -58,7 +58,9 @@ class TestCompositeIngestion(TestCase):
 
     def setUp(self) -> None:
         self.lifecycle = OfflineExperimentService(team_id=self.team.id, user_access_control=None)
-        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+        self.ingestion = OfflineEvaluationIngestionService(
+            team_id=self.team.id, user_access_control=None, can_read_results=True
+        )
         self.experiment = self.lifecycle.create(
             ExperimentSubmission(id=uuid4(), name="Candidate", started_at=timezone.now())
         ).experiment
@@ -232,7 +234,9 @@ class TestCompositeIngestion(TestCase):
             team_id=self.team.id, user_access_control=denied_access, can_read_scores=True
         )
         self.assertEqual(denied_reads.list_summaries(self.experiment.id, OfflineReadQuery()).results, [])
-        denied_ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=denied_access)
+        denied_ingestion = OfflineEvaluationIngestionService(
+            team_id=self.team.id, user_access_control=denied_access, can_read_results=True
+        )
         retry = denied_ingestion.upload(self.experiment.id, UploadSubmission(results=[self.request]))
         self.assertFalse(retry.results[0].created)
         with self.assertRaises(OfflineEvaluationValidationError):

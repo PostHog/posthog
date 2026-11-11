@@ -113,6 +113,10 @@ class OfflineEvaluationNotFound(Exception):
     pass
 
 
+class OfflineEvaluationPermissionDenied(Exception):
+    pass
+
+
 class OfflineEvaluationConflict(Exception):
     def __init__(
         self, code: str, detail: str, *, field: str | None = None, counts: ExperimentCounts | None = None
@@ -291,6 +295,46 @@ class OfflineExperimentService(_OfflineEvaluationService):
 
 
 class OfflineEvaluationIngestionService(_OfflineEvaluationService):
+    def __init__(
+        self,
+        *,
+        team_id: int,
+        user_access_control: UserAccessControl | None,
+        can_read_results: bool = False,
+    ) -> None:
+        super().__init__(team_id=team_id, user_access_control=user_access_control)
+        self._can_read_results = can_read_results
+
+    def _check_stored_input_access(self, submission: UploadSubmission) -> None:
+        if self._can_read_results:
+            return
+        calculations = [result for result in submission.results if result.calculate]
+        if not calculations:
+            return
+        supplied_inputs = {
+            ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)
+            for result in submission.results
+            if not result.calculate
+        }
+        # Include retries and inaccessible definitions: their stored receipts also disclose calculation outcomes.
+        compositions = dict(
+            # nosemgrep: idor-lookup-without-user -- Team-scoped formula metadata only denies uploads; it exposes no results.
+            ScoreDefinitionVersion.objects.filter(
+                definition__team_id=self.team_id, id__in={result.scorer_version_id for result in calculations}
+            ).values_list("id", "composition")
+        )
+        for result in calculations:
+            composition = compositions.get(result.scorer_version_id)
+            if composition and any(
+                ResultIdentity(item_id=result.item_id, scorer_version_id=UUID(source["scorer_version_id"]))
+                not in supplied_inputs
+                for source in composition["inputs"]
+            ):
+                raise OfflineEvaluationPermissionDenied(
+                    "Calculating composite scores from stored inputs requires result-read access. "
+                    "Supply all input scores in this upload or use credentials with result-read access."
+                )
+
     def _computed_result(
         self,
         submission: ResultSubmission,
@@ -497,6 +541,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         )
 
     def upload(self, experiment_id: UUID, submission: UploadSubmission) -> UploadReceipt:
+        self._check_stored_input_access(submission)
         item_hashes = {item.id: submission_fingerprint(item) for item in submission.items}
         result_hashes = [submission_fingerprint(result) for result in submission.results]
         try:

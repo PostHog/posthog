@@ -435,6 +435,8 @@ Numeric composites use minimum and maximum bounds but do not accept a manual-sco
 Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
 `calculate` is only for composite scorers. For reported scorers, omit it or set it to false and supply the result.
 All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
+Using stored inputs requires `evaluation:read` and `llm_analytics:read` in addition to ingestion access, including on retries.
+Ingestion-only and project secret keys must include every input result in the same upload. Previously uploaded inputs may be resubmitted with their original values and metadata.
 Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
@@ -472,7 +474,7 @@ MCP preserves omission of `calculate` on reported uploads so they remain compati
 MCP agents can create and version composites through the scorer tools, then request per-item calculations through `llma-offline-experiment-upload` with `calculate: true`.
 
 SDK integrations must send `calculate: true` in composite result declarations.
-When chunking bulk uploads, send reported results before dependent composite requests so their inputs exist when each chunk arrives.
+When chunking bulk uploads, keep composites and their inputs in the same request, or use credentials with result-read access to calculate from inputs uploaded in earlier chunks.
 Receipts follow transmitted order. Retrying a failed chunk must preserve its item IDs, scorer version IDs, and request content.
 This extends the ordinary-result status/value contract only for explicit composite calculation requests.
 

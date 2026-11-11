@@ -785,7 +785,9 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
     def setUp(self) -> None:
         _, _, self.team = Organization.objects.bootstrap(None)
         self.lifecycle = OfflineExperimentService(team_id=self.team.id, user_access_control=None)
-        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+        self.ingestion = OfflineEvaluationIngestionService(
+            team_id=self.team.id, user_access_control=None, can_read_results=True
+        )
         self.experiment = self.lifecycle.create(
             ExperimentSubmission(id=uuid4(), name="Concurrent upload", started_at=timezone.now())
         ).experiment

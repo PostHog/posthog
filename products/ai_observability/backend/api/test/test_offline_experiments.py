@@ -120,8 +120,26 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             input="What is 2 + 2?",
         )
 
-    @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
-    def test_composite_calculation_upload_and_read_back(self, auth_kind: str) -> None:
+    @parameterized.expand(
+        [
+            ("session", "same_upload", [], True),
+            ("personal_key", "same_upload", [], True),
+            ("project_key", "same_upload", [], True),
+            ("session", "stored", [], True),
+            ("personal_key", "stored", ["llm_analytics:write"], False),
+            ("personal_key", "stored", ["evaluation:read"], False),
+            ("personal_key", "stored", ["evaluation:read", "llm_analytics:read"], True),
+            ("personal_key", "stored", ["evaluation:write", "llm_analytics:write"], True),
+            ("personal_key", "stored", ["*"], True),
+            ("project_key", "stored", ["*"], False),
+            ("personal_key", "replayed", [], True),
+            ("project_key", "replayed", [], True),
+            ("personal_key", "partial", [], False),
+        ]
+    )
+    def test_composite_calculation_upload_and_read_back(
+        self, auth_kind: str, input_delivery: str, read_scopes: list[str], allowed: bool
+    ) -> None:
         inputs = []
         source_configs: list[tuple[str, str, dict[str, object]]] = [
             ("quality", "numeric", {"min": 0, "max": 1}),
@@ -158,7 +176,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
             composites.append(response.data["current_version_id"])
-        self._authenticate(auth_kind)
+        self._authenticate("session")
         experiment = self._experiment_body()
         created = self.client.post(self._endpoint(), experiment, format="json")
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
@@ -172,12 +190,33 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         )
         body = {"items": [{"id": item_id}], "results": results}
         upload_url = self._endpoint(str(experiment["id"]), "upload")
+        if input_delivery != "same_upload":
+            sources = self.client.post(
+                upload_url, {"items": body["items"], "results": results[len(composites) :]}, format="json"
+            )
+            self.assertEqual(sources.status_code, status.HTTP_200_OK, sources.data)
+        if input_delivery == "stored":
+            body["results"] = results[: len(composites)]
+        elif input_delivery == "partial":
+            body["results"] = results[:-1]
+        self._authenticate(auth_kind, ["offline_evaluation_ingestion:write", *read_scopes])
         response = self.client.post(upload_url, body, format="json")
+        if not allowed:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+            self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), len(inputs))
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        source_ids = {result["id"] for result in response.data["results"][len(composites) :]}
+        source_ids = {
+            result["id"]
+            for result in (
+                sources.data["results"] if input_delivery == "stored" else response.data["results"][len(composites) :]
+            )
+        }
         self.assertEqual(
             [(row["status"], row["error_code"]) for row in response.data["results"]],
-            [("ok", None)] * 3 + [("error", "composite_formula_error")] + [("ok", None)] * 3,
+            [("ok", None)] * 3
+            + [("error", "composite_formula_error")]
+            + ([("ok", None)] * 3 if input_delivery != "stored" else []),
         )
         self.assertEqual(
             list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [3]
@@ -192,10 +231,19 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertTrue(all(not result["created"] for result in replay.data["results"]))
         self.assertEqual(replay.data["results"][3]["status"], "error")
         self.assertEqual(replay.data["results"][3]["error_code"], "composite_formula_error")
-        if auth_kind != "session":
+        if input_delivery == "replayed":
+            changed_inputs = [dict(result) for result in results]
+            changed_inputs[len(composites)]["value"] = 0.5
+            conflict = self.client.post(upload_url, {"items": [], "results": changed_inputs}, format="json")
+            self.assertEqual(conflict.status_code, status.HTTP_409_CONFLICT, conflict.data)
+        if auth_kind != "session" and not read_scopes:
             self.assertEqual(
                 self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results")).status_code, 403
             )
+            composite_only_retry = self.client.post(
+                upload_url, {"items": [], "results": results[: len(composites)]}, format="json"
+            )
+            self.assertEqual(composite_only_retry.status_code, status.HTTP_403_FORBIDDEN, composite_only_retry.data)
         self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
         read = self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results"))
         self.assertEqual(read.status_code, status.HTTP_200_OK, read.data)
