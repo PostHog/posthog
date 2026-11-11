@@ -93,6 +93,7 @@ class QuantileQueryBuilder:
             else ""
         )
 
+        # nosemgrep: hogql-fstring-audit (the f-string only inserts the constant overall_* fragments above; values go through placeholders)
         query = parse_select(
             f"""
             WITH
