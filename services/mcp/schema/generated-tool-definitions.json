@@ -10668,8 +10668,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "logs-agent-tools"
+        }
     },
     "logs-impact": {
         "description": "Estimate how many sessions and users the logs matching a filter set touch. Use it when the user asks who an error or log pattern affects, or how widespread it is.\n\nTakes the same filters as `logs-count`, inside `query`, and defaults to the last hour:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nReturns the matching log total, unique `sessions` and `users` (HyperLogLog estimates), how many logs carry each ID, and the top 5 session IDs and distinct IDs by log count. `sessionGroupKey` and `personGroupKey` name the attribute that holds each ID: pass it to `logs-group-by` for the full breakdown.\n\nLow `logsWithSessionId` or `logsWithDistinctId` means the service does not log those IDs, not that no one is affected.",
