@@ -13,7 +13,7 @@ import structlog
 
 from ..facade.enums import RunPurpose
 from ..models import Repo, Run
-from . import app_urls, github_api
+from . import app_urls, errors, github_api
 
 logger = structlog.get_logger(__name__)
 
@@ -114,9 +114,13 @@ def _send_commit_status(
 
     try:
         github = github_api.get_github_integration_for_repo(repo)
-    except Exception:
+    except errors.GitHubIntegrationNotFoundError:
         logger.debug("visual_review.status_check_skipped", commit_sha=commit_sha, reason="no_github_integration")
         return StatusPost.SKIPPED
+    except Exception:
+        # A lookup that failed for another reason can work on a retry, and a refused post is retried.
+        logger.warning("visual_review.status_check_integration_failed", commit_sha=commit_sha, exc_info=True)
+        return StatusPost.REFUSED
 
     body = {"state": state, "description": description[:140], "context": context}
     if target_url:
