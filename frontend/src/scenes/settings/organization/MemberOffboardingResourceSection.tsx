@@ -60,27 +60,6 @@ export function MemberOffboardingResourceSection({
                         <span className="text-secondary text-sm mr-auto">
                             {getSelectionLabel(resources.map((resource) => resource.id))}
                         </span>
-                        {isSubscription && (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    disabledReason={disabledReason}
-                                    onClick={() => openTransfer(resources.map((resource) => resource.id))}
-                                >
-                                    Transfer ownership
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    size="small"
-                                    disabledReason={disabledReason}
-                                    onClick={() => disableResources(resources.map((resource) => resource.id))}
-                                >
-                                    Disable all
-                                </LemonButton>
-                            </>
-                        )}
                     </div>
                 </div>
             )}

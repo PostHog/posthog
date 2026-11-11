@@ -4,6 +4,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { fullNameOrEmail } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 
@@ -11,6 +12,11 @@ export function MemberOffboardingTransferModal(): JSX.Element {
     const { member, transferIds, transferOwner, savingResourcesLoading, getSelectionLabel } =
         useValues(memberOffboardingLogic)
     const { closeTransfer, setTransferOwner, transferOwnership } = useActions(memberOffboardingLogic)
+
+    const { user } = useValues(userLogic)
+    const ownerLabel = transferOwner
+        ? `${fullNameOrEmail(transferOwner)}${transferOwner.uuid === user?.uuid ? ' (you)' : ''}`
+        : 'Choose a new owner'
 
     return (
         <LemonModal
@@ -33,7 +39,7 @@ export function MemberOffboardingTransferModal(): JSX.Element {
                         onClick={transferOwnership}
                         disabledReason={!transferOwner ? 'Choose a new owner.' : undefined}
                     >
-                        Transfer and enable
+                        Transfer
                     </LemonButton>
                 </>
             }
@@ -44,14 +50,14 @@ export function MemberOffboardingTransferModal(): JSX.Element {
                 onChange={setTransferOwner}
                 excludedMembers={member ? [member.user.uuid] : []}
                 allowNone={false}
-                defaultLabel={transferOwner ? fullNameOrEmail(transferOwner) : 'Choose a new owner'}
+                defaultLabel={ownerLabel}
             >
                 {() => (
                     <LemonButton
                         type="secondary"
                         disabledReason={savingResourcesLoading ? 'Transferring ownership…' : undefined}
                     >
-                        {transferOwner ? fullNameOrEmail(transferOwner) : 'Choose a new owner'}
+                        {ownerLabel}
                     </LemonButton>
                 )}
             </MemberSelect>
