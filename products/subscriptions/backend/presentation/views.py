@@ -996,7 +996,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         request=SubscriptionTransferOwnershipSerializer,
         responses={200: SubscriptionSerializer},
         description=(
-            "Transfer this subscription to yourself or another organization member and enable it. Both users need access to its content. Deliveries run with "
+            "Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with "
             "the owner's access, so this is how a subscription continues after its owner left."
         ),
     )

@@ -2482,7 +2482,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=AlertTransferOwnershipSerializer,
         responses={200: AlertSerializer},
         description=(
-            "Transfer this alert to yourself or another organization member and enable it. Both users need access to its content. Checks run with the owner's "
+            "Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's "
             "access, so this is how an alert continues after its owner left."
         ),
     )
@@ -2492,6 +2492,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
         owner = ownership.validated_data["owner"]
+        if owner.pk != request.user.pk and not self.user_access_control.is_organization_admin:
+            raise ValidationError(
+                "Only an organization admin can assign an alert to another person. "
+                "Take ownership yourself or ask an admin to transfer it."
+            )
         try:
             assert_creator_can_run(owner, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
@@ -2511,9 +2516,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert.insight.refresh_from_db()
             with upgrade_insight(alert.insight):
                 query = alert.insight.query
-            _validate_transfer_query_access(request.user, alert.team, query, requirement="You need")
-            if owner.pk != request.user.pk:
-                _validate_transfer_query_access(owner, alert.team, query, requirement="The new owner needs")
+            _validate_transfer_query_access(
+                owner,
+                alert.team,
+                query,
+                requirement="You need" if owner.pk == request.user.pk else "The new owner needs",
+            )
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
@@ -2553,9 +2561,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert.insight.refresh_from_db()
             with upgrade_insight(alert.insight):
                 query = alert.insight.query
-            _validate_transfer_query_access(requester, alert.team, query, requirement="You need")
-            if owner.pk != requester.pk:
-                _validate_transfer_query_access(owner, alert.team, query, requirement="The new owner needs")
+            _validate_transfer_query_access(
+                owner,
+                alert.team,
+                query,
+                requirement="You need" if owner.pk == requester.pk else "The new owner needs",
+            )
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,

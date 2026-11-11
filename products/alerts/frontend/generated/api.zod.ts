@@ -102,7 +102,7 @@ export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Transfer this alert to yourself or another organization member and enable it. Both users need access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
  */
 export const AlertsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod

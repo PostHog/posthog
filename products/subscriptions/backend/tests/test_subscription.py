@@ -1171,13 +1171,21 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            (False, OrganizationMembership.Level.MEMBER),
-            (True, OrganizationMembership.Level.MEMBER),
-            (True, OrganizationMembership.Level.ADMIN),
+            (False, OrganizationMembership.Level.MEMBER, False),
+            (False, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.MEMBER, False),
+            (True, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.ADMIN, False),
+            (True, OrganizationMembership.Level.ADMIN, True),
         ]
     )
-    def test_take_ownership_enables_the_subscription(self, another_member: bool, requester_level: int) -> None:
+    def test_take_ownership_permissions(self, another_member: bool, requester_level: int, ai_prompt: bool) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
+        if ai_prompt:
+            subscription.insight = None
+            subscription.prompt = "Summarize weekly signups"
+            subscription.save()
+        previous_owner = subscription.created_by
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
@@ -1190,8 +1198,17 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"user_uuid": str(owner.uuid)} if another_member else {},
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
         subscription.refresh_from_db()
+        if another_member and requester_level == OrganizationMembership.Level.MEMBER:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "organization admin" in response.json()["detail"]
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            ).exists()
+            return
+        assert response.status_code == status.HTTP_200_OK, response.content
         assert subscription.created_by == owner
         assert subscription.enabled is True
         assert response.json()["created_by"]["id"] == owner.id
@@ -5104,10 +5121,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
     def _deny_warehouse_tables(self) -> None:
         self._rule("warehouse_objects", for_member=False)
 
-    @parameterized.expand(
-        [(False, "requester"), (True, "requester"), (False, "owner"), (True, "owner"), (False, None), (True, None)]
-    )
-    def test_transfer_checks_both_users_table_access(self, enabled: bool, denied_user: str | None) -> None:
+    @parameterized.expand([(False, "owner"), (True, "owner"), (False, None), (True, None)])
+    def test_transfer_checks_the_owners_table_access(self, enabled: bool, denied_user: str | None) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
         owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
         subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), enabled=enabled)
@@ -5115,7 +5132,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             AccessControl.objects.create(
                 team=self.team,
                 resource="warehouse_objects",
-                organization_member=self.organization_membership if denied_user == "requester" else owner_membership,
+                organization_member=owner_membership,
                 access_level="none",
             )
 

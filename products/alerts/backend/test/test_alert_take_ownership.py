@@ -47,8 +47,9 @@ class TestAlertTakeOwnership(APIBaseTest):
             (True, OrganizationMembership.Level.ADMIN),
         ]
     )
-    def test_take_ownership_enables_the_alert(self, another_member: bool, requester_level: int) -> None:
+    def test_take_ownership_permissions(self, another_member: bool, requester_level: int) -> None:
         alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
@@ -61,8 +62,17 @@ class TestAlertTakeOwnership(APIBaseTest):
             {"user_uuid": str(owner.uuid)} if another_member else {},
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
         alert.refresh_from_db()
+        if another_member and requester_level == OrganizationMembership.Level.MEMBER:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "organization admin" in response.json()["detail"]
+            assert alert.created_by == previous_owner
+            assert alert.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership"
+            ).exists()
+            return
+        assert response.status_code == status.HTTP_200_OK, response.content
         assert alert.created_by == owner
         assert alert.enabled is True
         # created_by is excluded from the save diff, so the takeover logs its own activity.
@@ -114,17 +124,17 @@ class TestAlertTakeOwnership(APIBaseTest):
             (storage, enabled, denied_user)
             for storage in ("insight", "platform")
             for enabled in (False, True)
-            for denied_user in ("requester", "owner", None)
+            for denied_user in ("owner", None)
         ]
     )
-    def test_transfer_checks_both_users_table_access(
+    def test_transfer_checks_the_owners_table_access(
         self, storage: str, enabled: bool, denied_user: str | None
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
         owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
@@ -155,7 +165,7 @@ class TestAlertTakeOwnership(APIBaseTest):
             AccessControl.objects.create(
                 team=self.team,
                 resource="warehouse_objects",
-                organization_member=self.organization_membership if denied_user == "requester" else owner_membership,
+                organization_member=owner_membership,
                 access_level="none",
             )
 
