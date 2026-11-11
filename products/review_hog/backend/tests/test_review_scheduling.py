@@ -129,6 +129,7 @@ async def test_the_queue_asks_stamphog_about_a_ready_head_once_its_turn_ends(
     entered = asyncio.Event()
     release = asyncio.Event()
     silent_requests: list[SilentStamphogRequest] = []
+    turns: list[ReviewPRWorkflowInputs] = []
     draft_opened = ReviewPRWorkflowInputs(
         team_id=1,
         user_id=1,
@@ -146,6 +147,7 @@ async def test_the_queue_asks_stamphog_about_a_ready_head_once_its_turn_ends(
 
     @activity.defn(name="record_scheduled_review")
     async def record(inputs: ReviewPRWorkflowInputs) -> str:
+        turns.append(inputs)
         entered.set()
         await release.wait()
         if fail_turn:
@@ -182,6 +184,8 @@ async def test_the_queue_asks_stamphog_about_a_ready_head_once_its_turn_ends(
             else:
                 assert await handle.result() == "report"
 
+    # The turn learns that the queue answers for it.
+    assert turns and all(turn.answered_by_queue for turn in turns)
     assert silent_requests == (
         [SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")]
         if expect_answered

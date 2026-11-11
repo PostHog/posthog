@@ -2967,21 +2967,27 @@ def _log_silent_stamphog(repository: str, pr_number: int, head_sha: str) -> None
 
 
 def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
-    finish_standard_automatic_turn(
+    queued = finish_standard_automatic_turn(
         team_id=input.team_id,
         report_id=input.report_id,
+        repository=input.repository,
+        pr_number=input.pr_number,
         head_sha=input.head_sha,
         run_index=input.run_index,
         lens_chunks_capped=input.lens_chunks_capped,
         delta_review=input.delta_review,
+        hand_off=input.hand_off,
     )
+    if queued:
+        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
-    """Record on the turn marker whether the turn was clean with full coverage.
+    """Record on the turn marker whether the turn was clean with full coverage, and queue the silent stamphog
+    review for a clean turn that the queue does not answer for.
 
     The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
     """

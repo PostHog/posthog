@@ -48,11 +48,22 @@ def _record_turn_coverage(
 
 
 def finish_standard_automatic_turn(
-    *, team_id: int, report_id: str, head_sha: str, run_index: int, lens_chunks_capped: bool, delta_review: bool
-) -> None:
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str,
+    pr_number: int,
+    head_sha: str,
+    run_index: int,
+    lens_chunks_capped: bool,
+    delta_review: bool,
+    hand_off: bool,
+) -> bool:
     """Record the turn's coverage, so the ready event of the head can use it later.
 
-    A turn on a draft records its coverage too, so a later ready event without a push can use it.
+    A turn on a draft records its coverage too, so a later ready event without a push can use it. A turn
+    that the queue does not answer for queues the silent review itself when it was clean. Returns whether
+    it was queued.
     """
     _record_turn_coverage(
         team_id=team_id,
@@ -62,6 +73,12 @@ def finish_standard_automatic_turn(
         lens_chunks_capped=lens_chunks_capped,
         delta_review=delta_review,
     )
+    if not hand_off:
+        return False
+    if not _recorded_clean(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha):
+        return False
+    queue_silent_review(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
+    return True
 
 
 def _recorded_clean(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> bool:

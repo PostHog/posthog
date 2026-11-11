@@ -396,10 +396,13 @@ class TestHeadReviewStatus(BaseTest):
         finish_standard_automatic_turn(
             team_id=self.team.id,
             report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
             head_sha=HEAD,
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
             delta_review=setup == "delta_review",
+            hand_off=False,
         )
         if setup == "newer_deep_turn":
             self._add_marker(report, 2, REVIEW_MODE_FULL)

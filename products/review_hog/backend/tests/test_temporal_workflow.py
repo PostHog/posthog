@@ -79,6 +79,7 @@ from products.review_hog.backend.temporal.types import (
     FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
+    SilentStamphogRequest,
     resolve_pr_workflow_id,
 )
 from products.review_hog.backend.temporal.workflow import (
@@ -173,6 +174,8 @@ async def _run_full_review_pr_workflow(
     publish_posts: bool = True,
     fail_nudge: bool = False,
     fail_finish: bool = False,
+    marks_ready: bool = False,
+    answered_by_queue: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -464,6 +467,12 @@ async def _run_full_review_pr_workflow(
         if fail_finish:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
+    silent_stamphog_calls: list[SilentStamphogRequest] = []
+
+    @activity.defn(name="start_silent_stamphog_activity")
+    async def silent_stamphog(input: SilentStamphogRequest) -> None:
+        silent_stamphog_calls.append(input)
+
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
     # in the workflow, so without these stubs deleting any of them would leave every test green.
@@ -540,6 +549,7 @@ async def _run_full_review_pr_workflow(
                 remove_reaction,
                 nudge,
                 finish_standard_automatic_turn,
+                silent_stamphog,
                 track_failed,
                 track_completed,
                 track_started,
@@ -564,6 +574,8 @@ async def _run_full_review_pr_workflow(
                         resolve_comments=input_resolve_comments,
                         review_mode=review_mode,
                         requested_head_sha="sha1",
+                        marks_ready=marks_ready,
+                        answered_by_queue=answered_by_queue,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -621,6 +633,7 @@ async def _run_full_review_pr_workflow(
         "reactions": reaction_calls,
         "nudges": nudge_calls,
         "finished_turns": finished_turns,
+        "silent_stamphog": silent_stamphog_calls,
     }
 
 
@@ -739,8 +752,16 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
 
 
 _FINISHED_TURN = FinishedStandardAutomaticTurn(
-    team_id=1, report_id="rep-1", head_sha="sha1", run_index=1, lens_chunks_capped=True, delta_review=False
+    team_id=1,
+    report_id="rep-1",
+    repository="o/r",
+    pr_number=7,
+    head_sha="sha1",
+    run_index=1,
+    lens_chunks_capped=True,
+    delta_review=False,
 )
+_SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 
 
 @pytest.mark.asyncio
@@ -773,6 +794,37 @@ async def test_review_pr_workflow_records_automatic_standard_coverage(
     )
     assert recorded["failed"] is fail_dedup
     assert recorded["finished_turns"] == expected_finished
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answered_by_queue, marks_ready, already_completed, expected_hand_off, expected_silent",
+    [
+        pytest.param(False, True, False, [True], [], id="older-queue-ready-turn-hands-off-itself"),
+        pytest.param(False, False, False, [False], [], id="older-queue-draft-turn"),
+        pytest.param(True, True, False, [False], [], id="queue-answers-for-a-ready-turn"),
+        pytest.param(False, True, True, [], [_SILENT_STAMPHOG], id="older-queue-ready-at-a-reviewed-head"),
+        pytest.param(True, True, True, [], [], id="queue-answers-for-a-reviewed-head"),
+    ],
+)
+async def test_review_pr_workflow_hands_off_itself_only_when_the_queue_does_not_answer(
+    answered_by_queue: bool,
+    marks_ready: bool,
+    already_completed: bool,
+    expected_hand_off: list[bool],
+    expected_silent: list[SilentStamphogRequest],
+):
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        trigger_source="automatic",
+        review_authored_prs=True,
+        marks_ready=marks_ready,
+        answered_by_queue=answered_by_queue,
+        already_completed=already_completed,
+    )
+    assert [turn.hand_off for turn in recorded["finished_turns"]] == expected_hand_off
+    assert recorded["silent_stamphog"] == expected_silent
 
 
 @pytest.mark.asyncio

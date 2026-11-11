@@ -86,6 +86,9 @@ class ReviewPRWorkflowInputs:
     # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
     # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.
     marks_ready: bool = False
+    # Set by the queue when it asks stamphog about the head itself once this turn ends. A turn without
+    # it keeps the older handoff, so a queue that replays a history from before the change stays consistent.
+    answered_by_queue: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
 
@@ -112,10 +115,14 @@ class FinishedStandardAutomaticTurn:
 
     team_id: int
     report_id: str
+    repository: str
+    pr_number: int
     head_sha: str
     run_index: int
     lens_chunks_capped: bool
     delta_review: bool
+    # Only a turn that the queue does not answer for sets this: queue the silent review when the turn was clean.
+    hand_off: bool = False
 
 
 @frozen

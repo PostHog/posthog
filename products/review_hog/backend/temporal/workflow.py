@@ -116,7 +116,6 @@ from products.review_hog.backend.temporal.activities import (
 )
 from products.review_hog.backend.temporal.scheduling import (
     SILENT_STAMPHOG_PATCH,
-    STAMPHOG_REPORT_AFTER_TURN_PATCH,
     ReviewPRQueueWorkflow,
     ReviewRequestQueue,
     request_silent_stamphog,
@@ -540,7 +539,7 @@ class ReviewPRWorkflow:
             # A draft marked ready without a push gets no new turn, so the head's earlier automatic turn answers.
             # The queue answers the event once the turn ends, also for this early exit.
             if (
-                not workflow.patched(STAMPHOG_REPORT_AFTER_TURN_PATCH)
+                not inputs.answered_by_queue
                 and workflow.patched(SILENT_STAMPHOG_PATCH)
                 and meta.already_completed
                 and meta.pr_open
@@ -932,10 +931,16 @@ class ReviewPRWorkflow:
                 FinishedStandardAutomaticTurn(
                     team_id=inputs.team_id,
                     report_id=report_id,
+                    repository=repository,
+                    pr_number=meta.pr_number,
                     head_sha=head_sha,
                     run_index=meta.run_index,
                     lens_chunks_capped=meta.lens_chunks_capped,
                     delta_review=delta_since_head_sha is not None,
+                    # The event names its head, and the turn reviews the live head, which can be newer.
+                    hand_off=not inputs.answered_by_queue
+                    and inputs.marks_ready
+                    and inputs.requested_head_sha == head_sha,
                 )
             )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
