@@ -50,7 +50,19 @@ from posthog.admin.console.results import (
     KEY_PREFIX as RESULTS_KEY_PREFIX,
     ResultCodec,
 )
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    Download,
+    Live,
+    Notice,
+    Page,
+    Paging,
+    Row,
+    Secret,
+    Table,
+    ToolOperation,
+)
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
@@ -349,6 +361,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "download_name_that_would_break_the_header",
+                lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
+                "only letters",
             ),
         ]
     )
