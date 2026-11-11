@@ -1144,7 +1144,7 @@ describe('SesWebhookHandler', () => {
             expect(result.logEntries?.[0].message).toBe('Permanent bounce to to@example.com, unknown')
         })
 
-        it('records a DeliveryDelay as a delayed delivery at the time SES reported the delay', async () => {
+        it('accepts DeliveryDelay without producing a metric or log (so SNS does not retry)', async () => {
             const body = [
                 {
                     eventType: 'DeliveryDelay',
@@ -1158,9 +1158,7 @@ describe('SesWebhookHandler', () => {
             ]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.status).toBe(200)
-            expect(result.metrics).toEqual([
-                expect.objectContaining({ metricName: 'email_delivery_delayed', timestamp: '2025-10-03T12:06:00Z' }),
-            ])
+            expect(result.metrics).toEqual([])
             expect(result.logEntries).toEqual([])
         })
     })

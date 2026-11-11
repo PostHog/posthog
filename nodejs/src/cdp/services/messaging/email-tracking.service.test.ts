@@ -1275,34 +1275,37 @@ describe('EmailTrackingService', () => {
             it.each([
                 ['a transactional email', true],
                 ['an email from a workflow step', false],
-            ])('captures the delivery delay of %s at the time SES reported it', async (_name, transactional) => {
-                const { headerCode, tags } = await sendEmail({ teamCaptures: true, transactional })
+            ])(
+                'marks the delivery of %s as transactional only for a transactional send',
+                async (_name, transactional) => {
+                    const { headerCode, tags } = await sendEmail({ teamCaptures: true, transactional })
 
-                const res = await postEnvelope({
-                    Type: 'Notification',
-                    MessageId: new UUIDT().toString(),
-                    TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
-                    Message: JSON.stringify({
-                        eventType: 'DeliveryDelay',
-                        mail: {
-                            timestamp: '2024-01-01T00:00:00.000Z',
-                            source: 'sender@posthog-test.com',
-                            messageId: 'ses-message-id',
-                            destination: ['user@example.com'],
-                            headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode }],
-                            tags,
-                        },
-                        deliveryDelay: { timestamp: '2024-01-01T00:05:00.000Z', delayType: 'MailboxFull' },
-                    }),
-                })
-                expect(res.status).toBe(200)
+                    const res = await postEnvelope({
+                        Type: 'Notification',
+                        MessageId: new UUIDT().toString(),
+                        TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                        Message: JSON.stringify({
+                            eventType: 'Delivery',
+                            mail: {
+                                timestamp: '2024-01-01T00:00:00.000Z',
+                                source: 'sender@posthog-test.com',
+                                messageId: 'ses-message-id',
+                                destination: ['user@example.com'],
+                                headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode }],
+                                tags,
+                            },
+                            delivery: { timestamp: '2024-01-01T00:05:00.000Z', recipients: ['user@example.com'] },
+                        }),
+                    })
+                    expect(res.status).toBe(200)
 
-                const captured = mockInternalFetch.mock.calls.map(([, options]) => parseJSON(String(options?.body)))
-                expect(captured.map((event) => [event.event, event.timestamp])).toEqual([
-                    ['$workflows_email_delivery_delayed', '2024-01-01T00:05:00.000Z'],
-                ])
-                expect(captured[0].properties.$email_transactional).toEqual(transactional ? true : undefined)
-            })
+                    const captured = mockInternalFetch.mock.calls.map(([, options]) => parseJSON(String(options?.body)))
+                    expect(captured.map((event) => [event.event, event.timestamp])).toEqual([
+                        ['$workflows_email_delivered', '2024-01-01T00:05:00.000Z'],
+                    ])
+                    expect(captured[0].properties.$email_transactional).toEqual(transactional ? true : undefined)
+                }
+            )
 
             it('captures the bounce event with the send it came from', async () => {
                 captureEngagementSpy.mockResolvedValue(true)
@@ -1662,7 +1665,6 @@ describe('EmailTrackingService', () => {
                 email_sent: '$workflows_email_sent',
                 email_failed: '$workflows_email_failed',
                 email_delivered: '$workflows_email_delivered',
-                email_delivery_delayed: '$workflows_email_delivery_delayed',
                 email_opened: '$workflows_email_opened',
                 email_link_clicked: '$workflows_email_link_clicked',
                 email_bounced: '$workflows_email_bounced',

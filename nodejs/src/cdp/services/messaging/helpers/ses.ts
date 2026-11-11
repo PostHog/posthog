@@ -171,10 +171,8 @@ const SesRejectEventSchema = SesCommonEventBase.extend({
     reject: z.object({ reason: z.string().optional() }).optional(),
 })
 
-const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({
-    eventType: z.literal('DeliveryDelay'),
-    deliveryDelay: z.object({ timestamp: z.string() }).optional(),
-})
+// Acknowledged so SNS doesn't retry forever; details aren't surfaced.
+const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({ eventType: z.literal('DeliveryDelay') })
 
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
@@ -213,7 +211,6 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Open: 'email_opened',
     Click: 'email_link_clicked',
     Delivery: 'email_delivered',
-    DeliveryDelay: 'email_delivery_delayed',
     Bounce: 'email_bounced',
     // A Complaint is a recipient's "report spam" relayed through the provider's feedback loop.
     // It stays recorded under email_blocked because complaint counts have always been stored
@@ -1005,8 +1002,6 @@ export class SesWebhookHandler {
                     }
                 } else if ('delivery' in rec && rec.delivery) {
                     timestamp = rec.delivery.timestamp
-                } else if ('deliveryDelay' in rec && rec.deliveryDelay) {
-                    timestamp = rec.deliveryDelay.timestamp
                 } else if ('bounce' in rec && rec.bounce) {
                     timestamp = rec.bounce.timestamp
                     // Whether the address will ever accept mail again. A hard bounce is also written
