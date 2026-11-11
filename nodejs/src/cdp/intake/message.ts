@@ -14,6 +14,13 @@ export type RunKind = (typeof RUN_KINDS)[number]
 
 export type IntakeDeadLetterReason = 'not_json' | 'schema_invalid'
 
+// Each field is held to its cyclotron column, because a value the row refuses fails the whole insert batch.
+const PG_INT_MAX = 2 ** 31 - 1
+const PG_SMALLINT_MAX = 2 ** 15 - 1
+// Any hex UUID, as Postgres takes. Run ids from UUIDT set no RFC version or variant bits, so z.uuid() refuses them.
+const pgUuid = z.guid()
+const pgText = z.string().refine((value) => !value.includes('\u0000'), { message: 'text cannot hold a NUL character' })
+
 // Objects stay loose, so a consumer still reads a message that a newer producer of the same version extends.
 const IntakeJobStateSchema = z.looseObject({
     state: z
@@ -25,15 +32,19 @@ const IntakeJobStateSchema = z.looseObject({
 })
 
 const IntakeJobSchema = z.looseObject({
-    id: z.uuid(),
-    functionId: z.string().min(1).nullable(),
-    queueName: z.string().min(1),
-    priority: z.number().int(),
+    id: pgUuid,
+    functionId: pgUuid.nullable(),
+    queueName: pgText.min(1),
+    priority: z
+        .number()
+        .int()
+        .min(-PG_SMALLINT_MAX - 1)
+        .max(PG_SMALLINT_MAX),
     scheduled: z.iso.datetime(),
-    parentRunId: z.string().nullable(),
-    distinctId: z.string().nullable(),
-    personId: z.string().nullable(),
-    actionId: z.string().nullable(),
+    parentRunId: pgText.nullable(),
+    distinctId: pgText.nullable(),
+    personId: pgText.nullable(),
+    actionId: pgText.nullable(),
     // The same JSON the cyclotron row stores as bytes, kept as an object so the message stays readable.
     state: IntakeJobStateSchema.nullable(),
 })
@@ -41,9 +52,9 @@ const IntakeJobSchema = z.looseObject({
 const IntakeMessageSchema = z.looseObject({
     v: z.literal(INTAKE_MESSAGE_VERSION),
     kind: z.enum(RUN_KINDS),
-    teamId: z.number().int().positive(),
+    teamId: z.number().int().positive().max(PG_INT_MAX),
     // Present when the caller sent an idempotency key. The key and its scope stay with the route.
-    fingerprint: z.string().min(1).optional(),
+    fingerprint: pgText.min(1).optional(),
     job: IntakeJobSchema,
 })
 
