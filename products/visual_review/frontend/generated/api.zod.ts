@@ -39,7 +39,7 @@ export const VisualReviewReposPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky. `off` (the default) does nothing. `preview` logs each proof and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team.\n\n\* `off` - off\n\* `preview` - preview\n\* `on` - on'
+            'Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.\n\n\* `off` - off\n\* `preview` - preview\n\* `on` - on'
         ),
 })
 

@@ -307,3 +307,21 @@ def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
             logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
             return
         raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.release_clean_quarantines",
+    ignore_result=True,
+)
+@with_team_scope()
+def release_clean_quarantines(team_id: int, run_id: str) -> None:
+    """Lift the quarantines that a clean week of trusted runs covers, as the repo's mode says."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import auto_lift  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        auto_lift.release_clean_quarantines(UUID(run_id))
+    except GitHubRateLimitError:
+        # Nothing retries: a later default-branch run checks the same quarantines again.
+        logger.warning("visual_review.release_clean_quarantines_rate_limited", run_id=run_id, team_id=team_id)

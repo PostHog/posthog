@@ -155,7 +155,7 @@ class QuarantineLiftState(LabeledStrEnum):
 
 
 class AutoQuarantineMode(LabeledStrEnum):
-    """Whether a repo quarantines a proven flaky snapshot without a person.
+    """Whether a repo quarantines a proven flaky snapshot, and lifts a quarantine that went clean, without a person.
 
     The OpenAPI component name (AutoQuarantineModeEnum) derives from this class, so the field does
     not collide with other products' `mode` enums. Each label repeats its value, because the API
@@ -163,7 +163,7 @@ class AutoQuarantineMode(LabeledStrEnum):
     """
 
     OFF = "off", "off"
-    # Finds proofs and records them in logs and analytics, and changes nothing
+    # Finds proofs and clean streaks and records them in logs and analytics, and changes nothing
     PREVIEW = "preview", "preview"
     ON = "on", "on"
 

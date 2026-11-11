@@ -417,6 +417,14 @@ def _observations(
     return by_identifier
 
 
+def default_branch_head(repo: Repo) -> str | None:
+    """The commit the default branch points at, or None when GitHub cannot say."""
+    try:
+        return github_api.default_branch_head_sha(repo)
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        return None
+
+
 class _Evidence:
     """GitHub answers for one evaluation, each asked once."""
 
@@ -438,10 +446,7 @@ class _Evidence:
     def _default_branch_head(self) -> str | None:
         if not self._head_read:
             self._head_read = True
-            try:
-                self._head_sha = github_api.default_branch_head_sha(self.repo)
-            except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
-                self._head_sha = None
+            self._head_sha = default_branch_head(self.repo)
         return self._head_sha
 
     def is_verified(self, trusted: TrustedRun) -> bool:

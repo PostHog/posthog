@@ -164,13 +164,48 @@ Guards:
 The check runs before the finishing run is counted, so when that run completes a proof, it passes.
 An error in the check is logged and never fails the run.
 
-`auto_quarantine_mode` on the repository decides what a proof does:
+`auto_quarantine_mode` on the repository decides what a proof does, and also covers [automatic release](#automatic-release):
 
 - `off`, the default: nothing is checked.
 - `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
 - `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
 
 Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
+### Automatic release
+
+Quarantines pile up, because a person has to come back and lift each one.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for long enough.
+
+When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
+The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+It ends at the finishing run, and newer runs stay out, because the lift records the finishing run's commit.
+With fewer default-branch runs than that, nothing lifts.
+A quarantine lifts when all of these hold:
+
+- It was created before the window started, so a quarantine somebody just opened is never lifted under them.
+- No stored trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- Every default-branch run of the window rendered the story, so with no blocking row it was `unchanged` in each of them. The finishing run rendered it against a baseline.
+
+Merge queue runs are stored for 7 days and the window is usually longer, so a merge queue failure older than that is no longer visible: the evidence is the default-branch history, with the recent merge queue runs on top.
+The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
+A second read counts the story's rows in the window's default-branch runs, by the same kind of list, on the unique run and identifier index.
+
+The run's branch name and commit come from the client, so before anything lifts, GitHub must confirm that the finishing run's commit is in the default branch's history.
+When it does not, or GitHub cannot say, nothing lifts and a warning is logged.
+
+The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in the last 500 default-branch runs, since 1a2b3c4".
+A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
+No Slack notice goes out.
+A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.
+
+The same `auto_quarantine_mode` decides what happens:
+
+- `off`: nothing is checked and no task is queued.
+- `preview`: each quarantine that would lift is logged and sent as a `vr_quarantine_clean` event, once per story per 24 hours, and nothing changes.
+- `on`: the quarantine lifts, and the log line and event record it.
 
 ## The flow
 
@@ -390,6 +425,5 @@ Variants recorded against a superseded baseline can never match again.
 
 **Not yet built:**
 
-- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

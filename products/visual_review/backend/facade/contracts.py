@@ -435,6 +435,7 @@ class QuarantinedIdentifierEntry:
     # failing snapshot prompted it). None for quarantines opened from the
     # snapshot history page or pre-dating this column.
     source_run: QuarantineSourceRun | None = None
+    lift_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -693,8 +694,7 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
 
-# Short, so a story does not stay hidden for long. The weekly debt digest reminds the owning team
-# in the week before the expiry.
+# Short, because automatic release and the weekly debt digest follow up on the story.
 AUTO_QUARANTINE_DAYS = 14
 
 # The runs of a flake proof must be close in time, because the further apart two trees are, the more
@@ -706,6 +706,11 @@ AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 # As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
 # and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
+
+# A run count and not days, because a slow week would lift a story on too little evidence.
+# As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
+# against 15 percent after 300.
+AUTO_LIFT_CLEAN_RUNS = 500
 
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
