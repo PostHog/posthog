@@ -146,8 +146,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
     def test_orphan_sweep_needs_a_generated_dashboard_not_just_a_matching_name(self) -> None:
         # Pass 2 has no flag vouching for its candidates, so it anchors on the dashboard the generator
         # stamps. Drop that anchor and it goes back to sweeping the whole insight table on a name match.
-        # The lookalike has the lowest id and a batch holds one insight, so the orphans come in later
-        # batches: a batch with nothing on a generated dashboard must not end the scan.
+        # Batches of one with the lookalike first: a batch with nothing on a generated dashboard must not end the scan.
         dashboard = Dashboard.objects.create(team=self.team, name="Someone's own dashboard")
         lookalike = Insight.objects.create(
             team=self.team, name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME, is_sample=True, saved=True
@@ -316,7 +315,6 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
     def test_dry_run_changes_nothing_but_reports_the_flags_it_would_unlink(self) -> None:
         # A dry run sizes the live run, so it has to account for both mutations. Reporting the
         # deletes while silently reporting zero unlinks would understate what the live run does.
-        # A dry run also leaves pass 1's insights in place, so pass 2 must skip them or count them twice.
         flag = self._flag_with_usage_dashboard("dry")
         insights = self._usage_insights(flag)
         out = StringIO()
@@ -326,5 +324,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
         flag.refresh_from_db()
         assert flag.usage_dashboard_id is not None
-        assert f"Would soft-delete {len(insights)} insights" in out.getvalue()
+        assert f"Would soft-delete {len(insights)} insights" in out.getvalue(), (
+            "a dry run leaves pass 1's insights in place, so pass 2 must not count them again"
+        )
         assert "nulled 1 flag usage_dashboard references" in out.getvalue()
