@@ -147,7 +147,7 @@ describe('catalogTableRows', () => {
                 problems: ['suspended'],
                 checks: 0,
                 trust: null,
-                freshness: 'revenue-run',
+                freshness: 'Suspended Last refreshed revenue-run',
             },
             { name: 'events', subtitle: 'PostHog', problems: ['checks'], checks: 1, trust: null, freshness: 'Live' },
             {
@@ -156,7 +156,7 @@ describe('catalogTableRows', () => {
                 problems: [],
                 checks: 1,
                 trust: null,
-                freshness: 'Live (runs on read)',
+                freshness: 'Up to date, runs on each query',
             },
             {
                 name: 'orders_daily',
@@ -164,7 +164,7 @@ describe('catalogTableRows', () => {
                 problems: [],
                 checks: 0,
                 trust: 'cert-orders',
-                freshness: 'Live (runs on read)',
+                freshness: 'Up to date, runs on each query',
             },
             {
                 name: 'orders_export',
@@ -199,7 +199,7 @@ describe('catalogTableRows', () => {
                 ],
             },
             'revenue',
-            'Refresh failed Last tried last-try',
+            'Refresh failed Last refreshed revenue-run',
         ],
         [
             'a late refresh',
@@ -228,10 +228,35 @@ describe('catalogTableRows', () => {
                 ],
             },
             'stripe.charges',
-            'Refresh failed schema-sync',
+            'Refresh failed Last refreshed schema-sync',
         ],
     ])('freshness shows %s', (_, overrides, name, expectedFreshness) => {
         expect(freshnessText(rowNamed(buildRows(overrides), name))).toEqual(expectedFreshness)
+    })
+
+    it('shows a view whose materialization was turned off as stopped and up to date, not suspended', () => {
+        const revenue = rowNamed(
+            buildRows({
+                savedQueries: [
+                    savedQuery('query-orders', 'orders_daily'),
+                    savedQuery('query-revenue', 'revenue'),
+                    savedQuery('query-api', 'api_v1', { origin: DataWarehouseSavedQueryOrigin.ENDPOINT }),
+                ],
+            }),
+            'revenue'
+        )
+
+        expect({
+            kind: revenue.kind,
+            problems: revenue.problems,
+            materializationStopped: revenue.materializationStopped,
+            freshness: freshnessText(revenue),
+        }).toEqual({
+            kind: 'view',
+            problems: [],
+            materializationStopped: true,
+            freshness: 'Up to date, runs on each query',
+        })
     })
 
     it('offers Sync now on every materialized view and review actions only on settled trust', () => {

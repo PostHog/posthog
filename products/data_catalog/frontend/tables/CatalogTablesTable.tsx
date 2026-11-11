@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { MouseEvent } from 'react'
 
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconPauseFilled } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -19,6 +19,9 @@ import {
     TableHeader,
     TableRow,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
     cn,
 } from '@posthog/quill'
 
@@ -26,7 +29,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
 
-import { CatalogTableRow, dataQualityUrl, passingChecks } from '../catalogTableRows'
+import { CatalogTableRow, dataQualityUrl, passingChecks, rowNeedsAttention } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
 import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
@@ -40,6 +43,8 @@ import { MutedCellText } from './MutedCellText'
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const INTERACTIVE_SELECTOR = 'a, button, input, label, [role="checkbox"]'
+const MATERIALIZATION_STOPPED_TOOLTIP =
+    "Materialization was turned off after a failure. Queries now run this view's SQL each time, so the data is current. Open the view to turn materialization back on."
 
 function ChecksCell({ row }: { row: CatalogTableRow }): JSX.Element {
     if (!passingChecks(row)) {
@@ -58,15 +63,34 @@ function ChecksCell({ row }: { row: CatalogTableRow }): JSX.Element {
     )
 }
 
+function MaterializationStoppedBadge(): JSX.Element {
+    return (
+        <Tooltip>
+            <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
+                <Badge variant="warning">
+                    <IconPauseFilled aria-hidden />
+                    Materialization stopped
+                </Badge>
+            </TooltipTrigger>
+            <TooltipContent>{MATERIALIZATION_STOPPED_TOOLTIP}</TooltipContent>
+        </Tooltip>
+    )
+}
+
 function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element {
-    if (row.problems.length > 0) {
-        return <ModelsOverviewProblemBadges statuses={row.attention.statuses} />
+    if (!rowNeedsAttention(row)) {
+        return (
+            <Badge variant="success">
+                <IconCheckCircle aria-hidden />
+                Healthy
+            </Badge>
+        )
     }
     return (
-        <Badge variant="success">
-            <IconCheckCircle aria-hidden />
-            Healthy
-        </Badge>
+        <div className="flex flex-wrap gap-1">
+            {row.materializationStopped && <MaterializationStoppedBadge />}
+            {row.problems.length > 0 && <ModelsOverviewProblemBadges statuses={row.attention.statuses} />}
+        </div>
     )
 }
 
