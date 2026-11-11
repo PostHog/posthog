@@ -9,6 +9,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team, User
+from posthog.models.person.util import get_person_by_distinct_id
 
 from products.messaging.backend.facade.contracts import (
     EmailLogEventKind,
@@ -22,6 +23,7 @@ from products.workflows.backend.facade.contracts import WorkflowViewAccess
 ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_BEFORE_LIMIT = 50
 ACTIVITY_AFTER_LIMIT = 100
+MAX_DISTINCT_IDS = 100
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -77,14 +79,22 @@ def get_transactional_email_activity(
 
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     window = timedelta(days=ACTIVITY_WINDOW_DAYS)
+    distinct_ids = _recipient_distinct_ids(team.id, detail.distinct_id)
     before = _events(
-        team, user, detail.distinct_id, sent_at - window, sent_at, newest_first=True, limit=ACTIVITY_BEFORE_LIMIT
+        team, user, distinct_ids, sent_at - window, sent_at, newest_first=True, limit=ACTIVITY_BEFORE_LIMIT
     )
-    after = _events(
-        team, user, detail.distinct_id, sent_at, sent_at + window, newest_first=False, limit=ACTIVITY_AFTER_LIMIT
-    )
+    after = _events(team, user, distinct_ids, sent_at, sent_at + window, newest_first=False, limit=ACTIVITY_AFTER_LIMIT)
     shown_before = list(reversed(before[:ACTIVITY_BEFORE_LIMIT]))
     shown_after = after[:ACTIVITY_AFTER_LIMIT]
+    shown_before_sessions = {event.session_id for event in shown_before if event.session_id}
+    started_before = shown_before_sessions | _sessions_with_events_in(
+        team,
+        user,
+        distinct_ids,
+        sent_at - window,
+        sent_at,
+        {event.session_id for event in shown_after if event.session_id} - shown_before_sessions,
+    )
     return TransactionalEmailActivity(
         distinct_id=detail.distinct_id,
         sent_at=sent_at,
@@ -92,14 +102,21 @@ def get_transactional_email_activity(
         after=shown_after,
         has_more_before=len(before) > ACTIVITY_BEFORE_LIMIT,
         has_more_after=len(after) > ACTIVITY_AFTER_LIMIT,
-        sessions=_sessions(shown_before, shown_after),
+        sessions=_sessions(shown_before, shown_after, started_before),
     )
+
+
+def _recipient_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
+    # A recipient without a person profile still has events under the send's own distinct ID.
+    person = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=MAX_DISTINCT_IDS)
+    others = [other for other in (person.distinct_ids if person else []) if other != distinct_id]
+    return [distinct_id, *others]
 
 
 def _events(
     team: Team,
     user: User | None,
-    distinct_id: str,
+    distinct_ids: list[str],
     start: datetime,
     end: datetime,
     *,
@@ -111,7 +128,7 @@ def _events(
         f"""
         SELECT uuid, event, timestamp, properties.$current_url, properties.$session_id
         FROM events
-        WHERE person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id = {{distinct_id}})
+        WHERE distinct_id IN {{distinct_ids}}
           AND timestamp >= {{start}} AND timestamp < {{end}}
           AND event NOT IN {{hidden}}
         ORDER BY timestamp {"DESC" if newest_first else "ASC"}
@@ -120,7 +137,7 @@ def _events(
         team=team,
         user=user,
         placeholders={
-            "distinct_id": ast.Constant(value=distinct_id),
+            "distinct_ids": ast.Constant(value=distinct_ids),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "hidden": ast.Constant(value=list(HIDDEN_EVENTS)),
@@ -141,10 +158,44 @@ def _events(
     ]
 
 
+def _sessions_with_events_in(
+    team: Team,
+    user: User | None,
+    distinct_ids: list[str],
+    start: datetime,
+    end: datetime,
+    session_ids: set[str],
+) -> set[str]:
+    # The shown events leave out hidden events and anything past the cap, so they can't say when a session started.
+    if not session_ids:
+        return set()
+    response = execute_hogql_query(
+        """
+        SELECT DISTINCT properties.$session_id
+        FROM events
+        WHERE distinct_id IN {distinct_ids}
+          AND timestamp >= {start} AND timestamp < {end}
+          AND properties.$session_id IN {session_ids}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "distinct_ids": ast.Constant(value=distinct_ids),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "session_ids": ast.Constant(value=sorted(session_ids)),
+        },
+        query_type="transactional_email_activity_sessions",
+        workload=Workload.ONLINE,
+    )
+    return {session_id for (session_id,) in response.results or []}
+
+
 def _sessions(
-    before: list[TransactionalEmailActivityEvent], after: list[TransactionalEmailActivityEvent]
+    before: list[TransactionalEmailActivityEvent],
+    after: list[TransactionalEmailActivityEvent],
+    started_before: set[str],
 ) -> list[TransactionalEmailActivitySession]:
-    started_before = {event.session_id for event in before if event.session_id}
     events_by_session: dict[str, list[TransactionalEmailActivityEvent]] = {}
     for event in [*before, *after]:
         if event.session_id:
