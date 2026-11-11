@@ -239,6 +239,7 @@ class Migration(migrations.Migration):
             index=models.Index(
                 fields=["repo", "run_type", "identifier", "-position", "-id"],
                 name="baseline_entry_identifier",
+                include=["content_hash"],
             ),
         ),
         migrations.AddIndex(

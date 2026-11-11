@@ -654,8 +654,12 @@ class BaselineEntry(ProductTeamModel):
 
     class Meta:
         indexes = [
+            # The full ledger read at a position walks every entry of the run type in this order. The hash is
+            # included so that walk stays an index-only read and does not visit the table for each entry.
             models.Index(
-                fields=["repo", "run_type", "identifier", "-position", "-id"], name="baseline_entry_identifier"
+                fields=["repo", "run_type", "identifier", "-position", "-id"],
+                name="baseline_entry_identifier",
+                include=["content_hash"],
             ),
             models.Index(fields=["repo", "run_type", "position"], name="baseline_entry_position"),
             models.Index(fields=["repo", "content_hash"], name="baseline_entry_hash"),
