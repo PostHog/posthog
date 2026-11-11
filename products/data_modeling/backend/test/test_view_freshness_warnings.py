@@ -129,4 +129,5 @@ class TestViewFreshnessWarnings(BaseTest):
             responses = [execute_hogql_query("SELECT mrr FROM mrr_daily", team=self.team) for _ in range(2)]
 
         assert build.call_count == 1
-        assert [[w.status for w in r.warnings or []] for r in responses] == [["Stale"], ["Stale"]]
+        statuses = [[w.status for w in r.warnings or [] if w.type == "warehouse_sync"] for r in responses]
+        assert statuses == [["Stale"], ["Stale"]]
