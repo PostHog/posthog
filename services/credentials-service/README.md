@@ -359,8 +359,8 @@ The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integ
 On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
 Audit retention runs under the migrate or a maintenance role, outside the service process.
 
-In `prod-us`, `prod-eu` and any environment whose name starts with `prod`, the service checks the runtime role at startup.
-It refuses to start the integration features when the runtime role owns `audit_log`, can `UPDATE`, `DELETE` or `TRUNCATE` it, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
+In `prod-us`, `prod-eu` and any environment whose name contains `prod` (any case), the service checks the runtime role at startup.
+It refuses to start the integration features when the runtime role owns `audit_log` or one of its partitions, can `UPDATE` (also per column), `DELETE` or `TRUNCATE` any of them, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
 The pod logs `startup:database_role_refused`, stays ready, and keeps serving platform secrets.
 The same-user check runs only when the pod sets `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`. Other environments skip the check.
 

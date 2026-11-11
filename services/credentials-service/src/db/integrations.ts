@@ -178,8 +178,15 @@ export function query<R extends QueryResultRow>(
     return db instanceof Pool ? db.query<R>(text, values) : db.query<R>(text, values)
 }
 
+// legacy_id stays unique across owners and soft-deleted rows, so reusing one is a conflict too.
+const LEGACY_ID_UNIQUE = 'integrations_legacy_id_key'
+
 function isLiveUniqueViolation(err: unknown): boolean {
-    return err instanceof DatabaseError && err.code === UNIQUE_VIOLATION && err.constraint === LIVE_UNIQUE_INDEX
+    return (
+        err instanceof DatabaseError &&
+        err.code === UNIQUE_VIOLATION &&
+        (err.constraint === LIVE_UNIQUE_INDEX || err.constraint === LEGACY_ID_UNIQUE)
+    )
 }
 
 /** A live row of the owner, or null. A soft-deleted row and another owner's row read as null. */
