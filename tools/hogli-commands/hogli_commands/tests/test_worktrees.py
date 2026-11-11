@@ -8,6 +8,7 @@ import time
 import fcntl
 import shutil
 import subprocess
+import dataclasses
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1062,24 +1063,7 @@ class TestWorktreeBoxes:
     def test_prune_deletes_the_box_once_its_folder_no_longer_holds_the_worktree(
         self, tmp_path, monkeypatch, git, change: str, pruned: bool
     ) -> None:
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        (repo / "hogli.yaml").write_text("")
-        git(repo, "init", "-q", "-b", "master")
-        git(repo, "commit", "-q", "--allow-empty", "-m", "init")
-        worktree = tmp_path / "worktrees" / "feature"
-        git(repo, "worktree", "add", "-q", "-b", "feature", str(worktree))
-        admin = repo / ".git" / "worktrees" / "feature"
-        record = _box(
-            "devbox-test-user-feature",
-            git_dir=admin,
-            workspace_id="ws-feature",
-            worktree_id=devbox_config.ensure_worktree_id(admin),
-        )
-        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
-        devbox_config.record_worktree_box(worktree, record)
-        boundary = _FakeCoderAndMutagen(tmp_path, monkeypatch)
-        boundary.add_running_box("devbox-test-user-feature", "ws-feature")
+        repo, worktree, admin, record, boundary = self._worktree_with_a_running_box(tmp_path, monkeypatch, git)
 
         if change != "none":
             git(repo, "worktree", "remove", "--force", str(worktree))
@@ -1107,6 +1091,53 @@ class TestWorktreeBoxes:
             assert boundary.commands() == []
             assert devbox_config.load_worktree_boxes() == {str(worktree): record}
         assert worktree.exists() is (change != "worktree-removed")
+
+    def test_clean_leaves_the_box_alone_when_its_worktree_comes_back_while_it_asks(
+        self, tmp_path, monkeypatch, git
+    ) -> None:
+        repo, worktree, admin, record, boundary = self._worktree_with_a_running_box(tmp_path, monkeypatch, git)
+        git(repo, "worktree", "remove", "--force", str(worktree))
+        worktree.mkdir(parents=True)
+        (worktree / "README.md").write_text("synced back from the box\n")
+        taken_over = dataclasses.replace(record, worktree_id="id-of-the-recreated-worktree")
+
+        def recreate_and_take_over_the_box_then_confirm(*args, **kwargs) -> bool:
+            if not (worktree / ".git").exists():
+                shutil.rmtree(worktree)
+                git(repo, "worktree", "add", "-q", str(worktree), "feature")
+                devbox_config.record_worktree_box(worktree, taken_over)
+            return True
+
+        monkeypatch.setattr(worktrees.click, "confirm", recreate_and_take_over_the_box_then_confirm)
+
+        result = CliRunner().invoke(
+            cli, ["worktrees:clean", "--before", "all", "--mode", "full", "--delete-boxes", "--repo", str(repo)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert boundary.commands() == []
+        assert devbox_config.load_worktree_boxes() == {str(worktree): taken_over}
+
+    def _worktree_with_a_running_box(self, tmp_path, monkeypatch, git):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "hogli.yaml").write_text("")
+        git(repo, "init", "-q", "-b", "master")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+        worktree = tmp_path / "worktrees" / "feature"
+        git(repo, "worktree", "add", "-q", "-b", "feature", str(worktree))
+        admin = repo / ".git" / "worktrees" / "feature"
+        record = _box(
+            "devbox-test-user-feature",
+            git_dir=admin,
+            workspace_id="ws-feature",
+            worktree_id=devbox_config.ensure_worktree_id(admin),
+        )
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(worktree, record)
+        boundary = _FakeCoderAndMutagen(tmp_path, monkeypatch)
+        boundary.add_running_box("devbox-test-user-feature", "ws-feature")
+        return repo, worktree, admin, record, boundary
 
     @pytest.mark.parametrize(
         ("prune_already_running", "expected_prune_attempts", "box_still_tracked"),

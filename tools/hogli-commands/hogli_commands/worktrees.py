@@ -753,7 +753,7 @@ def _clean_boxes_of_removed_worktrees(
         click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff, require_removed=True)
     click.echo()
 
 
