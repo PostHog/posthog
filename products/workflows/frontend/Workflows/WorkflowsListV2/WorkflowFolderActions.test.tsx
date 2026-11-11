@@ -24,16 +24,13 @@ describe('WorkflowFolderActions', () => {
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
                 '/api/projects/:team_id/file_system/folder_counts/': async () => {
                     await otherFilesHeld
-                    return [200, { results: [{ folder: 'Reports', count: 1 }] }]
+                    return [200, { results: [{ folder: 'Reports/Weekly', count: 1 }] }]
                 },
                 '/api/projects/:team_id/file_system/': ({ request }) => [
                     200,
                     paginated(
                         new URL(request.url).searchParams.get('search') === 'type:folder'
-                            ? [
-                                  { id: 'billing', path: 'Billing', type: 'folder' },
-                                  { id: 'dashboards', path: 'Reports', type: 'folder' },
-                              ]
+                            ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
                             : []
                     ),
                 ],

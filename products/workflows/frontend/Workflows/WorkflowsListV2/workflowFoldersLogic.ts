@@ -383,7 +383,7 @@ const OTHER_FILES_SEARCH = '-type:hog_flow -type:message_template'
 async function listAllFiles(
     teamId: string,
     search: string,
-    breakpoint: BreakPointFunction
+    breakpoint?: BreakPointFunction
 ): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
     for (let offset = 0; ; offset += 500) {
@@ -392,7 +392,7 @@ async function listAllFiles(
             FOLDER_REQUEST_TIMEOUT_MS,
             'workflowFoldersLogic: listing project files timed out'
         )
-        breakpoint()
+        breakpoint?.()
         entries.push(
             ...page.results.map((entry) => ({
                 id: entry.id,
@@ -426,6 +426,17 @@ function whenSettled(isPending: () => boolean): Promise<void> {
         const unsubscribe = getContext().store.subscribe(() => queueMicrotask(settle))
         settle()
     })
+}
+
+const NAME_TAKEN = 'This name is already used in this folder.'
+
+/** The view loads no other product's files, so the server is asked whether one already sits at this path. */
+async function isPathTaken(teamId: string, path: string, except?: string): Promise<boolean> {
+    const parts = splitPath(path)
+    const parent = parts.at(-2)
+    const search = [`name:"${parts.at(-1)}"`, ...(parent ? [`path:"${parent}"`] : [])].join(' ')
+    const entries = await listAllFiles(teamId, search)
+    return entries.some((entry) => entry.id !== except && entry.path.toLowerCase() === path.toLowerCase())
 }
 
 function changeCount(cache: Record<string, any>): number {
@@ -775,11 +786,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 browserReady && counts !== null
                     ? [
                           ...new Set(
-                              items
-                                  .filter((entry) => !entry.shortcut)
-                                  .flatMap((entry) =>
-                                      ancestorFolders(entry.type === 'folder' ? entry.path : parentPath(entry.path))
-                                  )
+                              [
+                                  ...items
+                                      .filter((entry) => !entry.shortcut)
+                                      .map((entry) => (entry.type === 'folder' ? entry.path : parentPath(entry.path))),
+                                  ...Object.keys(counts),
+                              ].flatMap(ancestorFolders)
                           ),
                       ]
                     : null,
@@ -1251,15 +1263,26 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         },
         renameFolder: async ({ folder, name }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
-            if (!entry || values.folderMutationDisabledReason(folder)) {
+            if (!entry || !values.currentTeamId || values.folderMutationDisabledReason(folder)) {
                 return
             }
-            projectTreeDataLogic.actions.moveItem(
-                entry,
-                joinPath([...splitPath(parentPath(folder)), name.trim()]),
-                false,
-                WORKFLOW_FOLDERS_TREE_KEY
-            )
+            const newPath = joinPath([...splitPath(parentPath(folder)), name.trim()])
+            let taken: boolean
+            try {
+                taken = await isPathTaken(String(values.currentTeamId), newPath, entry.id)
+            } catch {
+                lemonToast.error("Couldn't rename the folder. Try again.")
+                return
+            }
+            if (taken) {
+                lemonToast.error(`Couldn't rename the folder. ${NAME_TAKEN}`)
+                return
+            }
+            // Another change to this folder may have started while the server answered.
+            if (values.folderMutationDisabledReason(folder)) {
+                return
+            }
+            projectTreeDataLogic.actions.moveItem(entry, newPath, false, WORKFLOW_FOLDERS_TREE_KEY)
             await whenSettled(() => !!values.folderMutationDisabledReason(folder))
         },
         openFolder: ({ folder }) => {
@@ -1278,6 +1301,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             actions.setCreatingFolder(true)
             try {
                 const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
+                if (await isPathTaken(String(values.currentTeamId), path)) {
+                    lemonToast.error(`Couldn't create the folder. ${NAME_TAKEN}`)
+                    actions.setFolderCreationError(NAME_TAKEN)
+                    return
+                }
                 const entry = await fileSystemCreate(String(values.currentTeamId), { path, type: 'folder' })
                 cache.changes = changeCount(cache) + 1
                 projectTreeDataLogic.actions.addLoadedResults({

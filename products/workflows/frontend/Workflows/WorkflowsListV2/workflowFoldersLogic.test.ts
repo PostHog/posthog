@@ -1,9 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { render, screen, waitFor } from '@testing-library/react'
 import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -216,6 +219,11 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Unfiled')
     })
 
+    const showToasts = (): void => {
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+    }
+
     it('creates a subfolder through the existing project file API', async () => {
         useMocks({
             post: {
@@ -229,6 +237,47 @@ describe('workflowFoldersLogic', () => {
         logic.actions.openFolder('Billing')
         await logic.asyncActions.createFolder('Invoices')
         expect(logic.values.folderPaths).toContain('Billing/Invoices')
+    })
+
+    it.each([
+        ['creates', (name: string) => logic.asyncActions.createFolder(name, 'Billing'), "Couldn't create the folder."],
+        [
+            'renames',
+            (name: string) => logic.asyncActions.renameFolder('Billing/Cards', name),
+            "Couldn't rename the folder.",
+        ],
+    ])("%s a folder only under a name no other product's file uses in that folder", async (_, change, failure) => {
+        const dashboard = { id: 'weekly', path: 'Billing/Weekly', type: 'dashboard' }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    return search.startsWith('name:')
+                        ? [200, paginated(search.toLowerCase().includes('weekly') ? [dashboard] : [])]
+                        : projectFiles({ request })
+                },
+            },
+            post: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => [
+                    201,
+                    { id: 'new-folder', ...((await request.json()) as { path: string; type: string }) },
+                ],
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 1 }],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => [
+                    200,
+                    { id: params.id, path: ((await request.json()) as { new_path: string }).new_path, type: 'folder' },
+                ],
+            },
+        })
+        showToasts()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await change('weekly')
+        expect(await screen.findByText(`${failure} This name is already used in this folder.`)).toBeInTheDocument()
+        expect(logic.values.folderPaths.map((path) => path.toLowerCase())).not.toContain('billing/weekly')
+
+        await change('Invoices')
+        await waitFor(() => expect(logic.values.folderPaths).toContain('Billing/Invoices'))
     })
 
     it.each([
