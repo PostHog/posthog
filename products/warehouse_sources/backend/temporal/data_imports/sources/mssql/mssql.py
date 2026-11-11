@@ -115,7 +115,6 @@ _AZURE_SQL_DNS_ZONES = (
     "sql.azuresynapse.azure.cn",
 )
 
-# DB-Lib error 20009: nothing answered at that address, so the next validated one may.
 _SERVER_UNREACHABLE_ERROR = "Adaptive Server is unavailable or does not exist"
 
 # The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
