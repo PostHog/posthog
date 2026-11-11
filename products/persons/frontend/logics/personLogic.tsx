@@ -158,7 +158,7 @@ export const personLogic = kea<personLogicType>([
                             values: { id: props.id },
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
-                        { refresh: 'blocking' }
+                        { refresh: 'force_blocking' }
                     )
                     const row = queryResponse?.results?.[0]
                     if (row == null) {
