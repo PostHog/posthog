@@ -33,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -182,6 +183,8 @@ from products.experiments.backend.setup_context import (
     SetupContextInputs,
     build_setup_context,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
@@ -539,6 +542,17 @@ class EnterpriseExperimentsViewSet(
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
+        # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
+        if isinstance(exc, ConfigFormatError | ExperimentRuleError):
+            capture_exception(exc)
+            exc = ValidationError(
+                "This is not supported yet for an experiment on a feature flag that has rules.",
+                code="feature_flag_rules_not_supported",
+            )
+        return super().handle_exception(exc)
 
     def _check_scout_update(self, request: Request) -> None:
         # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.

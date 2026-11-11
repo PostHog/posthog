@@ -7,6 +7,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import (
+    FLAG_OWNER_EXPERIMENT,
     FLAG_OWNER_SURVEY,
     assert_flag_available_for,
     flag_owner_kind,
@@ -87,6 +88,27 @@ class TestFlagOwnership(APIBaseTest):
             assert_flag_available_for(flag, product=FLAG_OWNER_SURVEY)
 
         assert "configuration format that a survey cannot use yet" in str(cm.exception)
+
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, True),
+            ("unsupported_document", {"version": 3}, False),
+        ]
+    )
+    def test_only_a_config_version_2_flag_is_available_to_a_caller_that_links_a_rule(
+        self, _name: str, filters: dict, available: bool
+    ) -> None:
+        flag = self._flag("with-rules")
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters)
+        flag.refresh_from_db()
+
+        if available:
+            assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
+        else:
+            with self.assertRaises(serializers.ValidationError):
+                assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
+        with self.assertRaises(serializers.ValidationError):
+            assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT)
 
     def test_guard_allows_a_free_flag(self) -> None:
         assert_flag_available_for(self._flag("free"), product=FLAG_OWNER_SURVEY)

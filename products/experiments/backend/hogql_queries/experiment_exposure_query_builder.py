@@ -17,6 +17,8 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    RULE_ID_PROPERTY,
+    RULE_VARIANT_KEY_PROPERTY,
     exposure_event_name_filter,
 )
 from products.growth.backend.facade.sdks import sdk_library_names
@@ -385,6 +387,10 @@ class ExposureQueryBuilder:
         return ast.Constant(value=True)
 
     def build_variant_property(self) -> ast.Field:
+        # A rule's variants can return equal values, so only the variant key tells its arms apart.
+        if self.context.feature_flag_rule_id is not None:
+            return ast.Field(chain=["properties", RULE_VARIANT_KEY_PROPERTY])
+
         # $feature_flag_called carries the variant in $feature_flag_response. $experiment_exposure
         # is an ingestion-side duplicate of $feature_flag_called with the same properties.
         if isinstance(
@@ -396,6 +402,9 @@ class ExposureQueryBuilder:
 
     def build_exposure_event_predicate(self) -> ast.Expr:
         """Event-level exposure predicate, without date, variant, or test-account conditions."""
+        if self.context.feature_flag_rule_id is not None:
+            return self._build_rule_exposure_event_predicate(self.context.feature_flag_rule_id)
+
         exposure_config = self.context.exposure_config
         if not (
             isinstance(exposure_config, ExperimentEventExposureConfig)
@@ -428,6 +437,31 @@ class ExposureQueryBuilder:
                 ),
             ]
         )
+
+    def _build_rule_exposure_event_predicate(self, rule_id: str) -> ast.Expr:
+        """
+        The exposures of a rule-linked experiment: the $experiment_exposure events that an SDK sends for
+        this rule. A rule ID belongs to one experiment, so the events of the flag's other rules do not
+        count, and neither does a $feature_flag_called event or an ingestion copy of one, which never
+        carries a rule ID on $experiment_exposure. The flag key stays in the predicate because its
+        property is the one a materialized column serves. The property filters of the exposure criteria
+        narrow these events as they narrow the default exposure of a legacy experiment.
+        """
+        predicate = parse_expr(
+            "event = {event} AND {flag_property} = {feature_flag_key} AND {rule_property} = {rule_id}",
+            placeholders={
+                "event": ast.Constant(value=EXPERIMENT_EXPOSURE_EVENT),
+                "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                "rule_property": ast.Field(chain=["properties", RULE_ID_PROPERTY]),
+                "rule_id": ast.Constant(value=rule_id),
+            },
+        )
+        exposure_config = self.context.exposure_config
+        if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.properties:
+            property_filters = [property_to_expr(prop, self.context.team) for prop in exposure_config.properties]
+            return ast.And(exprs=[predicate, *property_filters])
+        return predicate
 
     def build_entity_key_filter(self) -> ast.Expr:
         """

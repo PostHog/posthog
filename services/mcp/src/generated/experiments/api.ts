@@ -1112,6 +1112,12 @@ export const ExperimentsCreateBody = () => zod
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
             ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
@@ -7398,6 +7404,12 @@ export const ExperimentsPartialUpdateBody = () => zod
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
             ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
@@ -13656,6 +13668,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .string()
             .describe(
                 "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
+            ),
+        feature_flag_rule_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.'
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod

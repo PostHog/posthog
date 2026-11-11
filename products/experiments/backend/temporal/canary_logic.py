@@ -139,6 +139,8 @@ def _eligible_experiments() -> list[Experiment]:
             team_id__in=team_ids,
             start_date__lte=timezone.now() - MIN_EXPERIMENT_RUNTIME,
             end_date__isnull=True,
+            # An experiment on a feature flag rule never precomputes, so it has no second path to compare.
+            feature_flag_rule_id__isnull=True,
         )
         .exclude(deleted=True)
         .exclude(archived=True)
