@@ -83,21 +83,49 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).toHaveBeenCalledWith(MOCK_HOG_FUNCTION_ID)
     })
 
-    it('shows an error after a failed enable, then opens backfills when trying again succeeds', async () => {
+    it('shows an error after a failed enable, then opens backfills with unsaved edits kept when trying again succeeds', async () => {
         mockApi.get.mockResolvedValue(makeHogFunction())
         mockApi.enableBackfills.mockRejectedValueOnce(new Error('Network error'))
+        const configurationLogic = hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID })
+        configurationLogic.mount()
+        await expectLogic(configurationLogic).toFinishAllListeners()
+        configurationLogic.actions.setConfigurationValues({ name: 'Edited destination' })
 
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: false, enableBackfillsFailed: true })
 
+        const enabledHogFunction = makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID })
         mockApi.enableBackfills.mockResolvedValueOnce({} as any)
-        mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+        mockApi.get.mockResolvedValue(enabledHogFunction)
+        useMocks({
+            get: { [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: enabledHogFunction },
+        })
         await expectLogic(logic, () => {
             logic.actions.enableHogFunctionBackfills()
         })
             .toFinishAllListeners()
-            .toMatchValues({ isReady: true, enableBackfillsFailed: false })
+            .toMatchValues({
+                isReady: true,
+                enableBackfillsFailed: false,
+                configuration: partial({ name: 'Edited destination', batch_export_id: MOCK_BATCH_EXPORT_ID }),
+            })
+    })
+
+    it('sends one enable request when trying again is pressed twice', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.enableHogFunctionBackfills()
+            logic.actions.enableHogFunctionBackfills()
+        }).toFinishAllListeners()
+
+        expect(mockApi.enableBackfills).toHaveBeenCalledTimes(2)
     })
 
     it('opens backfills when an enable that reported failure went through on the server', async () => {
@@ -187,7 +215,7 @@ describe('hogFunctionBackfillsLogic', () => {
         await screen.findByText('Failed to enable backfills for this destination.')
 
         mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
-        logic.actions.loadHogFunction()
+        hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID }).actions.loadHogFunction()
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true, enableBackfillsFailed: false })
     })
 })
