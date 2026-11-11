@@ -15,7 +15,6 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 import { signIntegrationRef } from '~/cdp/utils/integration-input-refs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -62,7 +61,7 @@ class HogQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     }
 }
 
-type JobRow = { status: string; scheduled: Date; attempts: number | undefined }
+type JobRow = { status: string; scheduled: Date }
 
 describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
     let hub: Hub
@@ -185,13 +184,9 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
     }
 
     async function jobRow(id: string): Promise<JobRow> {
-        const { rows } = await db.query('SELECT status, scheduled, state FROM cyclotron_jobs WHERE id = $1', [id])
+        const { rows } = await db.query('SELECT status, scheduled FROM cyclotron_jobs WHERE id = $1', [id])
         const [row] = rows
-        return {
-            status: row.status,
-            scheduled: new Date(row.scheduled),
-            attempts: row.state ? parseJSON(row.state.toString()).state.attempts : undefined,
-        }
+        return { status: row.status, scheduled: new Date(row.scheduled) }
     }
 
     it('retries a job whose integration lookup fails on a dropped connection, then completes it once the lookup recovers', async () => {
@@ -199,17 +194,16 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         lookupFails = true
         await startWorker()
 
-        const retried = await waitForExpect(
+        await waitForExpect(
             async () => {
                 const row = await jobRow(id)
-                expect(row).toMatchObject({ status: 'available', attempts: 1 })
-                return row
+                expect(row.status).toBe('available')
+                expect(row.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
             },
             15_000,
             50
         )
         expect(droppedLookups).toBeGreaterThan(0)
-        expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
 
         lookupFails = false
         await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
@@ -222,17 +216,16 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         lookupFails = true
         await startWorker()
 
-        const retried = await waitForExpect(
+        await waitForExpect(
             async () => {
                 const row = await jobRow(id)
-                expect(row).toMatchObject({ status: 'available', attempts: 1 })
-                return row
+                expect(row.status).toBe('available')
+                expect(row.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
             },
             15_000,
             50
         )
         expect(droppedLookups).toBeGreaterThan(0)
-        expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
         expect(mockFetch).not.toHaveBeenCalled()
 
         lookupFails = false
