@@ -11,16 +11,14 @@ type Property = string | number | boolean | null | string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
-const propertyName = (...parts: string[]): string => parts.join('_')
-
 function invariantProperties(result: RunResult): Record<string, Property> {
     return Object.fromEntries([
         ...result.invariants.flatMap(({ name, passed, observed, gate, violation, unitIds }) => [
-            [propertyName('inv', name, 'passed'), passed],
-            [propertyName('inv', name, 'observed'), observed],
-            [propertyName('inv', name, 'gate'), gate ?? null],
-            [propertyName('inv', name, 'violation'), violation ?? null],
-            [propertyName('inv', name, 'ids'), unitIds],
+            [`inv_${name}_passed`, passed],
+            [`inv_${name}_observed`, observed],
+            [`inv_${name}_gate`, gate ?? null],
+            [`inv_${name}_violation`, violation ?? null],
+            [`inv_${name}_ids`, unitIds],
         ]),
         ['invariants_failed', result.invariants.filter(({ passed }) => !passed).map(({ name }) => name)],
     ])

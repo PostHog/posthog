@@ -8,6 +8,17 @@ export const READ_KEY = 'phx_fake_scenario_runs_read_key'
 export const PROJECT_ID = '4242'
 const CAPTURE_KEYS = ['api_key', 'event', 'distinct_id', 'uuid', 'timestamp', 'properties']
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const REFRESH = [
+    true,
+    false,
+    'async',
+    'async_except_on_cache_miss',
+    'blocking',
+    'force_async',
+    'force_blocking',
+    'force_cache',
+    'lazy_async',
+]
 
 export type Captured = { [key: string]: unknown; properties: Record<string, unknown> }
 
@@ -17,6 +28,8 @@ export type FakeProjectApi = {
     captured: Captured[]
     queries: number
     hideForQueries: number
+    throttleCaptures: number
+    onCapture: (event: Captured) => void
     close(): Promise<void>
 }
 
@@ -37,7 +50,14 @@ async function bodyOf(request: IncomingMessage): Promise<any> {
 }
 
 export async function startFakeProjectApi(): Promise<FakeProjectApi> {
-    const fake = { captured: [] as Captured[], queries: 0, hideForQueries: 0 }
+    const fake = {
+        captured: [] as Captured[],
+        queries: 0,
+        hideForQueries: 0,
+        throttleCaptures: 0,
+        onCapture: (_event: Captured): void => undefined,
+    }
+    const cached = new Map<string, unknown>()
     const server: Server = createServer((request, response) => {
         void (async () => {
             const body = await bodyOf(request)
@@ -53,7 +73,12 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                 if (typeof body.uuid !== 'string' || !UUID.test(body.uuid)) {
                     return answer(response, 400, { type: 'validation_error', attr: 'uuid' })
                 }
+                if (fake.throttleCaptures > 0) {
+                    fake.throttleCaptures -= 1
+                    return answer(response, 429, { type: 'throttled' })
+                }
                 fake.captured.push(body)
+                fake.onCapture(body)
                 return answer(response, 200, { status: 'Ok' })
             }
             if (request.method === 'POST' && request.url === `/api/projects/${PROJECT_ID}/query/`) {
@@ -64,7 +89,8 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                 const placeholders = [...String(query?.query).matchAll(/\{(\w+)\}/g)].map(([, name]) => name)
                 if (
                     !json ||
-                    Object.keys(body).join() !== 'query' ||
+                    Object.keys(body).some((key) => !['query', 'refresh'].includes(key)) ||
+                    ('refresh' in body && !REFRESH.includes(body.refresh)) ||
                     query.kind !== 'HogQLQuery' ||
                     typeof query.query !== 'string' ||
                     Object.keys(query).some((key) => !['kind', 'query', 'values'].includes(key)) ||
@@ -73,11 +99,16 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                     return answer(response, 400, { type: 'validation_error' })
                 }
                 fake.queries += 1
+                const key = JSON.stringify(query)
+                if (body.refresh !== 'force_blocking' && cached.has(key)) {
+                    return answer(response, 200, cached.get(key))
+                }
                 const visible = fake.queries > fake.hideForQueries
                 const rows = fake.captured
                     .filter((event) => visible && event.properties.run_id === query.values?.run_id)
                     .map(({ uuid }) => [uuid])
-                return answer(response, 200, { columns: ['uuid'], results: rows })
+                cached.set(key, { columns: ['uuid'], results: rows })
+                return answer(response, 200, cached.get(key))
             }
             return answer(response, 404, { type: 'invalid_request' })
         })()

@@ -52,25 +52,38 @@ describe('runner', () => {
         await api.close()
     })
 
-    it.each<[string, () => void, LoadedCard, RegExp]>([
+    it.each<[string, () => void, RegExp, unknown]>([
         [
             'seeds through the database the profile names',
             () => undefined,
-            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /^the run stopped: .*127\.0\.0\.1:1\b/,
+            undefined,
         ],
         [
             'keeps the result when its evidence cannot be written',
             () => writeFileSync(stateDir, 'not a directory'),
-            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /; the evidence could not be written: .*ENOTDIR/,
+            undefined,
         ],
-    ])('%s', async (_story, arrange, loaded, statusReason) => {
+        [
+            'keeps the published verdict when the scorecard files cannot be written',
+            () => {
+                api.onCapture = ({ properties }) =>
+                    mkdirSync(path.join(String(properties.evidence_dir), 'scorecard-event.json'))
+            },
+            /^the run stopped: [^;]*$/,
+            expect.stringMatching(/^the scorecard files could not be written: EISDIR/),
+        ],
+    ])('%s', async (_story, arrange, statusReason, scorecardError) => {
         arrange()
 
-        const result = await runner().run(loaded, NEVER_ABORTED)
+        const result = await runner().run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
 
-        expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringMatching(statusReason),
+            scorecardError,
+        })
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])

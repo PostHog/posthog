@@ -1,6 +1,5 @@
-import { setTimeout as sleep } from 'timers/promises'
-
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import type { ScorecardProperties } from './scorecard'
 
@@ -36,6 +35,13 @@ export function credentialsOf(env: NodeJS.ProcessEnv): { credentials?: Credentia
     return { credentials: Object.fromEntries(keys.map((key) => [key, env[CREDENTIALS[key]]!])) as Credentials }
 }
 
+function refusalOf(status: number, answering: string, credential: string): string {
+    if (status >= 400 && status < 500 && status !== 429) {
+        return `${answering} answered ${status}; check ${credential}`
+    }
+    throw new Error(`${answering} answered ${status}`)
+}
+
 async function capture(properties: ScorecardProperties, { host, token }: Credentials): Promise<string | undefined> {
     const response = await internalFetch(`${host}/i/v0/e/`, {
         method: 'POST',
@@ -51,22 +57,30 @@ async function capture(properties: ScorecardProperties, { host, token }: Credent
         timeoutMs: REQUEST_TIMEOUT_MS,
     })
     await response.dump()
-    return response.status >= 200 && response.status < 300 ? undefined : `capture answered ${response.status}`
+    return response.status >= 200 && response.status < 300
+        ? undefined
+        : refusalOf(response.status, 'capture', CREDENTIALS.token)
 }
 
 async function readBack(runId: string, { host, projectId, readKey }: Credentials): Promise<string | undefined> {
     const response = await internalFetch(`${host}/api/projects/${projectId}/query/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${readKey}` },
-        body: JSON.stringify({ query: { kind: 'HogQLQuery', query: READBACK_QUERY, values: { run_id: runId } } }),
+        body: JSON.stringify({
+            query: { kind: 'HogQLQuery', query: READBACK_QUERY, values: { run_id: runId } },
+            refresh: 'force_blocking',
+        }),
         timeoutMs: REQUEST_TIMEOUT_MS,
     })
     if (response.status !== 200) {
         await response.dump()
-        return `the query answered ${response.status}`
+        return refusalOf(response.status, 'the query', CREDENTIALS.readKey)
     }
     const { results } = (await response.json()) as { results: unknown[] }
-    return results.length > 0 ? undefined : 'the query did not return the event yet'
+    if (results.length === 0) {
+        throw new Error('the query did not return the event yet')
+    }
+    return undefined
 }
 
 async function write(
@@ -75,32 +89,28 @@ async function write(
     { pollMs = 5000, deadlineMs = 120_000 }: WriteOptions
 ): Promise<WriteOutcome> {
     const target = { ...credentials, host: credentials.host.replace(/\/+$/, '') }
-    const deadline = Date.now() + deadlineMs
     let captured = false
-    let problem: string | undefined
-    for (;;) {
-        try {
-            if (!captured) {
-                problem = await capture(properties, target)
-                captured = problem === undefined
-            }
-            if (captured) {
-                problem = await readBack(properties.run_id, target)
-                if (problem === undefined) {
-                    return { recorded: true }
+    try {
+        const refusal = await waitForExpect(
+            async () => {
+                if (!captured) {
+                    const refused = await capture(properties, target)
+                    if (refused !== undefined) {
+                        return refused
+                    }
+                    captured = true
                 }
-            }
-        } catch (error) {
-            problem = (error as Error).message
+                return await readBack(properties.run_id, target)
+            },
+            deadlineMs,
+            pollMs
+        )
+        return refusal === undefined ? { recorded: true } : { recorded: false, problem: refusal }
+    } catch (error) {
+        return {
+            recorded: false,
+            problem: `the scorecard was not read back within ${deadlineMs / 1000}s: ${(error as Error).message}`,
         }
-        const left = deadline - Date.now()
-        if (left <= 0) {
-            return {
-                recorded: false,
-                problem: `the scorecard was not read back within ${deadlineMs / 1000}s: ${problem}`,
-            }
-        }
-        await sleep(Math.min(pollMs, left))
     }
 }
 

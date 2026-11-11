@@ -187,16 +187,18 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const event = scorecardOf(judged, loaded, provenanceOf())
             const written = await publish(event, env)
             const result: RunResult = { ...judged, recorded: written.recorded, scorecardError: written.problem }
-            if (evidenceError !== undefined) {
+            const filesError =
+                evidenceError === undefined
+                    ? await errorOf(() => {
+                          writeJson(evidenceDir, 'scorecard-event.json', event)
+                          writeJson(evidenceDir, 'scorecard.json', result)
+                      })
+                    : undefined
+            if (filesError === undefined) {
                 return result
             }
-            return withEvidenceError(
-                result,
-                await errorOf(() => {
-                    writeJson(evidenceDir, 'scorecard-event.json', event)
-                    writeJson(evidenceDir, 'scorecard.json', result)
-                })
-            )
+            const problems = [written.problem, `the scorecard files could not be written: ${filesError}`]
+            return { ...result, scorecardError: problems.filter((problem) => problem !== undefined).join('; ') }
         },
 
         async down() {

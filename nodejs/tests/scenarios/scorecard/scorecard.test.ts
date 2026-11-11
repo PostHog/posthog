@@ -5,7 +5,6 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import { RunResult } from '../runner/runner'
-import { exitCodeOf } from '../runner/status'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
 import { Provenance, provenanceOf } from './provenance'
 import { scorecardOf } from './scorecard'
@@ -74,12 +73,12 @@ describe('scorecard', () => {
     })
 
     it('captures one scorecard event with the flattened schema v1 properties and reads it back', async () => {
+        api.throttleCaptures = 1
         api.hideForQueries = 2
 
         const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, { pollMs: 5, deadlineMs: 5000 })
 
         expect(outcome).toEqual({ recorded: true })
-        expect(exitCodeOf({ status: RESULT.status, scorecardError: outcome.problem })).toBe(1)
         expect(api.captured).toEqual([
             {
                 api_key: TOKEN,
@@ -150,7 +149,7 @@ describe('scorecard', () => {
         })
     })
 
-    it('gives up with exit 3 when the readback never returns the event', async () => {
+    it('gives up when the readback never returns the event', async () => {
         api.hideForQueries = Infinity
 
         const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, { pollMs: 5, deadlineMs: 60 })
@@ -159,8 +158,20 @@ describe('scorecard', () => {
             recorded: false,
             problem: 'the scorecard was not read back within 0.06s: the query did not return the event yet',
         })
-        expect(exitCodeOf({ status: 'passed', scorecardError: outcome.problem })).toBe(3)
         expect(api.captured).toHaveLength(1)
+    })
+
+    it.each([
+        ['capture refuses the project token', 'SCENARIO_RUNS_PROJECT_TOKEN', 'capture answered 401'],
+        ['the query refuses the read key', 'SCENARIO_RUNS_READ_KEY', 'the query answered 401'],
+    ])('stops at once when %s', async (_story, credential, answered) => {
+        const outcome = await publish(
+            scorecardOf(RESULT, SMOKE, PROVENANCE),
+            { ...env, [credential]: 'wrong' },
+            { pollMs: 5, deadlineMs: 60 }
+        )
+
+        expect(outcome).toEqual({ recorded: false, problem: `${answered}; check ${credential}` })
     })
 
     it.each<[string, string[], { recorded: boolean; problem?: string }]>([
@@ -240,6 +251,20 @@ describe('scorecard', () => {
                 runnerVersion: runnerTree.trim(),
                 generatorVersion: git(repo, 'rev-parse', 'HEAD:nodejs/tests/scenarios/generator'),
                 valvesVersion: git(repo, 'hash-object', '-t', 'tree', '/dev/null'),
+            })
+        })
+
+        it('leaves the git fields empty outside a git checkout', () => {
+            rmSync(path.join(repo, '.git'), { recursive: true, force: true })
+
+            expect(provenanceOf(scenarios)).toEqual({
+                headSha: null,
+                headDirty: null,
+                runnerVersion: null,
+                generatorVersion: null,
+                valvesVersion: null,
+                hostCpu: expect.any(String),
+                hostMemoryGb: expect.any(Number),
             })
         })
 

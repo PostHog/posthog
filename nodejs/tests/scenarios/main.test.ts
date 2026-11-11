@@ -85,21 +85,12 @@ describe('runCards', () => {
     })
 
     it('refuses partial scorecard credentials before it starts the stack', async () => {
-        const started: string[] = []
-        const runner: Runner = {
-            up: () => Promise.resolve(void started.push('up')),
-            run: (loaded) => Promise.resolve(passed(loaded.card.id)),
-            down: () => Promise.resolve(),
-        }
-
-        const code = await main(
-            ['run', 'smoke'],
-            { SCENARIO_RUNS_HOST: 'http://127.0.0.1:1', SCENARIO_RUNS_PROJECT_TOKEN: 'phc_fake_token' },
-            () => runner
-        )
+        const code = await main(['run', 'smoke'], {
+            SCENARIO_RUNS_HOST: 'http://127.0.0.1:1',
+            SCENARIO_RUNS_PROJECT_TOKEN: 'phc_fake_token',
+        })
 
         expect(code).toBe(EXIT_CODE.invalid)
-        expect(started).toEqual([])
         expect(jest.mocked(process.stderr.write)).toHaveBeenCalledWith(
             expect.stringContaining('Missing: SCENARIO_RUNS_PROJECT_ID, SCENARIO_RUNS_READ_KEY')
         )

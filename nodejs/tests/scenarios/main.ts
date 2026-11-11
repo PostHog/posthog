@@ -32,11 +32,7 @@ function preflight(
     return problems.length > 0 ? { problems } : { loaded }
 }
 
-export async function main(
-    argv: string[],
-    env: NodeJS.ProcessEnv = process.env,
-    runnerOf: () => Runner = () => createRunner(createEnvironment(), env)
-): Promise<number> {
+export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
         allowPositionals: true,
@@ -56,7 +52,7 @@ export async function main(
     const interrupt = new AbortController()
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
-    return runCards(runnerOf(), checked.loaded, interrupt.signal)
+    return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
 }
 
 export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {
