@@ -101,18 +101,13 @@ class Command(BaseCommand):
             self.stdout.write(f"Seeded {count} entries at {commit} from the ledger.")
             return
 
-        configured = sorted(run_type for run_type in (repo.baseline_file_paths or {}) if run_type != _DEFAULT_PATH_KEY)
-        if not configured:
-            raise CommandError(f"{repo.repo_full_name} names no run type in its baseline file paths.")
-        run_types = configured
-        if options.get("run_types"):
-            unknown = sorted(set(options["run_types"]) - set(configured))
-            if unknown:
-                raise CommandError(
-                    f"{', '.join(unknown)} is not in the baseline file paths of {repo.repo_full_name}. "
-                    f"Known run types: {', '.join(configured)}."
-                )
-            run_types = sorted(set(options["run_types"]))
+        configured = [run_type for run_type in (repo.baseline_file_paths or {}) if run_type != _DEFAULT_PATH_KEY]
+        run_types = sorted(set(options.get("run_types") or configured))
+        if not run_types:
+            raise CommandError(
+                f"{repo.repo_full_name} names no run type in its baseline file paths. "
+                "Name the run types to seed with --run-type."
+            )
 
         github = github_api.get_github_integration_for_repo(repo)
         baselines_by_run_type: dict[str, dict[str, str]] = {}

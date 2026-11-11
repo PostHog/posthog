@@ -204,3 +204,35 @@ class TestLedger:
         assert head is not None and head.commit_sha == _RESEED_SHA
         assert ledger.ledger_at(repo.id, RunType.STORYBOOK, 0) == {"Button": _BUTTON_0}
         assert ledger.ledger_at(repo.id, RunType.PLAYWRIGHT, 0) == {}
+
+    @pytest.mark.parametrize(
+        "baseline_file_paths, served_path",
+        [
+            ({}, ".snapshots.yml"),
+            ({"default": ".storybook.yml"}, ".storybook.yml"),
+        ],
+    )
+    def test_seed_reads_a_named_run_type_through_the_fallback_path(
+        self, repo, mocker, baseline_file_paths, served_path
+    ) -> None:
+        ledger.seed(repo, _SEED_SHA, {RunType.STORYBOOK: {"Button": _BUTTON_0}})
+        repo.baseline_file_paths = baseline_file_paths
+        repo.save()
+        self._github_serves(mocker, {served_path: self._export_storybook(repo)})
+        seed_args = [
+            "visual_review_baseline_ledger",
+            "seed",
+            "--repo",
+            repo.repo_full_name,
+            "--commit",
+            _RESEED_SHA,
+            "--replace",
+        ]
+
+        with pytest.raises(CommandError, match="--run-type"):
+            call_command(*seed_args, stdout=StringIO())
+        call_command(*seed_args, "--run-type", RunType.STORYBOOK, stdout=StringIO())
+
+        head = ledger.cursor(repo.id)
+        assert head is not None and head.commit_sha == _RESEED_SHA
+        assert ledger.ledger_at(repo.id, RunType.STORYBOOK, 0) == {"Button": _BUTTON_0}
