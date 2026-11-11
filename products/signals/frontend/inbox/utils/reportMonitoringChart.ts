@@ -13,6 +13,8 @@ export interface ReportMonitoringChartWindow {
     referencePeriodMinutes: number
     thresholdScaling?: MonitoringMetricConfigApi['threshold_scaling']
     startedAt?: string | null
+    /** Limits the chart to the observation window instead of showing activity around it. */
+    endsAt?: string | null
 }
 
 const MINUTE_MS = 60_000
@@ -20,6 +22,10 @@ const MAX_CHART_POINTS = 1000
 
 function monitoringChartDateRange(monitoring: ReportMonitoringChartWindow, now: number): { from: number; to: number } {
     const startedAt = monitoring.startedAt ? Date.parse(monitoring.startedAt) : NaN
+    const endsAt = monitoring.endsAt ? Date.parse(monitoring.endsAt) : NaN
+    if (Number.isFinite(startedAt) && endsAt > startedAt) {
+        return { from: startedAt, to: endsAt }
+    }
     // Stable dynamic boundaries let repeated views share query-cache entries.
     const refreshedAt = Math.floor(now / MINUTE_MS) * MINUTE_MS
     const anchor = Number.isFinite(startedAt) ? startedAt : refreshedAt
@@ -70,6 +76,27 @@ export function monitoringChartQuery(
 
 function bucketTimestamp(label: string, timezone: string): number {
     return /(?:Z|[+-]\d{2}:\d{2})$/i.test(label) ? dayjs(label).valueOf() : dayjs.tz(label, timezone).valueOf()
+}
+
+export function monitoringChartBucketPositioner(
+    labels: string[],
+    timezone: string,
+    interval: NonNullable<TrendsQuery['interval']>
+): (time: number) => { index: number; fraction: number } | null {
+    // Parsed once: a long window places many markers, and each lookup would otherwise reparse every label.
+    const starts = labels.map((label) => bucketTimestamp(label, timezone))
+    // Each bucket lasts one interval: a weekday filter can drop buckets, so the gap to the next label is not its length.
+    const ends = starts.map((start) => dayjs(start).tz(timezone).add(1, interval).valueOf())
+    return (time) => {
+        if (!starts.length || !Number.isFinite(time)) {
+            return null
+        }
+        if (time <= starts[0]) {
+            return { index: 0, fraction: 0 }
+        }
+        const index = starts.findLastIndex((start) => start <= time)
+        return { index, fraction: Math.min((time - starts[index]) / (ends[index] - starts[index]), 1) }
+    }
 }
 
 export function monitoringChartPoints(

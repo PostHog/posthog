@@ -151,7 +151,10 @@ export async function createRedisClient(
             // A command waits offline while the client reconnects, so commandTimeout never starts for it.
             let timer: NodeJS.Timeout | undefined
             await Promise.race([
-                redis.info(),
+                // Without the offline queue, a command sent before the connection is ready rejects at once.
+                options?.enableOfflineQueue === false
+                    ? new Promise<void>((resolve) => redis.once('ready', () => resolve()))
+                    : redis.info(),
                 new Promise<never>((_, reject) => {
                     timer = setTimeout(
                         () => reject(new Error(`${connectionId}Redis did not connect`)),
