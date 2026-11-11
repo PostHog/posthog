@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from functools import partial
 
@@ -27,6 +28,12 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     team_flag_key_compares_as_string,
 )
 from posthog.hogql.visitor import clone_expr
+
+# A filter added to the WHERE of a subquery that sets only these clauses keeps the rows it would keep after the
+# subquery. Any other clause, including one SelectQuery gains later, refuses the pin.
+_ROW_PRESERVING_CLAUSES = frozenset(
+    {"start", "end", "type", "view_name", "select", "select_from", "where", "prewhere", "order_by"}
+)
 
 
 def read_flag_calls_in_lazy_join(
@@ -69,13 +76,13 @@ def read_flag_calls_in_lazy_join(
     scan = EventsScan.of(subquery, partial(team_flag_key_compares_as_string, context), {}, database)
     if scan is None:
         return
-    join_name = f"{join_scope.from_table}.{join_scope.lazy_join_type.field}"
+    join_name = _join_name(join_scope)
     scope = FlagCallScope.join(join_name)
     pin: ast.Expr | None = None
     if database.flag_calls_only_in_flag_evaluations and not scan.pins_flag_calls(
         filter_conjuncts(subquery), needs_flag_key=False
     ):
-        reads_join_event = partial(_reads_join_event, join_scope.to_table, original_select_type)
+        reads_join_event = _join_event_reader(join_scope, original_select_type)
         if not pins_flag_calls(filter_conjuncts(node), reads_join_event, None):
             if not _compares_with_flag_calls(node, reads_join_event):
                 return
@@ -117,7 +124,7 @@ def refuse_flag_calls_in_wrapped_lazy_join(
     database = swap_database(context)
     if database is None or not database.flag_calls_only_in_flag_evaluations:
         return
-    if not _compares_with_flag_calls(node, partial(_reads_join_event, join_scope.to_table, original_select_type)):
+    if not _compares_with_flag_calls(node, _join_event_reader(join_scope, original_select_type)):
         return
     subquery = join_scope.lazy_join.resolve_join_to_add(join_scope, context, node).table
     if not isinstance(subquery, ast.SelectQuery):
@@ -125,7 +132,7 @@ def refuse_flag_calls_in_wrapped_lazy_join(
     scan = EventsScan.of(subquery, partial(team_flag_key_compares_as_string, context), {}, database)
     if scan is None or scan.pins_flag_calls(filter_conjuncts(subquery), needs_flag_key=False):
         return
-    join_name = f"{join_scope.from_table}.{join_scope.lazy_join_type.field}"
+    join_name = _join_name(join_scope)
     raise flag_calls_only_in_flag_evaluations_error(
         f"a join condition reads a lazy join of the table that {join_name} comes from, so a filter on "
         f"{join_name}.event can't move into the join",
@@ -133,18 +140,22 @@ def refuse_flag_calls_in_wrapped_lazy_join(
     )
 
 
+def _join_name(join_scope: LazyJoinToAdd) -> str:
+    return f"{join_scope.from_table}.{join_scope.lazy_join_type.field}"
+
+
+def _join_event_reader(
+    join_scope: LazyJoinToAdd, original_select_type: ast.SelectQueryType
+) -> Callable[[ast.Expr], bool]:
+    return partial(_reads_join_event, join_scope.to_table, original_select_type)
+
+
 def _passes_rows_through(subquery: ast.SelectQuery) -> bool:
-    return not (
-        subquery.group_by
-        or subquery.having
-        or subquery.qualify
-        or subquery.limit
-        or subquery.offset
-        or subquery.limit_by
-        or subquery.distinct
-        or subquery.array_join_op
-        or subquery.window_exprs
-        or any(has_aggregation(expr) or has_window_function(expr) for expr in subquery.select)
+    set_clauses = {
+        field.name for field in dataclasses.fields(subquery) if getattr(subquery, field.name) not in (None, [], {})
+    }
+    return set_clauses <= _ROW_PRESERVING_CLAUSES and not any(
+        has_aggregation(expr) or has_window_function(expr) for expr in subquery.select
     )
 
 
