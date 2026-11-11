@@ -1325,12 +1325,23 @@ describe('queryDatabaseLogic', () => {
 
         it.each([
             { scope: null, schemaFails: false, expectedViews: ['clickhouse_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: false,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: true,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            { scope: 'source-id', schemaFails: false, expectedViews: ['connection_view'] },
+            { scope: 'source-id', schemaFails: true, expectedViews: ['connection_view'] },
+            { scope: 'another-source', schemaFails: false, expectedViews: [] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
             { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
         ])(
-            'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
+            'lists each view only under the engine that runs it (scope $scope, schema fails $schemaFails)',
             async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
@@ -1349,12 +1360,21 @@ describe('queryDatabaseLogic', () => {
                             engine: { target: 'managed_trino', dialect: 'raw', capabilities: capabilities(false) },
                         },
                         {
+                            name: 'trino_hogql_view',
+                            engine: { target: 'managed_trino', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
                             name: 'clickhouse_view',
                             engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
                         },
                         {
                             name: 'connection_view',
-                            engine: { target: 'connection', dialect: 'hogql', capabilities: capabilities(false) },
+                            engine: {
+                                target: 'connection',
+                                dialect: 'hogql',
+                                connection_id: 'source-id',
+                                capabilities: capabilities(false),
+                            },
                         },
                     ]
                         .filter((view) => !onlyTrino || view.name === 'trino_view')

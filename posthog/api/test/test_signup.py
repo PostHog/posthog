@@ -23,7 +23,11 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PendingOAuthConnection,
+    PendingOAuthFlow,
+)
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -1723,10 +1727,11 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", True, True),
-            ("social_signup", "social", True, True),
-            ("invite_signup", "invite", True, False),
-            ("delegated_invite_signup", "delegated_invite", False, False),
+            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True),
+            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False),
+            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False),
         ]
     )
     @patch("posthoganalytics.group_identify")
@@ -1735,14 +1740,15 @@ class TestSignupAPI(APIBaseTest):
         self,
         _name: str,
         signup_path: str,
-        expect_onboarding_skip: bool,
+        flow: PendingOAuthFlow,
+        expected_skip_reason: str | None,
         expect_project_marked: bool,
         mock_capture,
         mock_group_identify,
     ):
         email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
-            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
+            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client", flow=flow
         ).to_cookie_value()
 
         invite_organization: Optional[Organization] = None
@@ -1784,9 +1790,9 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
 
         user = User.objects.get(email=email)
-        if expect_onboarding_skip:
+        if expected_skip_reason is not None:
             self.assertIsNotNone(user.onboarding_skipped_at)
-            self.assertEqual(user.onboarding_skipped_reason, "connector")
+            self.assertEqual(user.onboarding_skipped_reason, expected_skip_reason)
             expected_organization = invite_organization or user.organization
             assert expected_organization is not None
             self.assertEqual(user.onboarding_skipped_organization_id, expected_organization.id)
