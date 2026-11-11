@@ -42,11 +42,12 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_registry import RESOLVERS
 from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.schema.flag_evaluations import join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
-from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params, resolve_data_warehouse_join
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -1778,6 +1779,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     ),
                     ("select_column", "SELECT countIf({j}.event = '$feature_flag_called') FROM {source}"),
                     (
+                        "select_column_in_function_form",
+                        "SELECT countIf(equals({j}.event, '$feature_flag_called')) FROM {source}",
+                    ),
+                    (
                         "on_clause_of_an_explicit_join",
                         "SELECT {j}.distinct_id FROM {source} JOIN (SELECT 'probe-distinct-id' AS id) AS d "
                         "ON {j}.distinct_id = d.id AND {j}.event = '$feature_flag_called'",
@@ -1835,6 +1840,21 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         with self.assertRaisesRegex(QueryError, _join_refusal(join_name, reason)):
             self._query_events(query, union=union, database=database)
 
+    def test_lazy_join_raises_when_its_subquery_does_not_pass_rows_through(self):
+        self._create_lazy_join_sources()
+
+        def limited_join(join_to_add, context, node):
+            join = resolve_data_warehouse_join(join_to_add, context, node)
+            assert isinstance(join.table, ast.SelectQuery)
+            join.table.limit = ast.Constant(value=10)
+            return join
+
+        with (
+            patch.dict(RESOLVERS, {DATA_WAREHOUSE: limited_join}),
+            self.assertRaisesRegex(QueryError, _join_refusal("persons.calls", "the subquery of persons.calls groups")),
+        ):
+            self._query_events("SELECT calls.distinct_id FROM persons WHERE calls.event = '$feature_flag_called'")
+
     @parameterized.expand(
         _with_union(
             [
@@ -1852,7 +1872,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                             "SELECT {j}.distinct_id FROM {source} WHERE {j}.event = '$feature_flag_called'",
                             FlagEvaluationsMode.EVENTS,
                         ),
-                        # The query names flag calls, so the swap's text check passes and the guard on `event` decides.
+                        # The query contains '$feature_flag_called', so `swaps_flag_calls` accepts it. No condition
+                        # compares the join's `event` with it, so the hook leaves the join reading events.
                         (
                             "flag_calls_named_but_not_compared_with_event",
                             "SELECT {j}.event FROM {source} WHERE {j}.properties.label = '$feature_flag_called'",
