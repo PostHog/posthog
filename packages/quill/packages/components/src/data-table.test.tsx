@@ -95,7 +95,10 @@ describe('DataTable', () => {
         expect(Object.keys(next).sort()).toEqual([...expected].sort())
     })
 
-    it('disables a row checkbox when only the disabled reason changes', () => {
+    it.each([
+        ['disables a row when a reason appears', () => null, () => 'Not selectable', true],
+        ['enables a row again when the reason callback is removed', () => 'Not selectable', undefined, false],
+    ] as const)('%s', (_name, before, after, disabledAfter) => {
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
         const people: TestRow[] = [{ name: 'Ada' }]
         const rowSelection = {}
@@ -104,24 +107,24 @@ describe('DataTable', () => {
                 columns={columns}
                 data={people}
                 selectable
-                rowSelectionDisabledReason={() => null}
+                rowSelectionDisabledReason={before}
                 rowSelection={rowSelection}
             />
         )
         const checkbox = (): Element => container.querySelector('tbody [role="checkbox"]')!
-        expect(checkbox().hasAttribute('data-disabled')).toBe(false)
+        expect(checkbox().hasAttribute('data-disabled')).toBe(!disabledAfter)
 
         rerender(
             <DataTable
                 columns={columns}
                 data={people}
                 selectable
-                rowSelectionDisabledReason={() => 'Not selectable'}
+                rowSelectionDisabledReason={after}
                 rowSelection={rowSelection}
             />
         )
 
-        expect(checkbox().hasAttribute('data-disabled')).toBe(true)
+        expect(checkbox().hasAttribute('data-disabled')).toBe(disabledAfter)
     })
 
     it('applies a row class name per row', () => {

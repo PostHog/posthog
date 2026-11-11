@@ -612,10 +612,10 @@ function DataTable<TData, TValue>({
         data,
         columns: tableColumns,
         getRowId,
-        // Left unset without a reason, so a caller's own selection column keeps working.
-        ...(rowSelectionDisabledReason
-            ? { enableRowSelection: (row: Row<TData>) => rowSelectionDisabledReason(row.original) === null }
-            : {}),
+        // TanStack merges each render's options into the last ones, so a removed callback must reset to its default.
+        enableRowSelection: rowSelectionDisabledReason
+            ? (row: Row<TData>) => rowSelectionDisabledReason(row.original) === null
+            : true,
         onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
