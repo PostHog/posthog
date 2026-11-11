@@ -10,13 +10,25 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { todayNumber } from './todayNumbers'
+import { TodayPulseExperimentResult } from './TodayPulseExperimentResult'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
+function cardCaption(metric: HighlightMetricApi): string {
+    return metric.experiment ? 'Experiment' : pulsePeriodCaption(metric)
+}
+
+function suggestionText(metric: HighlightMetricApi): string {
+    return metric.experiment ? 'You run this experiment' : 'Suggested based on your usage'
+}
+
 function openLabel(metric: HighlightMetricApi): string {
+    if (metric.experiment) {
+        return 'Open experiment'
+    }
     return metric.dashboard_id !== null || metric.reason === 'dashboard' ? 'Open dashboard' : 'Open insight'
 }
 
@@ -42,6 +54,7 @@ export function TodayPulseCard({
     onHide: () => void
 }): JSX.Element {
     const change = pulseChange(metric)
+    const experiment = metric.experiment
     return (
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
             <div className="flex flex-col gap-4 p-3 pb-3">
@@ -51,20 +64,24 @@ export function TodayPulseCard({
                             {metric.name}
                         </Text>
                         <Text size="xs" variant="muted" render={<span />} className="shrink-0">
-                            {pulsePeriodCaption(metric)}
+                            {cardCaption(metric)}
                         </Text>
                     </div>
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                        <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
-                            {formatValue(metric.value)}
-                        </Heading>
-                        {change.value !== null && (
-                            <span className="text-sm text-muted-foreground">
-                                <TodayChange change={change.value} unit={change.unit} tone={tone} />
-                                <span> {pulsePriorLabel(metric)}</span>
-                            </span>
-                        )}
-                    </div>
+                    {experiment ? (
+                        <TodayPulseExperimentResult lift={metric.value} experiment={experiment} tone={tone} />
+                    ) : (
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                            <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
+                                {formatValue(metric.value)}
+                            </Heading>
+                            {change.value !== null && (
+                                <span className="text-sm text-muted-foreground">
+                                    <TodayChange change={change.value} unit={change.unit} tone={tone} />
+                                    <span> {pulsePriorLabel(metric)}</span>
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
                 {metric.movers.length > 1 && (
                     <div className="flex flex-col gap-1">
@@ -80,7 +97,7 @@ export function TodayPulseCard({
                 {!pinned && (
                     <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
                         <IconSparkles className="size-3 shrink-0" />
-                        Suggested based on your usage
+                        {suggestionText(metric)}
                     </Text>
                 )}
             </div>

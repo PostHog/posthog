@@ -1,6 +1,6 @@
 import type { TraceEvaluationResultApi, TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
 import { EvalResult, EvalsState, NodeContent, NodeLoad } from '../types'
-import { makeEvaluationResult, makeNodeDetail } from './testFixtures'
+import { makeEvaluationResult, makeMessage, makeNodeDetail } from './testFixtures'
 import { toNodeDetail } from './toNodeDetail'
 
 const node = (id: string, kind: TraceNodeApi['kind']): TraceNodeApi => ({
@@ -37,7 +37,6 @@ describe('toNodeDetail', () => {
         tree: [],
         evaluationResults: [],
         evaluationResultsFailed: false,
-        teamId: 7,
         person: null,
         trace: { createdAt: '2026-09-01T10:15:00Z', sessionId: 'sess-1' },
     }
@@ -61,30 +60,27 @@ describe('toNodeDetail', () => {
     ])('a %s node shows its load state, no raw event and no time', (_name, load, content) => {
         const detail = toNodeDetail({ ...base, node: node('gen-1', 'generation'), load })
         expect(detail.content).toEqual(content)
-        expect(detail.raw).toBeNull()
         expect(detail.properties.timestamp).toBeNull()
     })
 
-    it('generation reads its messages through the io keys and keeps its details, raw event and own evals', () => {
-        const input = [{ role: 'user', content: 'Hi' }]
+    it('passes the node content through and keeps the details and own evals', () => {
+        const content = {
+            input: { kind: 'messages' as const, messages: [makeMessage({ id: 'ask', role: 'user' })] },
+            output: { kind: 'json' as const, value: { answer: 'Hello' } },
+        }
         const detail = toNodeDetail({
             ...base,
             node: node('gen-1', 'generation'),
             load: ready(
                 makeNodeDetail({
                     id: 'gen-1',
-                    properties: { $ai_input: input, $ai_output_choices: [{ role: 'assistant', content: 'Hello' }] },
-                    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
+                    content,
                     metadata: { provider: 'openai', temperature: 0.2, sessionId: 'sess-9', promptVersion: 6 },
                 })
             ),
             evaluationResults: [result(), result({ id: 'r2', targetNodeId: 'gen-other' })],
         })
-        expect(detail.content).toMatchObject({
-            kind: 'messages',
-            input: [{ role: 'user', parts: [{ kind: 'text', text: 'Hi' }] }],
-            output: [{ role: 'assistant', parts: [{ kind: 'text', text: 'Hello' }] }],
-        })
+        expect(detail.content).toEqual({ kind: 'loaded', ...content })
         expect(detail.properties).toMatchObject({
             timestamp: '2026-09-01T10:15:02Z',
             provider: 'openai',
@@ -92,7 +88,6 @@ describe('toNodeDetail', () => {
             sessionId: 'sess-9',
             promptVersion: 6,
         })
-        expect(detail.raw).toMatchObject({ event: '$ai_generation', uuid: 'gen-1', properties: { $ai_input: input } })
         expect(readyResults(detail.evals).map((result) => result.id)).toEqual(['r1'])
     })
 
@@ -117,22 +112,13 @@ describe('toNodeDetail', () => {
         expect(detail.evals).toEqual(evals)
     })
 
-    it('span shows its state as input and output, surfaces its error and labels the person', () => {
+    it('surfaces the error of a span and labels the person', () => {
         const detail = toNodeDetail({
             ...base,
             person: 'ana@example.com',
             node: node('span-1', 'span'),
-            load: ready(
-                makeNodeDetail({
-                    id: 'span-1',
-                    kind: 'span',
-                    properties: { $ai_input_state: { q: 'x' } },
-                    ioKeys: { input: '$ai_input_state' },
-                    error: 'Timeout',
-                })
-            ),
+            load: ready(makeNodeDetail({ id: 'span-1', kind: 'span', error: 'Timeout' })),
         })
-        expect(detail.content).toEqual({ kind: 'io', input: { q: 'x' }, output: undefined })
         expect(detail.error).toBe('Timeout')
         expect(detail.properties.person).toBe('ana@example.com')
     })
@@ -146,48 +132,11 @@ describe('toNodeDetail', () => {
             const detail = toNodeDetail({
                 ...base,
                 node: node('trace-1', 'trace'),
-                load: ready(
-                    makeNodeDetail({
-                        id: 'trace-1',
-                        kind: 'trace',
-                        withEvent,
-                        properties: { $ai_input_state: { question: 'Hi' } },
-                        ioKeys: { input: '$ai_input_state' },
-                    })
-                ),
+                load: ready(makeNodeDetail({ id: 'trace-1', kind: 'trace', withEvent })),
                 evaluationResults: [result(), result({ id: 'r2' })],
             })
             expect(detail.properties).toMatchObject({ timestamp: '2026-09-01T10:15:00Z', sessionId: 'sess-1' })
             expect(readyResults(detail.evals)).toHaveLength(2)
-            expect(detail.content).toEqual({
-                kind: 'io',
-                input: withEvent ? { question: 'Hi' } : undefined,
-                output: undefined,
-            })
-            expect(detail.raw === null).toBe(!withEvent)
         }
     )
-
-    it('renders an OTel span with a message array input and a text output as messages', () => {
-        const detail = toNodeDetail({
-            ...base,
-            node: node('span-2', 'span'),
-            load: ready(
-                makeNodeDetail({
-                    id: 'span-2',
-                    kind: 'span',
-                    properties: {
-                        $ai_input: [{ role: 'user', content: 'Move my flight to Friday' }],
-                        $ai_output_choices: 'Moved to Friday 09:15',
-                    },
-                    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
-                })
-            ),
-        })
-        expect(detail.content).toMatchObject({
-            kind: 'messages',
-            input: [{ role: 'user', parts: [{ kind: 'text', text: 'Move my flight to Friday' }] }],
-            output: [{ role: 'assistant', parts: [{ kind: 'text', text: 'Moved to Friday 09:15' }] }],
-        })
-    })
 })

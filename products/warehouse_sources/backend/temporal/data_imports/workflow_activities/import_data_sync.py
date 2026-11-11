@@ -59,6 +59,10 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     set_attempts_before_this_execution,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
+    attach_history_lanes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_import_attempt_duration_metric,
@@ -66,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    KeptTableCorruptError,
     count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -974,6 +979,13 @@ async def _import_data_with_reporting(
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 )
 
+            try:
+                await database_sync_to_async_pool(attach_history_lanes)(
+                    schema, source_response, destination_ids=list(model.destination_ids or [])
+                )
+            except IncrementalHistoryUnavailableError as e:
+                await _handle_import_error(job_inputs, logger, e)
+
             return await _run(
                 job_inputs=job_inputs,
                 source_response=source_response,
@@ -1144,6 +1156,13 @@ async def _handle_import_error(
     # gone row, so it never turns into data regardless of source. Classify it here by type rather
     # than depending on each source listing the message in get_non_retryable_errors.
     if isinstance(error, ExternalDataSchema.DoesNotExist):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # The schema's settings or the source's shape rule out its history table, or the table that holds the only
+    # copy of its data is corrupt, so a retry fails the same way.
+    if isinstance(error, IncrementalHistoryUnavailableError | KeptTableCorruptError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
