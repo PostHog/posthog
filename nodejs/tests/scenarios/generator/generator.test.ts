@@ -1,3 +1,4 @@
+import { execFile } from 'child_process'
 import { getEventListeners } from 'events'
 import path from 'path'
 
@@ -118,6 +119,36 @@ describe('drive', () => {
 
         expect(getEventListeners(interrupt.signal, 'abort')).toEqual([])
     })
+
+    it('rejects a drive whose journal fails to record instead of crashing a plain Node process', async () => {
+        const script = `
+            const path = require('path')
+            const { load } = require(${JSON.stringify(path.join(__dirname, '..', 'cards'))})
+            const { drive } = require(${JSON.stringify(path.join(__dirname, 'generator'))})
+            const smoke = load(${JSON.stringify(path.join(__dirname, '..', 'cards', 'smoke.yaml'))})
+            const card = {
+                ...smoke,
+                card: { ...smoke.card, drive: { ...smoke.card.drive, for: '100ms' } },
+                profile: { ...smoke.profile, traffic: { event_email: { ratePerSecond: 50 } } },
+            }
+            const journal = { record: () => { throw new Error('journal full') } }
+            const context = { producer: { produce: () => Promise.resolve() }, eventsTopic: 'scenario_events_test', runId: 'run-a' }
+            drive(card, { teamIds: [7] }, journal, new AbortController().signal, context).then(
+                () => process.exit(2),
+                (error) => process.stdout.write(error.message)
+            )
+        `
+
+        const outcome = await new Promise<{ code: number; stdout: string }>((resolve) =>
+            execFile(
+                path.join(__dirname, '..', '..', '..', 'node_modules', '.bin', 'tsx'),
+                ['-e', script],
+                (error, stdout) => resolve({ code: typeof error?.code === 'number' ? error.code : 0, stdout })
+            )
+        )
+
+        expect(outcome).toEqual({ code: 0, stdout: 'journal full' })
+    }, 30_000)
 
     it('offers every unit that fell due during a stall in one turn', async () => {
         const startedAt = Date.now()

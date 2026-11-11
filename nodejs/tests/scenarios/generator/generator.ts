@@ -87,21 +87,21 @@ export async function drive(
         const teamId = chance.pickone(seeded.teamIds)
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
-        offers.push(
-            kind.offer({ unitId, teamId }, context).then((answer) => {
-                journal.record({
-                    unitId,
-                    kind: kind.intake,
-                    teamId,
-                    offeredAt,
-                    answer,
-                    expect: { deliveries: kind.deliveries },
-                })
-                if (answer.accepted && Date.now() <= end) {
-                    offeredUnits += 1
-                }
+        const offer = kind.offer({ unitId, teamId }, context).then((answer) => {
+            journal.record({
+                unitId,
+                kind: kind.intake,
+                teamId,
+                offeredAt,
+                answer,
+                expect: { deliveries: kind.deliveries },
             })
-        )
+            if (answer.accepted && Date.now() <= end) {
+                offeredUnits += 1
+            }
+        })
+        offer.catch(() => undefined)
+        offers.push(offer)
     }
     await untilAborted(Promise.all(offers), signal)
     return { targetUnits: schedule.length, offeredUnits }
