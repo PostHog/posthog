@@ -142,6 +142,14 @@ describe('IntegrationManagerService', () => {
             await expect(manager.get(5)).rejects.toThrow('connection refused')
         })
 
+        it('runs the batch on the source when the preload fails with an error that retrying cannot fix', async () => {
+            source.load.mockRejectedValueOnce(new Error('value out of range for type integer'))
+
+            const served = await manager.withPreloaded([5], async () => await manager.get(5))
+
+            expect(served).toBe(source.records['5'].integration)
+        })
+
         it('does not serve a preloaded integration past its expiry', async () => {
             source.records['5'].expiresAt = now + 10_000
 

@@ -66,7 +66,15 @@ export class IntegrationManagerService {
         const scope: PreloadScope = { records: new Map(), reloaded: new Set() }
         this.openScopes.add(scope)
         try {
-            const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
+            const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true }).catch((error) => {
+                if (error?.isRetriable === true) {
+                    throw error
+                }
+                logger.warn('[IntegrationManager]', 'Running the batch without preloaded integrations', {
+                    error: String(error),
+                })
+                return {}
+            })
             for (const [reference, record] of Object.entries(records)) {
                 scope.records.set(reference, record)
             }
