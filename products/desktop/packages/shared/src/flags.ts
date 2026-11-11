@@ -65,13 +65,6 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
  */
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
 
-/**
- * One-report-at-a-time keyboard triage inside the reports inbox. On by
- * default in dev builds for iteration (see useTriageFocusEnabled); off in
- * production until it stabilizes.
- */
-export const TRIAGE_FOCUS_FLAG = featureFlagKeys.TRIAGE_FOCUS_FLAG;
-
 export {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,

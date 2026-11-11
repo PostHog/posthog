@@ -146,9 +146,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                 pk__in={
                     view.insight_id
                     for view in insight_view_contexts(
-                        team_id=team.pk, insight_ids=[int(pk) for pk in insight_ids_single]
+                        team_id=team.pk,
+                        insight_ids=[int(pk) for pk in insight_ids_single],
+                        viewed_since=viewed_since,
                     )
-                    if view.dashboard_id is None and view.source and view.last_viewed_at >= viewed_since
+                    if view.dashboard_id is None and view.source
                 }
             )
         else:
