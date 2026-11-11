@@ -17,7 +17,7 @@ from django_filters import BooleanFilter, CharFilter, FilterSet
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
 from posthog.paging import Page, PageRequest
-from posthog.queryset_paging import select_page
+from posthog.queryset_paging import select_page, select_page_without_count
 
 from products.workflows.backend.facade.contracts import (
     Workflow,
@@ -236,15 +236,16 @@ def list_workflow_summaries(
     page: PageRequest,
 ) -> Page[WorkflowListRow]:
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=True)
-    flows = _select_page_with_access(queryset, page, user_access_control)
+    # A summaries search reads every workflow's step graph, so an exact count would run that scan a second time.
+    flows = _select_page_with_access(queryset, page, user_access_control, counted=not query.search)
     template_cache: TemplateCache = {}
     return flows.map(lambda flow: _to_list_row(flow, user_access_control, template_cache))
 
 
 def _select_page_with_access(
-    queryset: QuerySet, page: PageRequest, user_access_control: "UserAccessControl | None"
+    queryset: QuerySet, page: PageRequest, user_access_control: "UserAccessControl | None", *, counted: bool = True
 ) -> Page[HogFlow]:
-    flows = select_page(queryset, page)
+    flows = select_page(queryset, page) if counted else select_page_without_count(queryset, page)
     if user_access_control is not None and flows.results:
         user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     return flows

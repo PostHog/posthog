@@ -5553,7 +5553,9 @@ class HogFlowViewSet(
         summary="List workflow summaries",
         description=(
             "Workflow rows without the step graph, for loading a whole project's list page by page. "
-            "Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`."
+            "Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`. "
+            "With `search`, `count` is not a total: it counts the rows through this page, plus one when another page "
+            "follows. Follow `next` to read every match."
         ),
         parameters=SUMMARIES_QUERY_PARAMETERS,
         responses={200: HogFlowListSummarySerializer(many=True)},
