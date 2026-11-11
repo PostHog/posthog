@@ -160,12 +160,6 @@ export function HealthFindingActionButton({
         case 'freeze_exposure':
             return <HealthFreezeExposureButton buttonProps={editProps} onClick={onClick} />
         case 'move_start_date':
-            return typeof evidence.suggested_start_date === 'string' ? (
-                <HealthMoveStartDateButton
-                    suggestedStartDate={evidence.suggested_start_date}
-                    buttonProps={editProps}
-                    onClick={onClick}
-                />
-            ) : null
+            return <HealthMoveStartDateButton evidence={evidence} buttonProps={editProps} onClick={onClick} />
     }
 }

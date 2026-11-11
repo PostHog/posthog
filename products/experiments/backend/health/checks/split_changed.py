@@ -156,6 +156,7 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
     if effect.shape == SplitChangeShape.VARIANT_ZEROED:
         keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
         from_then_on = [f"No new users get {keys}."]
+    move_start = leave_out(history, effect, count)
     return _finding(
         history,
         effect,
@@ -164,11 +165,10 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
         sentences=[
             *what_changed,
             exposed_when(history, effect, count),
-            *leave_out(history, effect, count),
+            *move_start,
             *from_then_on,
         ],
-        # `leave_out` names the start date only when someone was exposed before the change.
-        moves_start_date=count > 0,
+        moves_start_date=bool(move_start),
     )
 
 
@@ -297,7 +297,6 @@ def _finding(
         diagnostic_ref=(
             "E4" if effect.shape in (SplitChangeShape.VARIANT_ADDED, SplitChangeShape.VARIANT_REMOVED) else "E3"
         ),
-        # The sentences name the start date from the same change, through `suggested_start`.
         suggested_start_date=suggested_start_at(effect.last.changed_at) if moves_start_date else None,
         end_experiment=end_experiment,
     )

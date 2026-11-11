@@ -356,6 +356,22 @@ class TestSplitChangedMidRun(TestCase):
                 },
             ),
             (
+                "suggested_start_after_the_last_change",
+                _context(EVEN, _split(("control", 70), ("test", 30)), UNEVEN),
+                None,
+                {
+                    "change_count": 2,
+                    "first_changed_at": "2026-09-12T13:04:00+00:00",
+                    "last_changed_at": "2026-09-12T13:21:00+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": True,
+                    "seconds_after_start": 11040,
+                    "units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:21:00+00:00",
+                },
+            ),
+            (
                 "few_exposed",
                 _context(EVEN, UNEVEN, exposed_units=4),
                 None,

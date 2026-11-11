@@ -6,13 +6,14 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { confirmMoveStartDate } from '../experimentActions'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export function HealthMoveStartDateButton({
-    suggestedStartDate,
+    evidence,
     buttonProps,
     onClick,
 }: {
-    suggestedStartDate: string
+    evidence: HealthPanelFinding['evidence']
     buttonProps: Pick<LemonButtonPropsBase, 'size' | 'type' | 'data-attr' | 'disabledReason'>
     onClick: () => void
 }): JSX.Element | null {
@@ -21,7 +22,8 @@ export function HealthMoveStartDateButton({
     const { currentTeam } = useValues(teamLogic)
 
     const currentStartDate = experiment.start_date
-    if (!currentStartDate) {
+    const suggestedStartDate = evidence.suggested_start_date
+    if (!currentStartDate || typeof suggestedStartDate !== 'string') {
         return null
     }
     return (

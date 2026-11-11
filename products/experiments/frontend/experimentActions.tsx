@@ -1,10 +1,9 @@
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { shortTimeZone } from 'lib/utils/timezones'
 
 import { Experiment } from '~/types'
 
@@ -120,10 +119,9 @@ export function confirmMoveStartDate({
     projectTimezone: string
     onConfirm: () => Promise<void>
 }): void {
-    const date = (time: string): string => {
-        const at = dayjs(time).tz(projectTimezone)
-        return `${at.format('MMMM D, YYYY [at] h:mm A')} ${shortTimeZone(projectTimezone, at.toDate()) ?? projectTimezone}`
-    }
+    const date = (time: string): JSX.Element => (
+        <TZLabel time={time} displayTimezone={projectTimezone} formatDate="MMMM D, YYYY [at]" formatTime="h:mm A" />
+    )
     LemonDialog.open({
         title: 'Move the start date?',
         content: (
