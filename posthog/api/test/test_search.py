@@ -14,7 +14,7 @@ from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade.enums import CanvasKind
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -320,9 +320,9 @@ class TestSearch(APIBaseTest):
             team_id=self.team.id, channel_id=mine.id, name="Revenue scratchpad", created_by_id=self.user.id
         )
         for name, kwargs in [
-            ("Revenue component", {"channel_id": shared.id, "kind": Canvas.KIND_COMPONENT}),
-            ("Revenue grid", {"channel_id": shared.id, "kind": Canvas.KIND_GRID}),
-            ("Revenue widget", {"channel_id": shared.id, "source_policy": Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET}),
+            ("Revenue component", {"channel_id": shared.id, "kind": CanvasKind.COMPONENT}),
+            ("Revenue grid", {"channel_id": shared.id, "kind": CanvasKind.GRID}),
+            ("Revenue widget", {"channel_id": shared.id, "source_policy": "notebook_widget"}),
             ("Revenue deleted", {"channel_id": shared.id, "deleted": True}),
             ("Revenue secret", {"channel_id": theirs.id}),
         ]:
