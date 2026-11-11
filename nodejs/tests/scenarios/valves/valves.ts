@@ -56,10 +56,16 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
         let probeFailure: string | undefined
         const runningJobs = (queue: Queue): Promise<number> =>
-            context.probe.runningJobs({ teams: context.teams, queues: [queue] }).catch((error: unknown) => {
-                probeFailure = (error as Error).message
-                return 0
-            })
+            context.probe.runningJobs({ teams: context.teams, queues: [queue] }).then(
+                (jobs) => {
+                    probeFailure = undefined
+                    return jobs
+                },
+                (error: unknown) => {
+                    probeFailure = (error as Error).message
+                    return 0
+                }
+            )
         const withProbeFailure = (error: string): string =>
             probeFailure === undefined ? error : `${error}; the probe last failed: ${probeFailure}`
 

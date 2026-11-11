@@ -16,6 +16,7 @@ type StackSetup = {
     unkillable?: boolean
     finishesJobsBeforeKill?: boolean
     probeFailure?: string
+    probeFailsFor?: number
     runningJobs?: number
 }
 
@@ -24,8 +25,10 @@ function stackOf({
     unkillable = false,
     finishesJobsBeforeKill = false,
     probeFailure,
+    probeFailsFor = Infinity,
     runningJobs = 0,
 }: StackSetup = {}) {
+    let probeReads = 0
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
     const gone: number[] = []
@@ -66,7 +69,7 @@ function stackOf({
             runningJobs: async ({ teams, queues }) => {
                 readers.splice(0).forEach((read) => read())
                 await gate
-                if (probeFailure !== undefined) {
+                if (probeFailure !== undefined && probeReads++ < probeFailsFor) {
                     throw new Error(probeFailure)
                 }
                 return jobs.filter(
@@ -222,6 +225,12 @@ describe('valves', () => {
             'whose kill stranded no job, because the worker finished them first',
             kill({ when: RUNNING_ON_EMAIL }),
             { runningJobs: 2, finishesJobsBeforeKill: true },
+            'applied after running_on_queue email at least 2 stopped holding',
+        ],
+        [
+            'whose kill stranded no job, read by a probe that had failed once before',
+            kill({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsBeforeKill: true, probeFailure: 'connection refused', probeFailsFor: 1 },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
     ])('records an error for an entry %s, and releases it', async (_story, entry, stackSetup, error) => {
