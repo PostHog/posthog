@@ -1,8 +1,8 @@
 """Map each Temporal workflow type to the product that owns its code.
 
 Temporal Cloud bills actions per workflow type (`temporal_cloud_v1_billable_action_count`), so
-this map turns the namespace-level invoice into a per-product cost. `generated/workflow_catalog.json` is
-the generated copy that the FinOps cost exporter reads; regenerate it with
+this map turns the namespace-level invoice into a per-product cost. `workflow_catalog.json` is
+the generated copy that cost dashboards read; regenerate it with
 `python manage.py export_temporal_workflow_catalog`.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from temporalio.workflow import _Definition
 
-CATALOG_PATH = Path(__file__).parent / "generated" / "workflow_catalog.json"
+CATALOG_PATH = Path(__file__).with_name("workflow_catalog.json")
 
 # `posthog/temporal/<area>/` package -> `products/` directory. Code under `products/<name>/` needs no entry.
 TEMPORAL_AREA_PRODUCTS: dict[str, str] = {
