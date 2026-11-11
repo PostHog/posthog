@@ -80,6 +80,9 @@ class ReviewPath:
     finished_review: Callable[[StamphogRepoConfig, int, str], FinishedReview | None]
     # Whether (repo_config, pr_number, head_sha) has a review that is not superseded, finished or not.
     has_review: Callable[[StamphogRepoConfig, int, str], bool]
+    # Whether a stamphog approval that nobody dismissed covers (repo_config, pr_number, head_sha), as posted or
+    # retained through a clean base merge.
+    approval_stands: Callable[[StamphogRepoConfig, int, str], bool]
 
 
 def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
@@ -453,7 +456,7 @@ def route_after_verdict(
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
-def _safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | None:
+def _safety_net_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
@@ -464,6 +467,15 @@ def _safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | Non
     head_sha = _head_sha(pr)
     # A record that waits again on its approved head took a WAIT after the approval, which the WAIT's run dismissed.
     if record is not None and record.get(PINNED_ROUTED_HEAD) == head_sha and record.get("status") != STATUS_WAITING:
+        return None
+    # A clean base merge keeps the approval on a new head without a routing of that head. Its pinned owners are those
+    # of the approved head, because the merge changed none of the pull request's own files.
+    if (
+        record is not None
+        and record.get(PINNED_ROUTED_HEAD)
+        and record.get("status") != STATUS_WAITING
+        and review_path.approval_stands(state.repo_config, state.pr_number, head_sha)
+    ):
         return None
     return _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_SAFETY_NET)
 
@@ -482,7 +494,7 @@ def route_on_safety_net(
     state = _load_state(repo_config, pr_number, task_id)
     if _resume(client, state):
         return
-    step = _safety_net_step(client, state)
+    step = _safety_net_step(client, state, review_path=review_path)
     _execute(client, state, step, review_path, retry_when_busy=False)
 
 
@@ -495,17 +507,23 @@ def _retracted_approval_step(client: StamphogGitHubClient, state: _State, *, rev
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
         return None
+    live_head_sha = _head_sha(pr)
+    # The task carries no identity of the approval it was queued for. A review that approved the live head after
+    # that retraction already routed it, so the retraction is stale.
+    if review_path.approval_stands(state.repo_config, state.pr_number, live_head_sha):
+        return None
     # The payload can admit a review that a later gate refuses, such as the author's write permission, and then
     # no verdict routes the head. The net routes it in that case, and does nothing once a routing covers the head.
     review_path.schedule_safety_net(state.repo_config, state.pr_number)
-    live_head_sha = _head_sha(pr)
     if live_head_sha != record.get("head_sha"):
         return _full_step_on_live_head(pr, state, trigger=TRIGGER_APPROVAL_RETRACTED, review_path=review_path)
     # A base retarget retracts the approval of the head that the run reviewed, and that run still counts as a
-    # review of the head. Only a visible review judges the retargeted diff.
-    if review_path.will_review(state.repo_config, pr, count_silent=False):
-        return None
-    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_APPROVAL_RETRACTED)
+    # review of the head. Only a visible review judges the retargeted diff, so the head waits for its verdict. The
+    # waiting record lets the net route the head when a later gate refuses that review.
+    wait = review_path.will_review(state.repo_config, pr, count_silent=False)
+    return _Step(
+        pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_APPROVAL_RETRACTED, wait=wait
+    )
 
 
 def route_after_approval_retracted(

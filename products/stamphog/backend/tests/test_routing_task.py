@@ -680,16 +680,23 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
         assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
 
 
+_LABEL = [{"name": "stamphog"}]
+
+
 @pytest.mark.parametrize(
-    "name,first_verdict,later_routing_mode,push,live_labels,expect_routed",
+    "name,first_verdict,later_routing_mode,push,live_labels,approval_stands,expected",
     [
-        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], True),
+        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], False, "routed"),
         # The trigger label starts a visible review of the live head, and its verdict routes it.
-        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [{"name": "stamphog"}], False),
-        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], False),
-        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], False),
+        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, _LABEL, False, "unchanged"),
+        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], False, "unchanged"),
+        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], False, "unchanged"),
         # A base retarget keeps the head, and the approving run of that head is no review of the new diff.
-        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], True),
+        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], False, "routed"),
+        # The label brings a visible review, so the head waits for it, and the net routes it if a gate refuses it.
+        ("base_retarget_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", False, _LABEL, False, "waits"),
+        # A later review approved the live head again, so this retraction is stale.
+        ("stale_retraction", ReviewVerdict.APPROVED, "fallback", False, [], True, "unchanged"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -699,7 +706,8 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
     later_routing_mode: str,
     push: bool,
     live_labels: list[dict[str, str]],
-    expect_routed: bool,
+    approval_stands: bool,
+    expected: str,
     team,
     user,
     routing_chain,
@@ -719,6 +727,7 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
             head_sha=HEAD_SHA,
             status=ReviewRunStatus.COMPLETED,
             verdict=first_verdict,
+            posted_review_id=901 if approval_stands else None,
         )
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, first_verdict, silent=True)
     requests_before = len(_writes(routing_chain, "request_reviewers"))
@@ -733,11 +742,25 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
     queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
 
     record = _stored(team.id)
-    if expect_routed:
+    if expected == "routed":
         assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
         assert (record["head_sha"], record["trigger"], record["scope"], record["status"]) == (
             _HEAD_2 if push else HEAD_SHA,
             "approval_retracted",
+            "full",
+            "done",
+        )
+    elif expected == "waits":
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+        assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
+        # No verdict comes, such as when a gate refuses the visible review.
+        _fire_safety_net(safety_net)
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
+        assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+        record = _stored(team.id)
+        assert (record["head_sha"], record["trigger"], record["scope"], record["status"]) == (
+            HEAD_SHA,
+            "safety_net",
             "full",
             "done",
         )
@@ -849,6 +872,9 @@ _WAIT = ("verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
 _SILENT_WAIT = ("silent_verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
 _PUSH = ("push", _HEAD_2)
 _NET = ("net",)
+# A clean base merge kept the approval of head 1 on head 2, which no verdict routes.
+_RETAINED = ("retained", False)
+_RETAINED_DISMISSED = ("retained", True)
 
 
 def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -895,6 +921,23 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
         ("same_head_wait_then_approval", [_APPROVED, _WAIT, _APPROVED, _NET], 1, "verdict:approved", HEAD_SHA, 2),
         # A verdict for a moved head does nothing, and the safety net routes the current head.
         ("safety_net_routes_the_current_head", [_PUSH, _REFUSED, _NET], 1, "safety_net", _HEAD_2, 1),
+        (
+            "retained_approval_keeps_the_pinned_routing",
+            [_APPROVED, _PUSH, _RETAINED, _NET],
+            1,
+            "verdict:approved",
+            HEAD_SHA,
+            1,
+        ),
+        # A maintainer dismissed the retained approval, so head 2 has no approval and the net routes it.
+        (
+            "dismissed_retained_approval_routes_in_full",
+            [_APPROVED, _PUSH, _RETAINED_DISMISSED, _NET],
+            2,
+            "safety_net",
+            _HEAD_2,
+            1,
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -917,6 +960,18 @@ def test_fallback_routes_each_pull_request_once_in_full(
             _finish_review(repo_config, step[2], step[3], head_sha=step[1], silent=step[0] == "silent_verdict")
         elif step[0] == "push":
             _push(routing_chain, step[1])
+        elif step[0] == "retained":
+            with team_scope(team.id):
+                ReviewRun.objects.for_team(team.id).create(
+                    team_id=team.id,
+                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+                    head_sha=HEAD_SHA,
+                    status=ReviewRunStatus.COMPLETED,
+                    verdict=ReviewVerdict.APPROVED,
+                    posted_review_id=902,
+                    approval_dismissed_at=datetime.now(UTC) if step[1] else None,
+                    output={"retained_head_shas": [_HEAD_2]},
+                )
         else:
             _fire_safety_net(safety_net)
 

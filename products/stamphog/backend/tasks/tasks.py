@@ -2081,11 +2081,31 @@ def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sh
     return _live_runs_of_head(repo_config, pr_number, head_sha).exists()
 
 
+def _approval_stands_over_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> bool:
+    """Whether an approval that nobody dismissed covers this head, as posted or retained. Writer-pinned."""
+    standing = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(
+            pull_request__repo_config=repo_config,
+            pull_request__pr_number=pr_number,
+            verdict=ReviewVerdict.APPROVED,
+            posted_review_id__isnull=False,
+            approval_dismissed_at__isnull=True,
+        )
+    )
+    return (
+        standing.filter(head_sha=head_sha).exists()
+        or standing.filter(**{f"output__{RETAINED_HEADS_KEY}__contains": [head_sha]}).exists()
+    )
+
+
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
     finished_review=_finished_review,
     has_review=_has_review_of_head,
+    approval_stands=_approval_stands_over_head,
 )
 
 
