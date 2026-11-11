@@ -351,12 +351,14 @@ def record_carried_commits(run: Run) -> None:
         # A newer run may have superseded this one and been finalized since the read above.
         if not Run.objects.using(WRITER_DB).filter(id=run.id, superseded_by__isnull=True).exists():
             return
-        BaselineApproval.objects.using(WRITER_DB).filter(id__in=superseded, state=BaselineApprovalState.OPEN).update(
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            team_id=run.team_id, id__in=superseded, state=BaselineApprovalState.OPEN
+        ).update(
             state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_BACK_TO_BASELINE, resolved_at=now, updated_at=now
         )
-        BaselineApproval.objects.using(WRITER_DB).filter(id__in=reproduced, state=BaselineApprovalState.OPEN).update(
-            carried_commit_sha=run.commit_sha, updated_at=now
-        )
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            team_id=run.team_id, id__in=reproduced, state=BaselineApprovalState.OPEN
+        ).update(carried_commit_sha=run.commit_sha, updated_at=now)
 
 
 def _is_evidence_candidate(run: Run) -> bool:
@@ -376,7 +378,10 @@ def record_evidence(run: Run) -> None:
         return
     approvals = list(
         BaselineApproval.objects.using(WRITER_DB).filter(
-            repo_id=run.repo_id, id__in=record.candidate_approval_ids, state=BaselineApprovalState.OPEN
+            team_id=run.team_id,
+            repo_id=run.repo_id,
+            id__in=record.candidate_approval_ids,
+            state=BaselineApprovalState.OPEN,
         )
     )
     if not approvals:
@@ -397,7 +402,7 @@ def record_evidence(run: Run) -> None:
             if not approval_ids:
                 continue
             BaselineApproval.objects.using(WRITER_DB).filter(
-                id__in=approval_ids, state=BaselineApprovalState.OPEN
+                team_id=run.team_id, id__in=approval_ids, state=BaselineApprovalState.OPEN
             ).filter(Q(evidence_run_created_at__isnull=True) | Q(evidence_run_created_at__lt=run.created_at)).update(
                 evidence=outcome,
                 evidence_run=run,

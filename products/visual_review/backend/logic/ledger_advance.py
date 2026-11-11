@@ -392,7 +392,7 @@ class _LedgerAdvancer:
             )
 
         for (state, detail), approval_ids in landed_by_verdict.items():
-            BaselineApproval.objects.using(WRITER_DB).filter(id__in=approval_ids).update(
+            BaselineApproval.objects.using(WRITER_DB).filter(team_id=self.repo.team_id, id__in=approval_ids).update(
                 state=state,
                 detail=detail,
                 landed_position=position,
