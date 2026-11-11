@@ -187,6 +187,7 @@ def build_langchain_chat_client(
             http_async_client=httpx.AsyncClient(trust_env=False),
             service_tier=service_tier,
             use_responses_api=use_responses_api or None,
+            # Prompts carry customer traces, so OpenAI keeps no copy, and the reasoning travels encrypted instead.
             store=False if use_responses_api else None,
             include=["reasoning.encrypted_content"] if use_responses_api else None,
             # The v0 format mishandles reasoning items on the way back in a multi-turn loop.

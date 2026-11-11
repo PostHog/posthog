@@ -190,9 +190,6 @@ class TestBuildOpenAIChatClient:
                 assert client.service_tier == expected
 
     def test_responses_api_clients_never_store_and_carry_reasoning_in_both_routing_modes(self):
-        # /v1/responses keeps a response for 30 days unless told not to, and agent prompts carry customer traces.
-        # Without a stored response, a tool loop's second call 404s on the reasoning item it sends back by id,
-        # unless the reasoning travels as encrypted content.
         for gateway_url, gateway_key in [(GATEWAY_URL, GATEWAY_KEY), (None, None)]:
             with (
                 override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
