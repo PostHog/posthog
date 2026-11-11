@@ -1,9 +1,11 @@
 """The GeoIP transformation (`template-geoip`), ported to Python for backfills.
 
-`apply_geoip_template` returns the properties that the transformation in
+`GeoipEnrichment.apply` returns the properties that the transformation in
 `nodejs/src/cdp/templates/_transformations/geoip/geoip.template.ts` returns for the same event and the
-same MMDB record. Records are in the raw MaxMind shape, which is the shape the Rust HogVM reads (`rust/common/hogvm/node/src/geoip.rs`). Keep the three in step: a backfill that writes
-different keys or values than ingestion would leave events that disagree with their neighbours.
+same MMDB file. Records are in the raw MaxMind shape (snake_case), where the template reads the camelCase
+shape of geoip2-node. `tests/fixtures/geoip_template_parity.json` holds the template's output for each
+test case. A backfill that writes different keys or values than ingestion would leave events that
+disagree with their neighbours.
 """
 
 from collections.abc import Callable, Mapping
@@ -95,6 +97,10 @@ def geoip_enrichment(properties: Mapping[str, Any], lookup: GeoipLookup) -> Geoi
     record = lookup(ip)
     if not record:
         return None
+    if any(_is_non_object(properties.get(key)) for key in ("$set", "$set_once")):
+        # `$set ?? {}` in the template replaces only null. Setting a key on anything else fails the template,
+        # and ingestion then keeps the event unchanged.
+        return None
 
     location = _location(record)
     set_properties: dict[str, Any] = {f"{GEOIP_PREFIX}{key}": None for key in GEOIP_KEYS}
@@ -139,6 +145,10 @@ def _location(record: GeoipRecord) -> dict[str, Any]:
 
 def _english_name(geo_object: Mapping[str, Any]) -> Any:
     return _object_or_empty(geo_object.get("names")).get("en")
+
+
+def _is_non_object(value: Any) -> bool:
+    return value is not None and not isinstance(value, Mapping)
 
 
 def _object_or_empty(value: Any) -> Mapping[str, Any]:

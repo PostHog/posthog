@@ -1,10 +1,20 @@
+import json
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from posthog.dags.geoip_enrichment import GEOIP_KEYS, geoip_enrichment
+import brotli
 
-# The raw MaxMind record of 216.160.83.56 in the GeoIP2 test database, which geoip.template.test.ts enriches.
+from posthog.dags.geoip_enrichment import GEOIP_KEYS, MmdbGeoipLookup, geoip_enrichment
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+# Recorded from the Node template. To add a case, run the template through TemplateTester (it loads the
+# same test DB, from nodejs/tests/assets) and copy the event properties it returns.
+PARITY_CASES: list[dict[str, Any]] = json.loads((FIXTURES / "geoip_template_parity.json").read_text())["cases"]
+
 MILTON_RECORD: dict[str, Any] = {
     "city": {"geoname_id": 5803556, "names": {"en": "Milton", "de": "Milton"}},
     "continent": {"code": "NA", "geoname_id": 6255149, "names": {"en": "North America"}},
@@ -20,93 +30,34 @@ MILTON_RECORD: dict[str, Any] = {
     "subdivisions": [{"geoname_id": 5815135, "iso_code": "WA", "names": {"en": "Washington"}}],
 }
 
-# The event properties geoip.template.test.ts expects for MILTON_RECORD, without `$ip`, `$set` and `$set_once`.
-MILTON_LOCATION: dict[str, Any] = {
-    "$geoip_accuracy_radius": 22,
-    "$geoip_city_name": "Milton",
-    "$geoip_continent_code": "NA",
-    "$geoip_continent_name": "North America",
-    "$geoip_country_code": "US",
-    "$geoip_country_name": "United States",
-    "$geoip_latitude": 47.2513,
-    "$geoip_longitude": -122.3149,
-    "$geoip_postal_code": "98354",
-    "$geoip_subdivision_1_code": "WA",
-    "$geoip_subdivision_1_name": "Washington",
-    "$geoip_time_zone": "America/Los_Angeles",
-}
+
+@pytest.fixture(scope="module")
+def test_db_lookup(tmp_path_factory: pytest.TempPathFactory) -> Iterator[MmdbGeoipLookup]:
+    path = tmp_path_factory.mktemp("mmdb") / "GeoLite2-City-Test.mmdb"
+    path.write_bytes(brotli.decompress((FIXTURES / "GeoLite2-City-Test.mmdb.br").read_bytes()))
+    lookup = MmdbGeoipLookup(path)
+    yield lookup
+    lookup.close()
 
 
-def all_keys(prefix: str, values: dict[str, Any]) -> dict[str, Any]:
-    return {f"{prefix}{key}": values.get(f"$geoip_{key}") for key in GEOIP_KEYS}
+@pytest.mark.parametrize("case", PARITY_CASES, ids=[case["name"] for case in PARITY_CASES])
+def test_geoip_enrichment_matches_the_node_template(case: dict[str, Any], test_db_lookup: MmdbGeoipLookup) -> None:
+    properties = case["properties"]
+    enrichment = geoip_enrichment(properties, test_db_lookup)
+    assert (properties if enrichment is None else enrichment.apply(properties)) == case["expected"]
 
 
-@pytest.mark.parametrize(
-    "properties, record, expected_lookup_ip, expected_location",
-    [
-        pytest.param({"$ip": "216.160.83.56"}, MILTON_RECORD, "216.160.83.56", MILTON_LOCATION, id="full_record"),
-        pytest.param(
-            {"$ip": "216.160.83.56"},
-            {key: value for key, value in MILTON_RECORD.items() if key != "city"},
-            "216.160.83.56",
-            {key: value for key, value in MILTON_LOCATION.items() if key != "$geoip_city_name"},
-            id="record_without_city",
-        ),
-        pytest.param(
-            {"$ip": "216.160.83.56"},
-            {
-                **MILTON_RECORD,
-                "city": {"geoname_id": 1},
-                "subdivisions": [{"iso_code": "ENG", "names": {"en": "England"}}, {"iso_code": "WSM"}],
-            },
-            "216.160.83.56",
-            {
-                **MILTON_LOCATION,
-                "$geoip_city_name": None,
-                "$geoip_subdivision_1_code": "ENG",
-                "$geoip_subdivision_1_name": "England",
-                "$geoip_subdivision_2_code": "WSM",
-                "$geoip_subdivision_2_name": None,
-            },
-            id="objects_without_english_names",
-        ),
-        pytest.param({"$ip": "192.168.1.10"}, MILTON_RECORD, "89.160.20.129", MILTON_LOCATION, id="local_ip_spoof"),
-    ],
-)
-def test_geoip_enrichment_matches_the_template(
-    properties: dict[str, Any],
-    record: dict[str, Any],
-    expected_lookup_ip: str,
-    expected_location: dict[str, Any],
-) -> None:
-    looked_up: list[str] = []
-
-    def lookup(ip: str) -> dict[str, Any]:
-        looked_up.append(ip)
-        return record
-
-    existing = {**properties, "$set": {"email": "user@example.com"}, "$set_once": {"$initial_os": "Mac OS X"}}
-    enrichment = geoip_enrichment(existing, lookup)
-
-    assert looked_up == [expected_lookup_ip]
-    assert enrichment is not None
-    assert enrichment.apply(existing) == {
-        **properties,
-        **expected_location,
-        "$set": {"email": "user@example.com", **all_keys("$geoip_", expected_location)},
-        "$set_once": {"$initial_os": "Mac OS X", **all_keys("$initial_geoip_", expected_location)},
+def test_geoip_enrichment_writes_null_for_objects_without_english_names() -> None:
+    record = {
+        **MILTON_RECORD,
+        "city": {"geoname_id": 1},
+        "subdivisions": [{"iso_code": "ENG", "names": {"en": "England"}}, {"iso_code": "WSM"}],
     }
+    enrichment = geoip_enrichment({"$ip": "216.160.83.56"}, lambda ip: record)
 
-
-@pytest.mark.parametrize(
-    "properties, record",
-    [
-        pytest.param({"$ip": "216.160.83.56", "$geoip_disable": True}, MILTON_RECORD, id="geoip_disabled"),
-        pytest.param({}, MILTON_RECORD, id="no_ip"),
-        pytest.param({"$ip": ""}, MILTON_RECORD, id="empty_ip"),
-        pytest.param({"$ip": "216.160.83.56"}, None, id="no_record"),
-        pytest.param({"$ip": "216.160.83.56"}, {}, id="empty_record"),
-    ],
-)
-def test_geoip_enrichment_leaves_the_event_unchanged(properties: dict[str, Any], record: dict[str, Any] | None) -> None:
-    assert geoip_enrichment(properties, lambda ip: record) is None
+    assert enrichment is not None
+    assert enrichment.location["$geoip_city_name"] is None
+    assert enrichment.location["$geoip_subdivision_1_name"] == "England"
+    assert enrichment.location["$geoip_subdivision_2_code"] == "WSM"
+    assert enrichment.location["$geoip_subdivision_2_name"] is None
+    assert set(enrichment.set_properties) == {f"$geoip_{key}" for key in GEOIP_KEYS}
