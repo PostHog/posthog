@@ -1,6 +1,6 @@
 {
     "scenario": "destination",
-    "about": "The shape the current code writes for this scenario, recorded from a save through the Django API.",
+    "about": "The shape a save through the Django API wrote on 2026-11-11. Nothing re-records it, so a later change to what a save writes needs a new entry here.",
     "stored": {
         "posthog_hogfunction": {
             "type": "destination",

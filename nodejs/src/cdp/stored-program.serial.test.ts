@@ -5,7 +5,6 @@ import path from 'path'
 import { Pool } from 'pg'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -116,13 +115,7 @@ describe('Stored CDP programs', () => {
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
         team = await getFirstTeam(hub.postgres)
         await insertHogFunctionTemplate(hub.postgres, WORKFLOW_TEMPLATE)
-        const personRepository: jest.Mocked<PersonReadRepository> = {
-            fetchPerson: jest.fn().mockResolvedValue(undefined),
-            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
-            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
-            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
-        }
-        deps = { ...createCdpConsumerDeps(hub), personRepository }
+        deps = createCdpConsumerDeps(hub)
         queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         await queue.startAsProducer()
         mockFetch.mockClear()
