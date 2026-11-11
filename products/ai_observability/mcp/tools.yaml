@@ -1628,9 +1628,9 @@ tools:
             archived) and at version 1. `calculation` defaults to `reported`. For an offline composite scorer, set
             `calculation: composite` and provide `composition` with an expression and 1–16 inputs, each with an alias
             and exact `scorer_version_id` from a reported scorer. Both kind and calculation are immutable. Composite
-            inputs cannot themselves be composites. When available, use `llma-score-definition-validate` to check
-            the formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with
-            `calculate: true`. Numeric composites do not accept `step`.
+            inputs cannot themselves be composites. When available, use `llma-score-definition-validate` to check the
+            formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with `calculate:
+            true`. Numeric composites do not accept `step`.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
@@ -1722,8 +1722,8 @@ tools:
             Categorical inputs are lists of keys: use `"good" in relevance`. Examples: `(2 * precision + recall) / 3`,
             `safe and correct`, and `"good" if correct else "bad"`. Returns {valid: true} or a validation error for
             invalid syntax, inaccessible inputs, or an incompatible output type. Does not calculate item results or
-            check runtime values against output bounds; those are checked during upload with `calculate: true`.
-            Include `config` to validate literal output categories and selection counts before saving.
+            check runtime values against output bounds; those are checked during upload with `calculate: true`. Include
+            `config` to validate literal output categories and selection counts before saving.
         param_overrides:
             config:
                 input_schema: OptionalScoreDefinitionConfigSchema
