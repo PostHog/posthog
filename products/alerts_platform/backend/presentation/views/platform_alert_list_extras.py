@@ -40,9 +40,17 @@ class ConfigurationExtras:
 
 
 def _current_group_states(configuration: PlatformAlertConfigurationView) -> dict[str, PlatformAlertState]:
-    """Each group's state now. A failing check names no group, so its failure stands for the whole alert."""
-    states = {alert.grouping_key: PlatformAlertState(alert.state) for alert in configuration.alerts}
-    if configuration.check_status in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN):
+    """Each group's state now. A failing check names no group, so its failure stands for the whole alert.
+
+    While a check fails, the view shows that failure in place of every instance's own state, so a group's
+    state is not known then. It reads as not firing, and the group's changes in the window correct it.
+    """
+    failing = configuration.check_status in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN)
+    states = {
+        alert.grouping_key: PlatformAlertState.NOT_FIRING if failing else PlatformAlertState(alert.state)
+        for alert in configuration.alerts
+    }
+    if failing:
         states[""] = PlatformAlertState(configuration.check_status)
     return states
 
