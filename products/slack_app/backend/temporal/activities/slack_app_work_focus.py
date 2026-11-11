@@ -23,9 +23,12 @@ def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
         if inputs.since is not None:
             stop_daily_focus_without_installation(inputs.slack_team_id, inputs.slack_user_id, inputs.integration_id)
         return "integration_gone"
-    if inputs.since is not None:
+    if inputs.since is not None and inputs.run_at is not None:
         return find_and_send_daily_focus(
-            integration, inputs.slack_user_id, since=datetime.fromtimestamp(inputs.since, tz=UTC)
+            integration,
+            inputs.slack_user_id,
+            since=datetime.fromtimestamp(inputs.since, tz=UTC),
+            run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
         )
     return find_and_send_work_focus(integration, inputs.slack_user_id)
 
@@ -43,6 +46,7 @@ def claim_due_slack_app_daily_focus_activity() -> list[SlackAppWorkFocusInputs]:
             slack_team_id=due.slack_team_id,
             slack_user_id=due.slack_user_id,
             since=due.since,
+            run_at=due.run_at,
             start_delay_seconds=due.start_delay_seconds,
         )
         for due in claim_due_daily_focus(timezone.now(), spacing_seconds=DAILY_RUN_SPACING_SECONDS)

@@ -50,7 +50,8 @@ class DailyFocusSettings:
     # None means the person never chose.
     enabled: bool | None
     at: time
-    # The DM of the last claimed run went out, or started to.
+    # The run the sweep claimed last, and whether its DM went out or started to.
+    last_run_at: datetime | None = None
     already_sent: bool = False
 
 
@@ -61,6 +62,8 @@ class DueDailyFocus:
     slack_user_id: str
     # The previous run time, as epoch seconds. The run reads the messages sent after it.
     since: int
+    # The claimed run time, as epoch seconds. The row's last_run_at names it until the next sweep claims a newer run.
+    run_at: int
     start_delay_seconds: int = 0
 
 
@@ -148,7 +151,9 @@ def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFoc
     if row is None:
         return DailyFocusSettings(enabled=None, at=DEFAULT_DAILY_FOCUS_TIME)
     already_sent = row.sent_at is not None and (row.last_run_at is None or row.sent_at >= row.last_run_at)
-    return DailyFocusSettings(enabled=row.next_run_at is not None, at=row.at, already_sent=already_sent)
+    return DailyFocusSettings(
+        enabled=row.next_run_at is not None, at=row.at, last_run_at=row.last_run_at, already_sent=already_sent
+    )
 
 
 def _locked_row(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDailyFocus:
@@ -211,12 +216,14 @@ def reschedule_daily_focus(integration: WorkspaceIntegration, slack_user_id: str
             row.save(update_fields=["next_run_at", "updated_at"])
 
 
-def mark_daily_focus_sending(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
-    """Claims the DM of the current run before it goes out. False when a retry already did, so the person never gets
-    the day twice."""
-    not_sent_this_run = Q(sent_at__isnull=True) | Q(last_run_at__isnull=False, sent_at__lt=F("last_run_at"))
+def mark_daily_focus_sending(integration: WorkspaceIntegration, slack_user_id: str, run_at: datetime) -> bool:
+    """Claims the DM of the run that the sweep claimed at ``run_at``, before it goes out. False when a retry already
+    did, or when a later sweep claimed a newer run, so the person never gets a day twice or a stale day."""
+    not_sent_this_run = Q(sent_at__isnull=True) | Q(sent_at__lt=F("last_run_at"))
     return bool(
-        _person_rows(integration.integration_id, slack_user_id).filter(not_sent_this_run).update(sent_at=timezone.now())
+        _person_rows(integration.integration_id, slack_user_id)
+        .filter(not_sent_this_run, last_run_at=run_at)
+        .update(sent_at=timezone.now())
     )
 
 
@@ -267,6 +274,7 @@ def claim_due_daily_focus(
                     slack_team_id=row.slack_workspace_id,
                     slack_user_id=row.slack_user_id,
                     since=int(since.timestamp()),
+                    run_at=int(scheduled.timestamp()),
                     start_delay_seconds=queued[row.slack_workspace_id] * spacing_seconds,
                 )
             )

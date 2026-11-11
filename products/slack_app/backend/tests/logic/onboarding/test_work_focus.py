@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -397,6 +397,8 @@ def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
 
 
 SINCE = datetime(2026, 11, 6, 8, 0, tzinfo=UTC)
+# Monday 09:00 in Prague, the run the sweep claimed.
+RUN_AT = datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
 
 
 def _turn_on_daily(integration: WorkspaceIntegration) -> None:
@@ -405,7 +407,8 @@ def _turn_on_daily(integration: WorkspaceIntegration) -> None:
         slack_workspace_id=SLACK_TEAM_ID,
         slack_user_id=SLACK_USER_ID,
         integration_id=integration.id,
-        next_run_at=datetime(2026, 11, 9, 8, 0, tzinfo=UTC),
+        last_run_at=RUN_AT,
+        next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
     )
 
 
@@ -436,8 +439,8 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
         time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),
     ):
         bot_integration.return_value.missing_scopes.return_value = frozenset()
-        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE) == "sent"
-        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE) == "already_sent"
+        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT) == "sent"
+        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT) == "already_sent"
 
     searches = slack["search"].return_value.api_call.call_args_list
     assert {call.kwargs["params"]["after"] for call in searches} == {int(SINCE.timestamp())}
@@ -452,7 +455,9 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off", "no_project_access", "out_of_ai_credits"])
+@pytest.mark.parametrize(
+    "reason", ["quiet_day", "turned_off", "superseded", "flag_off", "no_project_access", "out_of_ai_credits"]
+)
 def test_a_daily_run_sends_nothing_when_it_cannot_or_need_not_run(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
@@ -463,6 +468,9 @@ def test_a_daily_run_sends_nothing_when_it_cannot_or_need_not_run(
     _turn_on_daily(integration)
     if reason == "turned_off":
         SlackDailyFocus.objects.unscoped().update(next_run_at=None)
+    if reason == "superseded":
+        # Tuesday's sweep claimed its run while Monday's retry waited, so Monday's retry sends nothing.
+        SlackDailyFocus.objects.unscoped().update(last_run_at=RUN_AT + timedelta(days=1))
     if reason == "no_project_access":
         OrganizationMembership.objects.filter(user=user).delete()
     if reason == "quiet_day":
@@ -475,7 +483,7 @@ def test_a_daily_run_sends_nothing_when_it_cannot_or_need_not_run(
         patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
     ):
         bot_integration.return_value.missing_scopes.return_value = frozenset()
-        outcome = find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE)
+        outcome = find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT)
 
     assert outcome == {"quiet_day": "nothing_actionable"}.get(reason, reason)
     # Only a quiet day got as far as reading Slack. The others spend no search calls and no AI credits.

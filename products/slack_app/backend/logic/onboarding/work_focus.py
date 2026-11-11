@@ -205,14 +205,20 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     return outcome
 
 
-def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime) -> str:
-    """One workday's work focus, from the messages sent after ``since``. A quiet day sends nothing. The free checks
-    come first, so a run that cannot send spends no queries, Slack calls or credits."""
+def find_and_send_daily_focus(
+    integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime, run_at: datetime
+) -> str:
+    """One workday's work focus, from the messages sent after ``since``, for the run the sweep claimed at ``run_at``.
+    A quiet day sends nothing. The free checks come first, so a run that cannot send spends no queries, Slack calls
+    or credits."""
     if not is_slack_app_daily_work_focus_enabled(integration):
         return "flag_off"
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
         return "turned_off"
+    # A retry that a later sweep overtook: that sweep's run sends its own day.
+    if daily.last_run_at != run_at:
+        return "superseded"
     if daily.already_sent:
         return "already_sent"
     token = _search_token(integration, slack_user_id)
@@ -241,7 +247,7 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
         daily_focus_footer_block(integration, daily.at, zone, first=False),
     ]
     # Claimed before the DM goes out. When Slack takes the DM but the response times out, the retry sends nothing.
-    if not mark_daily_focus_sending(integration, slack_user_id):
+    if not mark_daily_focus_sending(integration, slack_user_id, run_at):
         return "already_sent"
     return _post(integration, slack_user_id, found, blocks)
 
