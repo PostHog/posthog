@@ -16,15 +16,19 @@ from posthog.models.team import Team
 
 from products.aeo.backend import runner
 from products.aeo.backend.engines import CitationCheck, build_check_fields
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
+from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
+from products.aeo.backend.test.factories import create_own_brand
 
 
 @pytest.fixture
 def team(db: None) -> Team:
     organization = Organization.objects.create(name="aeo test org")
-    return Team.objects.create(organization=organization, name="aeo test team")
+    team = Team.objects.create(organization=organization, name="aeo test team")
+    create_own_brand(team, "example.com")
+    return team
 
 
 def test_select_prompts_alternates_topics_and_rotates_to_least_recently_checked(team: Team) -> None:
@@ -92,7 +96,7 @@ class _StubEngine:
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         self.calls += 1
-        return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://posthog.com/docs"])
+        return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://docs.example.com/guide"])
 
 
 @pytest.mark.parametrize("via_child_environment", [False, True])
@@ -100,7 +104,6 @@ class _StubEngine:
 def test_run_records_checks_and_rotates_without_a_team_scope(
     team: Team, settings, via_child_environment: bool, concurrency: int
 ) -> None:
-    settings.AEO_TARGET_DOMAINS = ["posthog.com"]
     settings.AEO_RUN_CONCURRENCY = concurrency
     runner_team = (
         Team.objects.create(organization=team.organization, name="child env", parent_team=team)
@@ -129,6 +132,30 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
     assert len({c.prompt_id for c in checks}) == 4
     assert sorted((c.prompt_text, c.prompt_version) for c in checks) == [("q0?", 3), ("q1?", 1), ("q2?", 1), ("q3?", 1)]
+
+
+@pytest.mark.parametrize("own_brand_status", [None, BrandStatus.IGNORED], ids=["no_own_brand", "own_brand_ignored"])
+def test_a_team_without_an_own_brand_is_skipped_before_any_engine_call(
+    team: Team, own_brand_status: BrandStatus | None
+) -> None:
+    other = Team.objects.create(organization=team.organization, name="no own brand")
+    if own_brand_status is not None:
+        AEOBrand.objects.for_team(other.id).create(
+            team=other,
+            name="Example",
+            domain="example.org",
+            kind=BrandKind.OWN,
+            status=own_brand_status,
+            source=BrandSource.MANUAL,
+        )
+    upsert_prompts(other, [PromptCandidate(text="q?", source="imported")])
+    engine = _StubEngine()
+
+    summary, checks = run_citation_checks(other, engines=[engine])
+
+    assert (engine.calls, checks, summary.run_id, summary.prompts) == (0, [], None, 0)
+    assert summary.error is not None and "kind 'own'" in summary.error
+    assert not AEOCitationCheck.objects.for_team(other.id).exists()
 
 
 class _CrashingEngine(_StubEngine):
@@ -283,7 +310,7 @@ def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team, answ
     prompt = AEOPrompt.objects.for_team(team.id).get()
     checked_before = timezone.now() - dt.timedelta(hours=1)
     check = (
-        CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/docs"])
+        CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://docs.example.com/guide"])
         if answered
         else CitationCheck(engine="stub-engine", model="stub", error="engine down")
     )

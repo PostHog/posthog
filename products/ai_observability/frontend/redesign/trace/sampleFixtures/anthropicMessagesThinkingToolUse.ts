@@ -1,6 +1,7 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeProperties, ThreadMessage } from '../types'
-import { SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '2fa60c6497874ba3c4633d94fdfae64f'
 const GENERATION_ID = 'd6263394121a6a51'
@@ -91,6 +92,7 @@ const output: ThreadMessage[] = [
                 kind: 'toolCall',
                 name: 'calc',
                 args: { v: 'card_6PbgqloIxg@rollup-fixed-guarded-v2', code: FIXED_ROLLUP_CODE },
+                result: null,
             },
         ],
         isInternal: true,
@@ -157,21 +159,20 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     initialNodeId: GENERATION_ID,
     details: {
         [TRACE_ID]: {
-            content: { kind: 'io', input: null, output: null },
+            content: jsonContent(null, null),
             error: null,
             properties: traceProperties,
             evals: { status: 'ready', results: [] },
-            raw: { id: TRACE_ID, createdAt: TIMESTAMP, traceName: 'run-budget-rollup' },
+            raw: sampleRaw('trace', TRACE_ID, null),
         },
         [GENERATION_ID]: {
-            content: { kind: 'messages', input, output },
+            content: messagesContent(input, output),
             error: null,
             properties: { ...traceProperties, provider: 'anthropic.messages' },
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_generation',
-                id: GENERATION_ID,
-                createdAt: TIMESTAMP,
+            raw: sampleRaw('generation', GENERATION_ID, {
+                name: '$ai_generation',
+                timestamp: TIMESTAMP,
                 properties: {
                     $ai_provider: 'anthropic.messages',
                     $ai_model: 'claude-opus-5-5',
@@ -191,12 +192,12 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
                     $ai_tool_call_count: 1,
                     resource_locator: 'personal-finance/workbooks/monthly-budget/cards/rollup-final',
                 },
-            },
+            }),
         },
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: anthropicThinkingMessages, error: null }],
+        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(input, output), error: null }],
         activeTurnId: TRACE_ID,
     },
     timeline: {

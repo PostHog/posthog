@@ -1274,11 +1274,6 @@
         "params": ["tab"],
         "scope": "project"
     },
-    "mcpRegistry": {
-        "template": "/mcp-registry",
-        "params": [],
-        "scope": "project"
-    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -2007,6 +2002,11 @@
     "webAnalyticsContentAutopilot": {
         "template": "/web/content-autopilot",
         "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilotPrompt": {
+        "template": "/web/content-autopilot/prompts/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "webAnalyticsHealth": {
