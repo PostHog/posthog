@@ -35,7 +35,7 @@ const isMarked = (entry: ProcEntry): boolean =>
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 const NODE_LAUNCHERS = ['node', 'tsx']
 const SHELLS = ['sh', 'bash', 'dash', 'zsh']
-const INLINE_CODE = /^(--(eval|print)(=|$)|-[a-zA-Z]*[ep])/
+const INLINE_CODE = /^(-e|-p|-pe|--eval|--print)(=|$)/
 const SCRIPT_FILE = /\.[cm]?[jt]sx?$/
 
 const entryPointsOf = (nodejsDir: string): string[] => [
