@@ -224,6 +224,9 @@ export interface metricsSceneLogicActions {
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
     }
+    openViewerForDerivedSeries: () => {
+        value: true
+    }
     setActiveTab: (activeTab: MetricsSceneActiveTab) => {
         activeTab: MetricsSceneActiveTab
     }
@@ -283,6 +286,8 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
     })),
     actions({
         setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
+        // The setup check found derived series but no ingested metrics.
+        openViewerForDerivedSeries: true,
         setRestoringFromUrl: (restoring: boolean) => ({ restoring }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -292,7 +297,13 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         // can tell a restore from the user touching a control.
         isRestoringFromUrl: [false, { setRestoringFromUrl: (_, { restoring }) => restoring }],
     }),
-    listeners(({ cache }) => ({
+    listeners(({ actions, values, cache }) => ({
+        openViewerForDerivedSeries: () => {
+            // A link to a tab wins, so only a bare /metrics visit switches.
+            if (!router.values.searchParams.activeTab && values.activeTab === DEFAULT_ACTIVE_TAB) {
+                actions.setActiveTab('viewer')
+            }
+        },
         keepSqlEditorMounted: ({ editorTabId }) => {
             if (cache.sqlEditorTabId === editorTabId) {
                 return
