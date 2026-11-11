@@ -15,7 +15,6 @@ from typing import Any
 
 import structlog
 from billiard.common import _shutdown_cleanup
-from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.dataclasses import frozen
@@ -179,10 +178,6 @@ def resave_team_cohorts(team: Team, *, batch_size: int, dry_run: bool, coalesce_
                     if not dry_run:
                         cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
                     changed += 1
-            except SoftTimeLimitExceeded:
-                # A Celery soft time limit ends the run like the unwind signals, so the coalescing block
-                # dispatches what it recorded.
-                raise
             except Exception as err:
                 errors += 1
                 logger.error(

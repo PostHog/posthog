@@ -24,7 +24,7 @@ from products.cohorts.backend.backfill.runs import (
     judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
-from products.cohorts.backend.backfill.sizing import estimate_behavioral_scan_events
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimateScanCapExceeded, estimate_behavioral_scan_events
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillKind,
@@ -76,7 +76,12 @@ class RunRefused:
     reason: str
 
 
-type RunOutcome = RunCreated | RunAlreadyCreated | NothingToBackfill | RunRefused
+@frozen
+class RunFailed:
+    reason: str
+
+
+type RunOutcome = RunCreated | RunAlreadyCreated | NothingToBackfill | RunRefused | RunFailed
 
 
 @frozen
@@ -96,7 +101,9 @@ class TeamEnablement:
 
     @property
     def promoted(self) -> bool:
-        return not isinstance(self.behavioral, RunRefused) and not isinstance(self.person, RunRefused)
+        return not isinstance(self.behavioral, RunRefused | RunFailed) and not isinstance(
+            self.person, RunRefused | RunFailed
+        )
 
 
 @frozen
@@ -267,11 +274,11 @@ def _team_run(
     # ClickHouse sizing scans fail with errors no narrower type covers.
     try:
         return RunCreated(run_id=create().id)
-    except ValueError as error:
+    except (ValueError, PersonSeedEstimateScanCapExceeded) as error:
         return RunRefused(reason=str(error))
     except Exception as error:
         logger.exception("realtime_enablement_run_failed", team_id=team_id, backfill_kind=kind)
-        return RunRefused(reason=str(error))
+        return RunFailed(reason=str(error))
 
 
 def create_behavioral_team_run(
@@ -344,3 +351,5 @@ def _run_outcome(outcome: RunOutcome) -> str:
             return "nothing to backfill"
         case RunRefused(reason=reason):
             return f"refused, {reason}"
+        case RunFailed(reason=reason):
+            return f"failed, {reason}"

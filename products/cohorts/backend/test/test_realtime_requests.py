@@ -11,8 +11,14 @@ from django.test import override_settings
 from kombu.exceptions import OperationalError
 from parameterized import parameterized
 
+from posthog.cohort_resave import resave_team_cohorts
+
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
-from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate, PersonSeedEstimate
+from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
+    PersonSeedEstimate,
+    PersonSeedEstimateScanCapExceeded,
+)
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.realtime_request import RealtimeCohortRequest, RealtimeCohortRequestState
@@ -221,16 +227,74 @@ class TestRealtimeCohortRequests(BaseTest):
         assert RealtimeCohortRequest.objects.for_team(self.team.id).count() == 1
         assert not CohortBackfillRun.objects.for_team(self.team.id).exists()
 
-    def test_an_unexpected_error_fails_the_request(self) -> None:
+    def test_a_submit_the_task_would_refuse_writes_nothing(self) -> None:
+        with self.assertRaisesMessage(ValueError, "is not processed by the realtime cohort pipeline"):
+            self._behavioral_backfill(skip_scan_limit=True)
         RealtimeCohortTeamAccess.objects.create(
-            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.BETA
+            team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
         )
-        Cohort.objects.create(team=self.team, filters={"properties": {"type": "AND", "values": [PAGEVIEW_LEAF]}})
+        with self.assertRaisesMessage(ValueError, "Already serving realtime cohorts"):
+            submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
 
-        with mock.patch(
-            "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
-            side_effect=RuntimeError("ClickHouse timeout"),
-        ):
-            failed = self._submit_and_run(lambda: self._behavioral_backfill(skip_scan_limit=False))
+        assert not RealtimeCohortRequest.objects.for_team(self.team.id).exists()
 
-        assert (failed.state, failed.error) == (RealtimeCohortRequestState.FAILED, "ClickHouse timeout")
+    @parameterized.expand(
+        [
+            (
+                "enable_scan_error",
+                None,
+                "realtime_enablement.estimate_behavioral_scan_events",
+                RuntimeError("ClickHouse timeout"),
+                RealtimeCohortRequestState.FAILED,
+                "Behavioral run failed: ClickHouse timeout",
+            ),
+            (
+                "behavioral_backfill_scan_error",
+                CohortBackfillKind.BEHAVIORAL,
+                "realtime_enablement.estimate_behavioral_scan_events",
+                RuntimeError("ClickHouse timeout"),
+                RealtimeCohortRequestState.FAILED,
+                "ClickHouse timeout",
+            ),
+            (
+                "person_backfill_over_the_sizing_cap",
+                CohortBackfillKind.PERSON_PROPERTY,
+                "backfill.runs.estimate_person_seed_topic_bytes",
+                PersonSeedEstimateScanCapExceeded("The sizing scan hit its read cap"),
+                RealtimeCohortRequestState.REFUSED,
+                "The sizing scan hit its read cap",
+            ),
+        ]
+    )
+    def test_a_sizing_error_ends_the_request(
+        self,
+        _name: str,
+        backfill_kind: CohortBackfillKind | None,
+        target: str,
+        error: Exception,
+        state: RealtimeCohortRequestState,
+        message: str,
+    ) -> None:
+        self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
+        resave_team_cohorts(self.team, batch_size=500, dry_run=False, coalesce_rebuilds=False)
+        if backfill_kind is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.BETA
+            )
+
+        with mock.patch(f"products.cohorts.backend.{target}", side_effect=error):
+            ended = self._submit_and_run(
+                lambda: (
+                    submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
+                    if backfill_kind is None
+                    else submit_backfill(
+                        self.team.id,
+                        backfill_kind=backfill_kind,
+                        cohort_ids=None,
+                        skip_scan_limit=False,
+                        requested_by_id=self.user.id,
+                    )
+                )
+            )
+
+        assert (ended.state, ended.error) == (state, message)

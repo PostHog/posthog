@@ -31,6 +31,7 @@ from products.cohorts.backend.models.realtime_request import (
 from products.cohorts.backend.models.team_access import RealtimeCohortAccessPurpose
 from products.cohorts.backend.realtime_enablement import (
     AlreadyServing,
+    RunFailed,
     RunRefused,
     check_enablement,
     create_behavioral_team_run,
@@ -42,8 +43,8 @@ from products.cohorts.backend.tasks import REQUEST_TIME_LIMIT, process_realtime_
 
 logger = structlog.get_logger(__name__)
 
-# A request queued this long ago lost its message, and the time limit killed the worker of one running this
-# long, so the next submit for the team fails it. Past the limit, so two workers never run on one team.
+# The next submit for the team fails a request that stayed queued or running this long. The threshold is an
+# hour past the task's time limit, so the worker of a running request is already dead.
 REQUEST_STALE_AFTER = REQUEST_TIME_LIMIT + timedelta(hours=1)
 
 
@@ -124,7 +125,7 @@ def _queue(request: RealtimeCohortRequest) -> None:
     try:
         process_realtime_cohort_request.delay(team_id=request.team_id, request_id=str(request.id))
     except Exception:
-        # Otherwise the row holds the team's slot until it goes stale.
+        # Otherwise the row stays `queued`, and every submit for the team fails until the row goes stale.
         RealtimeCohortRequest.objects.for_team(request.team_id).filter(
             id=request.id, state=RealtimeCohortRequestState.QUEUED
         ).update(
@@ -162,13 +163,14 @@ def _enable(team_id: int) -> _Outcome:
     if isinstance(result, AlreadyServing):
         return _Outcome(state=RealtimeCohortRequestState.DONE, detail=f"Team {team_id}: already serving")
     detail = "\n".join(describe_enablement(team_id, result))
-    if not result.promoted:
-        refusals = [
-            f"{kind} run refused: {outcome.reason}"
-            for kind, outcome in (("Behavioral", result.behavioral), ("Person", result.person))
-            if isinstance(outcome, RunRefused)
-        ]
-        return _Outcome(state=RealtimeCohortRequestState.REFUSED, error=refusals[0], detail=detail)
+    for kind, outcome in (("Behavioral", result.behavioral), ("Person", result.person)):
+        if isinstance(outcome, RunRefused | RunFailed):
+            state = (
+                RealtimeCohortRequestState.FAILED
+                if isinstance(outcome, RunFailed)
+                else RealtimeCohortRequestState.REFUSED
+            )
+            return _Outcome(state=state, error=f"{kind} run {state.value}: {outcome.reason}", detail=detail)
     # A later request finds the team serving and does nothing, so it cannot repair this.
     warning = (
         "The flags cache rebuild was not enqueued. Enqueue update_team_flags_cache and "

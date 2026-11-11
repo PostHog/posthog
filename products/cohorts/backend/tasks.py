@@ -10,13 +10,13 @@ REQUEST_TIME_LIMIT = timedelta(hours=1)
 
 # acks_late, so a worker that stops before it claims the request leaves the message to another worker. The
 # claim makes a second delivery a no-op. No retry, because the request records the failure, and staff
-# retry with a new request. The soft limit unwinds a resave, which dispatches the flags cache rebuilds it
-# coalesced. The hard limit kills the worker without waiting for that.
+# retry with a new request. The time limit can kill an `enable` before its resave queues the flags cache
+# rebuilds it coalesced. The team is below `serving` then, so flags read no realtime membership for it,
+# and the stamps that later make its cohorts usable come with their own rebuild.
 @shared_task(
     ignore_result=True,
     acks_late=True,
     queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=(REQUEST_TIME_LIMIT - timedelta(minutes=5)).total_seconds(),
     time_limit=REQUEST_TIME_LIMIT.total_seconds(),
 )
 def process_realtime_cohort_request(team_id: int, request_id: str) -> None:

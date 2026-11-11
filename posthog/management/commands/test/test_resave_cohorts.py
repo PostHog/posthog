@@ -14,10 +14,9 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
 from billiard.common import _shutdown_cleanup
-from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
-from posthog.cohort_resave import UNWIND_SIGNALS, CohortResaveOutcome, resave_team_cohorts, termination_unwinds
+from posthog.cohort_resave import UNWIND_SIGNALS, termination_unwinds
 from posthog.management.commands.resave_cohorts import StaleFlagsCacheError
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
@@ -738,23 +737,6 @@ class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
             dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
             assert dispatched.count(team_a.id) > 1
 
-    def test_a_soft_time_limit_ends_the_resave_and_dispatches_its_rebuilds(
-        self, mock_service, mock_definitions
-    ) -> None:
-        team_a, _ = self._seed_two_teams()
-        mock_service.reset_mock()
-        mock_definitions.reset_mock()
-        changed = CohortResaveOutcome(changed=True, validation_failed=False, prospective_realtime=True)
-
-        with (
-            patch("posthog.cohort_resave._recompute_cohort", side_effect=[changed, SoftTimeLimitExceeded()]),
-            pytest.raises(SoftTimeLimitExceeded),
-        ):
-            resave_team_cohorts(team_a, batch_size=500, dry_run=False, coalesce_rebuilds=True)
-
-        for mock_task in (mock_service, mock_definitions):
-            assert [call.args[0] for call in mock_task.delay.call_args_list] == [team_a.id]
-
     def test_the_teams_left_with_a_stale_cache_fail_the_run(self, mock_service, mock_definitions) -> None:
         team_a, team_b = self._seed_two_teams()
         mock_service.reset_mock()
@@ -804,22 +786,23 @@ class TestTerminationUnwinds(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("sigterm_claimed", signal.SIGTERM, _other_handler, False),
-            ("sighup_claimed", signal.SIGHUP, _other_handler, False),
-            ("sighup_ignored_by_nohup", signal.SIGHUP, signal.SIG_IGN, True),
-            ("sigterm_unwound_by_a_prefork_celery_child", signal.SIGTERM, _shutdown_cleanup, True),
+            ("sigterm_claimed", (signal.SIGTERM,), _other_handler, False),
+            ("sighup_claimed", (signal.SIGHUP,), _other_handler, False),
+            ("sighup_ignored_by_nohup", (signal.SIGHUP,), signal.SIG_IGN, True),
+            ("unwound_by_a_prefork_celery_child", UNWIND_SIGNALS, _shutdown_cleanup, True),
         ]
     )
     def test_a_disposition_someone_else_set_is_left_in_place(
-        self, _name: str, signum: int, disposition: Any, expected_unwinds: bool
+        self, _name: str, signums: tuple[int, ...], disposition: Any, expected_unwinds: bool
     ) -> None:
-        signal.signal(signum, disposition)
+        for signum in signums:
+            signal.signal(signum, disposition)
 
         with termination_unwinds() as unwinds:
             assert unwinds is expected_unwinds
-            assert signal.getsignal(signum) is disposition
+            assert all(signal.getsignal(signum) is disposition for signum in signums)
 
-        assert signal.getsignal(signum) is disposition
+        assert all(signal.getsignal(signum) is disposition for signum in signums)
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):
