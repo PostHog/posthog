@@ -50,7 +50,10 @@ import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-
 import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import {
+    CyclotronJobQueueRateLimitedPostgresV2,
+    SES_RATE_LIMIT_KEY,
+} from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
@@ -377,7 +380,7 @@ export class PluginServer implements NodeServer {
                 const queue = sesValkey
                     ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
                           limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                          key: '@posthog/ses/global',
+                          key: SES_RATE_LIMIT_KEY,
                           capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
                           refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
                           throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,

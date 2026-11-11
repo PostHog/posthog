@@ -1,12 +1,14 @@
 import { ChildProcess, spawn } from 'child_process'
 import { once } from 'events'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
-import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
 
+import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CdpRole } from '../cards'
@@ -15,7 +17,7 @@ import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import * as stack from './stack'
-import { SES_BUCKET_KEY, forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
+import { forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -193,6 +195,8 @@ describe('scenario environment', () => {
                 AWS_SECRET_ACCESS_KEY: 'scenario',
                 PERSONHOG_ENABLED: 'true',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: '6390',
                 ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 SCENARIO_RUNNER: '1',
@@ -205,6 +209,8 @@ describe('scenario environment', () => {
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://elsewhere',
                 PERSONHOG_ADDR: '127.0.0.1:1',
+                SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
+                SES_RATE_LIMITER_VALKEY_PORT: '6379',
                 ENCRYPTION_SALT_KEYS: 'profile-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'profile-jwt',
                 PLUGIN_SERVER_MODE: 'ingestion-v2',
@@ -219,6 +225,8 @@ describe('scenario environment', () => {
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: '6390',
                 ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 PLUGIN_SERVER_MODE: spec.role,
@@ -326,16 +334,23 @@ describe('scenario environment', () => {
         expect(seekFailures(output)).toEqual(failures)
     })
 
-    it('forgets the SES token bucket so a reset starts with a full one', async () => {
-        const redis = new Redis(6379, '127.0.0.1')
+    it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
+        const valkey = createRedisV2PoolFromConfig({
+            connection: { url: '127.0.0.1', options: { port: 6379 } },
+            poolMinSize: 1,
+            poolMaxSize: 1,
+        })
+        const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+        const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
-            await redis.hset(SES_BUCKET_KEY, 'ts', '1', 'pool', '0')
+            await limiter.claimUpTo(claim)
+            expect(await limiter.claimUpTo(claim)).toBe(0)
 
             await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
 
-            expect(await redis.exists(SES_BUCKET_KEY)).toBe(0)
+            expect(await limiter.claimUpTo(claim)).toBe(5)
         } finally {
-            redis.disconnect()
+            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
         }
     })
 

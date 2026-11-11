@@ -5,9 +5,10 @@ import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
 
+import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { internalFetch } from '~/common/utils/request'
 
-import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec } from './roles'
+import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
 
@@ -16,7 +17,7 @@ export const STACK = {
     cyclotronNodeUrl: 'postgres://posthog:posthog@localhost:5432/cyclotron_node',
     kafkaHosts: 'kafka:9092',
     redis: { host: '127.0.0.1', port: 6379 },
-    sesRateLimiterValkey: { host: '127.0.0.1', port: 6390 },
+    sesRateLimiterValkey: SES_RATE_LIMITER_VALKEY,
     personhogReadinessUrl: 'http://127.0.0.1:9101/_readiness',
     kafkaContainer: 'posthog-kafka-1',
     templates: ['template-email', 'template-webhook'],
@@ -174,8 +175,6 @@ export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
     return results.filter((role): role is Role => role !== null)
 }
 
-export const SES_BUCKET_KEY = '@posthog/ses/global'
-
 export async function forgetSesBucket({ host, port }: { host: string; port: number }): Promise<void> {
     const valkey = new Redis({
         host,
@@ -186,7 +185,7 @@ export async function forgetSesBucket({ host, port }: { host: string; port: numb
     })
     try {
         await valkey.connect()
-        await valkey.del(SES_BUCKET_KEY)
+        await valkey.del(SES_RATE_LIMIT_KEY)
     } finally {
         valkey.disconnect()
     }

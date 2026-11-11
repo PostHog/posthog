@@ -17,6 +17,8 @@ export const ROLE_PORTS: Record<Role, number> = {
 
 export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
+export const SES_RATE_LIMITER_VALKEY = { host: '127.0.0.1', port: 6390 }
+
 export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret: string }
 
 export type RoleSpec = { role: Role; env: NodeJS.ProcessEnv }
@@ -51,6 +53,8 @@ export function roleSpecs(
             ...settings,
             SES_ENDPOINT: edgeUrl,
             PERSONHOG_ADDR,
+            SES_RATE_LIMITER_VALKEY_HOST: SES_RATE_LIMITER_VALKEY.host,
+            SES_RATE_LIMITER_VALKEY_PORT: String(SES_RATE_LIMITER_VALKEY.port),
             ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
             PLUGIN_SERVER_MODE: role,
