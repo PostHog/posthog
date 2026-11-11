@@ -1827,9 +1827,9 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if schedule_restored:
-                    # The lag built up while nothing read the slot, so neither a drop nor a lag marker
-                    # fits. The run the restore started reads the backlog, and the next sweep judges it.
+                # The lag built up while nothing read the slot, so the restored capture run gets one sweep to
+                # read it. An uncapped slot can fill the source's disk in that time, so the drop still applies.
+                if schedule_restored and (cdc_config.management_mode != "posthog" or retention_cap_mb is not None):
                     source_log.info("slot_lag_critical_while_schedule_missing")
                 elif cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")

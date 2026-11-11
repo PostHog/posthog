@@ -249,17 +249,40 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
 
 
 @pytest.mark.parametrize(
-    "management, schedule_exists, existing_reason, restored, expected_reason",
+    "management, retention_cap_mb, schedule_exists, existing_reason, restored, dropped, expected_reason",
     [
-        pytest.param("self_managed", False, None, True, None, id="missing_schedule_is_restored_without_lag_blame"),
-        pytest.param("posthog", False, None, True, None, id="missing_schedule_is_restored_without_a_slot_drop"),
         pytest.param(
-            "self_managed", True, None, False, "critical_lag_self_managed", id="existing_schedule_is_left_alone"
+            "self_managed", None, False, None, True, False, None, id="missing_schedule_is_restored_without_lag_blame"
+        ),
+        pytest.param(
+            "posthog", 10000, False, None, True, False, None, id="capped_slot_is_kept_while_capture_catches_up"
+        ),
+        pytest.param(
+            "posthog",
+            None,
+            False,
+            None,
+            True,
+            True,
+            "auto_dropped_critical_lag",
+            id="uncapped_slot_is_still_dropped",
         ),
         pytest.param(
             "self_managed",
+            None,
+            True,
+            None,
+            False,
+            False,
+            "critical_lag_self_managed",
+            id="existing_schedule_is_left_alone",
+        ),
+        pytest.param(
+            "self_managed",
+            None,
             False,
             "auto_dropped_critical_lag",
+            False,
             False,
             "auto_dropped_critical_lag",
             id="repair_owns_the_schedule",
@@ -267,7 +290,7 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
     ],
 )
 def test_critical_lag_restores_a_missing_extraction_schedule(
-    team, management, schedule_exists, existing_reason, restored, expected_reason
+    team, management, retention_cap_mb, schedule_exists, existing_reason, restored, dropped, expected_reason
 ):
     source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
     schema = _create_cdc_schema(team, source)
@@ -275,13 +298,13 @@ def test_critical_lag_restores_a_missing_extraction_schedule(
         schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
         schema.save()
 
-    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
+    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024, retention_cap_mb=retention_cap_mb)
     with patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule") as mock_sync:
         _, _, mock_pause = _run(adapter, schedule_exists=schedule_exists)
 
     assert mock_sync.called is restored
-    adapter.drop_stream.assert_not_called()
-    mock_pause.assert_not_called()
+    assert adapter.drop_stream.called is dropped
+    assert mock_pause.called is dropped
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
 

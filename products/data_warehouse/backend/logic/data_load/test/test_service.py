@@ -1,5 +1,6 @@
 import uuid
 import random
+import asyncio
 import logging
 import datetime as dt
 from typing import Any
@@ -406,6 +407,16 @@ def test_missing_cdc_extraction_schedules_checks_every_source_over_one_connectio
 
     assert missing == {"source-without-schedule"}
     mock_connect.assert_awaited_once()
+
+
+def test_missing_cdc_extraction_schedules_gives_up_on_a_stalled_server() -> None:
+    async def _never_answers() -> None:
+        await asyncio.Event().wait()
+
+    with _temporal_with_schedule(describe_side=None) as mock_connect:
+        mock_connect.return_value.get_schedule_handle.return_value.describe = AsyncMock(side_effect=_never_answers)
+        with pytest.raises(TimeoutError):
+            missing_cdc_extraction_schedules(["source-id"], timeout=dt.timedelta(milliseconds=50))
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---
