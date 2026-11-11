@@ -22,6 +22,9 @@ A request walks down this ladder and stops at the first tier whose conditions it
 The preaggregated all-time range includes the hourly bucket containing the first event.
 Explicit date ranges keep their requested lower bounds.
 
+Result cache reads ignore unknown response fields so workers can read cache entries from newer deployments.
+Missing required fields or invalid known fields still cause a cache miss.
+
 ## Request flow
 
 ```text
@@ -152,6 +155,7 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - The team reads sessions v3 and either period starts before the region's v3 backfill start (`SESSIONS_V3_COVERAGE_START_BY_REGION`). The writer does not build those days either, and the coverage check skips them.
 - The team has custom channel rules and the query breaks down or filters by channel type.
 - The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
+- A stats table query asks for bounce rate on a breakdown other than Page or Initial page and filters on `$pathname`. Bounce rate for those breakdowns comes from the bounces table grouped by the same breakdown, and that table holds sessions without the pages they viewed.
 
 The jobs' identity includes the team's values of those modifiers. A change to the team's bounce or session settings gives new jobs, so reads fall back until the writer rebuilds the window.
 

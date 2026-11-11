@@ -135,9 +135,7 @@ export function ExperimentQuantileMetricFields({
                     {!customPercentileError && (
                         <p className="m-0">{`p${percentile} is the value that ${percentile}% of events in a variant are at or below.`}</p>
                     )}
-                    <p className="m-0">
-                        Sequential testing and breakdowns aren't available for percentile metrics yet.
-                    </p>
+                    <p className="m-0">Breakdowns aren't available for percentile metrics yet.</p>
                 </div>
             </div>
         </div>

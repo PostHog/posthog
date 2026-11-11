@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
@@ -297,12 +298,16 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
- * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
- * line ranges, empty queries — so type them to keep them out of the `internal`
+ * Lookup misses and plain errors out of the learn catalog are agent mistakes, such as unknown
+ * names, bad line ranges and empty queries. Typing them keeps them out of the `internal`
  * bucket ops alerts on. Anything that already carries its own class (an API
  * failure, a source outage, an exec error) propagates untouched.
  */
 function classifyLearnError(error: unknown): unknown {
+    if (error instanceof LearnLookupError) {
+        return new ExecCommandError(error.message, 'unknown_learn_topic')
+    }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
