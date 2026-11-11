@@ -1,8 +1,9 @@
 import re
 import json
-from collections.abc import Sequence
-from contextlib import nullcontext
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, nullcontext
 from hashlib import sha256
+from threading import Event, Thread
 from time import monotonic
 
 from redis.lock import Lock
@@ -20,6 +21,7 @@ from products.customer_analytics.backend.logic.membership_metrics import Members
 
 QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
 MEMBERSHIP_LEASE_SECONDS = 60 * 60
+MEMBERSHIP_LEASE_RENEWAL_SECONDS = 5
 
 # Partial results must fail the batch, never report a missing identity.
 QUERY_SETTINGS = {
@@ -44,10 +46,41 @@ def get_membership_query_settings(deadline: float | None = None) -> dict[str, st
     return {**QUERY_SETTINGS, "max_execution_time": str(min(QUERY_TIMEOUT_SECONDS, remaining))}
 
 
-def get_membership_cleanup_lease(team_id: int) -> Lock:
+def get_membership_cleanup_lease(team_id: int, *, timeout: float = MEMBERSHIP_LEASE_SECONDS) -> Lock:
     return get_redis_client(socket_timeout=2, socket_connect_timeout=2).lock(
-        f"customer_analytics:membership_cleanup:{team_id}", timeout=MEMBERSHIP_LEASE_SECONDS, blocking=False
+        f"customer_analytics:membership_cleanup:{team_id}", timeout=timeout, blocking=False, thread_local=False
     )
+
+
+@contextmanager
+def renew_membership_cleanup_lease(
+    lease: Lock, lease_seconds: float, deadline: float | None
+) -> Iterator[Callable[[], None]]:
+    stopped = Event()
+    renewal_error: Exception | None = None
+
+    def check_lease() -> None:
+        if renewal_error is not None:
+            raise renewal_error
+        get_membership_query_settings(deadline)
+        lease.extend(lease_seconds, replace_ttl=True)
+
+    def renew() -> None:
+        nonlocal renewal_error
+        while not stopped.wait(MEMBERSHIP_LEASE_RENEWAL_SECONDS):
+            try:
+                check_lease()
+            except Exception as error:
+                renewal_error = error
+                return
+
+    thread = Thread(target=renew, daemon=True)
+    thread.start()
+    try:
+        yield check_lease
+    finally:
+        stopped.set()
+        thread.join()
 
 
 @frozen

@@ -124,10 +124,14 @@ Deleted teams need no identity reads.
 Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
 It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
 Scan pages also clear recovered candidates outside the recheck page.
+Discovery checks membership for pending keys outside the scan page and removes their candidates after membership erasure.
+Pending-only keys with no membership cannot create new candidates.
 New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
 Identity read failures leave candidates and scan positions unchanged.
-A renewable per-team Redis lease prevents overlapping membership batches.
-A busy lease raises a retryable error. A hard worker shutdown can leave the lease until its one-hour expiry.
+A per-team Redis lease prevents overlapping membership batches.
+Discovery renews its 15-second lease every five seconds, including during network reads.
+A busy lease raises a retryable error. Activity retries wait 20 seconds, so a crashed discovery worker's lease expires before retry.
+Renewal failures prevent checkpoint writes. Renewal stops at the batch query deadline.
 Heartbeats report liveness. Postgres stores the checkpoints.
 Postgres transactions contain database writes only.
 
@@ -143,6 +147,7 @@ The activity reserves time for three attempts inside the child workflow deadline
 Memory, read, thread, and result limits come from the ClickHouse profile.
 Unavailable shards and overflow limits fail queries instead of returning partial results.
 Queries use the `OFFLINE` workload because discovery runs in the background.
+Discovery queries carry the Customer analytics product tag and the data deletion feature tag.
 The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
 The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
 Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.

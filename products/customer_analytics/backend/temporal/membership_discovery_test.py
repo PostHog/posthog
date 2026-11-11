@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import timedelta
+from threading import Event
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -24,6 +25,7 @@ from products.customer_analytics.backend.logic.membership import (
     MembershipCleanupBusy,
     MembershipExistence,
     MembershipKey,
+    get_membership_cleanup_lease,
 )
 from products.customer_analytics.backend.logic.membership_discovery import (
     MembershipDiscoveryCounts,
@@ -122,6 +124,50 @@ async def test_coordinator_stops_between_teams_at_deadline() -> None:
     assert summary["scanned"] == 100
     assert summary["discovered"] == 2
     assert summary["duration_seconds"] == COORDINATOR_RUN_BUDGET.total_seconds()
+
+
+@pytest.mark.django_db
+def test_abandoned_lease_expires_before_activity_retry(team: Team) -> None:
+    store = MembershipDiscoveryStore()
+
+    def list_keys_with_bounded_lease(*args: object) -> list[MembershipKey]:
+        ttl = get_redis_client().pttl(f"customer_analytics:membership_cleanup:{team.pk}")
+        assert 0 < ttl <= BATCH_RETRY_DELAY.total_seconds() * 1000
+        return []
+
+    with patch.object(store, "list_keys", side_effect=list_keys_with_bounded_lease):
+        assert run_membership_discovery(MembershipDiscoveryInput(team_id=team.pk), store).scanned == 0
+
+
+@pytest.mark.django_db
+def test_discovery_renews_lease_during_network_reads(team: Team) -> None:
+    store = MembershipDiscoveryStore()
+    lease = get_membership_cleanup_lease(team.pk)
+    renewed = Event()
+    extend = lease.extend
+
+    def extend_and_signal(additional_time: float, replace_ttl: bool = False) -> bool:
+        result = extend(additional_time, replace_ttl=replace_ttl)
+        renewed.set()
+        return result
+
+    def list_keys_after_renewal(*args: object) -> list[MembershipKey]:
+        assert renewed.wait(timeout=5)
+        competing_lease = get_membership_cleanup_lease(team.pk)
+        assert not competing_lease.acquire()
+        return []
+
+    with (
+        patch("products.customer_analytics.backend.logic.membership.MEMBERSHIP_LEASE_RENEWAL_SECONDS", 0),
+        patch(
+            "products.customer_analytics.backend.logic.membership_discovery.get_membership_cleanup_lease",
+            return_value=lease,
+        ),
+        patch.object(lease, "extend", side_effect=extend_and_signal),
+        patch.object(store, "list_keys", side_effect=list_keys_after_renewal),
+    ):
+        assert run_membership_discovery(MembershipDiscoveryInput(team_id=team.pk), store).scanned == 0
+    assert not get_redis_client().exists(lease.name)
 
 
 @pytest.mark.django_db(transaction=True)
