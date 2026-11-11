@@ -356,7 +356,7 @@ class TestExperimentWidgetsViaRunWidgetsEndpoint(APIBaseTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         self.executor_patcher = patch(
-            "products.dashboards.backend.api.dashboard.ThreadPoolExecutor",
+            "products.dashboards.backend.presentation.views.dashboard.ThreadPoolExecutor",
             _InlineExecutor,
         )
         self.executor_patcher.start()

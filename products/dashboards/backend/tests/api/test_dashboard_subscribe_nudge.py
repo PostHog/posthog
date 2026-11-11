@@ -21,7 +21,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 
 
-@patch("products.dashboards.backend.api.dashboard.create_notification")
+@patch("products.dashboards.backend.presentation.views.dashboard.create_notification")
 class TestDashboardSubscribeNudge(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -60,7 +60,7 @@ class TestDashboardSubscribeNudge(APIBaseTest):
         assert second.json() == {"created": False}
         assert mock_create_notification.call_count == 1
 
-    @patch("products.dashboards.backend.api.dashboard.has_been_dispatched")
+    @patch("products.dashboards.backend.presentation.views.dashboard.has_been_dispatched")
     def test_dedupes_from_the_notification_record_when_the_cache_is_lost(
         self, mock_has_been_dispatched: MagicMock, mock_create_notification: MagicMock
     ) -> None:
