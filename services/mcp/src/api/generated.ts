@@ -75397,6 +75397,29 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
+    export interface ReleaseOwnerDTO {
+      id: number;
+      first_name: string;
+    }
+
+    export interface ReleaseDTO {
+      id: string;
+      name: string;
+      description: string;
+      owner: ReleaseOwnerDTO | null;
+      feature_flag_ids: number[];
+      created_at: string;
+    }
+
+    export interface PaginatedReleaseDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReleaseDTO[];
+    }
+
     /**
      * * `daily` - Daily
      * * `weekly` - Weekly
@@ -93075,6 +93098,23 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedWriteRelease {
+      /**
+         * Name of the feature.
+         * @maxLength 255
+         */
+      name?: string;
+      /** What the feature does for the people who get it. */
+      description?: string;
+      /**
+         * ID of the user who owns the release of this feature.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /** IDs of the feature flags that gate this feature. */
+      feature_flag_ids?: number[];
     }
 
     export interface PathCleaningPreviewExample {
@@ -121921,6 +121961,23 @@ export namespace Schemas {
       risky_scopes: WorkloadProvidersResponseRiskyScopes;
     }
 
+    export interface WriteRelease {
+      /**
+         * Name of the feature.
+         * @maxLength 255
+         */
+      name: string;
+      /** What the feature does for the people who get it. */
+      description?: string;
+      /**
+         * ID of the user who owns the release of this feature.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /** IDs of the feature flags that gate this feature. */
+      feature_flag_ids?: number[];
+    }
+
     export interface ZendeskImportError {
       /** Human-readable error message. */
       detail: string;
@@ -137447,6 +137504,17 @@ export namespace Schemas {
     };
 
     export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ReleasesListParams = {
     /**
      * Number of results to return per page.
      */

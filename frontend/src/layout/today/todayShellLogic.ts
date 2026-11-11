@@ -22,7 +22,7 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'release' | 'products' | 'settings'
 
 /** What the shell shows: the page, the pane picked on the rail, and whether its sidebar is open. */
 export interface TodayView {
@@ -60,7 +60,7 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
     return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'people', 'products']
+export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'people', 'release', 'products']
 
 /** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
 const RAIL_PANE_HOMES: Partial<
@@ -72,6 +72,7 @@ const RAIL_PANE_HOMES: Partial<
     // Not urls.customerAnalytics(): that redirect opens the Accounts page when customer-analytics-csp is on.
     people: (_, featureFlags) =>
         featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? urls.customerAnalyticsDashboard() : urls.persons(),
+    release: () => urls.releases(),
     settings: () => urls.settings('project'),
 }
 
@@ -117,6 +118,9 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     }
     if (isPeopleListPath(path) || isPeopleDetailPath(path)) {
         return 'people'
+    }
+    if (isUnderPath(path, '/releases')) {
+        return 'release'
     }
     // Notebooks, dashboards and insights are analytics, list pages included, so they never open the Products pane.
     if (
@@ -175,6 +179,12 @@ function paneAfterNavigation(
     const routePane = railPaneForPath(pathname)
     if (openPane === 'products' && productsPaneKeepsPath(path, routePane)) {
         return openPane
+    }
+    if (
+        shownPane === 'release' &&
+        ['/feature-flags', '/experiments', '/early_access_features'].some((prefix) => isUnderPath(path, prefix))
+    ) {
+        return shownPane
     }
     if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {
         return shownPane
