@@ -1,7 +1,7 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    ActivitySource,
     NativeConfigurationMatch,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
@@ -89,6 +90,15 @@ def insight_of(team_id: int, source_config: dict) -> Insight | None:
         return None
     found = insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=[insight_id])
     return found[0] if found and not found[0].deleted else None
+
+
+def insight_activity_source(team_id: int, source_config: Mapping[str, Any]) -> ActivitySource | None:
+    """The insight an insight alert watches, named on the alert's activity log entries. None once the
+    insight is gone."""
+    insight = insight_of(team_id, dict(source_config))
+    if insight is None:
+        return None
+    return ActivitySource(id=insight.short_id, name=insight.name or insight.derived_name or insight.short_id)
 
 
 def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
