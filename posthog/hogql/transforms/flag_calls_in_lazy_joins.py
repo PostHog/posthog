@@ -107,6 +107,31 @@ def read_flag_calls_in_lazy_join(
     join_to_add.table = swap_flag_calls(subquery, context, resolve, scope=scope).source
 
 
+def refuse_flag_calls_in_wrapped_lazy_join(
+    join_scope: LazyJoinToAdd, node: ast.SelectQuery, original_select_type: ast.SelectQueryType, context: HogQLContext
+) -> None:
+    """Raises when lazy_tables resolves `join_scope` inside the wrapper subquery of a table whose join condition reads
+    it, `node` compares the join's `event` with flag calls, and the join's subquery scans `events` without pinning
+    flag calls itself. The wrapper holds none of the filters of `node`, so `read_flag_calls_in_lazy_join` can neither
+    move the pin there nor see the comparison to refuse it."""
+    database = swap_database(context)
+    if database is None or not database.flag_calls_only_in_flag_evaluations:
+        return
+    if not _compares_with_flag_calls(node, partial(_reads_join_event, join_scope.to_table, original_select_type)):
+        return
+    subquery = join_scope.lazy_join.resolve_join_to_add(join_scope, context, node).table
+    if not isinstance(subquery, ast.SelectQuery):
+        return
+    scan = EventsScan.of(subquery, partial(team_flag_key_compares_as_string, context), {}, database)
+    if scan is None or scan.pins_flag_calls(filter_conjuncts(subquery), needs_flag_key=False):
+        return
+    join_name = f"{join_scope.from_table}.{join_scope.lazy_join_type.field}"
+    raise flag_calls_only_in_flag_evaluations_error(
+        f"the query reads {join_name} in a join condition, so a filter on {join_name}.event can't move into the join",
+        FlagCallScope.join(join_name),
+    )
+
+
 def _passes_rows_through(subquery: ast.SelectQuery) -> bool:
     return not (
         subquery.group_by

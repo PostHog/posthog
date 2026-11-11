@@ -13,7 +13,10 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
-from posthog.hogql.transforms.flag_calls_in_lazy_joins import read_flag_calls_in_lazy_join
+from posthog.hogql.transforms.flag_calls_in_lazy_joins import (
+    read_flag_calls_in_lazy_join,
+    refuse_flag_calls_in_wrapped_lazy_join,
+)
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
@@ -862,6 +865,9 @@ class LazyTableResolver(TraversingVisitor):
         # This must happen BEFORE we add lazy joins to avoid forward reference issues.
         tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, select_type)
         wrapped_table_types = [select_type.tables[table_alias] for table_alias in tables_to_wrap]
+        for join_scope in joins_to_add.values():
+            if any(_hops_to_table(join_scope.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types):
+                refuse_flag_calls_in_wrapped_lazy_join(join_scope, node, original_select_type, self.context)
         unexpanded_scans: dict[str, UnexpandedScan] = {}
         for table_alias in tables_to_wrap:
             wrapped_scan = self._wrap_table_for_lazy_resolution(node, table_alias, select_type)

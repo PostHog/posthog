@@ -1840,6 +1840,31 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         with self.assertRaisesRegex(QueryError, _join_refusal(join_name, reason)):
             self._query_events(query, union=union, database=database)
 
+    @parameterized.expand(
+        _with_union(
+            [
+                (
+                    "pin_in_on_clause",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.event = '$feature_flag_called'",
+                ),
+                (
+                    "pin_in_where",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.distinct_id != '' "
+                    "WHERE p.calls.event = '$feature_flag_called'",
+                ),
+            ]
+        )
+    )
+    def test_lazy_join_raises_when_a_join_condition_reads_it(self, _name: str, query: str, union: bool):
+        self._create_lazy_join_sources()
+
+        with self.assertRaisesRegex(
+            QueryError, _join_refusal("p.calls", re.escape("the query reads p.calls in a join condition"))
+        ):
+            self._query_events(query, union=union)
+
     def test_lazy_join_raises_when_its_subquery_does_not_pass_rows_through(self):
         self._create_lazy_join_sources()
 
