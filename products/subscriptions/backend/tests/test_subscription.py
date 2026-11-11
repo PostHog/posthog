@@ -4526,6 +4526,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._rule("insight")
         return self._subscription_for(insight=self.open_insight)
 
+    def _sub_under_a_dashboard_resource_wide_deny(self) -> Subscription:
+        self._rule("dashboard")
+        return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
+
     def _sub_under_a_lone_resource_wide_deny(self) -> Subscription:
         AccessControl.objects.filter(team=self.team).delete()
         return self._sub_under_a_resource_wide_deny()
@@ -4551,6 +4555,12 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription = self._subscription_for(insight=self.restricted_insight)
         self.restricted_insight.deleted = True
         self.restricted_insight.save(update_fields=["deleted"])
+        return subscription
+
+    def _sub_on_a_soft_deleted_restricted_dashboard(self) -> Subscription:
+        subscription = self._subscription_for(dashboard=self.restricted_dashboard)
+        self.restricted_dashboard.deleted = True
+        self.restricted_dashboard.save(update_fields=["deleted"])
         return subscription
 
     def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
@@ -4582,11 +4592,18 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("a selection that leaves the restricted tile out", "_sub_selecting_only_the_open_tile", True, True),
             ("a restricted tile that was removed", "_sub_whose_restricted_tile_was_removed", True, False),
             ("a deny on the whole insight resource", "_sub_under_a_resource_wide_deny", False, False),
+            ("a deny on the whole dashboard resource", "_sub_under_a_dashboard_resource_wide_deny", False, False),
             ("that deny as the only rule in the team", "_sub_under_a_lone_resource_wide_deny", False, False),
             ("that deny with the insight granted back", "_sub_under_a_resource_wide_deny_with_a_grant", True, True),
             ("an org admin reading a private insight", "_sub_read_by_an_org_admin", True, True),
             ("a team with no access rules", "_sub_in_a_team_without_rules", True, True),
             ("a restricted insight that was soft-deleted", "_sub_on_a_soft_deleted_restricted_insight", True, False),
+            (
+                "a restricted dashboard that was soft-deleted",
+                "_sub_on_a_soft_deleted_restricted_dashboard",
+                True,
+                False,
+            ),
         ]
     )
     def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):

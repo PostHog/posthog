@@ -1,8 +1,9 @@
 """Which subscriptions and deliveries a user may see, judged by the insights and dashboards they target.
 
 A subscription delivers the content of its insight, dashboard, selected tiles and report contexts,
-so a user who cannot view one of those may not see the subscription either. The rules compose SQL
-subqueries over the target tables, so the access filter stays a single query.
+so a user who cannot view one of those may not see the subscription either. The insight rules
+compose SQL subqueries over the insight table. The dashboards facade returns the hidden dashboard
+ids and the tile placements as lists, so the filter carries those ids as values.
 """
 
 from typing import Any, Protocol
@@ -10,16 +11,18 @@ from typing import Any, Protocol
 from django.contrib.postgres.expressions import ArraySubquery
 from django.contrib.postgres.fields import ArrayField
 from django.db.models import BigIntegerField, BooleanField, CharField, F, Func, JSONField, Q, QuerySet, TextField, Value
+from django.db.models.expressions import Combinable
 from django.db.models.functions import Cast, Concat
 
 from posthog.dataclasses import frozen
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardSummary
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionRequestInvalidError
+from products.subscriptions.backend.models.subscription_context import context_ref
 
 
 class _Filterable(Protocol):
@@ -38,8 +41,7 @@ class _TargetLookups:
     exported_insights: str
     no_selection: str
     insights: _Filterable
-    dashboards: _Filterable
-    tiles: _Filterable
+    include_deleted_dashboards: bool
 
 
 _SUBSCRIPTION_TARGETS = _TargetLookups(
@@ -52,8 +54,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
-    dashboards=Dashboard.objects,
-    tiles=DashboardTile.objects,
+    include_deleted_dashboards=False,
 )
 
 # A delivery keeps the results it rendered, so a soft-deleted target still restricts it.
@@ -67,13 +68,18 @@ _DELIVERY_TARGETS = _TargetLookups(
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
-    dashboards=Dashboard.objects_including_soft_deleted,
-    tiles=DashboardTile.objects_including_soft_deleted,
+    include_deleted_dashboards=True,
 )
 
 
-def require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
-    if not user_access_control.check_access_level_for_object(obj, "viewer"):
+def require_viewer_access(
+    user_access_control: UserAccessControl, target: Insight | DashboardSummary, field: str
+) -> None:
+    if isinstance(target, DashboardSummary):
+        viewable = dashboards_api.can_access_dashboard(target, user_access_control=user_access_control)
+    else:
+        viewable = user_access_control.check_access_level_for_object(target, "viewer")
+    if not viewable:
         raise SubscriptionRequestInvalidError(
             {field: [f"Viewer access to this {field} is required. Ask an admin to grant you access."]}
         )
@@ -98,14 +104,14 @@ def blocked_target_ids(
     return queryset.exclude(id__in=viewable_queryset(user_access_control, queryset, resource).values("id")).values("id")
 
 
-def _context_ref_subquery(kind: str, blocked_ids: QuerySet, *, id_field: str = "id") -> ArraySubquery:
+def _context_ref_subquery(kind: str, blocked_ids: QuerySet) -> ArraySubquery:
     references = blocked_ids.annotate(
-        context_ref=Concat(Value(f"{kind}:"), Cast(id_field, output_field=CharField()))
+        context_ref=Concat(Value(f"{kind}:"), Cast("id", output_field=CharField()))
     ).values("context_ref")
     return ArraySubquery(references)
 
 
-def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: QuerySet) -> Func:
+def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: Combinable) -> Func:
     return Func(
         F(snapshot_field),
         Func(Value(json_path), template="%(expressions)s::jsonpath", output_field=CharField()),
@@ -113,7 +119,7 @@ def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: Qu
             Cast(Value("ids"), output_field=TextField()),
             # An empty target set compiles to a bare NULL, which Postgres cannot type without the cast.
             Func(
-                Cast(ArraySubquery(target_ids), output_field=ArrayField(BigIntegerField())),
+                Cast(target_ids, output_field=ArrayField(BigIntegerField())),
                 function="to_jsonb",
                 output_field=JSONField(),
             ),
@@ -144,16 +150,21 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    team_dashboards = targets.dashboards.filter(team_id=team_id)
     target_insights = targets.insights.filter(team_id=team_id)
     blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
-    blocked_dashboards = blocked_target_ids(user_access_control, team_dashboards, "dashboard")
-    # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
-    dashboards_with_blocked_tiles = (
-        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
-        .values("dashboard_id")
-        .distinct()
+    blocked_dashboards = sorted(
+        dashboards_api.hidden_dashboard_ids(
+            team_id=team_id,
+            user_access_control=user_access_control,
+            include_deleted=targets.include_deleted_dashboards,
+        )
     )
+    blocked_tile_placements = dashboards_api.insight_placements(
+        team_id=team_id,
+        insight_ids=list(blocked_insights.values_list("id", flat=True)),
+        include_deleted=targets.include_deleted_dashboards,
+    )
+    dashboards_with_blocked_tiles = sorted({placement.dashboard_id for placement in blocked_tile_placements})
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
@@ -169,13 +180,11 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
             **{targets.snapshot_context_ref_overlap: _context_ref_subquery("insight", blocked_insights)}
         )
         references_a_blocked_context |= Q(
-            **{targets.snapshot_context_ref_overlap: _context_ref_subquery("dashboard", blocked_dashboards)}
-        )
-        references_a_blocked_context |= Q(
             **{
-                targets.snapshot_context_ref_overlap: _context_ref_subquery(
-                    "dashboard", dashboards_with_blocked_tiles, id_field="dashboard_id"
-                )
+                targets.snapshot_context_ref_overlap: [
+                    context_ref("dashboard", dashboard_id)
+                    for dashboard_id in sorted({*blocked_dashboards, *dashboards_with_blocked_tiles})
+                ]
             }
         )
 
@@ -183,8 +192,12 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     rendered_a_blocked_target = Q()
     if targets.rendered_snapshot is not None:
         rendered_a_blocked_target = _snapshot_renders_any_of(
-            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", blocked_insights
-        ) | _snapshot_renders_any_of(targets.rendered_snapshot, "$.dashboard ? (@.id == $ids[*])", blocked_dashboards)
+            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", ArraySubquery(blocked_insights)
+        ) | _snapshot_renders_any_of(
+            targets.rendered_snapshot,
+            "$.dashboard ? (@.id == $ids[*])",
+            Value(blocked_dashboards, output_field=ArrayField(BigIntegerField())),
+        )
 
     return ~(
         targets_a_blocked_insight
