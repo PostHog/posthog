@@ -62,7 +62,7 @@ class TestMetricsValuesApi(APIBaseTest):
 OPTIONS_SQL = "SELECT DISTINCT service_name FROM posthog.metrics"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsVariableOptionsApi(APIBaseTest):
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json")
@@ -519,7 +519,7 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
         assert serializer.validated_data["aggregation"] == "sum"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsPromqlQueryApi(APIBaseTest):
     def _post(self, query: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/query/", {"query": query}, format="json")

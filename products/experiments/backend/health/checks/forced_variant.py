@@ -18,6 +18,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
 from products.experiments.backend.health.context import (
@@ -190,7 +191,7 @@ class _SetAfterLaunch:
     def remedy_after_removal(self) -> str:
         if self.covers_all:
             return "Then move the experiment's start date to after the removal."
-        return "Then reset the experiment, or move its start date to after the removal."
+        return f"Then reset the experiment, or move its start date to after the removal. {RESET_EFFECT}"
 
 
 def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLaunch:
