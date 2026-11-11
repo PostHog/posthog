@@ -345,7 +345,7 @@ class TestHeadReviewStatus(BaseTest):
             ("invalid_finding", "invalid_finding", 1, False, True, False),
             ("skipped_paths", "skipped_paths", 1, False, False, True),
             ("capped_lens_parts", "clean", 1, True, False, True),
-            ("turn_without_a_marker", "no_marker", 1, False, False, False),
+            ("turn_without_a_marker", "no_marker", 1, False, False, True),
             ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False, True),
             ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True, False),
             ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True, False),
@@ -354,9 +354,7 @@ class TestHeadReviewStatus(BaseTest):
             ("delta_review", "delta_review", 1, False, False, True),
         ]
     )
-    @patch(
-        "products.review_hog.backend.silent_stamphog.stamphog_tasks.queue_routing_after_external_review", create=True
-    )
+    @patch("products.review_hog.backend.silent_stamphog.stamphog_tasks.queue_routing_after_external_review")
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
     def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage_and_routing_starts_otherwise(
         self,

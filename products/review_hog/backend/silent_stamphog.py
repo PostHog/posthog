@@ -106,11 +106,12 @@ def finish_standard_automatic_turn(
 def start_silent_stamphog(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> bool:
     """Queue the silent stamphog review when the automatic turn on the head was recorded clean. Returns whether it was queued.
 
-    A turn recorded as not clean means stamphog can route reviewers now. A head without a recorded turn stays
-    silent, because that turn can still run or fail and report on its own.
+    Callers ask only when the head is done, so a head without a recorded turn (a manual or Deep review
+    finished it, or the automatic turn ended before it recorded) also means stamphog can route reviewers now.
     """
     report = ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
     if report is None:
+        report_unreviewed_head(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
         return False
     report_id = str(report.id)
     # Only a Standard automatic turn records the value, so a Deep or manual turn on the same head never decides.
@@ -124,6 +125,7 @@ def start_silent_stamphog(*, team_id: int, repository: str, pr_number: int, head
         and marker.clean_full_coverage is not None
     ]
     if not recorded:
+        report_unreviewed_head(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
         return False
     _, clean = max(recorded)
     if not clean:

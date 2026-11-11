@@ -476,8 +476,8 @@ async def _run_full_review_pr_workflow(
 
     failed_turn_reports: list[SilentStamphogRequest] = []
 
-    @activity.defn(name="report_failed_turn_activity")
-    async def report_failed_turn(input: SilentStamphogRequest) -> None:
+    @activity.defn(name="report_unreviewed_head_activity")
+    async def report_unreviewed_head(input: SilentStamphogRequest) -> None:
         failed_turn_reports.append(input)
         if fail_silent_stamphog:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
@@ -559,7 +559,7 @@ async def _run_full_review_pr_workflow(
                 nudge,
                 finish_standard_automatic_turn,
                 silent_stamphog,
-                report_failed_turn,
+                report_unreviewed_head,
                 track_failed,
                 track_completed,
                 track_started,
@@ -851,6 +851,26 @@ async def test_review_pr_workflow_tells_stamphog_when_a_ready_automatic_standard
         fail_silent_stamphog=fail_report,
     )
     assert recorded["failed"] is True
+    assert recorded["failed_turn_reports"] == ([_SILENT_STAMPHOG] if expect_report else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "skip, expect_report",
+    [
+        pytest.param({"skip_agent_review": True}, True, id="skip-label"),
+        pytest.param({"acting_user_id": None}, True, id="author-is-not-a-user"),
+        pytest.param({"review_authored_prs": False}, True, id="author-turned-reviews-off"),
+        pytest.param({"gate_skips": True, "automatic_reviewed_head_sha": "sha0"}, True, id="push-gate-skip"),
+        pytest.param({"pr_open": False}, False, id="closed-pr"),
+    ],
+)
+async def test_review_pr_workflow_tells_stamphog_when_it_skips_a_ready_head(skip: dict, expect_report: bool):
+    options = {"review_authored_prs": True, **skip}
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, review_mode="flash", trigger_source="automatic", marks_ready=True, **options
+    )
+    assert recorded["failed"] is False
     assert recorded["failed_turn_reports"] == ([_SILENT_STAMPHOG] if expect_report else [])
 
 

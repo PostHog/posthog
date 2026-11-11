@@ -188,12 +188,18 @@ class AuthoredPRReview:
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
-        owner = RepositoryOwnership.find(self.ref, backfill=True)
         if self.skip_agent_review:
             observe_dispatch("label_skipped")
-            self._report_no_review(None if owner is None else owner.team_id)
+            if self.marks_ready:
+                owner = RepositoryOwnership.find(self.ref, backfill=True)
+                self._report_no_review(None if owner is None else owner.team_id)
             return
-        dispatch = plan_automatic_review(self.ref, owner, author_login=self.author_login, draft=self.draft)
+        dispatch = plan_automatic_review(
+            self.ref,
+            RepositoryOwnership.find(self.ref, backfill=True),
+            author_login=self.author_login,
+            draft=self.draft,
+        )
         if dispatch.team_id is None or dispatch.run_as_user_id is None:
             # Most pushes get no automatic review, so the counter carries the signal and the logs
             # stay quiet.
@@ -207,6 +213,7 @@ class AuthoredPRReview:
         )
         if full_review_published(report):
             observe_dispatch("full_review_published")
+            self._report_no_review(dispatch.team_id)
             return
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",

@@ -395,7 +395,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("left_org", "bot_skipped", True),
             ("unmapped", "bot_skipped", True),
             ("missing_installation", "installation_mismatch", True),
-            ("full_review_published", "full_review_published", False),
+            ("full_review_published", "full_review_published", True),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),

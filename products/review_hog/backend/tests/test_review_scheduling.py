@@ -6,6 +6,7 @@ from datetime import timedelta
 import pytest
 
 from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -167,6 +168,65 @@ async def test_a_ready_event_for_the_running_turns_head_starts_silent_stamphog_o
             assert await handle.result() == "report"
 
     assert reviews == [draft_opened]
+    assert silent_requests == [
+        SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_ready_event_for_a_running_turn_that_fails_is_still_answered() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    silent_requests: list[SilentStamphogRequest] = []
+    draft_opened = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="flash",
+        trigger_source="automatic",
+        requested_head_sha="a",
+        trigger_action="opened",
+        publish=True,
+    )
+    marked_ready = replace(draft_opened, trigger_action="ready_for_review", marks_ready=True)
+
+    @activity.defn(name="record_scheduled_review")
+    async def record(inputs: ReviewPRWorkflowInputs) -> str:
+        entered.set()
+        await release.wait()
+        raise ApplicationError("Review unavailable", non_retryable=True)
+
+    @activity.defn(name="review_resolution_running_activity")
+    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
+        return False
+
+    @activity.defn(name="start_silent_stamphog_activity")
+    async def start_silent_stamphog(request: SilentStamphogRequest) -> None:
+        silent_requests.append(request)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        queue = str(uuid.uuid4())
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
+            activities=[record, resolution_running, start_silent_stamphog],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                ReviewPRQueueWorkflow.run,
+                ReviewPRQueueInputs(requests=[draft_opened]),
+                id=queue,
+                task_queue=queue,
+            )
+            await asyncio.wait_for(entered.wait(), timeout=10)
+            await handle.signal("request_review", marked_ready)
+            release.set()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+
     assert silent_requests == [
         SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")
     ]

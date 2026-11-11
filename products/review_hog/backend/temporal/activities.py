@@ -3018,7 +3018,7 @@ async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
     await database_sync_to_async(_start_silent_stamphog, thread_sensitive=False)(input)
 
 
-def _report_failed_turn(input: SilentStamphogRequest) -> None:
+def _report_unreviewed_head(input: SilentStamphogRequest) -> None:
     report_unreviewed_head(
         team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
     )
@@ -3027,13 +3027,13 @@ def _report_failed_turn(input: SilentStamphogRequest) -> None:
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def report_failed_turn_activity(input: SilentStamphogRequest) -> None:
+async def report_unreviewed_head_activity(input: SilentStamphogRequest) -> None:
     """Tell stamphog that a Standard automatic turn failed for good, so it can route reviewers now.
 
     Never raises on a stamphog error. The workflow catches any other failure, because the failed
     turn must keep its original error.
     """
-    await database_sync_to_async(_report_failed_turn, thread_sensitive=False)(input)
+    await database_sync_to_async(_report_unreviewed_head, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

@@ -20,7 +20,7 @@ from products.review_hog.backend.temporal.types import (
 )
 
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
-REPORT_FAILED_TURN_PATCH = "reviewhog-report-failed-turn-2026-11"
+REPORT_UNREVIEWED_HEAD_PATCH = "reviewhog-report-failed-turn-2026-11"
 
 
 async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
@@ -162,6 +162,16 @@ class ReviewPRQueueWorkflow:
                 ):
                     await request_silent_stamphog(request, request.requested_head_sha)
             except ChildWorkflowError:
+                # A failed turn recorded no coverage, so the request reports the head as unreviewed.
+                active = self._requests.active
+                if (
+                    workflow.patched(REPORT_UNREVIEWED_HEAD_PATCH)
+                    and active is not None
+                    and active.marks_ready
+                    and not request.marks_ready
+                    and request.requested_head_sha is not None
+                ):
+                    await request_silent_stamphog(request, request.requested_head_sha)
                 if not self._requests.pending:
                     raise
                 workflow.logger.exception("Review failed; processing the next requested review")
