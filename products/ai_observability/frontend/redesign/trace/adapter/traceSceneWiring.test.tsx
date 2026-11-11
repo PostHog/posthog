@@ -18,8 +18,6 @@ import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { queryEvaluationRuns } from '../../../utils'
-import { traceReviewLogic } from '../traceReviewLogic'
-import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
     makeEvaluationResult,
@@ -35,7 +33,9 @@ import {
     makeTrace,
     makeTraceCluster,
     makeTraceResource,
-} from './testFixtures'
+} from '../testFixtures'
+import { traceReviewLogic } from '../traceReviewLogic'
+import { TraceScene } from '../TraceScene'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
@@ -723,13 +723,15 @@ describe('TraceScene', () => {
         })
 
         it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
+            const helpfulness = makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })
             useMocks({
                 get: {
                     [FEEDBACK_URL]: () => [
                         200,
                         makeFeedback({
-                            scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
+                            scores: [helpfulness],
                             responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: 'trace-1' })],
+                            steps: [{ nodeId: 'gen-1', scores: [helpfulness], responseCount: 0, total: 1 }],
                         }),
                     ],
                 },
