@@ -20,19 +20,26 @@ export async function execHog(
     error?: any
     durationMs: number
 }> {
-    return await semaphore.run(async () => {
-        return await instrumentFn(`hog-exec`, async () => {
-            const result = await yieldEventLoopIfNeeded('hog-exec', () => {
-                const passedBefore = deadlineError(signal)
-                if (passedBefore !== undefined) {
-                    return { error: passedBefore, durationMs: 0 }
-                }
-                return execHogImmediate(bytecode, withinDeadline(options, signal))
+    try {
+        return await semaphore.run(async () => {
+            return await instrumentFn(`hog-exec`, async () => {
+                const result = await yieldEventLoopIfNeeded('hog-exec', () => {
+                    const passedBefore = deadlineError(signal)
+                    if (passedBefore !== undefined) {
+                        return { error: passedBefore, durationMs: 0 }
+                    }
+                    return execHogImmediate(bytecode, withinDeadline(options, signal))
+                })
+                const passed = deadlineError(signal)
+                return passed !== undefined ? { error: passed, durationMs: result.durationMs } : result
             })
-            const passed = deadlineError(signal)
-            return passed !== undefined ? { error: passed, durationMs: result.durationMs } : result
-        })
-    })
+        }, signal)
+    } catch (error) {
+        if (signal?.aborted && error === signal.reason) {
+            return { error, durationMs: 0 }
+        }
+        throw error
+    }
 }
 
 function withinDeadline(options: ExecOptions | undefined, signal: AbortSignal | undefined): ExecOptions | undefined {
