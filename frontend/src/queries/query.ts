@@ -436,10 +436,17 @@ async function executeQuery<N extends DataNode>(
     return statusResponse.results
 }
 
+export interface QueryRequestOptions extends ApiMethodOptions {
+    captureQueryTelemetry?: boolean
+    queryTelemetry?: 'metadata'
+}
+
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
-    methodOptions?: ApiMethodOptions & { queryTelemetry?: 'metadata' },
+    options?:
+ QueryRequestOptions
+,
     refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
@@ -449,7 +456,7 @@ export async function performQuery<N extends DataNode>(
     limitContext?: 'posthog_ai',
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
-    const { queryTelemetry, ...apiMethodOptions } = methodOptions ?? {}
+    const { captureQueryTelemetry = true, queryTelemetry, ...apiMethodOptions } = options ?? {}
     const telemetryQuery = queryTelemetry === 'metadata' ? { kind: queryNode.kind } : queryNode
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -502,33 +509,35 @@ export async function performQuery<N extends DataNode>(
             }
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)
-        posthog.capture('query completed', {
-            query: telemetryQuery,
-            queryId,
-            duration: performance.now() - startTime,
-            is_cached: response?.is_cached,
-            uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
-            data_warehouse_source_ids: warehouseSources.map((s) => s.id),
-            data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
-            ...logParams,
-            ...submitTelemetry,
-            ...requestTimingProperties(submitTelemetry),
-        })
-        const historySources = warehouseSources.filter((s) => s.uses_history_table)
-        if (historySources.length > 0) {
-            posthog.capture('data warehouse history table queried', {
-                query_kind: queryNode.kind,
+        if (captureQueryTelemetry) {
+            posthog.capture('query completed', {
+                query: telemetryQuery,
                 queryId,
+                duration: performance.now() - startTime,
                 is_cached: response?.is_cached,
-                data_warehouse_source_ids: historySources.map((s) => s.id),
-                data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+                uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
+                data_warehouse_source_ids: warehouseSources.map((s) => s.id),
+                data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
+                ...logParams,
+                ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
             })
+            const historySources = warehouseSources.filter((s) => s.uses_history_table)
+            if (historySources.length > 0) {
+                posthog.capture('data warehouse history table queried', {
+                    query_kind: queryNode.kind,
+                    queryId,
+                    is_cached: response?.is_cached,
+                    data_warehouse_source_ids: historySources.map((s) => s.id),
+                    data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+                })
+            }
         }
         return response
     } catch (e) {
         // A superseded query or navigating away mid-request aborts, not fails — skip so the
         // 'query failed' metric isn't drowned in cancellation noise.
-        if (!isAbortError(e)) {
+        if (captureQueryTelemetry && !isAbortError(e)) {
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
             const error = e as (Error & { status?: number; code?: string | null; queryId?: string }) | null
             posthog.capture('query failed', {

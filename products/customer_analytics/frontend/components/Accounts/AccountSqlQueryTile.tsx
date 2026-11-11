@@ -49,6 +49,7 @@ export function AccountSqlQueryTile({
         <Query
             query={node}
             context={{
+                dataTableCaptureQueryTelemetry: false,
                 insightProps: { dashboardItemId: `new-account-sql-query-${instanceId ?? 'tile'}-${externalId}` },
             }}
             readOnly

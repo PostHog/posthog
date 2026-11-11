@@ -428,6 +428,7 @@ export function initKea({
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
                     shouldReportApiFailure(error) &&
+                    logic.props.captureQueryTelemetry !== false &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
