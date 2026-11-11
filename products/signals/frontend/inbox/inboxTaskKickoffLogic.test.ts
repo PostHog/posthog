@@ -31,6 +31,7 @@ import {
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
+import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
 
@@ -178,6 +179,34 @@ describe('inboxTaskKickoffLogic', () => {
             logic.actions.openReportDiscussion(makeReport({ id: 'other-report' }), 'https://example.com/other')
             expect(logic.values.reportDiscussionDraft).toBe('')
             expect(logic.values.reportDiscussionIntent).toBeNull()
+        })
+
+        it.each([false, true])('shows the repository error without a picker (access mounted: %s)', async (mounted) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            const reportWithoutRepository = { ...report, repo_slug: null }
+            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
+            const unmount = mounted ? access.mount() : undefined
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': () => [
+                        400,
+                        {
+                            code: 'report_implementation_repository_unresolved',
+                            detail: 'Select a repository to continue.',
+                        },
+                    ],
+                },
+            })
+            try {
+                await expectLogic(logic, () =>
+                    logic.actions.createPrFromReport(reportWithoutRepository)
+                ).toFinishAllListeners()
+                expect(toast).toHaveBeenCalledWith('Select a repository to continue.')
+                expect(startedRuns).toHaveLength(0)
+            } finally {
+                unmount?.()
+                toast.mockRestore()
+            }
         })
 
         it.each(['implementation', 'discussion'] as const)(
@@ -365,6 +394,91 @@ describe('inboxTaskKickoffLogic', () => {
 
             expect(warmRequests).toHaveLength(0)
             expect(createdTasks[0]).not.toHaveProperty('branch')
+        })
+
+        it('lets the backend resolve a report with no saved repository', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.createPrFromReport({ ...report, repo_slug: null })
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(1)
+            expect(createdTasks[0]).not.toHaveProperty('repository')
+            expect(startedRuns).toHaveLength(1)
+            expect(logic.values.isCreatingPr).toBe(false)
+        })
+
+        it.each([
+            ['report_implementation_repository_unresolved', true],
+            ['invalid_input', false],
+            ['permission_denied', false],
+        ])('offers repository recovery only for an unresolved repository (%s)', async (code, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/integrations/': {
+                        results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                        next: null,
+                    },
+                },
+            })
+            const reportWithoutRepository = { ...report, repo_slug: null }
+            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
+            const unmount = access.mount()
+            try {
+                await waitFor(() => expect(access.values.loading).toBe(false))
+                useMocks({
+                    post: {
+                        '/api/projects/:team/tasks/': () => [
+                            400,
+                            { type: 'validation_error', code, attr: 'repository', detail: 'The request failed.' },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.createPrFromReport(reportWithoutRepository)
+                ).toFinishAllListeners()
+
+                expect(access.values.repositoryRequired).toBe(expected)
+                expect(startedRuns).toHaveLength(0)
+                expect(logic.values.isCreatingPr).toBe(false)
+                expect(logic.values.activeCreation).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it.each([201, 503])('saves the repository before task creation (status %i)', async (status) => {
+            const selections: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/signals/reports/:id/artefacts/': async ({ request }) => {
+                        expect(createdTasks).toHaveLength(0)
+                        selections.push((await request.json()) as Record<string, unknown>)
+                        return [status, status === 201 ? { id: 'selection-1' } : { detail: 'Try again.' }]
+                    },
+                },
+            })
+            await expectLogic(logic, () =>
+                logic.actions.createPrFromReport({ ...report, repo_slug: null }, 'Keep the API', 'example/app')
+            ).toFinishAllListeners()
+
+            expect(selections).toEqual([
+                {
+                    artefact_type: 'repo_selection',
+                    content: {
+                        repository: 'example/app',
+                        reason: 'Selected by the user for implementation.',
+                        research_context: null,
+                        autostart_eligible: false,
+                    },
+                },
+            ])
+            expect(createdTasks).toHaveLength(status === 201 ? 1 : 0)
+            expect(startedRuns).toHaveLength(status === 201 ? 1 : 0)
+            if (status === 201) {
+                expect(createdTasks[0]).not.toHaveProperty('repository')
+                expect(createdTasks[0].signal_report_task_relationship).toBe('implementation')
+            }
+            expect(logic.values.isCreatingPr).toBe(false)
         })
 
         it('reuses the warm run on submit instead of starting a second run', async () => {

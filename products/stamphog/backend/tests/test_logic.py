@@ -220,6 +220,8 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["admitted_bot"] == ""
+        assert context_for(admitted_bot="renovate[bot]")["admitted_bot"] == "renovate[bot]"
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:
@@ -375,6 +377,18 @@ class ReviewTriggerTests(SimpleTestCase):
             ("no_output", None, ReviewMode.ALL, "all"),
             ("empty_output", {}, ReviewMode.LABEL, "label"),
             ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+            (
+                "bot_admission_beats_label_mode",
+                {"bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.LABEL,
+                "bot_admission",
+            ),
+            (
+                "inbox_beats_bot_admission",
+                {"inbox_review": {"trigger": "inbox"}, "bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.ALL,
+                "self_driving",
+            ),
         ]
     )
     def test_an_unstamped_run_derives_live(

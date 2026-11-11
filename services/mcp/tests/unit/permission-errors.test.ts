@@ -8,6 +8,7 @@ import {
     handleToolError,
     PostHogApiError,
     PostHogPermissionError,
+    PostHogTransportError,
     PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
@@ -487,5 +488,33 @@ describe('handleToolError with API errors', () => {
             expect.objectContaining({ suppress_analytics: suppressAnalytics })
         )
         expect(result.isError).toBe(true)
+    })
+})
+
+describe('handleToolError with transport errors', () => {
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
+    it('reports the transport cause to error tracking but not to the agent', () => {
+        const error = new PostHogTransportError({
+            url: 'https://us.posthog.com/api/projects/2/insights/',
+            method: 'GET',
+            attempts: 3,
+            retryable: true,
+            cause: Object.assign(new TypeError('fetch failed'), {
+                cause: Object.assign(new Error('getaddrinfo ENOTFOUND us.posthog.com'), { code: 'ENOTFOUND' }),
+            }),
+        })
+
+        const result = handleToolError(wrapError('Failed to list insights', error), 'insights-list')
+
+        expect(captureException).toHaveBeenCalledWith(
+            expect.anything(),
+            undefined,
+            expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' })
+        )
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).not.toContain('ENOTFOUND')
     })
 })
