@@ -36,6 +36,9 @@ interface ReleaseLogicValues {
     flagsLoading: boolean
     flagsReady: boolean
     flagSearchResults: FeatureFlagApi[]
+    flagSearchResultsLoading: boolean
+    flagSearch: string
+    flagSearchFailed: boolean
     flagCount: number
     experiments: ExperimentBasicApi[]
     experimentsLoading: boolean
@@ -75,6 +78,7 @@ interface ReleaseLogicActions {
     loadFlagsFailure: (error: string) => { error: string }
     loadReleasesSuccess: (releases: ReleaseDTOApi[]) => { releases: ReleaseDTOApi[] }
     searchFlags: (search: string) => string
+    searchFlagsFailure: (error: string) => { error: string }
     loadFlagCount: () => void
     loadExperiments: () => void
     loadExperimentsSuccess: (experiments: ExperimentBasicApi[]) => { experiments: ExperimentBasicApi[] }
@@ -185,8 +189,13 @@ export const releaseLogic = kea<releaseLogicType>([
         releases: [
             [] as ReleaseDTOApi[],
             {
-                loadReleases: async () =>
-                    allPages((offset) => releasesList(String(values.currentProjectId), { limit: PAGE_SIZE, offset })),
+                loadReleases: async (_, breakpoint) => {
+                    const releases = await allPages((offset) =>
+                        releasesList(String(values.currentProjectId), { limit: PAGE_SIZE, offset })
+                    )
+                    breakpoint()
+                    return releases
+                },
                 setReleaseLocally: ({ id, changes }) =>
                     values.releases.map((release) =>
                         release.id === id
@@ -340,6 +349,8 @@ export const releaseLogic = kea<releaseLogicType>([
         decisionOnly: [false, { setDecisionOnly: (_, { decisionOnly }) => decisionOnly }],
         newReleaseOpen: [false, { setNewReleaseOpen: (_, { open }) => open }],
         creatingRelease: [false, { createRelease: () => true, createReleaseDone: () => false }],
+        flagSearch: ['', { searchFlags: (_, search) => search }],
+        flagSearchFailed: [false, { searchFlags: () => false, searchFlagsFailure: () => true }],
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
         earlyAccessReady: [false, { loadEarlyAccessFeaturesSuccess: () => true }],

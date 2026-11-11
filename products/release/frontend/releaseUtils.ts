@@ -613,23 +613,27 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         }
     }
     for (const change of changes) {
-        const failed = !!change.failure_reason && !!change.executed_at
-        const retrying = !!change.failure_reason && !change.executed_at
+        const denied = hasDeniedApprovalRequest(change as never)
+        const failed = !denied && !!change.failure_reason && !!change.executed_at
+        const retrying = !denied && !!change.failure_reason && !change.executed_at
         const flagKey = flagById.get(String(change.record_id))?.key
         events.push({
             key: `change-${change.id}`,
             date: change.executed_at ?? change.scheduled_at,
             kind: 'schedule',
-            title: failed
-                ? `Not applied: ${scheduledChangeLabel(change)}`
-                : retrying
-                  ? `Retrying: ${scheduledChangeLabel(change)}`
-                  : scheduledChangeLabel(change),
-            detail: failed
-                ? `${flagKey}, the change failed`
-                : retrying
-                  ? `${flagKey}, the last attempt failed and PostHog tries again`
-                  : flagKey,
+            title:
+                failed || denied
+                    ? `Not applied: ${scheduledChangeLabel(change)}`
+                    : retrying
+                      ? `Retrying: ${scheduledChangeLabel(change)}`
+                      : scheduledChangeLabel(change),
+            detail: denied
+                ? `${flagKey}, the approval was not given`
+                : failed
+                  ? `${flagKey}, the change failed`
+                  : retrying
+                    ? `${flagKey}, the last attempt failed and PostHog tries again`
+                    : flagKey,
             href: urls.featureFlag(Number(change.record_id)),
             upcoming: !change.executed_at,
         })

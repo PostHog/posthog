@@ -25,5 +25,8 @@ class Release(TeamScopedRootMixin):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [models.Index(fields=["team", "created_at", "id"], name="release_team_created_idx")]
+
     def __str__(self) -> str:
         return self.name

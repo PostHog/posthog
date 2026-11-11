@@ -1,12 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@posthog/quill'
+import {
+    Button,
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    Spinner,
+} from '@posthog/quill'
 
 import { releaseLogic } from './releaseLogic'
 import { ReleaseRow } from './releaseUtils'
 
 export function ReleaseLinkFlagCombobox({ row, placeholder }: { row: ReleaseRow; placeholder?: string }): JSX.Element {
-    const { flagSearchResults } = useValues(releaseLogic)
+    const { flagSearchResults, flagSearchResultsLoading, flagSearch, flagSearchFailed } = useValues(releaseLogic)
     const { linkFlag, searchFlags } = useActions(releaseLogic)
     const linked = new Set(row.flags.map((flag) => flag.id))
     const candidates = flagSearchResults.filter((flag) => !linked.has(flag.id) && !flag.archived)
@@ -28,7 +37,22 @@ export function ReleaseLinkFlagCombobox({ row, placeholder }: { row: ReleaseRow;
                 data-attr="release-link-flag"
             />
             <ComboboxContent>
-                <ComboboxEmpty>No flag matches that key.</ComboboxEmpty>
+                {flagSearchFailed && (
+                    <div className="flex items-center justify-between gap-2 p-2 text-xs">
+                        <span>The flags could not load.</span>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => searchFlags(flagSearch)}
+                            data-attr="release-link-flag-retry"
+                        >
+                            Try again
+                        </Button>
+                    </div>
+                )}
+                <ComboboxEmpty>
+                    {flagSearchFailed ? null : flagSearchResultsLoading ? <Spinner /> : 'No flag matches that key.'}
+                </ComboboxEmpty>
                 <ComboboxList>
                     {(flagId: number) => (
                         <ComboboxItem key={flagId} value={flagId} data-attr="release-link-flag-option">

@@ -16,7 +16,7 @@ from posthog.queryset_paging import select_page
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 
-from .. import logic
+from ..logic import releases as logic
 from ..models import Release
 from . import contracts
 

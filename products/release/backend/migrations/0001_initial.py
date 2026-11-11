@@ -62,6 +62,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "abstract": False,
+                "indexes": [models.Index(fields=["team", "created_at", "id"], name="release_team_created_idx")],
             },
         ),
     ]
