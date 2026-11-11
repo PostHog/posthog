@@ -204,6 +204,7 @@ export enum NodeKind {
     AccountsTableQuery = 'AccountsTableQuery',
     AccountUsersQuery = 'AccountUsersQuery',
     AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
+    AccountAgentActivityQuery = 'AccountAgentActivityQuery',
     BookActivityMatrixQuery = 'BookActivityMatrixQuery',
     BookActivityPeopleQuery = 'BookActivityPeopleQuery',
     BookActivityFirstsQuery = 'BookActivityFirstsQuery',
@@ -305,6 +306,7 @@ export type AnyDataNode =
     | AccountsQuery
     | AccountsTableQuery
     | AccountActivityMatrixQuery
+    | AccountAgentActivityQuery
     | BookActivityMatrixQuery
     | BookActivityPeopleQuery
     | BookActivityFirstsQuery
@@ -445,6 +447,7 @@ export type QuerySchema =
     | AccountsQuery
     | AccountsTableQuery
     | AccountActivityMatrixQuery
+    | AccountAgentActivityQuery
     | BookActivityMatrixQuery
     | BookActivityPeopleQuery
     | BookActivityFirstsQuery
@@ -3581,6 +3584,81 @@ export interface AccountActivityMatrixQuery extends DataNode<AccountActivityMatr
     weeks?: integer
     metricIds?: string[]
     rowLimit?: integer
+}
+
+export type AccountAgentToolAccess = 'read' | 'write' | 'other'
+
+export interface AccountAgentActivityBucket {
+    /** Week start, the same as `AccountActivityMatrixColumn.key`. */
+    column: string
+    agentCalls: integer
+    uiPageviews: integer
+}
+
+export interface AccountAgentActivityTotals {
+    agentCalls: integer
+    /** People with at least one agent call. */
+    agentPeople: integer
+    conversations: integer
+    errors: integer
+    reads: integer
+    writes: integer
+    uiPageviews: integer
+}
+
+export interface AccountAgentActivityTool {
+    /** Product key, the same as `BookActivityMatrixProduct.key`. */
+    product: string
+    /** The effective tool: the target of an `exec` call, or the tool name. */
+    tool: string
+    access: AccountAgentToolAccess
+    calls: integer
+    people: integer
+    conversations: integer
+    errors: integer
+}
+
+export interface AccountAgentActivityClient {
+    name: string
+    calls: integer
+    people: integer
+}
+
+export interface AccountAgentActivityIntent {
+    /** What the agent said it was doing, cut to 500 characters. */
+    intent: string
+    calls: integer
+    conversations: integer
+    lastSeen: string
+}
+
+export interface AccountAgentActivityResult {
+    columns: AccountActivityMatrixColumn[]
+    buckets: AccountAgentActivityBucket[]
+    totals: AccountAgentActivityTotals
+    products: BookActivityMatrixProduct[]
+    /** Most called tools first. */
+    tools: AccountAgentActivityTool[]
+    clients: AccountAgentActivityClient[]
+    /** Most frequent intents first, grouped by exact text. */
+    intents: AccountAgentActivityIntent[]
+    /** The tool, client or intent list reached its cap. */
+    truncated: boolean
+    emptyReason?: AccountActivityMatrixEmptyReason
+}
+
+export interface AccountAgentActivityQueryResponse extends AnalyticsQueryResponseBase {
+    results: AccountAgentActivityResult
+}
+
+export type CachedAccountAgentActivityQueryResponse = CachedQueryResponse<AccountAgentActivityQueryResponse>
+
+/** What AI agents did for one account: MCP tool calls by product and tool, clients, intents and a weekly trend. */
+export interface AccountAgentActivityQuery extends DataNode<AccountAgentActivityQueryResponse> {
+    kind: NodeKind.AccountAgentActivityQuery
+    accountId: string
+    /** Weeks to cover, ending with the current week. Defaults to 8, at most 26. */
+    weeks?: integer
 }
 
 export type BookActivityInterval = 'day' | 'week' | 'month'
