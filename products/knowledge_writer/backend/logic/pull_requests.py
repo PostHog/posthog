@@ -36,7 +36,7 @@ from .records import (
     publication_claim,
     publication_claim_owner,
     pull_request_json,
-    request_json,
+    stored_request,
 )
 from .routing import SOURCE_REPOSITORY
 
@@ -255,7 +255,7 @@ def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) ->
 def publish_claimed_pull_request(
     task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, reported_branches: list[str]
 ) -> str | None:
-    request = request_json.validate_python(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
+    request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
     github = docs_github(team_id, docs_owner, priority=Priority.CRITICAL)
     if github is None:

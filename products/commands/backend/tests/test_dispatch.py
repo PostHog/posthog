@@ -384,7 +384,7 @@ class TestDispatchCommentCommand(BaseTest):
             "Queued. The knowledge writer will open a docs pull request for this change."
         )
         task = tasks_facade.get_task_by_origin_key(
-            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
+            self.team.id, f"knowledge_writer:pull_request:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
         )
         assert task is not None
         assert "@octo asked: Mention the new flag" in task.description
@@ -403,7 +403,7 @@ class TestDispatchCommentCommand(BaseTest):
         assert github.replies[-1].endswith("The knowledge writer only runs on public repositories.")
         start_workflow.assert_not_called()
         assert not tasks_facade.get_task_by_origin_key(
-            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
+            self.team.id, f"knowledge_writer:pull_request:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
         )
 
     @parameterized.expand([("writer_project", True), ("another_project", False)])

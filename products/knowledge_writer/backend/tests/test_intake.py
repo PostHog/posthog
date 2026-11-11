@@ -12,9 +12,8 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
-from products.knowledge_writer.backend.adapters.registry import REGISTRY
+from products.knowledge_writer.backend.adapters.command_tag import CommandTagAdapter
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
-from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
@@ -140,7 +139,7 @@ def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 
 
 
 def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
+    verdict = CommandTagAdapter().assess(
         dataclasses.replace(
             COMMAND,
             pull_request_number=pull_request_number,
@@ -641,13 +640,11 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
 @pytest.mark.django_db
 def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, user, writer_env) -> None:
     verdict = _verdict()
-    renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
+    renewed_verdict = CommandTagAdapter().assess(
         dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
     )
-    later_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(dataclasses.replace(COMMAND, head_sha="eee111"))
-    after_refusal_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(COMMAND, head_sha="ddd222")
-    )
+    later_verdict = CommandTagAdapter().assess(dataclasses.replace(COMMAND, head_sha="eee111"))
+    after_refusal_verdict = CommandTagAdapter().assess(dataclasses.replace(COMMAND, head_sha="ddd222"))
 
     with (
         patch(FLAG_CHECK, return_value=True),

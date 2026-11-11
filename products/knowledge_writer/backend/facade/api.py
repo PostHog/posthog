@@ -6,11 +6,10 @@ import structlog
 from posthog.github.installations import installation_id
 
 from ...merge_check.sources import LandedChange, merged_pull_request_change
-from ..adapters.registry import REGISTRY
+from ..adapters.command_tag import CommandTagAdapter
 from ..logic import intake
 from ..settings import configured_writer_team_id, source_repositories, writer_settings
 from .contracts import DocsCommandRequest, IntakeOutcome
-from .enums import DocsRequestSource
 
 logger = structlog.get_logger(__name__)
 
@@ -21,7 +20,7 @@ def writer_team_id() -> int | None:
 
 
 def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) -> IntakeOutcome:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(command)
+    verdict = CommandTagAdapter().assess(command)
     return intake.submit(verdict, team_id=team_id)
 
 

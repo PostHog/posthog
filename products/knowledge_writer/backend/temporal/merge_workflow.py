@@ -22,7 +22,7 @@ from posthog.temporal.common.utils import close_db_connections
 from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import LandedChange, UnexpectedGitHubResponse
-from ..adapters.registry import REGISTRY
+from ..adapters.repo_merge import RepoMergeAdapter
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource, MergeCheckFailure
 from ..logic import intake
@@ -54,6 +54,10 @@ class MergeCheckInputs:
     repository: str = LEGACY_MERGE_CHECK_REPOSITORY
     pull_request_number: int | None = None
     installation_id: str | None = None
+    origin: DocsRequestSource = DocsRequestSource.REPO_MERGE
+    requested_by: str | None = None
+    requested_by_user_id: int | None = None
+    note: str = ""
 
 
 class MergeCheckNotAdmitted(Exception):
@@ -83,7 +87,7 @@ def record_unchecked_merge(inputs: MergeCheckInputs, *, reason: str, failure_rea
         failure_reason=failure_reason,
     )
     verdict = AdapterVerdict(
-        source=DocsRequestSource.REPO_MERGE,
+        source=inputs.origin,
         subject_id=inputs.commit_sha,
         needs_docs=False,
         reason=reason,
@@ -140,7 +144,7 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         capture_exception(error, {"commit_sha": inputs.commit_sha})
         record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
         return
-    intake.submit(REGISTRY[DocsRequestSource.REPO_MERGE].assess(report), team_id=inputs.team_id)
+    intake.submit(RepoMergeAdapter().assess(report, inputs), team_id=inputs.team_id)
 
 
 @activity.defn

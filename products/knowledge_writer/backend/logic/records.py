@@ -50,3 +50,10 @@ class WriterPullRequest:
 
 request_json = TypeAdapter(DocsRequest)
 pull_request_json = TypeAdapter(WriterPullRequest)
+
+
+def stored_request(entry: object) -> DocsRequest:
+    if isinstance(entry, dict):
+        # TODO: remove once writer tasks stored before skip_judge was dropped have all published.
+        entry = {key: value for key, value in entry.items() if key != "skip_judge"}
+    return request_json.validate_python(entry)

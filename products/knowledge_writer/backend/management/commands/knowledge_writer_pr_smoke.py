@@ -18,9 +18,8 @@ from posthog.utils import initialize_self_capture_api_token
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
-from ...adapters.registry import REGISTRY
+from ...adapters.command_tag import CommandTagAdapter
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
-from ...facade.enums import DocsRequestSource
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
@@ -229,7 +228,7 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
 
 
 def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(source)
+    verdict = CommandTagAdapter().assess(source)
     return dataclasses.replace(verdict, request=smoke_request(verdict, section, smoke_suffix))
 
 
@@ -294,9 +293,7 @@ def run_writer_request(
     smoke_suffix: str,
     branches: list[str],
 ) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(
-        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, smoke_suffix
-    )
+    request = smoke_request(CommandTagAdapter().assess(unreachable_source(writer.user_id)), section, smoke_suffix)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)

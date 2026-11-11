@@ -1,6 +1,6 @@
 # Knowledge writer
 
-- `adapters/`: turn a source event (the docs command, …) into a docs request.
+- `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds the verdict from a merge check report, and `command_tag.py` builds the docs command's until that command runs the merge check.
 - `logic/intake.py`: caps, section routing, and the start-or-join decision.
 - `logic/launch.py`: creates the writer task.
 - `logic/pull_requests.py`: opens a draft docs pull request, or comments a joined request's source on the open one.
