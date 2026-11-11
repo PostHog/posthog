@@ -31,6 +31,12 @@ def sync_subscriber_destinations(alert: AlertConfiguration) -> bool:
     )
 
 
+def sync_alert_subscriber_destinations(*, team_id: int, alert_id: UUID) -> bool:
+    """`sync_subscriber_destinations` for an alert named by id. False when the alert or its copy is gone."""
+    alert = AlertConfiguration.objects.select_related("insight").filter(team_id=team_id, id=alert_id).first()
+    return alert is not None and sync_subscriber_destinations(alert)
+
+
 def remove_member_subscriptions(*, user_id: int, organization_id: UUID) -> int:
     """Unsubscribes a user who left an organization from its alerts, and returns how many they had."""
     subscriptions = AlertSubscription.objects.filter(
