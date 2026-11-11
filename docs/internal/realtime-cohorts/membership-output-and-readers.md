@@ -119,7 +119,7 @@ Versions are ordered only within one processor worker's tenure, as the field lis
 After a restart with a clock that went back, the guard can reject a newer change as stale.
 Recording progress in the same transaction as the rows means progress never claims rows that rolled back.
 
-A change with no `last_updated`, or with a non-empty one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and `cdp_cohort_membership_off_format_versions` counts it.
+A change with no `last_updated`, or with a non-empty one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and `cdp_cohort_membership_versionless_changes` counts it.
 A reconcile row like that also drags its run's snapshot minimum to the lowest possible value, so that run sweeps nothing.
 The consumer checks only the format, and it skips the check for an empty string.
 So an empty string, or a value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, reaches the database and fails the whole batch.

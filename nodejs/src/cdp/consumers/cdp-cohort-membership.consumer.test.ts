@@ -613,7 +613,7 @@ describe('CdpCohortMembershipConsumer', () => {
             ['no version', {}],
         ])('should accept a change with %s as versionless, and count it', async (_label, version) => {
             const versionlessChanges = async (): Promise<number> =>
-                (await register.getSingleMetric('cdp_cohort_membership_off_format_versions')!.get()).values[0].value
+                (await register.getSingleMetric('cdp_cohort_membership_versionless_changes')!.get()).values[0].value
             const before = await versionlessChanges()
             const message = createKafkaMessage(
                 createCohortMembershipEvent({ person_id: personId1, cohort_id: 456, team_id: teamId, ...version }),

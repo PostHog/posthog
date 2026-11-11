@@ -43,7 +43,7 @@ function membershipClusterId(): string {
 }
 
 const versionlessChanges = new Counter({
-    name: 'cdp_cohort_membership_off_format_versions',
+    name: 'cdp_cohort_membership_versionless_changes',
     help: 'Membership changes accepted as versionless because their version stamp was missing or broke the producer contract',
 })
 
