@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { IconCalendar, IconFilter, IconLineGraph, IconPulse } from '@posthog/icons'
+import { IconCalendar, IconLineGraph, IconPulse } from '@posthog/icons'
 import { Button, EmptyContent, EmptyDescription, EmptyHeader } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -25,7 +25,7 @@ const REASON_ICONS: Record<EmptyStateReason['kind'], JSX.Element> = {
     'never-sent': <IconPulse />,
     'last-seen-before': <IconCalendar />,
     'last-seen-after': <IconCalendar />,
-    filtered: <IconFilter />,
+    filtered: <IconLineGraph />,
     unknown: <IconLineGraph />,
 }
 

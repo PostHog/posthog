@@ -80,6 +80,9 @@ const RELATIVE_RANGE_DAYS = [7, 14, 30, 90, 180, 365]
 export function rangeReaching(lastSeen: Dayjs, now: Dayjs = dayjs()): { dateFrom: string; label: string } {
     const daysNeeded = now.diff(lastSeen, 'day') + 7
     const days = RELATIVE_RANGE_DAYS.find((option) => option >= daysNeeded)
+    if (days === 365) {
+        return { dateFrom: '-1y', label: 'Show past year' }
+    }
     if (days) {
         return { dateFrom: `-${days}d`, label: `Show last ${days} days` }
     }

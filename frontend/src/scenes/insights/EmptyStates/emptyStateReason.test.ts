@@ -20,6 +20,7 @@ describe('emptyStateReason', () => {
 
     test.each([
         ['2026-11-01', { dateFrom: '-30d', label: 'Show last 30 days' }],
+        ['2026-02-11', { dateFrom: '-1y', label: 'Show past year' }],
         ['2024-06-15', { dateFrom: '2024-06-08', label: 'Show from 8 Jun 2024' }],
     ])('rangeReaching %s', (lastSeen, expected) => {
         expect(rangeReaching(dayjs(lastSeen), dayjs('2026-11-10'))).toEqual(expected)
