@@ -34,7 +34,7 @@ requires-dist = ["django>=5.2.8", "pygments>=2.20.0,<3.0.0", "scim2-filter-parse
 
 [[manifest.dependency-metadata]]
 name = "xgboost"
-version = "3.4.1"
+version = "3.2.0"
 requires-dist = ["numpy", "scipy"]
 
 [[package]]
