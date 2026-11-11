@@ -54,7 +54,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
+import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -2338,6 +2338,24 @@ describe('EmailService', () => {
                 await service.executeSendEmail(workflowSend())
 
                 await waitForExpect(() => expect(activationEvents()).toEqual([messageSent(false)]))
+            })
+
+            it('reports no email sent beyond the pending limit while member reads are in flight', async () => {
+                const pending = Array.from({ length: MAX_PENDING_EMAIL_REPORTS }, (_, index) =>
+                    workflowsActivationReporter.reportEmailSent(team.id, `flow-${index}`, [memberEmail])
+                )
+                const overLimit = workflowsActivationReporter.reportEmailSent(team.id, 'flow-over-limit', [
+                    'outsider@example.com',
+                ])
+                await Promise.all([...pending, overLimit])
+
+                expect(await settledActivationEvents()).toEqual([
+                    {
+                        team: team.uuid,
+                        event: 'workflows message sent',
+                        properties: { workflow_id: 'flow-0', channel: 'email', recipient_outside_org: false },
+                    },
+                ])
             })
         })
 
