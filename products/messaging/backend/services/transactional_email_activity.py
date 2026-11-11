@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -79,18 +81,16 @@ def get_transactional_email_activity(
 
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     window = timedelta(days=ACTIVITY_WINDOW_DAYS)
-    distinct_ids = _recipient_distinct_ids(team.id, detail.distinct_id)
-    before = _events(
-        team, user, distinct_ids, sent_at - window, sent_at, newest_first=True, limit=ACTIVITY_BEFORE_LIMIT
-    )
-    after = _events(team, user, distinct_ids, sent_at, sent_at + window, newest_first=False, limit=ACTIVITY_AFTER_LIMIT)
+    recipient = _recipient_match(team.id, detail.distinct_id)
+    before = _events(team, user, recipient, sent_at - window, sent_at, newest_first=True, limit=ACTIVITY_BEFORE_LIMIT)
+    after = _events(team, user, recipient, sent_at, sent_at + window, newest_first=False, limit=ACTIVITY_AFTER_LIMIT)
     shown_before = list(reversed(before[:ACTIVITY_BEFORE_LIMIT]))
     shown_after = after[:ACTIVITY_AFTER_LIMIT]
     shown_before_sessions = {event.session_id for event in shown_before if event.session_id}
     started_before = shown_before_sessions | _sessions_with_events_in(
         team,
         user,
-        distinct_ids,
+        recipient,
         sent_at - window,
         sent_at,
         {event.session_id for event in shown_after if event.session_id} - shown_before_sessions,
@@ -106,17 +106,26 @@ def get_transactional_email_activity(
     )
 
 
-def _recipient_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
+def _recipient_match(team_id: int, distinct_id: str) -> ast.Expr:
     # A recipient without a person profile still has events under the send's own distinct ID.
     person = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=MAX_DISTINCT_IDS)
-    others = [other for other in (person.distinct_ids if person else []) if other != distinct_id]
-    return [distinct_id, *others]
+    distinct_ids = person.distinct_ids if person else []
+    if len(distinct_ids) >= MAX_DISTINCT_IDS:
+        # The list may be cut short, so match every ID of the person instead.
+        return parse_expr(
+            "person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id = {distinct_id})",
+            placeholders={"distinct_id": ast.Constant(value=distinct_id)},
+        )
+    others = [other for other in distinct_ids if other != distinct_id]
+    return parse_expr(
+        "distinct_id IN {distinct_ids}", placeholders={"distinct_ids": ast.Constant(value=[distinct_id, *others])}
+    )
 
 
 def _events(
     team: Team,
     user: User | None,
-    distinct_ids: list[str],
+    recipient: ast.Expr,
     start: datetime,
     end: datetime,
     *,
@@ -128,7 +137,7 @@ def _events(
         f"""
         SELECT uuid, event, timestamp, properties.$current_url, properties.$session_id
         FROM events
-        WHERE distinct_id IN {{distinct_ids}}
+        WHERE {{recipient}}
           AND timestamp >= {{start}} AND timestamp < {{end}}
           AND event NOT IN {{hidden}}
         ORDER BY timestamp {"DESC" if newest_first else "ASC"}
@@ -137,7 +146,7 @@ def _events(
         team=team,
         user=user,
         placeholders={
-            "distinct_ids": ast.Constant(value=distinct_ids),
+            "recipient": clone_expr(recipient),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "hidden": ast.Constant(value=list(HIDDEN_EVENTS)),
@@ -161,7 +170,7 @@ def _events(
 def _sessions_with_events_in(
     team: Team,
     user: User | None,
-    distinct_ids: list[str],
+    recipient: ast.Expr,
     start: datetime,
     end: datetime,
     session_ids: set[str],
@@ -173,14 +182,14 @@ def _sessions_with_events_in(
         """
         SELECT DISTINCT properties.$session_id
         FROM events
-        WHERE distinct_id IN {distinct_ids}
+        WHERE {recipient}
           AND timestamp >= {start} AND timestamp < {end}
           AND properties.$session_id IN {session_ids}
         """,
         team=team,
         user=user,
         placeholders={
-            "distinct_ids": ast.Constant(value=distinct_ids),
+            "recipient": clone_expr(recipient),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "session_ids": ast.Constant(value=sorted(session_ids)),

@@ -277,7 +277,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         else:
             assert (response.json()["template_id"], response.json()["template_name"]) == (None, "")
 
-    def test_shows_what_the_recipient_did_around_the_send(self, _flag):
+    @parameterized.expand([("listed_ids", 100), ("too_many_ids_to_list", 1)])
+    def test_shows_what_the_recipient_did_around_the_send(self, _flag, _name, max_distinct_ids):
         create_person(team=self.team, distinct_ids=["jane", "jane-anonymous"])
         create_person(team=self.team, distinct_ids=["someone-else"])
         message_id = self._send(3 * 24 * 60, "jane@example.com", [("sent", 1, ""), ("clicked", 300, "")])
@@ -303,7 +304,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        response = self.client.get(self._url(f"{message_id}/activity/"))
+        with patch(
+            "products.messaging.backend.services.transactional_email_activity.MAX_DISTINCT_IDS", max_distinct_ids
+        ):
+            response = self.client.get(self._url(f"{message_id}/activity/"))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
