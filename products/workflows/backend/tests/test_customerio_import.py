@@ -559,6 +559,11 @@ class TestCustomerioConditions(SimpleTestCase):
                 {"and": [{"message": {"type": "opened"}}]},
                 ["message activity, such as opened or clicked"],
             ),
+            (
+                "an operator that is not a string",
+                {"and": [{"attribute": {"field": "plan", "operator": ["eq"], "value": "trial"}}]},
+                ["plan (an unsupported operator)"],
+            ),
             ("no rules", {}, ["the segment has no rules"]),
         ]
     )
@@ -791,6 +796,26 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert {"key": "id", "type": "cohort", "operator": "in", "value": cohort.id} in branch["config"]["conditions"][
             0
         ]["filters"]["properties"]
+
+        # A caller without cohort access must not learn a teammate's name for the cohort.
+        Cohort.objects.filter(pk=cohort.pk).update(name="Renamed by a teammate")
+        renamed = self._segment_import()
+        Cohort.objects.filter(pk=cohort.pk).update(is_static=True)
+        made_static = self._segment_import()
+
+        assert [item["status"] for item in renamed["segment_cohorts"]] == ["reused"]
+        assert [item["status"] for item in made_static["segment_cohorts"]] == ["not_converted"]
+        notes = [note["message"] for run in (renamed, made_static) for r in run["results"] for note in r["notes"]]
+        assert notes and not any("Renamed by a teammate" in note for note in notes)
+
+    def test_segment_name_longer_than_a_cohort_name_is_cut(self) -> None:
+        rules = {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "trial"}}]}
+        segment = {"id": "16", "name": "x" * 450, "type": "dynamic", "conditions": rules}
+
+        response = self._segment_import(segments=[segment])
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["created"]
+        assert [cohort.name for cohort in self._imported_cohorts()] == ["x" * 400]
 
     @parameterized.expand(
         [

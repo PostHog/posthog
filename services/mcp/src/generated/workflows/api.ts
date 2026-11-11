@@ -1543,6 +1543,8 @@ export const WorkflowImportsCreateParams = () => zod.object({
 })
 
 export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodySegmentsItemIdMax = 200
+
 export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = () => zod.object({
@@ -1606,7 +1608,7 @@ export const WorkflowImportsCreateBody = () => zod.object({
     segments: zod
         .array(
             zod.object({
-                id: zod.string().describe("The segment's id."),
+                id: zod.string().max(workflowImportsCreateBodySegmentsItemIdMax).describe("The segment's id."),
                 name: zod.string().describe("The segment's name."),
                 type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
                 conditions: zod

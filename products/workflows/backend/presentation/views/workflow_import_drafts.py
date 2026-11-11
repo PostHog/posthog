@@ -6,7 +6,7 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -132,6 +132,7 @@ class _ConvertedSegments:
 
 
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
+MAX_COHORT_NAME_LENGTH = 400
 _UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
 
 
@@ -209,7 +210,7 @@ def _convert_segments(
 
 
 def _cohort_name(segment_id: str, segment: ImportSegment) -> str:
-    return segment.name or f"Customer.io segment {segment_id}"
+    return (segment.name or f"Customer.io segment {segment_id}")[:MAX_COHORT_NAME_LENGTH]
 
 
 @frozen
@@ -233,12 +234,21 @@ class _CohortCreation:
             self.unavailable = _cohort_triggers_unavailable(self.team, self.user)
         if self.unavailable:
             return _not_converted(label, self.unavailable)
+        # Two imports of the same segment at once would otherwise both miss the lookup and make two cohorts.
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"workflow-import-segment-cohort:{self.team.id}:{segment_id}"],
+            )
+            return self._reuse_or_create(segment_id, segment, label)
+
+    def _reuse_or_create(self, segment_id: str, segment: ImportSegment, label: str) -> _SegmentOutcome:
         existing = find_cohort_by_description_prefix(team_id=self.team.id, prefix=_segment_marker(segment_id))
         if existing is not None:
             if not existing.is_realtime:
                 return _not_converted(
                     label,
-                    f'The cohort "{existing.name}" ({existing.id}) that an earlier import made from it no longer '
+                    f"The cohort {existing.id} that an earlier import made from it no longer "
                     "updates in real time, so the workflow doesn't use it.",
                     existing.id,
                 )
@@ -247,7 +257,7 @@ class _CohortCreation:
                 cohort_id=existing.id,
                 note=ImportNote(
                     level=WorkflowImportNoteLevel.APPROXIMATED,
-                    message=f'Uses the cohort "{existing.name}" ({existing.id}) that an earlier import made from '
+                    message=f"Uses the cohort {existing.id} that an earlier import made from "
                     f"Customer.io segment {label}. Check it still matches the segment.",
                 ),
             )

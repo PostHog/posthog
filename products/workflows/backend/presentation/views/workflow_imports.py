@@ -77,7 +77,7 @@ class CustomerioSenderIdentitySerializer(serializers.Serializer):
 
 
 class CustomerioSegmentSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="The segment's id.")
+    id = serializers.CharField(max_length=MAX_SOURCE_ID_LENGTH, help_text="The segment's id.")
     name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
     type = serializers.CharField(help_text="The segment's type: `dynamic`, or `static` for a hand-made list.")
     conditions = serializers.JSONField(

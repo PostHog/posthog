@@ -226,13 +226,18 @@ def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CreatedCo
     """The oldest cohort of the team that is not deleted and whose description starts with `prefix`."""
     cohort = (
         Cohort.objects.filter(team_id=team_id, deleted=False, description__startswith=prefix)
-        .only("id", "name", "cohort_type")
+        .only("id", "name", "cohort_type", "is_static")
         .order_by("id")
         .first()
     )
     if cohort is None:
         return None
-    return CreatedCohort(id=cohort.id, name=cohort.name or "", is_realtime=cohort.cohort_type == CohortType.REALTIME)
+    # A cohort switched to static keeps its realtime type, but it no longer updates.
+    return CreatedCohort(
+        id=cohort.id,
+        name=cohort.name or "",
+        is_realtime=cohort.cohort_type == CohortType.REALTIME and not cohort.is_static,
+    )
 
 
 def create_cohort_from_filters(

@@ -82,6 +82,9 @@ class _Translation:
         if attribute is not node and attribute.get("inverse"):
             negate = not negate
         operator = attribute.get("operator") or "eq"
+        if not isinstance(operator, str):
+            self.untranslated.append(f"{attribute.get('field') or 'an attribute'} (an unsupported operator)")
+            return []
         description = conditions.describe({**attribute, "operator": operator, "inverse": negate})
         if operator not in _COHORT_OPERATORS | _ABSOLUTE_DATE_OPERATORS:
             reason = "a relative date" if operator in ("timestamp_gt", "timestamp_lt") else "an unsupported operator"

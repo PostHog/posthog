@@ -32133,7 +32133,10 @@ export namespace Schemas {
     }
 
     export interface CustomerioSegment {
-      /** The segment's id. */
+      /**
+         * The segment's id.
+         * @maxLength 200
+         */
       id: string;
       /** The segment's name. */
       name: string;
