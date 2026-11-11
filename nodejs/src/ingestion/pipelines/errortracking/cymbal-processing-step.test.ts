@@ -70,7 +70,6 @@ describe('createCymbalProcessingStep', () => {
                     uuid: 'uuid-1',
                     event: '$exception',
                     team_id: 123,
-                    distinct_id: 'user-123',
                 }),
             }),
             expect.objectContaining({

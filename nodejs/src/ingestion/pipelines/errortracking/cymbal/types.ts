@@ -49,8 +49,6 @@ export interface CymbalRequest {
     uuid: string
     event: string
     team_id: number
-    /** Cymbal counts repeated exceptions per sender, so it needs to know who sent the event. */
-    distinct_id?: string
     timestamp: string
     properties: Record<string, any>
 }
