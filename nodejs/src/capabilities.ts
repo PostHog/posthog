@@ -222,7 +222,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.ai_research_v4_image_fetch:
         case PluginServerMode.ai_research_v4_image_fetch_retry:
-        case PluginServerMode.ai_research_v4_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }
