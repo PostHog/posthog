@@ -256,9 +256,18 @@ def _false_without_group(expr: ast.Expr) -> bool:
         if _has_nested_logic(expr.left) or _has_nested_logic(expr.right):
             return False
         # The side without fields must be a literal: a call such as `toInt('invalid')` can be null, and null equals null.
+        # The field side must be null whenever the group is missing, which `(group_0.properties.x, 'a').2` is not.
         if _reads_fields(expr.left):
-            return _is_literal(expr.right)
-        return _reads_fields(expr.right) and _is_literal(expr.left)
+            return _propagates_missing_group(expr.left) and _is_literal(expr.right)
+        return _propagates_missing_group(expr.right) and _is_literal(expr.left)
+    return False
+
+
+def _propagates_missing_group(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Field):
+        return True
+    if isinstance(expr, ast.Call) and expr.name in _KEY_SAFE_CALLS and expr.args:
+        return _propagates_missing_group(expr.args[0]) and all(_is_literal(arg) for arg in expr.args[1:])
     return False
 
 

@@ -155,6 +155,7 @@ class TestGroupKeyResolver(BaseTest):
             ("two_properties_compared", "group_0.properties.a = group_0.properties.b", None),
             ("nested_comparison", "(group_0.properties.plan = 'pro') = false", None),
             ("null_producing_call", "toInt(group_0.properties.mrr) = toInt('invalid')", None),
+            ("tuple_projection", "(group_0.properties.plan, 'pro').2 = 'pro'", None),
             # Anything outside one group type's properties needs the event row, so it keeps the join.
             ("mixes_event_properties", "group_0.properties.plan = 'pro' AND properties.$browser = 'Chrome'", None),
             ("two_group_types", "group_0.properties.plan = 'pro' OR group_1.properties.plan = 'pro'", None),
