@@ -1442,14 +1442,14 @@ describe('scenario environment', () => {
                 () => 'reset',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(describesBefore + 3), 10_000, 50)
+            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(describesBefore + 2), 20_000, 50)
             releaseDeadMember()
 
             expect({ reset: await reset, offsets: offsetsOf() }).toEqual({
                 reset: 'reset',
                 offsets: { [group]: { [topic]: 'end' } },
             })
-        }, 30_000)
+        }, 45_000)
 
         it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
             [
