@@ -631,8 +631,9 @@ describe('scenario environment', () => {
             }
             const verb = positionals.join(' ')
             if (verb === 'wait') {
-                if (flags.timeout === '0') {
-                    process.exit(stack.ready ? 0 : stack.running ? 2 : 3)
+                if (flags.timeout !== undefined) {
+                    const answers = stack.running && !(stack.busy && Number(flags.timeout) <= 30)
+                    process.exit(!answers ? 3 : stack.ready ? 0 : 2)
                 }
                 if (!stack.running) {
                     fail('No stack runs')
@@ -736,7 +737,7 @@ describe('scenario environment', () => {
         const deadMemberLeftAt = (): number => Number(readFileSync(path.join(fakes, 'dead-member-leaves-at'), 'utf8'))
         const startedAt = (role: Role): number =>
             Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
-        const writeStack = (stack: { running: boolean; ready: boolean }): void =>
+        const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -879,8 +880,13 @@ describe('scenario environment', () => {
             })
         }, 30_000)
 
-        it.each<[string, { running: boolean; ready: boolean }, string[]]>([
+        it.each<[string, { running: boolean; ready: boolean; busy?: boolean }, string[]]>([
             ['a running stack', { running: true, ready: true }, STACK.templates],
+            [
+                'a running stack whose phrocs answers slowly, without starting it again',
+                { running: true, ready: true, busy: true },
+                STACK.templates,
+            ],
             [
                 'a stack that is still starting, without starting it again',
                 { running: true, ready: false },
