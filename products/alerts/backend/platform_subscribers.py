@@ -11,10 +11,10 @@ from uuid import UUID
 from django.db import transaction
 
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
-from products.alerts_platform.backend.facade.api import remove_subscriber, set_subscriber_destinations
+from products.alerts.backend.tasks.tasks import remove_departed_subscriber
+from products.alerts_platform.backend.facade.api import set_subscriber_destinations
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 
 # What a subscriber hears today: a firing and a failed check. An insight alert sends no resolve.
@@ -56,10 +56,12 @@ def remove_member_subscriptions(*, user_id: int, organization_id: UUID) -> int:
         user_id=user_id, alert_configuration__team__organization_id=organization_id
     )
     deleted, _ = subscriptions.delete()
-    team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
-    # After the removal commits, so its copies are locked one at a time rather than all at once
-    # inside the membership delete. That covers alerts with no insight row, which have no subscription.
-    transaction.on_commit(lambda: remove_subscriber(team_ids=team_ids, user_id=user_id), robust=True)
+    # A background task with retries, after the removal commits: the scan reads every subscriber
+    # destination of the organization's alerts, including alerts with no insight row, which have no
+    # subscription to delete here.
+    transaction.on_commit(
+        lambda: remove_departed_subscriber.delay(organization_id=str(organization_id), user_id=user_id)
+    )
     return deleted
 
 
