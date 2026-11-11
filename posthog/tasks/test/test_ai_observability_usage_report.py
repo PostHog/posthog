@@ -804,7 +804,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
         self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 1)
 
-        # Instrumentation counts for team 2: the 2 UUID-distinct_id generations above are unidentified.
         self._create_ai_events(
             team_2,
             "user@example.com",

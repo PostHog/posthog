@@ -124,8 +124,6 @@ class TeamMetrics:
     ai_generation_summary_count: int = 0
     ai_trace_clusters_count: int = 0
     ai_generation_clusters_count: int = 0
-
-    # Instrumentation counts, on $ai_generation only
     ai_generation_with_session_count: int = 0
     ai_generation_identified_count: int = 0
     ai_generation_with_tool_calls_count: int = 0
@@ -386,7 +384,6 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_hog_evaluation_count += row[29] or 0
             metrics.ai_sentiment_evaluation_count += row[30] or 0
 
-            # Instrumentation counts (indices 31-34)
             metrics.ai_generation_with_session_count += row[31] or 0
             metrics.ai_generation_identified_count += row[32] or 0
             metrics.ai_generation_with_tool_calls_count += row[33] or 0
