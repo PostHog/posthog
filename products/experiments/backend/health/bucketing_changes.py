@@ -12,7 +12,7 @@ from products.feature_flags.backend.facade.edits import BucketingChange, Bucketi
 
 
 class BucketingChangeShape(StrEnum):
-    # pinned: the finding's subcodes. The page sends them as `finding_variant` on the health finding events.
+    # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
     KEY_CHANGED = "key_changed"
     AGGREGATION_CHANGED = "aggregation_changed"
     BUCKETING_IDENTIFIER_CHANGED = "bucketing_identifier_changed"

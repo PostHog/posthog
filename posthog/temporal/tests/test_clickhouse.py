@@ -23,6 +23,8 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
+    ClickHouseUnknownTableError,
+    ClickHouseUserQueryError,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -192,6 +194,26 @@ def _mock_internal_session_post(return_value):
             "Code: 279. DB::Exception: All replicas are stale: While executing Remote. (ALL_REPLICAS_ARE_STALE) (version x.x.x.x (official build))",
             ClickHouseAllReplicasAreStaleError,
         ),
+        (
+            "Code: 60. DB::Exception: Table posthog.missing_table does not exist. (UNKNOWN_TABLE)",
+            ClickHouseUnknownTableError,
+        ),
+        (
+            "Code: 8. DB::Exception: Cannot find column in source stream. (THERE_IS_NO_COLUMN) (version x.x.x.x (official build))",
+            ClickHouseError,
+        ),
+        (
+            "Code: 215. DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys. (NOT_AN_AGGREGATE) (version x.x.x.x (official build))",
+            ClickHouseUserQueryError,
+        ),
+        (
+            "Code: 48. DB::Exception: Correlated subqueries are not supported with remote tables. (NOT_IMPLEMENTED) (version x.x.x.x (official build))",
+            ClickHouseUserQueryError,
+        ),
+        (
+            "Code: 48. DB::Exception: Conditional functions with different Decimal scales. (NOT_IMPLEMENTED) (version x.x.x.x (official build))",
+            ClickHouseError,
+        ),
     ],
     ids=[
         "MEMORY_LIMIT_EXCEEDED",
@@ -199,15 +221,21 @@ def _mock_internal_session_post(return_value):
         "TOO_MANY_SIMULTANEOUS_QUERIES",
         "TIMEOUT_EXCEEDED",
         "ALL_REPLICAS_ARE_STALE",
+        "UNKNOWN_TABLE",
+        "THERE_IS_NO_COLUMN",
+        "NOT_AN_AGGREGATE",
+        "NOT_IMPLEMENTED_user_caused_shape",
+        "NOT_IMPLEMENTED_other_shape",
     ],
 )
 def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):
     """Server-side ClickHouse error codes map to the matching client exception class."""
     mock_response = MagicMock(status_code=500, text=error_text)
     with _mock_internal_session_post(mock_response):
-        with pytest.raises(expected_exception):
+        with pytest.raises(ClickHouseError) as error_info:
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
+    assert type(error_info.value) is expected_exception
 
 
 def test_post_query_disables_http_compression(clickhouse_client):

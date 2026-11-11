@@ -300,6 +300,9 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 # walk returns the channel's full history before the deltaLink) can't hammer Graph
 # in a single run. Remaining pages resume on subsequent every-minute runs.
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
+# Short enough that a membership fix in Teams takes effect within the hour, long
+# enough that a channel the admin cannot read warns hourly instead of every minute.
+TEAMS_SHARED_CHANNEL_DENIAL_BACKOFF = timedelta(hours=1)
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
 TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
 # Graph list-replies caps $top at 50; larger values return 400 Bad Request.
@@ -318,6 +321,17 @@ TEAMS_REPLIES_WATERMARK_LOOKBACK = timedelta(minutes=5)
 # fresh activity (so this is naturally traffic-bounded), but a pathological burst across
 # many threads shouldn't fan out into unbounded Graph /replies calls in a single run.
 TEAMS_REPLIES_MAX_DELTA_TRIGGERED_PER_CHANNEL = 50
+
+
+def _channel_denial_is_active(sync: TeamConversationsTeamsChannelSync) -> bool:
+    return sync.denied_until is not None and sync.denied_until > timezone.now()
+
+
+def _record_channel_denial(sync: TeamConversationsTeamsChannelSync) -> None:
+    now = timezone.now()
+    sync.denied_until = now + TEAMS_SHARED_CHANNEL_DENIAL_BACKOFF
+    sync.last_polled_at = now
+    sync.save(update_fields=["denied_until", "last_polled_at", "updated_at"])
 
 
 def _sync_one_ticket_thread_replies(
@@ -495,6 +509,13 @@ def _sync_shared_channel_thread_replies(
     is pulled the same minute even when the ticket isn't in the oldest-synced window.
     """
     sync = TeamConversationsTeamsChannelSync.objects.for_team(team.id).filter(channel_id=channel_id).first()
+    if sync and _channel_denial_is_active(sync):
+        logger.debug(
+            "poll_teams_shared_channel_replies_denied_backoff",
+            team_id=team.id,
+            channel_id=channel_id,
+        )
+        return
     if not sync or not sync.primed:
         logger.debug(
             "poll_teams_shared_channel_replies_not_primed",
@@ -582,17 +603,31 @@ def _poll_one_shared_channel(
         defaults={"team": team, "teams_team_id": teams_team_id},
     )
 
-    # On first encounter, verify via Graph that the channel is actually shared.
-    # conversations_settings is client-mutable, so we don't trust its
+    if _channel_denial_is_active(sync):
+        return set()
+
+    # Until the first delta walk starts, verify via Graph that the channel is
+    # actually shared. conversations_settings is client-mutable, so we don't trust its
     # membership_type — we confirm from the authoritative source before polling.
     # Graph returns "unknownFutureValue" for shared channels in some tenants, so we
     # reject only explicit standard/private channels rather than requiring "shared".
-    if created:
+    # A row with a delta_link passed this check already, and a failed check deletes the row.
+    if created or (not sync.primed and not sync.delta_link):
         ch_resp = requests.get(
             f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
         )
+        if ch_resp.status_code in (402, 403):
+            logger.warning(
+                "poll_teams_shared_channel_verify_denied",
+                team_id=team.id,
+                channel_id=channel_id,
+                status=ch_resp.status_code,
+                body=ch_resp.text[:500],
+            )
+            _record_channel_denial(sync)
+            return set()
         if ch_resp.status_code != 200 or not is_shared_membership_type(ch_resp.json().get("membershipType")):
             logger.warning(
                 "poll_teams_shared_channel_not_shared",
@@ -632,14 +667,17 @@ def _poll_one_shared_channel(
             logger.warning("poll_teams_shared_channel_throttled", team_id=team.id, channel_id=channel_id)
             return set()
         if resp.status_code in (401, 402, 403):
-            # 401: token rejected (next run refreshes if stale). 402: metered/payment
-            # gate. 403: lost channel membership / missing scope. Skip, don't crash.
+            # 401: the next run refreshes a stale token. 402 (payment gate) and 403 (lost
+            # membership or missing scope) persist past the next minute, so hold the channel.
             logger.warning(
                 "poll_teams_shared_channel_denied",
                 team_id=team.id,
                 channel_id=channel_id,
                 status=resp.status_code,
+                body=resp.text[:500],
             )
+            if resp.status_code in (402, 403):
+                _record_channel_denial(sync)
             return set()
         if resp.status_code != 200:
             logger.warning(
@@ -709,6 +747,10 @@ def _poll_one_shared_channel(
     if latest_message_at and (sync.last_message_at is None or latest_message_at > sync.last_message_at):
         sync.last_message_at = latest_message_at
         update_fields.append("last_message_at")
+
+    if sync.denied_until is not None:
+        sync.denied_until = None
+        update_fields.append("denied_until")
 
     sync.save(update_fields=update_fields)
 

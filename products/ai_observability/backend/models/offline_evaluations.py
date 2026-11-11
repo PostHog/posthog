@@ -144,6 +144,11 @@ class OfflineExperimentItem(OfflinePayloadOwner):
         ]
         indexes = [
             models.Index(fields=["experiment", "id"], name="aio_offline_item_exp_idx"),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_item_payload_expiry_idx",
+            ),
         ]
 
 
@@ -216,6 +221,31 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
             models.Index(
                 fields=["team", "scorer_version", "-accepted_at", "id"], name="aio_offline_result_history_idx"
             ),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_result_payload_expiry_idx",
+            ),
+        ]
+
+
+class OfflineEvaluationUsageLedger(UUIDModel):
+    team_id = models.BigIntegerField(editable=False)
+    organization_id = models.UUIDField(editable=False)
+    experiment_id = models.UUIDField(editable=False)
+    accepted_at = models.DateTimeField(default=timezone.now, editable=False)
+    quantity = models.PositiveBigIntegerField(editable=False)
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "llm_analytics_offlineevaluationusageledger"
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="aio_offline_usage_quantity_pos"),
+        ]
+        indexes = [
+            models.Index(fields=["accepted_at"], name="aio_offline_usage_accepted_idx"),
+            models.Index(fields=["team_id", "accepted_at"], name="aio_offline_usage_team_idx"),
         ]
 
 

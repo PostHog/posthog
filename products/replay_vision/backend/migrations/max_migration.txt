@@ -1,1 +1,1 @@
-0130_rom_small_asset_idx
+0148_squash_2026_11_02_schema_addons

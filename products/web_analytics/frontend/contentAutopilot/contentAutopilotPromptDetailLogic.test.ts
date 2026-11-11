@@ -1,10 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import type { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -16,6 +19,7 @@ import {
     aeoPromptsVersions,
 } from '../generated/api'
 import type { AEOPromptApi } from '../generated/api.schemas'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import {
     EXAMPLE_PROMPT_CHECKS,
@@ -24,16 +28,22 @@ import {
     EXAMPLE_PROMPTS,
 } from './contentAutopilotStoryFixtures'
 
-// The detail logic connects to the prompts list logic, which loads the list and topics on mount.
-jest.mock('../generated/api', () => ({
-    aeoPromptsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
-    aeoPromptsTopics: jest.fn().mockResolvedValue([]),
-    aeoPromptsChecks: jest.fn(),
-    aeoPromptsRetrieve: jest.fn(),
-    aeoPromptsStats: jest.fn(),
-    aeoPromptsVersions: jest.fn(),
-    aeoPromptsPartialUpdate: jest.fn(),
-}))
+// The detail logic connects to the prompts list and workspace logics, which load their lists on mount.
+// Any API call this file doesn't mock answers with an empty page.
+jest.mock('../generated/api', () => {
+    const mocks: Record<string, jest.Mock> = {
+        aeoPromptsTopics: jest.fn().mockResolvedValue([]),
+        aeoPromptsChecks: jest.fn(),
+        aeoPromptsRetrieve: jest.fn(),
+        aeoPromptsStats: jest.fn(),
+        aeoPromptsVersions: jest.fn(),
+        aeoPromptsPartialUpdate: jest.fn(),
+    }
+    return new Proxy(mocks, {
+        get: (target, name: string) =>
+            (target[name] ??= jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] })),
+    })
+})
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
 
@@ -69,6 +79,31 @@ describe('contentAutopilotPromptDetailLogic', () => {
         logic?.unmount()
     })
 
+    it('opens a prompt from its own URL and returns to the workspace URL when it closes', async () => {
+        router.actions.push(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+        await expectLogic(logic).toDispatchActions(['openPromptDetail']).toFinishAllListeners()
+        expect(logic.values.promptId).toEqual(PROMPT.id)
+        expect(mockRetrieve).toHaveBeenCalledWith(TEAM_ID, PROMPT.id)
+
+        logic.actions.closePromptDetail()
+        expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilot())
+        expect(router.values.location.pathname).not.toContain('/prompts/')
+
+        logic.actions.openPromptDetail(PROMPT.id)
+        expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+    })
+
+    it.each(['prompts', 'drafts'] as const)('leaves the prompt page for the %s tab', async (tab) => {
+        router.actions.push(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
+        await expectLogic(logic).toDispatchActions(['openPromptDetail']).toFinishAllListeners()
+
+        contentAutopilotLogic.actions.setWorkspaceTab(tab)
+
+        expect(logic.values.promptId).toBeNull()
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual(tab)
+        expect(router.values.location.pathname).not.toContain('/prompts/')
+    })
+
     it('loads the prompt, its stats, its versions and the latest answer of each engine', async () => {
         logic.actions.openPromptDetail(PROMPT.id)
         await expectLogic(logic).toFinishAllListeners()
@@ -77,22 +112,38 @@ describe('contentAutopilotPromptDetailLogic', () => {
             expect(mockChecks).toHaveBeenCalledWith(TEAM_ID, PROMPT.id, { engine, limit: 1 })
         }
         expect(logic.values.prompt?.id).toBe(PROMPT.id)
-        expect(logic.values.historyGrid?.dates).toHaveLength(30)
-        expect(logic.values.historyGrid?.rows.map((row) => row.engine)).toEqual([
-            'claude-web-search',
-            'openai-web-search',
-            'exa-answer',
-        ])
-        expect(logic.values.historyGrid?.rows[0].cells.slice(0, 4).map((cell) => cell.status)).toEqual([
-            'cited',
-            'cited',
-            'no_run',
-            'not_cited',
-        ])
+        expect(logic.values.engines).toEqual(['claude-web-search', 'openai-web-search', 'exa-answer'])
         expect(logic.values.activeEngine).toBe('claude-web-search')
         expect(logic.values.shownCheck?.id).toBe(EXAMPLE_PROMPT_CHECKS[0].id)
         expect(mockVersions).toHaveBeenCalledWith(TEAM_ID, PROMPT.id)
         expect(logic.values.versions).toEqual(EXAMPLE_PROMPT_VERSIONS)
+        expect(logic.values.reportKpis?.days).toBe(30)
+        expect(logic.values.consensusMatrix?.rows.map((row) => row.engine)).toEqual([
+            'claude-web-search',
+            'openai-web-search',
+            'exa-answer',
+        ])
+    })
+
+    it('scopes the report queries to the prompt and the stats window, and switches the visibility metric', async () => {
+        logic.actions.openPromptDetail(PROMPT.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const citedQuery = logic.values.visibilityQuery!
+        expect(citedQuery.source.values).toEqual({ prompt_id: PROMPT.id, window_start: '2026-09-01 00:00:00' })
+        expect(citedQuery.source.query).toContain('countIf(cited)')
+        expect((logic.values.sourcesQuery!.source as HogQLQuery).values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.query).toContain('brand_sentiment IS NOT NULL')
+
+        logic.actions.setVisibilityMetric('mentioned')
+        const mentionedQuery = logic.values.visibilityQuery!
+        expect(mentionedQuery.source.query).toContain('{brand_pattern}')
+        expect(mentionedQuery.source.values?.brand_pattern).toBe('\\b(example)\\b')
+
+        // A new prompt starts over on the citation metric.
+        logic.actions.openPromptDetail(EXAMPLE_PROMPTS[1].id)
+        expect(logic.values.visibilityMetric).toBe('cited')
     })
 
     it('does not load versions for a prompt with one version', async () => {

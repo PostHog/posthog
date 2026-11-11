@@ -53,6 +53,7 @@ HEAD_FILE_SUFFIX = ".ubj"
 MANIFEST_FILE = "manifest.json"
 METADATA_FILE = "metadata.json"
 PROJECT_VECTORS_FILE = "project_vectors.parquet"
+USER_VECTORS_FILE = "user_vectors.parquet"
 ENGAGEMENT_FILE = "engagement.parquet"
 
 _SERVING_SEGMENT = "serving"
@@ -62,6 +63,8 @@ _SERVING_SEGMENT = "serving"
 # version key is the one `write_parquet` stamps.
 PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
 PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY = "engagement-export-date"
+# The same key, stamped on the serving copy of a user vectors day.
+USER_VECTORS_SCHEMA_VERSION_METADATA_KEY = PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY
 
 
 def serving_manifest_key(prefix: str) -> str:
@@ -78,6 +81,11 @@ def serving_project_vectors_key(prefix: str, partition_key: str) -> str:
     """Where one day of `inbox_project_vectors` sits. Keyed by its `dt`, so a day is published once
     however many manifests name it."""
     return f"{prefix}/{_SERVING_SEGMENT}/project_vectors/{partition_key}/{PROJECT_VECTORS_FILE}"
+
+
+def serving_user_vectors_key(prefix: str, partition_key: str) -> str:
+    """Where one day of `inbox_user_vectors` sits. Keyed by its `dt`, like the project vectors."""
+    return f"{prefix}/{_SERVING_SEGMENT}/user_vectors/{partition_key}/{USER_VECTORS_FILE}"
 
 
 def serving_engagement_key(prefix: str, partition_key: str) -> str:
@@ -174,6 +182,13 @@ class ServingManifest(BaseModel):
         description=(
             "Object key of the one `inbox_project_vectors` day that every entry with `reads_project_vectors` reads. "
             "Null when no entry reads them, or when this store has no copy, and then those entries score nothing."
+        ),
+    )
+    user_vectors: str | None = Field(
+        default=None,
+        description=(
+            "Object key of the one `inbox_user_vectors` day this store holds. "
+            "Null when this store has no copy. No model reads it yet, so it never blocks a publish."
         ),
     )
 

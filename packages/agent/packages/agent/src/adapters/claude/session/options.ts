@@ -57,7 +57,12 @@ import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
-import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
+import {
+  type ContextWindowChoice,
+  contextWindowEnv,
+  DEFAULT_MODEL,
+  resolveFallbackModel,
+} from "./models";
 import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -115,6 +120,7 @@ export interface BuildOptionsParams {
   onProcessExited?: (pid: number) => void;
   onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
+  contextWindow?: ContextWindowChoice;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
@@ -136,6 +142,8 @@ export interface BuildOptionsParams {
   /** Session's discriminator for the traceparent hook's stderr; the hook is
    * skipped when absent (see session/traceparent-hook.ts). */
   traceparentHookNonce?: string;
+  /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
+  disableRepoHooks?: boolean;
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -199,6 +207,7 @@ function buildEnvironment(
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
+  contextWindow?: ContextWindowChoice,
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -218,6 +227,8 @@ function buildEnvironment(
     ENABLE_TOOL_SEARCH: "auto:0",
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+    CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
+    ...(contextWindow && contextWindowEnv(contextWindow)),
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
@@ -683,6 +694,29 @@ function pinGatewayEnvSettings(
   return true;
 }
 
+function disableClaudeSandbox(options: Options): boolean {
+  const off: Settings = { sandbox: { enabled: false } };
+  if (typeof options.settings === "string") return false;
+  if (options.settings) {
+    options.settings = { ...options.settings, ...off };
+    return true;
+  }
+  const raw = options.extraArgs?.settings;
+  let base: Settings = {};
+  if (raw) {
+    try {
+      base = JSON.parse(raw) as Settings;
+    } catch {
+      return false;
+    }
+  }
+  options.extraArgs = {
+    ...options.extraArgs,
+    settings: JSON.stringify({ ...base, ...off }),
+  };
+  return true;
+}
+
 function ensureLocalSettings(cwd: string): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
@@ -711,7 +745,18 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
   // SDK silently drops the extraArgs one on collision) rather than clobbering
   // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  // A repo's Stop hook can block the final turn of a run that must end with
+  // JSON. `disableAllHooks` at flag level outranks project and local settings,
+  // so the repo cannot turn its hooks back on. It also stops the traceparent
+  // hook, so that hook is skipped for these runs.
+  const repoHooksOffSettings =
+    params.disableRepoHooks &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? JSON.stringify({ disableAllHooks: true })
+      : undefined;
   const traceparentHookSettings =
+    !params.disableRepoHooks &&
     params.gatewayEnv?.anthropicBaseUrl &&
     params.traceparentHookNonce &&
     process.platform !== "win32" &&
@@ -736,7 +781,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",
@@ -753,6 +797,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(repoHooksOffSettings && { settings: repoHooksOffSettings }),
       ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
@@ -774,6 +819,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
+      params.contextWindow,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
@@ -810,6 +856,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     }),
   };
 
+  if (params.cloudMode && !disableClaudeSandbox(options)) {
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
+
   if (
     params.gatewayEnv?.anthropicBaseUrl &&
     !params.machineAuth &&
@@ -823,6 +875,13 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     params.logger.warn(
       "Gateway env is not pinned; skipping project and local settings",
     );
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
+
+  if (params.disableRepoHooks && !repoHooksOffSettings) {
+    // The caller owns the settings flag, so drop the repo settings instead.
     options.settingSources = options.settingSources?.filter(
       (source) => source !== "project" && source !== "local",
     );

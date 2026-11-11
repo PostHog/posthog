@@ -1,6 +1,4 @@
-"""Gemini API key resolution and error classification for Replay Vision."""
-
-from django.conf import settings
+"""Gemini error classification for Replay Vision."""
 
 import httpx
 import aiohttp
@@ -8,12 +6,6 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from products.replay_vision.backend.error_kinds import FailureKind
-
-
-def gemini_api_key() -> str:
-    """Replay Vision's dedicated key (own GCP project), falling back to the shared key where unset."""
-    return settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-
 
 # 408 request timeout and 409 conflict join the usual rate-limit/5xx set: all clear on their own.
 _TRANSIENT_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})

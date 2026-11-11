@@ -13,11 +13,14 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.dockerignore'
             - '.github/actions/setup-uv/**'
             - '.github/actions/download-context-mill-skills/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
+            - 'products/signals/scripts/**'
+            - 'packages/owners-yaml/owners_yaml/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
             - 'products/notebooks/backend/kernel_package.py'
@@ -80,12 +83,15 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.dockerignore'
                         - '.github/actions/setup-uv/**'
                         - '.github/actions/download-context-mill-skills/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
+                        - 'products/signals/scripts/**'
+                        - 'packages/owners-yaml/owners_yaml/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
                       skills_source:
@@ -130,11 +136,14 @@ jobs:
                   fi
                   inputs=(
                     .github/workflows/cd-sandbox-base-image.yml
+                    .dockerignore
                     .github/actions/setup-uv
                     .github/actions/download-context-mill-skills
                     products/tasks/backend/sandbox/images
                     packages/agent/agent-shadow
                     products/posthog_ai/scripts
+                    products/signals/scripts
+                    packages/owners-yaml/owners_yaml
                     products/notebooks/backend/sandbox/kernel
                     products/notebooks/backend/kernel_package.py
                   )
@@ -426,9 +435,9 @@ jobs:
                       ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
-              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
-              # schema-only dump lacks; the migrate step below layers anything newer on
-              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              # db:restore-schema-fresh restores the dump. The migrate step below layers
+              # anything newer on top and seeds the RunPython data a schema-only dump
+              # lacks. On failure it leaves a fresh empty db, so migrate runs the full history.
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'

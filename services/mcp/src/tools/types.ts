@@ -44,6 +44,12 @@ export type CachedUser = ApiUser
 export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
+/** An unread field is undefined and keeps its search guidance, so a failed read never hides content. */
+export type BusinessKnowledgeContent = {
+    hasSources?: boolean | undefined
+    hasRepositories?: boolean | undefined
+}
+
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
@@ -71,8 +77,8 @@ export type State = {
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
+    Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
+    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -121,6 +127,8 @@ export type Env = {
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
     POSTHOG_MCP_SKILLS_SHA256?: string | undefined
+    /** `off` serves the product skills archive without the context-mill omnibus overlay. */
+    POSTHOG_MCP_OMNIBUS_SKILLS?: string | undefined
     POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
@@ -160,6 +168,7 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
+    searchKeywords?: string[]
     schema: TSchema
     /**
      * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied
@@ -177,6 +186,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
         readOnlyHint: boolean
     }
     _meta?: ToolMeta
+    /** Appended to the `render-ui` result so the model knows what the rendered app already shows. */
+    renderedNote?: string
 }
 
 export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<

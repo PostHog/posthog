@@ -1,21 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconInfo } from '@posthog/icons'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 
 interface LoadNextProps {
     query: DataNode
     nouns?: [string, string]
+    expectedTotalRows?: number
 }
 
-export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps): JSX.Element {
+export function LoadNext({ query, nouns = ['entry', 'entries'], expectedTotalRows }: LoadNextProps): JSX.Element {
     const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData, dataLimit } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
@@ -41,17 +45,20 @@ export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps)
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
             return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
+        if (!canLoadNextData && !hasMoreData && numberOfRows && expectedTotalRows && numberOfRows < expectedTotalRows) {
+            return `Showing ${humanFriendlyNumber(numberOfRows)} of ${humanFriendlyNumber(expectedTotalRows)} ${nouns[1]}`
+        }
         const noun = numberOfRows === 1 ? nouns[0] : nouns[1]
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
-        }${numberOfRows === 1 ? 'one' : numberOfRows} ${noun}`
+        }${numberOfRows === 1 ? 'one' : humanFriendlyNumber(numberOfRows)} ${noun}`
         if (canLoadNextData) {
             result += nextDataLoading ? ' – loading more…' : ' – click to load more'
         } else if (hasMoreData) {
             result += ' – reached the end of results'
         }
         return result
-    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData, nouns])
+    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData, nouns, expectedTotalRows])
 
     // pagination component exists
     if (
@@ -73,7 +80,7 @@ export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps)
 }
 
 export function LoadPreviewText({ localResponse }: { localResponse?: Record<string, any> | null }): JSX.Element {
-    const { response: dataNodeResponse, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+    const { response: dataNodeResponse, hasMoreData, dataLimit, responseLoading } = useValues(dataNodeLogic)
 
     const response = dataNodeResponse ?? localResponse
 
@@ -82,17 +89,29 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     }
 
     const resultCount = response && 'results' in response ? (response.results?.length ?? 0) : 0
-    const isSingleEntry = resultCount === 1
-    const showFirstPrefix = hasMoreData && resultCount > 1
+    const rowCountText = resultCount === 1 ? 'one row' : `${humanFriendlyNumber(resultCount)} rows`
+    const showMoreAvailable = hasMoreData && resultCount > 1
+    // The backend reports a limit only when it applied its default row limit to a query without a LIMIT clause.
+    const showRowLimitHint = showMoreAvailable && !!dataLimit
 
     const lastRefreshTimeUtc: string | null | undefined =
         response && 'last_refresh' in response ? response['last_refresh'] : null
 
     return (
         <>
-            <span>
-                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
-                {isSingleEntry ? 'one row' : `${resultCount} rows`}
+            <span className="inline-flex items-center gap-1">
+                <span>{showMoreAvailable ? `${rowCountText} loaded, more available` : `Showing ${rowCountText}`}</span>
+                {showRowLimitHint && (
+                    <LemonButton
+                        type="tertiary"
+                        size="xxsmall"
+                        noPadding
+                        icon={<IconInfo className="text-muted" />}
+                        tooltip="Add a LIMIT clause to return more rows."
+                        aria-label="Row limit information"
+                        data-attr="sql-editor-row-limit"
+                    />
+                )}
             </span>
             {lastRefreshTimeUtc && (
                 <>

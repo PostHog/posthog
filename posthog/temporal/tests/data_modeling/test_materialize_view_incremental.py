@@ -21,11 +21,16 @@ import deltalake
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
-from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError, TableUnreadableError
+from posthog.temporal.data_modeling.activities.incremental_write import (
+    DuplicateUniqueKeyError,
+    IncrementalWriteError,
+    TableUnreadableError,
+)
 from posthog.temporal.data_modeling.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
     get_aws_storage_options,
 )
+from posthog.temporal.data_modeling.workflows.materialize_view import NON_RETRYABLE_ERRORS
 
 from products.data_modeling.backend.facade.api import get_incremental_state
 from products.data_warehouse.backend.facade.api import get_s3_client
@@ -269,9 +274,19 @@ class TestIncrementalMaterialization:
 
         with _settings(bucket_name):
             await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+            await database_sync_to_async(asaved_query.refresh_from_db)()
+            before = get_incremental_state(asaved_query).watermark
 
-            with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+            with pytest.raises(DuplicateUniqueKeyError, match="does not identify a single row") as error:
                 await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2, DAY2], [20, 21]))
+
+        # A rebuild reads the same repeated key, so the run fails at once instead of retrying as a
+        # full refresh that scans the whole query and fails the same way.
+        assert type(error.value).__name__ in NON_RETRYABLE_ERRORS
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert get_incremental_state(asaved_query).watermark == before
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.full_refresh_reason is None
 
     async def test_schema_drift_clears_the_watermark_so_the_next_run_rebuilds(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -476,13 +491,16 @@ class TestIncrementalMaterialization:
     ):
         """A key repeated across batches within one run is the same misconfiguration as within one
         batch, but per-batch upserts would silently turn it into last-write-wins. The offending
-        batch must never be written, and the cleared watermark makes the retry rebuild."""
+        batch must never be written, and the watermark stays so the batches already written are
+        upserted again by the next run."""
         await _configure(asaved_query)
 
         with _settings(bucket_name):
             first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [1]))
+            await database_sync_to_async(asaved_query.refresh_from_db)()
+            before = get_incremental_state(asaved_query).watermark
 
-            with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+            with pytest.raises(DuplicateUniqueKeyError, match="does not identify a single row"):
                 await _run(
                     activity_environment,
                     ateam,
@@ -499,7 +517,7 @@ class TestIncrementalMaterialization:
         )
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
-        assert get_incremental_state(asaved_query).watermark is None
+        assert get_incremental_state(asaved_query).watermark == before
 
     @pytest.mark.parametrize(
         "batches,match",

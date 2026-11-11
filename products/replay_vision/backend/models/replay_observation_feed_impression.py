@@ -5,7 +5,7 @@ from posthog.models.utils import UUIDModel
 
 
 class ReplayObservationFeedImpression(TeamScopedRootMixin, UUIDModel):
-    """How often What to watch showed this observation to one user, so the feed can rank it lower each time."""
+    """How often Highlights showed this observation to one user, so the feed can rank it lower each time."""
 
     # The unique constraint leads with observation_id, so a separate index on it would only slow writes.
     observation = models.ForeignKey(

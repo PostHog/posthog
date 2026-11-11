@@ -142,6 +142,9 @@ class HmacSignature:
     timestamp_max_future_seconds: int = 300
     # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
+    # Set when the header can carry several signatures, such as one per secret while a secret rotates.
+    # Any one of them matching verifies the delivery.
+    signature_separator: str | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:
         try:
@@ -220,7 +223,13 @@ class HmacSignature:
 
         delivery_id = header_value(headers, self.delivery_id_header) if self.delivery_id_header is not None else None
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp, delivery_id))
-        if signatures_match(expected, provided):
+        # Senders differ on punctuation around the separator: Supabase joins its signatures with ", ".
+        candidates = (
+            [part.strip().rstrip(",") for part in provided.split(self.signature_separator) if part.strip()]
+            if self.signature_separator
+            else [provided]
+        )
+        if any(signatures_match(expected, candidate) for candidate in candidates):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID
 
@@ -240,6 +249,26 @@ class HmacSha256(HmacSignature):
     """
 
     digest: HmacDigest = field(default="sha256", init=False)
+
+
+def standard_webhooks_scheme(
+    secret_getter: Callable[[], str | bytes | None], *, tolerance_seconds: int = 300
+) -> HmacSha256:
+    """The Standard Webhooks signature (https://www.standardwebhooks.com): `webhook-signature: v1,<base64>`
+    over `{webhook-id}.{webhook-timestamp}.{body}`. The getter returns the key, already base64-decoded from the
+    sender's `whsec_` secret, because each sender formats and validates that secret its own way."""
+    return HmacSha256(
+        secret_getter=secret_getter,
+        signature_header="webhook-signature",
+        prefix="v1,",
+        encoding="base64",
+        signed_input="id_timestamp_body",
+        delivery_id_header="webhook-id",
+        timestamp_header="webhook-timestamp",
+        timestamp_max_age_seconds=tolerance_seconds,
+        timestamp_max_future_seconds=tolerance_seconds,
+        signature_separator=" ",
+    )
 
 
 @frozen

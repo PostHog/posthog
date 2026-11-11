@@ -52,6 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
+    hide_secret_api_tokens_from_unscoped_caller,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -69,6 +70,7 @@ from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    hide_team_secrets_from_workload_tokens,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -82,6 +84,7 @@ from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -656,6 +659,12 @@ class ProjectBackwardCompatSerializer(
             "everyone else and when none has been generated."
         ),
     )  # Compat with TeamSerializer
+    is_ai_data_processing_approved = serializers.BooleanField(
+        source="organization.is_ai_data_processing_approved",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the project's organization approved AI data processing. AI features need this approval.",
+    )
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -735,6 +744,7 @@ class ProjectBackwardCompatSerializer(
         fields: tuple[str, ...] = (
             "id",
             "organization",
+            "is_ai_data_processing_approved",
             "name",
             "logo_media_id",
             "product_description",
@@ -1017,7 +1027,8 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        return representation
+        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):
@@ -1206,6 +1217,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
@@ -1270,6 +1285,7 @@ class ProjectBackwardCompatSerializer(
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
@@ -1575,6 +1591,8 @@ class ProjectViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
+        if self.action == "list":
+            queryset = queryset.exclude(organization_id__in=get_ip_blocked_organization_ids(self.request))
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
         queryset = project_tags.filter_queryset(queryset, self.request.query_params)
@@ -2079,6 +2097,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
@@ -2281,6 +2300,9 @@ class ProjectViewSet(
             if project.organization_id == target_organization.id:
                 raise exceptions.ValidationError("Project is already in the target organization.")
 
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(target_organization.id)
+            )
             teams = list(project.teams.all())
             was_impersonated = is_impersonated(request)
             project_change = Change(

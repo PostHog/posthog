@@ -53,7 +53,11 @@ export interface SankeyColumnLabelsProps {
 /** Column headers over each node column. The first and last headers align to the outer node edge
  *  instead of centering, so they stay inside the chart. Extra labels beyond the column count are
  *  dropped, so a fixed stage list stays valid when the data has fewer stages. */
-export function SankeyColumnLabels({ labels, color, trailingRoom = 0 }: SankeyColumnLabelsProps): React.ReactElement {
+export const SankeyColumnLabels = React.memo(function SankeyColumnLabels({
+    labels,
+    color,
+    trailingRoom = 0,
+}: SankeyColumnLabelsProps): React.ReactElement {
     const { layout } = useSankeyLayout()
     const lastColumn = layout.columnCount - 1
     // Each header owns the span halfway to its neighbors' node centers, so neighbors cannot run together.
@@ -98,4 +102,4 @@ export function SankeyColumnLabels({ labels, color, trailingRoom = 0 }: SankeyCo
             })}
         </>
     )
-}
+})

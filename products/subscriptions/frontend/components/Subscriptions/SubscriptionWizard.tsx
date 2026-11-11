@@ -28,12 +28,12 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { membersLogic } from '~/models/membersLogic'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'

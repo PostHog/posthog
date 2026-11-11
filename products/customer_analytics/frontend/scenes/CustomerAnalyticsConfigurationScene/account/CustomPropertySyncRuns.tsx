@@ -189,7 +189,9 @@ export function CustomPropertySyncRuns({
         },
         {
             title: 'Updated',
-            tooltip: `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed.`,
+            tooltip: accountRuns
+                ? `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed.`
+                : `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed. A run that stopped part way shows how far it got.`,
             align: 'right',
             render: (_, run) => {
                 const share = updatedShare(run.existing, run.changed)

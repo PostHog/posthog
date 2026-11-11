@@ -227,6 +227,28 @@ describe('TraceDialogSpanTree', () => {
         expect(screen.getByText('cache GET').classList.contains('text-danger')).toBe(isRed)
     })
 
+    it.each([
+        { scrollTop: 20, pinned: null },
+        { scrollTop: 40, pinned: 'InsideROOT span›A span' },
+    ])('pins the ancestors of the row under the bar at scroll offset $scrollTop', async ({ scrollTop, pinned }) => {
+        const children = Array.from({ length: 8 }, (_, i) => span(`A${i}`, 'A'))
+        const container = renderTree('span-tree-pinned-test', [
+            span('ROOT', ''),
+            span('A', 'ROOT'),
+            ...children,
+            span('B', 'ROOT'),
+        ])
+        await screen.findByText('A0 span')
+
+        fireEvent.scroll(container.querySelector('[role="list"]')!, { target: { scrollTop } })
+
+        await waitFor(() =>
+            expect(container.querySelector('[data-attr="trace-dialog-pinned-ancestors"]')?.textContent ?? null).toBe(
+                pinned
+            )
+        )
+    })
+
     // Fails when Show all has no way back, when Show fewer leaves the full list on screen, or when it leaves the
     // inspector on a selected child that the shorter list hides.
     it('shortens a full child list again with Show fewer, and moves a hidden selection to the parent', async () => {

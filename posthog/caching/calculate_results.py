@@ -173,6 +173,7 @@ def calculate_for_query_based_insight(
             types=getattr(process_response, "types", None),
             resolved_date_range=_model_field_as_dict(process_response, "resolved_date_range"),
             resolved_compare_date_range=_model_field_as_dict(process_response, "resolved_compare_date_range"),
+            action_names=getattr(process_response, "action_names", None),
             query_scan=_model_field_as_dict(process_response, "query_scan"),
             warnings=_model_list_field_as_dicts(process_response, "warnings"),
         )
@@ -180,24 +181,4 @@ def calculate_for_query_based_insight(
     response = process_response
     assert isinstance(response, dict)
 
-    return InsightResult(
-        # Translating `QueryResponse` to legacy insights shape
-        # The response may not be conformant with that, hence these are all `.get()`s
-        result=response.get("results"),
-        has_more=response.get("hasMore"),
-        columns=response.get("columns"),
-        last_refresh=response.get("last_refresh"),
-        cache_key=response.get("cache_key"),
-        is_cached=response.get("is_cached", False),
-        timezone=response.get("timezone"),
-        next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
-        cache_target_age=response.get("cache_target_age"),
-        timings=response.get("timings"),
-        query_status=response.get("query_status"),
-        hogql=response.get("hogql"),
-        types=response.get("types"),
-        resolved_date_range=response.get("resolved_date_range"),
-        resolved_compare_date_range=response.get("resolved_compare_date_range"),
-        query_scan=response.get("query_scan"),
-        warnings=response.get("warnings"),
-    )
+    return InsightResult.from_response_dict(response)

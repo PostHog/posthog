@@ -407,7 +407,7 @@ class PullRequestTimelinesQuery:
         self, pr_numbers: list[int], run_from: datetime, default_branch: str
     ) -> tuple[dict[int, list[RunAttempt]], MasterFailureIndex]:
         rows = self._curated.run_paged(
-            _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
+            _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True, since=run_from)),
             page_key=(("id", 0), ("ci_engine", 11)),
             query_type="engineering_analytics.pull_request_timelines_runs",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
@@ -505,7 +505,7 @@ class PullRequestTimelinesQuery:
 
     def _query_pushes(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[Push]]:
         sql = push_rows_select(
-            runs_source=self._curated.run_source(started_floor=True),
+            runs_source=self._curated.run_source(started_floor=True, since=run_from),
             run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
         )
         rows = self._curated.run_paged(
@@ -524,7 +524,7 @@ class PullRequestTimelinesQuery:
         gate_from = self._date_from - GATE_RUN_LOOKBACK
         rows = self._curated.run_paged(
             gate_attempts_sql(
-                runs_source=self._curated.run_source(started_floor=True),
+                runs_source=self._curated.run_source(started_floor=True, since=gate_from),
                 pull_requests_source=self._curated.pr_source(),
                 pull_request_filter="pr.number IN {pr_numbers}",
                 decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -551,7 +551,7 @@ class PullRequestTimelinesQuery:
         return gates
 
     def _query_job_attempts(self, run_ids: list[int], run_from: datetime) -> dict[tuple[str, int], list[_JobAttempt]]:
-        source = self._curated.jobs_source(created_floor=True)
+        source = self._curated.jobs_source(created_floor=True, since=run_from)
         if source is None or not run_ids:
             return {}
         rows = self._curated.run_paged(
@@ -583,12 +583,12 @@ class PullRequestTimelinesQuery:
     ) -> MasterFailureIndex:
         # Filtered by workflow, not by job name: the index compares job names without their shard
         # suffix, and an exact-name filter would drop the other shards of the same job.
-        jobs_source = self._curated.jobs_source(created_floor=True)
+        jobs_source = self._curated.jobs_source(created_floor=True, since=run_from)
         if not workflow_names or not default_branch or jobs_source is None:
             return MasterFailureIndex([])
         rows = self._curated.run_paged(
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
-                "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
+                "__RUNS_SOURCE__", self._curated.run_source(started_floor=True, since=run_from)
             ),
             page_key=(("job_id", 3), ("ci_engine", 4)),
             query_type="engineering_analytics.pull_request_timelines_master_failures",

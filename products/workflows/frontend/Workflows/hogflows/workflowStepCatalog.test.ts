@@ -27,7 +27,7 @@ describe('workflowStepCatalog', () => {
     it('lists every step a workflow can always add, in the order the step picker shows them', () => {
         expect(listed({})).toEqual({
             Dispatch: ['Email', 'SMS', 'Slack', 'Webhook'],
-            AI: ['Run scout', 'Replay Vision'],
+            AI: ['Create AI task', 'Run scout', 'Replay Vision'],
             Delays: ['Delay', 'Time window', 'Wait until'],
             'Audience split': ['Conditional branch', 'Cohort branch'],
             'PostHog actions': ['Set variable', 'Capture event', 'Update person property', 'Set group property'],
@@ -37,27 +37,19 @@ describe('workflowStepCatalog', () => {
 
     it.each([
         {
-            name: 'adds the AI task and classify steps behind their flags',
-            context: {
-                featureFlags: {
-                    [FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION]: true,
-                    [FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION]: true,
-                },
-            },
+            name: 'adds the classify step behind its flag',
+            context: { featureFlags: { [FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION]: true } },
             ai: ['Create AI task', 'Run scout', 'Classify with AI', 'Replay Vision'],
         },
         {
             name: 'leaves the main-environment steps out of another environment',
-            context: {
-                featureFlags: { [FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION]: true },
-                currentTeam: { id: 2, project_id: 1 },
-            },
+            context: { currentTeam: { id: 2, project_id: 1 } },
             ai: ['Create AI task'],
         },
         {
             name: 'leaves the main-environment steps out while the team loads',
             context: { currentTeam: null },
-            ai: undefined,
+            ai: ['Create AI task'],
         },
     ])('$name', ({ context, ai }) => {
         expect(listed(context).AI).toEqual(ai)

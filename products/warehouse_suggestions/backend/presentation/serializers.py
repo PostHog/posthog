@@ -18,6 +18,7 @@ from ..facade.contracts import (
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    SurfaceMoreResult,
     UnmaterializePayload,
     VisibleSources,
 )
@@ -25,10 +26,12 @@ from ..facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
 )
 
 MAX_REFRESH_INTERVAL_SECONDS = int(timedelta(days=30).total_seconds())
@@ -75,6 +78,10 @@ class DeprecatePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the unread view to deprecate."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
             "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "materialized": {
+                "help_text": "Whether the view is materialized. A plain view has no refreshes, so both refresh "
+                "costs are 0."
+            },
         }
 
 
@@ -97,8 +104,16 @@ class MaterializePayloadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
         "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "consumer_refresh: the materialized views that read it refresh no more often. "
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
+    )
+    main_saving = serializers.ChoiceField(
+        choices=WarehouseSuggestionMainSaving.choices,
+        allow_null=True,
+        help_text="The saving that earned the suggestion. waiting: people, agents and API callers wait less on "
+        "reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before "
+        "this was recorded.",
     )
 
     class Meta:
@@ -124,6 +139,23 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "lookback_seconds": {
                 "help_text": "How far before the last refresh's highest incremental_key value each refresh reads "
                 "again, in seconds. The last incremental_key value is always read again."
+            },
+            "recomputed_by_views": {
+                "help_text": "How many materialized views compute this view again on every refresh, because it "
+                "is not stored. 0 when the saving comes only from people's reads."
+            },
+            "waiting_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that people, agents and API callers spend waiting on "
+                "reads of this view, in seconds. Null on suggestions made before this was recorded."
+            },
+            "background_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative "
+                "when refreshing the stored copy costs more background time than it saves. Null on suggestions made "
+                "before this was recorded."
+            },
+            "read_seconds": {
+                "help_text": "How long one read of the view takes today, in seconds. Null when no read was "
+                "measured on its own."
             },
         }
 
@@ -182,6 +214,23 @@ class WarehouseSuggestionStatusSerializer(DataclassSerializer):
             "window_days": {"help_text": "Days of read history a full window holds."},
             "paused_reason": {"help_text": "Why new suggestions stopped showing. Null while they show."},
             "refreshed_at": {"help_text": "When the daily job last ran for this project."},
+            "waiting": {
+                "help_text": "Suggestions waiting to be shown on the requested surface that you can read and act "
+                "on. 0 without a surface, or while new suggestions are paused or off."
+            },
+            "can_show_more": {
+                "help_text": "Whether a surface_more call would show at least one waiting suggestion now. False "
+                "while the open limits are full."
+            },
+        }
+
+
+@extend_schema_serializer(component_name="WarehouseSuggestionSurfaceMoreResult")
+class WarehouseSuggestionSurfaceMoreResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SurfaceMoreResult
+        extra_kwargs = {
+            "surfaced": {"help_text": "How many waiting suggestions this call showed. 0 when none could be shown."},
         }
 
 
@@ -227,6 +276,11 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     )
     reviewed_by = WarehouseSuggestionReviewerSerializer(
         allow_null=True, help_text="Who accepted or dismissed this suggestion. Null while it is open."
+    )
+    assignee = WarehouseSuggestionReviewerSerializer(
+        allow_null=True,
+        help_text="Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to "
+        "the person who created the view, if they can accept it. Null when nobody is assigned.",
     )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
@@ -301,6 +355,47 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     subject_id = serializers.UUIDField(
         required=False, help_text="Only return suggestions about the view or table with this ID."
     )
+    assignee_id = serializers.IntegerField(
+        required=False, help_text="Only return suggestions assigned to the user with this ID."
+    )
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Only return the kinds of suggestions this page shows. models: materialize, stop materializing "
+        "and view deprecations. catalog: certify and deprecate.",
+    )
+
+
+class WarehouseSuggestionStatusQuerySerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.",
+    )
+
+
+class SurfaceMoreWarehouseSuggestionsSerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        help_text="Page to show more suggestions on. Only the kinds that page shows are picked.",
+    )
+
+
+class WarehouseSuggestionDecisionQuerySerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page the decision was made on. Only recorded on the analytics event.",
+    )
+
+
+class AssignWarehouseSuggestionSerializer(serializers.Serializer):
+    assignee_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the user to assign. They must be able to accept the suggestion: edit access to the view or "
+        "table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The "
+        "assignee gets a notification unless they assign themselves.",
+    )
 
 
 class DismissWarehouseSuggestionSerializer(serializers.Serializer):
@@ -355,5 +450,12 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "help_text": "Deprecate only: true to keep a materialized view refreshing after it is deprecated. "
                 "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
                 "stored table, unless other views or syncs depend on it.",
+            },
+            "delete_view": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when "
+                "it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any "
+                "day in the read window has no read data, because a view read only on those days would look unread.",
             },
         }

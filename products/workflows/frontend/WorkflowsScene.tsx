@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -29,6 +30,8 @@ import { SendCalendar } from './SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
+import { customerioImportLogic } from './Workflows/import/customerioImportLogic'
+import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -153,6 +156,11 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
+                if (tab && isUUIDLike(tab)) {
+                    router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)
+                    return
+                }
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
@@ -189,8 +197,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
-    const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
@@ -228,6 +237,21 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
+                        {showsNewWorkflowButton && customerioImportEnabled && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    data-attr="workflows-import-customerio"
+                                    onClick={openImportModal}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    Import from Customer.io
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         {showsNewWorkflowButton && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
@@ -255,19 +279,18 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
+            {customerioImportEnabled && <CustomerioImportModal />}
             <EmailSuspensionBanner />
             <LemonTabs<WorkflowsTopTab>
-                activeKey={currentTab === 'calendar' && !showCalendar ? 'workflows' : topTabFor(currentTab)}
+                activeKey={topTabFor(currentTab)}
                 tabs={[
                     workflowsTab,
-                    showCalendar
-                        ? {
-                              label: <SendCalendarTabLabel />,
-                              key: 'calendar',
-                              link: urls.workflows('calendar'),
-                              content: <SendCalendar />,
-                          }
-                        : null,
+                    {
+                        label: <SendCalendarTabLabel />,
+                        key: 'calendar',
+                        link: urls.workflows('calendar'),
+                        content: <SendCalendar />,
+                    },
                     {
                         label: 'Templates',
                         key: 'templates',

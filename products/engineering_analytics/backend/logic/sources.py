@@ -36,9 +36,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     GitHubSourceNotConnectedError,
 )
-from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
+from products.engineering_analytics.backend.logic.views import depot_ci, trunk_quarantined_tests, workflow_jobs
 from products.engineering_analytics.backend.logic.views.source_schema import OPTIONAL_WORKFLOW_RUNS_COLUMNS
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -149,9 +150,12 @@ def resolve_github_tables(
     With ``source_id``, reads that specific connected GitHub source; otherwise picks the oldest
     source's first usable repo with both endpoints synced (oldest = the team's first/established
     connection) — deterministic when a team has more than one source or a source syncs more than
-    one repo. Raises ``GitHubSourceNotConnectedError`` when no matching usable repo exists (the
-    presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
-    an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
+    one repo. Without ``source_id``, a repo that ``list_github_sources`` reports as synced wins over
+    one it does not, so the default matches the first synced entry of the list; the oldest usable
+    repo is the fallback when no listed repo is synced. Raises ``GitHubSourceNotConnectedError``
+    when no matching usable repo exists (the presentation layer maps it to a 400, so the UI prompts
+    to connect a source and an agent gets an actionable error), or ``ValueError`` when ``source_id``
+    is not a UUID.
 
     ``repo`` ('owner/name') scopes a repo-specific call — a team with several repos otherwise always
     resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``, or the picker selecting a
@@ -169,8 +173,11 @@ def resolve_github_tables(
     queryset = _github_sources(team, user_access_control)
     if source_id is not None:
         queryset = queryset.filter(id=_as_source_uuid(source_id))
-    # Lazy by default so the common path (no `repo`) stops querying sources on the first usable repo.
     candidates: Iterable[_RepoCandidate] = _repo_candidates(team=team, sources=queryset)
+    if source_id is None:
+        # Read what the sources list calls synced first. An old source can still hold tables for a repo
+        # it no longer lists, and taking it by age alone reads stale data instead of the live source.
+        candidates = _listed_first(candidates)
     if repo:
         # An explicit repo must never silently resolve a *different* named repo: the picker lists a
         # source's repos before they finish syncing, so a not-yet-complete pick should surface the
@@ -231,6 +238,7 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
+    repository: str = ""
     depot_job_attempts: depot_ci.DepotJobAttempts | None = None
     workflow_runs_optional_columns: frozenset[str] = frozenset()
 
@@ -276,6 +284,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                     issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
                     reviews=tables.get(REVIEWS_SCHEMA),
                     source_id=str(source.id),
+                    repository=repository,
                     workflow_runs_optional_columns=repo_tables.workflow_runs_optional_columns,
                 )
                 entries.append((repository, entry))
@@ -351,6 +360,8 @@ class TrunkQuarantineSource:
 
     table: str
     org_url_slug: str | None
+    # False until a source moved to the v2 API resyncs, so the board keeps reading the v1 columns.
+    v2_shape: bool
 
 
 def resolve_trunk_quarantined_tests_source(
@@ -372,8 +383,15 @@ def resolve_trunk_quarantined_tests_source(
             if table is None or table.deleted or not _IDENTIFIER.match(table.name):
                 continue
             # job_inputs is an EncryptedJSONField and can hold any JSON shape.
-            inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
-            resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
+            try:
+                inputs = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                inputs = {}
+            resolved = TrunkQuarantineSource(
+                table=table.name,
+                org_url_slug=inputs.get("org_url_slug") or None,
+                v2_shape=trunk_quarantined_tests.V2_SHAPE_COLUMN in (table.columns or {}),
+            )
             owner, name = inputs.get("repo_owner") or "", inputs.get("repo_name") or ""
             if f"{owner}/{name}".lower() == repository.lower():
                 return resolved
@@ -440,6 +458,19 @@ class _RepoCandidate(NamedTuple):
     repository: str
     tables: _RepoTables
     source_id: str
+    # True when the source lists this repo, so ``list_github_sources`` reports it as synced.
+    listed: bool
+
+
+def _listed_first(candidates: Iterable[_RepoCandidate]) -> Iterator[_RepoCandidate]:
+    """Listed candidates in source order, then the unlisted ones, without reading sources ahead."""
+    unlisted: list[_RepoCandidate] = []
+    for candidate in candidates:
+        if candidate.listed:
+            yield candidate
+        else:
+            unlisted.append(candidate)
+    yield from unlisted
 
 
 def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
@@ -469,7 +500,11 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=order_key):
             repository = display if repo_key == legacy_key else repo_key
-            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key], source_id=str(source.id))
+            # Mirrors list_github_sources: a source with no configured repo lists one blank entry.
+            listed = repo_key in configured if configured else repo_key == ""
+            yield _RepoCandidate(
+                repository=repository, tables=by_repo[repo_key], source_id=str(source.id), listed=listed
+            )
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
@@ -511,8 +546,9 @@ def _source_repository(source: ExternalDataSource) -> str:
     (list/str) would crash the ``.get`` below — guard it the same way ``job_logs.coordinator``
     does, since this resolves for every engineering_analytics endpoint.
     """
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return ""
     return str(job_inputs.get("repository") or "").strip()
 
@@ -526,8 +562,9 @@ def _configured_repositories(source: ExternalDataSource) -> list[str]:
     dropped case-insensitively (GitHub full names are case-insensitive). ``job_inputs`` is an
     ``EncryptedJSONField`` that can hold any JSON value, so a non-dict yields no repos.
     """
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return []
     repositories = job_inputs.get("repositories")
     # An empty `repositories` list means "unset" — the sync-side parser falls back to the single
@@ -614,7 +651,10 @@ def depot_source_api_token(team: Team, source_id: str) -> str | None:
     """The Depot organization API token a team's Depot source syncs with, or None."""
     source = _accessible_sources(team, ExternalDataSourceType.DEPOT, None).filter(id=source_id).first()
     # job_inputs is an EncryptedJSONField and can hold any JSON shape.
-    inputs = source.job_inputs if source is not None and isinstance(source.job_inputs, dict) else {}
+    try:
+        inputs = SourceInputsStore.load(source) if source is not None else {}
+    except UnreadableSourceInputsError:
+        inputs = {}
     api_token = inputs.get("api_token")
     return api_token if isinstance(api_token, str) and api_token else None
 
@@ -622,6 +662,13 @@ def depot_source_api_token(team: Team, source_id: str) -> str | None:
 def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> str | None:
     """The synced ``job_attempts`` table of one Depot source, or None."""
     return _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA)
+
+
+def depot_source_job_attempts(team: Team, source: ExternalDataSource) -> depot_ci.DepotJobAttempts | None:
+    """The synced job attempts of one Depot source, scoped to the repository it syncs, or None."""
+    table = depot_source_job_attempts_table(team, source)
+    repository = _source_repository(source).casefold()
+    return depot_ci.DepotJobAttempts.for_repository(table, repository) if table and repository else None
 
 
 def _synced_table_name(team: Team, source: ExternalDataSource, schema_name: str) -> str | None:

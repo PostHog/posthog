@@ -2,12 +2,9 @@ import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils/strings'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
+import { getDisplayNameFromEntityNode, humanizePathsEventTypes } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import type { cohortsModelType } from '~/models/cohortsModel'
@@ -15,15 +12,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { groupsModelType } from '~/models/groupsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
-    Breakdown,
-    BreakdownFilter,
-    InsightQueryNode,
-    MultipleBreakdownType,
-    Node,
-} from '~/queries/schema/schema-general'
-import {
     isDataTableNode,
-    isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightVizNode,
@@ -36,10 +25,18 @@ import {
     isTrendsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
+import { BreakdownKeyType, BreakdownType, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import { retentionOptions } from 'products/product_analytics/frontend/insights/retention/constants'
@@ -207,13 +204,11 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             query.retentionFilter?.returningEntity?.type === query.retentionFilter?.targetEntity?.type
         return (
             `Retention of ${context.aggregationLabel(query.aggregation_group_type_index, true).plural}` +
-            ` based on doing ${getDisplayNameFromEntityFilter(
-                (query.retentionFilter?.targetEntity || {}) as EntityFilter
-            )}` +
+            ` based on doing ${getDisplayNameFromEntityFilter(query.retentionFilter?.targetEntity)}` +
             ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS]} and returning with ` +
             (areTargetAndReturningIdentical
                 ? 'the same event'
-                : getDisplayNameFromEntityFilter((query.retentionFilter?.returningEntity || {}) as EntityFilter))
+                : getDisplayNameFromEntityFilter(query.retentionFilter?.returningEntity))
         )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails

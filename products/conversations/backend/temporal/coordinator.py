@@ -54,7 +54,7 @@ TICKET_LOOKBACK_MINUTES = 5
 MAX_TICKETS_PER_TEAM_PER_RUN = 10
 MAX_TICKETS_PER_RUN = 50
 
-MASTER_FLAG = "product-support-ai-suggestion"
+MASTER_FLAG = "product-support-ai-suggestion-orgs"
 
 # Minimum number of READY BK sources required before the coordinator will draft replies.
 # Set to 0 locally to skip the BK readiness check entirely.
@@ -110,19 +110,16 @@ class CollectEligibleTicketsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
-    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
-    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
+    # The flag is targeted by organization group, the same as `product-business-knowledge`. The headless
+    # worker only sends the group properties listed here (unlike posthog-js, which auto-attaches full
+    # group properties), so a release condition on any other organization property never matches.
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 MASTER_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
-                },
+                str(team.organization_id),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -153,10 +150,15 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     candidates: list[tuple[int, str, datetime, bool, int]] = []
     untriaged_ticket_ids: set[str] = set()
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
+    # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
+    master_flag_by_org: dict[str, bool] = {}
     for ticket in recent_tickets:
         team = ticket.team
 
-        if not _is_master_flag_enabled(team):
+        org_key = str(team.organization_id)
+        if org_key not in master_flag_by_org:
+            master_flag_by_org[org_key] = _is_master_flag_enabled(team)
+        if not master_flag_by_org[org_key]:
             continue
 
         settings_dict = team.conversations_settings or {}
@@ -190,31 +192,47 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         return []
 
     # One comment query per team instead of round-trips per ticket. Two things come out of it:
-    #   1. Dedupe: a ticket is "already engaged" iff it has any non-customer comment — our own AI
-    #      note ("AI") or a human/team reply ("support"/"team"/"human"). Those are excluded below
-    #      for first-draft tickets. Awaiting tickets already have an AI question, so they skip
-    #      that gate and re-engage only on a newer settled customer reply with no human after it.
+    #   1. Dedupe: a ticket is "already engaged" iff it has our own AI note ("AI", private or not)
+    #      or a public human/team/workflow reply. A private note from a human or workflow is not a
+    #      reply to the customer, so it is ignored here. This lets automations that log new tickets
+    #      as private notes keep the AI draft. Engaged tickets are excluded below for first-draft
+    #      tickets. Awaiting tickets already have an AI question, so they skip that gate and
+    #      re-engage only on a newer settled customer reply with no human after it.
+    #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
+    #      before the first customer comment. That opener is not engagement, so such a ticket is
+    #      engaged only by an engaging comment newer than the first customer comment.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
+    first_customer_msg: dict[str, datetime] = {}
     latest_customer_msg: dict[str, datetime] = {}
+    earliest_non_customer_msg: dict[str, datetime] = {}
     latest_ai_msg: dict[str, datetime] = {}
     latest_human_msg: dict[str, datetime] = {}
     for team_id, ticket_ids in by_team.items():
-        for item_id, author_type, comment_created_at in Comment.objects.filter(
+        for item_id, author_type, is_private, comment_created_at in Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=ticket_ids,
-        ).values_list("item_id", "item_context__author_type", "created_at"):
+            item_context__automated_update_key__isnull=True,
+        ).values_list("item_id", "item_context__author_type", "item_context__is_private", "created_at"):
             if author_type == "customer":
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
                     latest_customer_msg[item_id] = comment_created_at
+                first = first_customer_msg.get(item_id)
+                if first is None or comment_created_at < first:
+                    first_customer_msg[item_id] = comment_created_at
+                continue
+            if author_type != "AI" and is_private is True:
                 continue
             engaged.add(item_id)
+            earliest = earliest_non_customer_msg.get(item_id)
+            if earliest is None or comment_created_at < earliest:
+                earliest_non_customer_msg[item_id] = comment_created_at
             if author_type == "AI":
                 prev_ai = latest_ai_msg.get(item_id)
                 if prev_ai is None or comment_created_at > prev_ai:
@@ -242,7 +260,22 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             if last_customer > settle_cutoff:
                 continue
         else:
-            if ticket_id_str in engaged:
+            first_customer = first_customer_msg.get(ticket_id_str)
+            earliest_team = earliest_non_customer_msg.get(ticket_id_str)
+            team_opened = earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            if team_opened:
+                # Wait for the customer without recording a skip, because no team reply exists yet.
+                if first_customer is None:
+                    continue
+                last_human = latest_human_msg.get(ticket_id_str)
+                if last_human is not None and last_human > first_customer:
+                    if ticket_id_str in untriaged_ticket_ids:
+                        skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
+                    continue
+                last_ai = latest_ai_msg.get(ticket_id_str)
+                if last_ai is not None and last_ai > first_customer:
+                    continue
+            elif ticket_id_str in engaged:
                 if ticket_id_str in untriaged_ticket_ids and ticket_id_str in latest_human_msg:
                     skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
                 continue

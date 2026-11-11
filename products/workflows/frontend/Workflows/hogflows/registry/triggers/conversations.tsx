@@ -20,6 +20,11 @@ function getEventId(config: EventTriggerConfig): string | null {
     return typeof firstEvent?.id === 'string' ? firstEvent.id : null
 }
 
+// The support reply template triggers on the server-only internal copy of a reply, which public capture cannot forge.
+function isInternalEventConfig(config: unknown): boolean {
+    return (config as { type?: unknown } | null)?.type === 'internal-event'
+}
+
 function isSupportStatusValue(value: unknown): value is SupportStatusValue {
     return typeof value === 'string' && SUPPORT_STATUS_VALUES.includes(value as SupportStatusValue)
 }
@@ -100,6 +105,7 @@ const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }
 function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
+    const isInternalEvent = isInternalEventConfig(node.data.config)
     const eventId = getEventId(config) ?? '$conversation_message_received'
     const meta = SUPPORT_TRIGGER_META[eventId] ?? SUPPORT_TRIGGER_META['$conversation_message_received']
 
@@ -113,15 +119,15 @@ function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.El
                 <HogFlowPropertyFilters
                     filtersKey={`support-trigger-${node.data.id}`}
                     filters={config.filters ?? {}}
-                    setFilters={(filters) =>
-                        setWorkflowActionConfig(node.data.id, {
-                            type: 'event',
-                            filters: {
-                                ...filters,
-                                events: [{ id: eventId, type: 'events', name: meta.name }],
-                            },
-                        })
-                    }
+                    setFilters={(filters) => {
+                        const nextFilters = { ...filters, events: [{ id: eventId, type: 'events', name: meta.name }] }
+                        setWorkflowActionConfig(
+                            node.data.id,
+                            isInternalEvent
+                                ? { type: 'internal-event', filters: { ...nextFilters, source: 'internal-events' } }
+                                : { type: 'event', filters: nextFilters }
+                        )
+                    }}
                     typeKey={`support-trigger-${node.data.id}`}
                 />
             </LemonField.Pure>
@@ -180,7 +186,9 @@ registerTriggerType({
     icon: <IconBolt />,
     description: 'Trigger when a teammate replies on a ticket',
     group: 'Support',
-    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_sent',
+    matchConfig: (config) =>
+        (config.type === 'event' || isInternalEventConfig(config)) &&
+        getEventId(config) === '$conversation_message_sent',
     buildConfig: () => ({
         type: 'event',
         filters: {

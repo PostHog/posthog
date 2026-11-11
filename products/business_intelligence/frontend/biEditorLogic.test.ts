@@ -14,6 +14,7 @@ import { ChartDisplayType } from '~/types'
 import { biConnectionsLogic } from './biConnectionsLogic'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery, getBIFieldPillLabel, parseBIEditorState } from './biEditorTypes'
+import { biMetricParametersLogic } from './biMetricParametersLogic'
 
 describe('biEditorLogic', () => {
     const TAB_ID = 'bi-test'
@@ -62,6 +63,68 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
+    it('edits snapshot parameters as typed bound values, with cancellation and stale-draft protection', async () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        const parameters = biMetricParametersLogic({ tabId: TAB_ID })
+        logic.mount()
+        parameters.mount()
+        logic.actions.setAutoUpdate(false)
+        const querySnapshot = {
+            kind: NodeKind.HogQLQuery as const,
+            query: 'SELECT {cohort} AS cohort, {minimum} AS minimum, {include_trial} AS include_trial',
+            values: {
+                cohort: 'paid',
+                minimum: 10,
+                include_trial: true,
+                ids: [1, 2],
+                missing: null,
+                ['__proto__']: 'paid',
+                constructor: 5,
+            },
+        }
+        logic.actions.restoreState({ editorView: BIEditorView.BI, config: { ...config, querySnapshot } })
+        parameters.actions.open()
+        expect(parameters.values.parameters.map(({ name }) => name)).toEqual([
+            'cohort',
+            'minimum',
+            'include_trial',
+            '__proto__',
+            'constructor',
+        ])
+        expect(parameters.values.parameterErrors['__proto__']).toBeUndefined()
+        expect(parameters.values.parameterErrors['constructor']).toBeUndefined()
+        parameters.actions.changeParameter('constructor', '')
+        expect(parameters.values.parameterErrors['constructor']).toBe('Enter a valid number')
+        parameters.actions.changeParameter('constructor', '5')
+        expect(parameters.values.parameterErrors['constructor']).toBeUndefined()
+        parameters.actions.changeParameter('minimum', '')
+        expect(parameters.values.parameterErrors).toEqual({ minimum: 'Enter a valid number' })
+        parameters.actions.apply()
+        expect(logic.values.config.querySnapshot).toEqual(querySnapshot)
+        parameters.actions.close()
+        parameters.actions.open()
+        expect(parameters.values.parameters.find(({ name }) => name === 'minimum')?.value).toBe('10')
+        const literal = "paid' OR 1=1 --"
+        parameters.actions.changeParameter('cohort', literal)
+        parameters.actions.changeParameter('minimum', '25.5')
+        parameters.actions.changeParameter('include_trial', false)
+        await expectLogic(logic, () => parameters.actions.apply()).toDispatchActions([
+            'setSnapshotParameters',
+            'runAfterChange',
+        ])
+        expect(buildBIQuery(logic.values.config)?.node.source).toMatchObject({
+            query: querySnapshot.query,
+            values: { ...querySnapshot.values, cohort: literal, minimum: 25.5, include_trial: false },
+        })
+        expect(parameters.values.source).toBeNull()
+        parameters.actions.open()
+        logic.actions.restoreState({ editorView: BIEditorView.BI, config: { ...config, querySnapshot } })
+        expect(parameters.values.applyDisabledReason).toContain('worksheet changed')
+        parameters.actions.apply()
+        expect(logic.values.config.querySnapshot).toEqual(querySnapshot)
+        parameters.unmount()
+        logic.unmount()
+    })
     it.each(['sum(properties.amount)', 'sum(properties.amount) / nullIf(count(), 0)'])(
         'saves a custom measure expression without the previous count wrapper: %s',
         (expression) => {

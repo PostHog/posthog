@@ -3,21 +3,29 @@ import { useMemo, useRef } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { StepPalette } from './StepPalette'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { CanvasCommand, useCanvasCommands } from './useCanvasCommands'
 
 export function CommandBar(): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
-    const { commandPaletteQuery, paletteSections } = useValues(tileCanvasLogic)
-    const { openCommandPalette, closeCommandPalette, startPlacing } = useActions(tileCanvasLogic)
+    const { commandPaletteQuery, paletteSections, isDraggingNewStep } = useValues(tileCanvasLogic)
+    const { openCommandPalette, closeCommandPalette, startPlacing, startDraggingNewStep, endDraggingNewStep } =
+        useActions(tileCanvasLogic)
     const { panel, view } = useCanvasCommands()
     const commands = useMemo((): CanvasCommand[] => [...panel, ...view], [panel, view])
 
     return (
         <div className="relative">
             {commandPaletteQuery !== null && (
-                <div className="absolute bottom-full left-1/2 mb-3 -translate-x-1/2">
+                <div
+                    className={cn(
+                        'absolute bottom-full left-1/2 mb-3 -translate-x-1/2',
+                        isDraggingNewStep && 'invisible'
+                    )}
+                >
                     <StepPalette
                         key={commandPaletteQuery}
                         sections={paletteSections}
@@ -26,6 +34,8 @@ export function CommandBar(): JSX.Element {
                         placeholder="Add a step or run a command"
                         trigger={triggerRef}
                         onSelectStep={startPlacing}
+                        onDragStep={startDraggingNewStep}
+                        onDragEnd={endDraggingNewStep}
                         onClose={closeCommandPalette}
                     />
                 </div>

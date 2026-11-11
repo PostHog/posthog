@@ -3,6 +3,8 @@ owners: []
 rules:
     - match: ['/CODEOWNERS', '/actions/']
       owners: team-devex
+    - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
+      owners: team-devex
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
@@ -27,6 +29,7 @@ rules:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
+          - '/workflows/update-ai-costs-stale-alert.yml'
       owners: [team-devex, team-agent-infrastructure]
     - match: ['/workflows/ci-llm-gateway.yml', '/workflows/llm-gateway-cd.yml']
       sensitive: true

@@ -3,10 +3,10 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 
 import { accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 

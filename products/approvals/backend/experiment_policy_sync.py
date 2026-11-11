@@ -105,7 +105,7 @@ def sync_experiment_policies() -> None:
 
             mirror, was_created = ApprovalPolicy.objects.get_or_create(
                 organization_id=source.organization_id,
-                team_id=source.team_id,
+                team_id=source.team_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
                 action_key=target_action,
                 defaults=fields,
             )

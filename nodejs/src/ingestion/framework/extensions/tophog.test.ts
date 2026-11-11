@@ -9,6 +9,7 @@ import {
     averageResult,
     count,
     countOk,
+    countOkIf,
     countResult,
     createTopHogWrapper,
     max,
@@ -367,6 +368,34 @@ describe('topHog wrapper', () => {
         await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { name: 'records when the predicate holds', teamId: 42, expectedRecords: [[{ team_id: '42' }, 1]] },
+        { name: 'skips when the predicate fails', teamId: 7, expectedRecords: [] },
+    ])('countOkIf $name', async ({ teamId, expectedRecords }) => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(input: { teamId: number }) {
+            return Promise.resolve(ok({ flagged: input.teamId === 42 }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(myStep, [
+                    countOkIf(
+                        'flagged',
+                        (output) => output.flagged,
+                        (_output, input) => ({ team_id: String(input.teamId) })
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createOkContext({ teamId }, {}))
+
+        expect(mockTracker.record.mock.calls).toEqual(expectedRecords)
     })
 
     it('should record average metric before step returns', async () => {

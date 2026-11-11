@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import datetime as dt
 from collections import Counter, defaultdict
 from typing import Any
@@ -8,8 +7,7 @@ from typing import Any
 from django.conf import settings
 from django.db.models import BooleanField, Case, F, Q, Value, When
 
-import tldextract
-
+from products.aeo.backend.brand import mention_filter
 from products.aeo.backend.engines import is_target_url, top_domains
 from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
 from products.aeo.backend.models import AEOCitationCheck, AEOPromptVersion
@@ -17,18 +15,10 @@ from products.aeo.backend.seeding import prompt_hash
 
 MAX_GAP_URLS = 10
 MAX_GAP_QUERIES = 10
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 
 def _ranked(counter: Counter[str], limit: int) -> tuple[str, ...]:
     return tuple(value for value, _ in counter.most_common(limit))
-
-
-def _brand_regex(target_domains: list[str]) -> str | None:
-    names = {(_DOMAIN_PARTS(domain).domain or domain).lower() for domain in target_domains if domain}
-    if not names:
-        return None
-    return r"\m(" + "|".join(re.escape(name) for name in sorted(names)) + r")\M"
 
 
 def _gap_keys(first_hashes: dict[str, str], current_hashes: dict[str, str]) -> dict[str, str]:
@@ -60,12 +50,13 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
         .filter(created_at__gte=since, check_failed=False, prompt__active=True)
         .filter(current_version)
     )
-    mention = Q(cited=True)
-    if brand := _brand_regex(target_domains):
-        mention |= Q(answer_text__iregex=brand)
     rows = (
         checks_in_window.annotate(
-            mentioned=Case(When(mention, then=Value(True)), default=Value(False), output_field=BooleanField())
+            mentioned=Case(
+                When(mention_filter(target_domains), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            )
         )
         .order_by("-created_at")
         .values(

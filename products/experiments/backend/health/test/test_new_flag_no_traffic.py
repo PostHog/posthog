@@ -101,7 +101,9 @@ class TestNewFlagNoTraffic(BaseTest):
         experiment = Experiment.objects.create(team=self.team, name="draft", feature_flag=flag)
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=sync_source):
-            health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=FULL_ACCESS)
+            health = get_experiment_health(
+                team_id=self.team.id, experiment_id=experiment.id, reader_access=FULL_ACCESS, user=self.user
+            )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC)
         self.assertEqual(check.status, expected)

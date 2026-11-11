@@ -20,9 +20,8 @@ from posthog.hogql_queries.serialized_actors import (
     get_serialized_people,
 )
 from posthog.models import Team
-from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.property import GroupTypeIndex
+from posthog.models.property import GroupTypeIndex, validate_group_type_index
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 

@@ -390,6 +390,42 @@ class TestValidateManifestUrls(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("base_url_encoded_lower", "base_url", "https://api.example.com%5c@attacker.example.net/"),
+            ("base_url_encoded_upper", "base_url", "https://api.example.com%5C@attacker.example.net/"),
+            ("base_url_raw", "base_url", "https://attacker.example.net\\@api.example.com/"),
+            ("token_url_encoded", "token_url", "https://auth.example.com%5c@attacker.example.net/token"),
+            ("resource_path_encoded", "path", "https://api.example.com%5C@attacker.example.net/users"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="")
+    def test_rejects_ambiguous_authority(self, _name: str, field: str, url: str):
+        manifest = _minimal_manifest()
+        if field == "base_url":
+            manifest["client"]["base_url"] = url
+        elif field == "token_url":
+            manifest["client"]["auth"] = {"type": "oauth2", "client_id": "cid", "token_url": url}
+        else:
+            manifest["resources"][0]["endpoint"]["path"] = url
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "backslash" in (err or "")
+
+    @parameterized.expand(
+        [
+            ("encoded_backslash_in_path", "https://api.example.com/v1", "/files/a%5Cb"),
+            ("encoded_backslash_in_query", "https://api.example.com/v1", "/users?filter=a%5cb"),
+            ("internationalized_host", "https://bücher.example/v1", "/users"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="")
+    def test_accepts_unambiguous_authority(self, _name: str, base_url: str, path: str):
+        manifest = _minimal_manifest(base_url)
+        manifest["resources"][0]["endpoint"]["path"] = path
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
+
+    @parameterized.expand(
+        [
             ("http_public", "http://api.example.com"),
             ("http_private", "http://10.0.0.1/api"),
             ("https_loopback", "https://127.0.0.1/api"),
@@ -1218,6 +1254,27 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "from https://api.example.com/users " in (err or "")
         assert "inline-secret-123" not in (err or "")
 
+    @parameterized.expand(
+        [
+            ("base_url_encoded_lower", "base_url", "https://api.example.com%5c@attacker.example.net/"),
+            ("base_url_encoded_upper", "base_url", "https://api.example.com%5C@attacker.example.net/"),
+            ("token_url_encoded", "token_url", "https://auth.example.com%5C@attacker.example.net/oauth2/token"),
+        ]
+    )
+    def test_ambiguous_authority_sends_no_request(self, _name, field, url):
+        if field == "base_url":
+            manifest = _minimal_manifest(url)
+            config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        else:
+            manifest = _oauth2_manifest()
+            manifest["client"]["auth"]["token_url"] = url
+            config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_oauth2_client_secret="cs")
+        with scripted_network([]) as network:
+            ok, err = CustomSource().validate_credentials(config, team_id=999)
+        assert not ok
+        assert "backslash" in (err or "")
+        assert network.requests_log == []
+
     @parameterized.expand([401, 403])
     def test_returns_false_on_auth_rejection(self, status_code):
         source = CustomSource()
@@ -1597,16 +1654,17 @@ class TestManifestRequestHosts(SimpleTestCase):
         )
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
 
-    def test_backslash_authority_resolves_to_real_host(self):
-        # `https://evil\@trusted/` connects to `evil` (urllib3/WHATWG) even though urlparse
-        # alone reads `trusted` — the guard must see the real destination, not be fooled.
-        manifest = json.dumps(
-            {
-                "client": {"base_url": "https://attacker.example.net\\@api.example.com/"},
-                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
-            }
-        )
-        assert manifest_request_hosts(manifest) == frozenset({"attacker.example.net"})
+    @parameterized.expand(
+        [
+            ("raw_backslash", "https://attacker.example.net\\@api.example.com/"),
+            ("encoded_lower", "https://api.example.com%5c@attacker.example.net/"),
+            ("encoded_upper", "https://api.example.com%5C@attacker.example.net/"),
+        ]
+    )
+    def test_ambiguous_authority_counts_as_new_host(self, _name, base_url):
+        existing = {"manifest_json": self._manifest("https://api.example.com/", ["/users"])}
+        incoming = {"manifest_json": self._manifest(base_url, ["/users"])}
+        assert CustomSource().job_inputs_add_connection_host(incoming, existing)
 
     def test_host_is_lowercased(self):
         assert manifest_request_hosts(self._manifest("https://API.Example.COM", [])) == frozenset({"api.example.com"})
@@ -1920,6 +1978,27 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert err is not None
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
+
+    def test_temporary_dns_resolution_failure_message_is_classified_retryable(self):
+        # `_is_host_safe` raises this message when the resolver itself fails to answer (a DNS
+        # blip), distinct from the permanent "Couldn't resolve the host" case above. It must stay
+        # out of get_non_retryable_errors and be matched by get_retryable_errors, so the caller
+        # treats it as transient and re-raises for Temporal to retry instead of reporting it.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Temporary failure resolving the host 'api.example.com'. Try again in a moment.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert not any(key in err for key in non_retryable)
+        retryable = CustomSource().get_retryable_errors()
+        assert any(key in err for key in retryable)
 
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
@@ -2444,6 +2523,86 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         ]
 
 
+class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "field_expansion",
+                "/page/posts?limit=100&fields=id,attachments{media_type},insights.metric(a,b)",
+                None,
+                "fields",
+                "id,attachments{media_type},insights.metric(a,b)",
+            ),
+            (
+                "nested_field_expansion",
+                "/page/posts?fields=insights{values{value}}",
+                None,
+                "fields",
+                "insights{values{value}}",
+            ),
+            ("already_escaped", "/page/posts?fields=a{{b}}", None, "fields", "a{b}"),
+            ("unbalanced_brace", "/page/posts?q=a}", None, "q", "a}"),
+            ("declared_param_still_binds", "/page/posts?since={since}&fields=a{b}", {"since": "2024"}, "since", "2024"),
+        ]
+    )
+    def test_query_braces_reach_request(self, _name, path, params, query_param, expected):
+        manifest = _minimal_manifest()
+        endpoint = manifest["resources"][0]["endpoint"]
+        endpoint.update({"path": path, "paginator": {"type": "single_page"}})
+        if params:
+            endpoint["params"] = params
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "users", [ScriptedResponse(json={"data": [{"id": 1}]})], team_id=999
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/page/posts"]
+        assert result.requests[0].param(query_param) == expected
+
+    def test_fanout_child_query_braces_reach_request(self):
+        manifest = _fanout_manifest()
+        for resource in manifest["resources"]:
+            resource["endpoint"]["paginator"] = {"type": "single_page"}
+        manifest["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses?fields=answers{value}"
+
+        result = SourceDriver(CustomSource(), CustomSourceConfig(manifest_json=json.dumps(manifest))).run(
+            "responses",
+            [ScriptedResponse(json={"items": [{"id": "f1"}]}), ScriptedResponse(json={"items": []})],
+            team_id=999,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/forms", "/forms/f1/responses"]
+        assert result.requests[1].param("fields") == "answers{value}"
+
+    def test_validate_credentials_accepts_query_braces(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "/page/posts?fields=attachments{media_type}"
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with scripted_network([ScriptedResponse(json={})]):
+            ok, err = CustomSource().validate_credentials(config, team_id=999)
+        assert ok, err
+
+    @parameterized.expand(
+        [
+            ("path_segment", "/accounts/{account_id}/users"),
+            ("path_segment_with_query_braces", "/accounts/{account_id}/users?fields=a{b}"),
+        ]
+    )
+    def test_unbound_path_placeholder_names_table_not_path(self, _name, path):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = path
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        ok, err = CustomSource().validate_credentials(config, team_id=999)
+
+        assert ok is False
+        assert err is not None
+        assert "'users'" in err and "{account_id}" in err
+        assert "/accounts/" not in err
+
+
 class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
     def test_child_resource_is_its_own_schema(self):
         manifest = _fanout_manifest()
@@ -2690,21 +2849,29 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert err is not None and "resource_defaults" in err
 
 
-class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
-    def _manifest(self) -> dict:
+_INVALID_PAGINATOR_CASES = [
+    ("unsupported_key", {"type": "offset", "limit": 100, "limit_body_path": "meta.limit"}, False, "limit_body_path"),
+    ("null_required_key", {"type": "offset", "limit": None}, False, "non-null value for limit"),
+    ("missing_required_key", {"type": "offset"}, False, "non-null value for limit"),
+    ("inherited_null_required_key", {"type": "offset", "limit": None}, True, "non-null value for limit"),
+]
+
+
+class TestCustomSourcePaginatorInvalidConfig(SimpleTestCase):
+    def _manifest(self, paginator: dict, in_defaults: bool) -> dict:
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["paginator"] = {
-            "type": "offset",
-            "limit": 100,
-            "limit_body_path": "meta.limit",
-        }
+        if in_defaults:
+            manifest["resource_defaults"] = {"endpoint": {"paginator": paginator}}
+        else:
+            manifest["resources"][0]["endpoint"]["paginator"] = paginator
         return manifest
 
+    @parameterized.expand(_INVALID_PAGINATOR_CASES)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+    def test_raises_non_retryable_before_engine(self, _name, paginator, in_defaults, expected, mock_resources):
         mock_resources.return_value = [_fake_resource("users")]
         source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(paginator, in_defaults)))
         inputs = MagicMock(
             team_id=1,
             schema_name="users",
@@ -2714,15 +2881,34 @@ class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
         )
         with self.assertRaises(NonRetryableException) as ctx:
             source.source_for_pipeline(config, inputs)
-        assert "limit_body_path" in str(ctx.exception)
+        assert expected in str(ctx.exception)
         mock_resources.assert_not_called()
 
-    def test_unsupported_key_rejected_at_validation(self):
+    @parameterized.expand(_INVALID_PAGINATOR_CASES)
+    def test_rejected_at_validation(self, _name, paginator, in_defaults, expected):
         source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(paginator, in_defaults)), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
-        assert err is not None and "limit_body_path" in err and "'users'" in err
+        location = "resource_defaults.endpoint.paginator" if in_defaults else "'users'"
+        assert err is not None and expected in err and location in err
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_overridden_default_paginator_is_not_checked(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        manifest = self._manifest({"type": "offset", "limit": None}, in_defaults=True)
+        manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+        mock_resources.assert_called_once()
 
 
 def _apikey_manifest() -> dict:

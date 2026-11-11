@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -142,8 +143,11 @@ class TestFirstReportScout(BaseTest):
         assert all(
             not call.kwargs["query"].select_from.table.chain[0].startswith("orders") for call in query.call_args_list
         )
-        if row_counts:
-            assert f'"recorded_row_count": {json.dumps(row_counts[-1])}' in context.prompt_context()
+        prompt = context.prompt_context()
+        payload = json.loads(prompt.rsplit("\n\n", 1)[1])
+        assert payload.get("warehouse_tables_connected", False) is bool(row_counts)
+        assert "orders_" not in prompt
+        assert "recorded_row_count" not in prompt
 
     def test_older_product_data_still_qualifies_for_an_investigation(self) -> None:
         with patch(
@@ -154,6 +158,9 @@ class TestFirstReportScout(BaseTest):
         assert context.has_data()
         assert context.product_data["session_replay_fragments"].rows == 0
         assert context.product_data["session_replay_fragments"].has_rows is True
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert list(sources) == ["Logs", "Traces", "Product analytics", "Session recordings"]
+        assert set(sources.values()) == {"data observed"}
         assert [call.kwargs["workload"] for call in query.call_args_list] == [
             Workload.OFFLINE,
             Workload.OFFLINE,
@@ -181,6 +188,20 @@ class TestFirstReportScout(BaseTest):
         result = first_report_state(self.team.id)
         assert result["status"] == expected
         assert result["task_run_id"] == str(task_run.id)
+
+    def test_completion_before_run_creation_keeps_incomplete_outcome(self) -> None:
+        with (
+            patch("products.signals.backend.first_report_completion.capture_exception") as capture,
+            patch("products.signals.backend.first_report_completion.create_notification") as notify,
+        ):
+            result = complete_first_report_investigation(self.team.id, str(uuid4()))
+        assert result == {
+            "first_report_outcome": "incomplete",
+            "report_delivered": False,
+            "report_delivered_within_five_minutes": False,
+        }
+        capture.assert_not_called()
+        notify.assert_not_called()
 
     @parameterized.expand([(True, "report_created"), (False, "insufficient_data")])
     def test_experiment_measures_persisted_delivery_even_when_run_failed(self, delivered: bool, expected: str) -> None:
@@ -218,6 +239,17 @@ class TestFirstReportScout(BaseTest):
             context = build_first_report_context(self.team, self.user)
         assert context.has_data() is ingested_event
         assert context.data_is_unknown()
+        context.inventory.products_in_use = ["error_tracking", "metrics"]
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert sources == {
+            "Error tracking": "configured; data unverified",
+            "Metrics": "configured; data unverified",
+            **(
+                {"Product analytics": "past event ingestion recorded; current data unverified"}
+                if ingested_event
+                else {}
+            ),
+        }
 
     @parameterized.expand(
         [

@@ -31,7 +31,23 @@ export const LOGGED_OUT_SCENES = [
 
 // The files that map a scene to its loader, as `[Scene.Name]: () => import('…')` or `Name: () => import('…')`.
 const SCENE_REGISTRIES = ['src/scenes/appScenes.ts', 'src/productScenes.tsx']
-const SCENE_LOADER = /(?:\[Scene\.(\w+)\]|(\w+)):\s*\(\)\s*=>\s*import\(\s*'([^']+)'\s*\)/g
+const SCENE_LOADER = /(?:\[Scene\.(\w+)\]|(["']?)(\w+)\2):\s*\(\)\s*=>\s*import\(\s*(["'])([^"']+)\4\s*\)/g
+
+/**
+ * `[scene, import specifier]` for each loader in a registry's source. A loader this cannot read
+ * throws, because a scene missed here lands in the logged-out import map.
+ */
+export function sceneLoaders(source, registry) {
+    const loaders = [...source.matchAll(SCENE_LOADER)].map(([, sceneEnumName, , sceneKey, , specifier]) => [
+        sceneEnumName ?? sceneKey,
+        specifier,
+    ])
+    const importCount = source.match(/import\(/g)?.length ?? 0
+    if (loaders.length !== importCount) {
+        throw new Error(`stable chunks: read ${loaders.length} of ${importCount} scene loaders in ${registry}`)
+    }
+    return loaders
+}
 
 /** A module path relative to the frontend directory, without its extension or a trailing `/index`. */
 export function moduleKey(modulePath) {
@@ -60,9 +76,9 @@ export function sceneModules(frontendDir) {
     const modules = new Map()
     for (const registry of SCENE_REGISTRIES) {
         const source = fs.readFileSync(path.resolve(frontendDir, registry), 'utf8')
-        for (const [, sceneEnumName, sceneKey, specifier] of source.matchAll(SCENE_LOADER)) {
+        for (const [scene, specifier] of sceneLoaders(source, registry)) {
             const modulePath = path.relative(frontendDir, path.resolve(frontendDir, resolveLoader(registry, specifier)))
-            modules.set(sceneEnumName ?? sceneKey, moduleKey(modulePath.split(path.sep).join('/')))
+            modules.set(scene, moduleKey(modulePath.split(path.sep).join('/')))
         }
     }
     return modules

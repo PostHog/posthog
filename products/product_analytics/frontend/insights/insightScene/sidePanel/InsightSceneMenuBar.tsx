@@ -25,17 +25,18 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { unsavedSqlInsightQuery } from 'scenes/insights/utils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -50,15 +51,10 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { tagsModel } from '~/models/tagsModel'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -124,7 +120,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -142,6 +137,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
+    const unsavedSqlQuery = unsavedSqlInsightQuery(query, isSavedInsight)
     const canExport = exportContext != null && insight.short_id != null
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
@@ -195,6 +191,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
     const showStateMenu = isSavedInsight // favorite + view-source toggle
+    // The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate.
+    const showFavorite = !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const showStaffMenu = canShowDebugPanel
 
     return (
@@ -399,25 +397,35 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditInSqlEditor && (
+                    {(canEditInSqlEditor || unsavedSqlQuery) && (
                         <SceneMenuBarItem
-                            onClick={() => push(urls.sqlEditor({ query: hogQL ?? undefined }))}
+                            onClick={() =>
+                                push(
+                                    urls.sqlEditor({
+                                        query: unsavedSqlQuery ?? hogQL ?? undefined,
+                                        dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
+                                    })
+                                )
+                            }
                             data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
                         >
                             <IconPencil />
                             Edit in SQL editor
                         </SceneMenuBarItem>
                     )}
+                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                     {showStateMenu && (
                         <>
                             <SceneMenuBarSeparator />
-                            <SceneMenuBarCheckboxItem
-                                checked={!!insight.favorited}
-                                onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
-                                data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
-                            >
-                                Favorite
-                            </SceneMenuBarCheckboxItem>
+                            {showFavorite && (
+                                <SceneMenuBarCheckboxItem
+                                    checked={!!insight.favorited}
+                                    onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
+                                >
+                                    Favorite
+                                </SceneMenuBarCheckboxItem>
+                            )}
                             <SceneMenuBarCheckboxItem
                                 checked={showQueryEditor}
                                 onCheckedChange={handleToggleQueryEditorPanel}
@@ -438,7 +446,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneTagsCombobox
                         onSave={(tags) => setInsightMetadata({ tags })}
                         tags={insight.tags}
-                        tagsAvailable={allExistingTags}
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}

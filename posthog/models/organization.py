@@ -1,7 +1,8 @@
 import sys
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -39,6 +40,7 @@ class OrganizationUsageResource(TypedDict):
     usage: int | None
     limit: int | None
     todays_usage: int | None
+    daily_usage: NotRequired[dict[str, int]]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -55,8 +57,10 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
+    signals_spend_credits: NotRequired[OrganizationUsageResource | None]
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None
@@ -68,6 +72,8 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+    billing_status_computed_at: NotRequired[str]
+    billing_latest_usage_report_date: NotRequired[str | None]
 
 
 @frozen
@@ -377,9 +383,19 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     __repr__ = sane_repr("name")
 
+    @property
+    def ip_restrictions(self) -> list[str]:
+        config = getattr(self, "ip_restrictions_config", None)
+        return config.ip_restrictions if config is not None else []
+
+    @property
+    def ip_restrictions_enabled(self) -> bool:
+        config = getattr(self, "ip_restrictions_config", None)
+        return bool(config.enabled) if config is not None else False
+
     @classmethod
-    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_name = instance.__dict__.get("name")
         return instance
 
@@ -784,6 +800,14 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
     except Exception:
         # The nightly reconciliation realigns billing; never fail the org save.
         logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
+
+
+class OrganizationAITerms(Organization):
+    # Gives staff one admin page for the AI terms an organization accepts, across products.
+    class Meta:
+        proxy = True
+        verbose_name = "AI terms and conditions"
+        verbose_name_plural = "AI terms and conditions"
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

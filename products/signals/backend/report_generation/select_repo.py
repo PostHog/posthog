@@ -3,6 +3,7 @@
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
+along with invalid agent output and failed sandbox runs
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
 fallback, so the shared module's operational-vs-semantic distinction has
 nowhere to land; `summary.py` treats `repository=None` as
@@ -12,6 +13,7 @@ nowhere to land; `summary.py` treats `repository=None` as
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
@@ -21,7 +23,13 @@ from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation.source_repository import source_repository_from_signals
-from products.tasks.backend.facade import api as tasks_facade
+from products.signals.backend.report_monitoring_provenance import (
+    MonitoringRepositorySources,
+    monitoring_repository_sources,
+)
+from products.signals.backend.task_profiles import REPO_SELECTION, REPO_SELECTION_WITHOUT_REPORT
+from products.tasks.backend.facade.agents import SandboxRunFailed
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
@@ -74,58 +82,57 @@ async def select_repository_for_team(
     *,
     step_name: str = "repo_selection",
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
-    pinned_repository: str | None = None,
+    on_research_session: Callable[[str, str], None] | None = None,
+    source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
+    signals or a custom agent's initial prompt). Rejection, unavailability, invalid output,
+    and failed sandbox runs collapse into ``RepoSelectionResult(repository=None, ...)``
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
 
-    ``pinned_repository`` is a repository the request names itself (see
+    ``source_repository`` is a repository the request names itself (see
     :mod:`~products.signals.backend.report_generation.source_repository`). The shared selector
-    returns it when the team can reach it, and ``repository=None`` with the mismatch when it
-    cannot — it never substitutes a different repository for one the request named.
+    makes it the agent's default when the team can reach it; the agent can still select another.
     """
-    # Both inputs below only ever reach the agent, and a pin answers without it, so neither is
-    # resolved on that path — the corrections block alone scans hundreds of artefact rows.
-    agent_runtime = (
-        None
-        if pinned_repository is not None
-        else await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_REPO_SELECTION)
+    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+        team_id, STEP_REPO_SELECTION
     )
     # Resolved at the single repo-selection chokepoint so every signals selection (report pipeline,
     # custom agents, scout emit) sees the project's past wrong-repo corrections, rather than per
     # caller. Best-effort inside (None on failure or no corrections).
-    past_corrections = (
-        None
-        if pinned_repository is not None
-        else await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
-    )
+    past_corrections = await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
     try:
         return await select_repository(
             team_id=team_id,
             user_id=user_id,
             context=request_section,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=REPO_SELECTION if signal_report_id else REPO_SELECTION_WITHOUT_REPORT,
+            source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=signal_report_id) if signal_report_id else None,
             # Report generation runs in the background, so its repository cache refresh yields first.
             priority=Priority.BATCH,
             step_name=step_name,
-            signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
-            model=agent_runtime.model if agent_runtime else None,
-            runtime_adapter=agent_runtime.runtime_adapter if agent_runtime else None,
-            reasoning_effort=agent_runtime.reasoning_effort if agent_runtime else None,
-            service_tier=agent_runtime.service_tier if agent_runtime else None,
+            on_research_session=on_research_session,
+            model=agent_runtime.model,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            reasoning_effort=agent_runtime.reasoning_effort,
+            service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
-            pinned_repository=pinned_repository,
+            source_repository=source_repository,
+            source_repositories=source_repositories,
+            require_private_destination=require_private_destination,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'
@@ -145,6 +152,13 @@ async def select_repository_for_team(
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
         return RepoSelectionResult(repository=None, reason=exc.reason)
+    except (ValueError, SandboxRunFailed):
+        logger.exception("repo selection agent failed", extra={"team_id": team_id, "report_id": signal_report_id})
+        return RepoSelectionResult(
+            repository=None,
+            reason="Repository selection failed. Choose a repository to continue.",
+            autostart_eligible=False,
+        )
 
 
 async def select_repository_for_report(
@@ -153,17 +167,25 @@ async def select_repository_for_report(
     signals: list[SignalData],
     *,
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    monitoring_sources: MonitoringRepositorySources | None = None,
+    on_research_session: Callable[[str, str], None] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals.
 
-    Signals that name their own repository pin it, so a report built from a GitHub issue targets
-    the repository the issue was filed against.
+    Signals that name their own repository make it the default, so a report built from a GitHub
+    issue targets the repository the issue was filed against unless the agent finds the code
+    elsewhere.
     """
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
+    if monitoring_sources is None:
+        monitoring_sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+            team_id, signals
+        )
     request_section = render_signals_to_text(signals)
     return await select_repository_for_team(
         team_id,
@@ -171,8 +193,12 @@ async def select_repository_for_report(
         request_section,
         step_name="repo_selection",
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         sandbox_environment_id=sandbox_environment_id,
         verbose=verbose,
         output_fn=output_fn,
-        pinned_repository=source_repository_from_signals(signals),
+        on_research_session=on_research_session,
+        source_repository=source_repository_from_signals(signals),
+        source_repositories=monitoring_sources.repositories if monitoring_sources else (),
+        require_private_destination=monitoring_sources.require_private_destination if monitoring_sources else False,
     )

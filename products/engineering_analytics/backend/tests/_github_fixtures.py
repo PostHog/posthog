@@ -16,6 +16,7 @@ import pandas as pd
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
@@ -29,7 +30,12 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+
+def enroll_team(team: Team) -> None:
+    DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS)
+
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
@@ -111,20 +117,36 @@ def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str =
     )
 
 
-def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str, v2_shape: bool = True) -> dict[str, Any]:
+    if not v2_shape:
+        return {
+            "file": file,
+            "name": name,
+            "labels": "[]",
+            "parent": parent,
+            "status": "FLAKY",
+            "variant": "",
+            "classname": classname,
+            "codeowners": "[]",
+            "test_case_id": f"case-{name}",
+            "quarantined_at": "2026-01-10T10:00:00.000Z",
+            "quarantine_setting": "AUTO_QUARANTINE",
+            "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        }
     return {
+        "id": f"case-{name}",
+        "test_collection_id": "collection",
         "file": file,
         "name": name,
         "labels": "[]",
-        "parent": parent,
-        "status": "FLAKY",
+        "parent_name": parent,
+        "class_name": classname,
         "variant": "",
-        "classname": classname,
+        "status": "flaky",
         "codeowners": "[]",
-        "test_case_id": f"case-{name}",
-        "quarantined_at": "2026-01-10T10:00:00.000Z",
-        "quarantine_setting": "AUTO_QUARANTINE",
-        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_state": "quarantined",
+        "quarantined_since": "2026-01-10T10:00:00.000Z",
+        "url": f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}",
     }
 
 

@@ -5,36 +5,18 @@
 Today ranks facts that other products find and shows the best few.
 The product that owns the data owns its source: the query, the thresholds, and the copy.
 Today owns the contract, the ranking, and the shared helpers.
+Today also owns the pulse: the routine and key-metric tiles, pinned numbers, and the home dashboard source.
+These live in `backend/logic/today_highlights/` and Today declares them in `backend/facade/today_highlights.py`.
 
-**A new source lives in its own product, never in `products/today/`.**
+**A source that another team owns lives in that team's product, never in `products/today/`.**
+The how-to for a product team is the `adding-today-highlights` skill (`.agents/skills/adding-today-highlights/SKILL.md`), because a producer works in its own product and never loads this file.
 
-1. Put the rule in the product's internals, for example `products/<x>/backend/today_highlights.py`.
-   It takes a `HighlightContext` and returns `HighlightFindings`.
-2. Declare it in `products/<x>/backend/facade/today_highlights.py`:
-
-   ```python
-   from products.today.backend.facade.contracts import HighlightSource
-
-   from ..today_highlights import find_stale_things
-
-   HIGHLIGHT_SOURCES = (HighlightSource(name="stale_things", find=find_stale_things, scopes=("thing:read",)),)
-   ```
-
-3. Add `"products.today"` to the product's `depends_on` in `tach.toml`. Today gets no new dependency.
-4. Test the rule in the product, with `products.today.backend.facade.testing.highlight_context`.
-
-Today finds the declaration through `posthog.products.load_product_modules`, so a new source changes no file in Today.
+Today finds every declaration through `posthog.products.load_product_modules`, so a new source changes no backend file in Today.
 The registry raises on a missing declaration, an unusable entry, or a source name that another product already uses.
+It also records the product that declares each source, and the row icon comes from that product (`PRODUCT_ICONS` in `frontend/src/scenes/project-homepage/today/todayRowIcons.tsx`).
 
-Import only from Today's facade:
+The facade (`contracts.py`, `enums.py`, `highlight_helpers.py`, `testing.py`) is a contract with every producing product.
+Change it only in a backward-compatible way: an added field gets a default, because Today validates stored results against these types.
 
-- `facade/contracts.py`: `HighlightCandidate`, `HighlightFindings`, `HighlightContext`, `HighlightSource`, `HighlightMetric`, `DailyValueNotReady`
-- `facade/enums.py`: `HighlightLabel`, `HighlightUnit`, `HighlightInterval`
-- `facade/highlight_helpers.py`: number and text formatting, `uses_product`, and trend detection
-
-`HighlightContext.daily()` caches one value per team, property restrictions and day, so every viewer with the same restrictions shares it.
-Never compute a per-viewer value there without the user id in its name.
-
-**Status:** `backend/logic/highlight_sources/` is deprecated.
-The sources in it still load, through legacy aliases in `logic/highlight_types.py`, until each one moves into its product.
-Do not add a file there and do not copy those files as an example.
+**Status:** every other team's source lives in its own product.
+`backend/logic/highlight_sources/` and its `SOURCE` lookup are gone, so a file there no longer loads.

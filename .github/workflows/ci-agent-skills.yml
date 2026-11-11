@@ -73,6 +73,16 @@ jobs:
             contents: read
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.github/actions/setup-uv/
+                      /.agents/skills/
+                      /products/__init__.py
+                      /products/posthog_ai/__init__.py
+                      /products/posthog_ai/scripts/build_skills/
+                      /products/*/skills/
+                      /services/mcp/schema/
+                  sparse-checkout-cone-mode: false
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -103,9 +113,9 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
-                  filter: blob:none
+                  # Only PR schema keys need the merge base; master pushes use HEAD.
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 1000 || 1 }}
+                  filter: ${{ github.event_name == 'pull_request' && 'blob:none' || '' }}
 
             - name: Fetch base branch for merge-base computation
               if: github.event_name == 'pull_request'
@@ -244,9 +254,9 @@ jobs:
                       ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
-              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
-              # schema-only dump lacks; the migrate step below layers anything newer on
-              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              # db:restore-schema-fresh restores the dump. The migrate step below layers
+              # anything newer on top and seeds the RunPython data a schema-only dump
+              # lacks. On failure it leaves a fresh empty db, so migrate runs the full history.
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'

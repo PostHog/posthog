@@ -7,9 +7,8 @@ use serde_json::Value;
 
 use crate::corpus;
 
-// The harness contract still names the v4 record's schemas `flags_response_v3*`.
 const PRODUCER_ID: &str =
-    "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json";
+    "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v4.schema.json";
 
 struct Vendored;
 
@@ -19,7 +18,7 @@ impl Retrieve for Vendored {
         uri: &Uri<String>,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         if uri.as_str() == PRODUCER_ID {
-            Ok(corpus::load("schemas/flags_response_v3.schema.json"))
+            Ok(corpus::load("schemas/flags_response_v4.schema.json"))
         } else {
             Err(format!("unexpected $ref {uri}").into())
         }
@@ -35,9 +34,9 @@ fn validator(path: &str) -> Validator {
 }
 
 static PRODUCER: LazyLock<Validator> =
-    LazyLock::new(|| validator("schemas/flags_response_v3.schema.json"));
+    LazyLock::new(|| validator("schemas/flags_response_v4.schema.json"));
 static PRESENCE: LazyLock<Validator> =
-    LazyLock::new(|| validator("schemas/flags_response_v3_presence.schema.json"));
+    LazyLock::new(|| validator("schemas/flags_response_v4_presence.schema.json"));
 
 fn first_error(validator: &Validator, instance: &Value) -> Option<String> {
     validator

@@ -81,6 +81,7 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         """
         join_clauses: list[str] = []
         where_conditions: list[str] = []
+        member_conditions: list[str] = []
         placeholders: dict[str, ast.Expr] = {
             "team_id": ast.Constant(value=self._team.pk),
         }
@@ -95,10 +96,16 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
                 # DISTINCT because `person_static_cohort` can hold repeated rows for the same member
                 # (its sort key includes a per-row UUID), which would fan out through the LEFT JOIN.
                 subquery = f"(SELECT DISTINCT person_id, 1 AS matched FROM static_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}})"
+                member_conditions.append(
+                    f"person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}})"
+                )
             else:
                 version_placeholder = f"version_{idx}"
                 placeholders[version_placeholder] = ast.Constant(value=version)
                 subquery = f"(SELECT person_id, 1 AS matched FROM raw_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}} AND version = {{{version_placeholder}}})"
+                member_conditions.append(
+                    f"person_id IN (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}} AND version = {{{version_placeholder}}})"
+                )
 
             join_clauses.append(f"LEFT JOIN {subquery} AS {alias} ON {alias}.person_id = pdi.person_id")
 
@@ -112,6 +119,15 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         else:
             combined_where = " OR ".join(f"({cond})" for cond in where_conditions)
 
+        # Without a prefilter, the argMax aggregation below holds every distinct_id of the team in memory.
+        # When all filters are IN, a distinct_id can only match if one of its rows points at a cohort member,
+        # so the aggregation can skip the other distinct_ids. The aggregation still reads all rows of the kept
+        # distinct_ids, so a distinct_id that moved out of the cohort resolves to its current person.
+        # NOT IN must keep every distinct_id, because a person outside the cohort matches it.
+        distinct_id_prefilter = ""
+        if not any(is_negated for _, is_negated, _, _ in cohort_filters):
+            distinct_id_prefilter = f"AND distinct_id IN (SELECT distinct_id FROM raw_person_distinct_ids WHERE {' OR '.join(member_conditions)})"
+
         query_template = f"""
         SELECT pdi.distinct_id AS distinct_id
         FROM (
@@ -121,6 +137,7 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
                 argMax(is_deleted, version) AS is_deleted
             FROM raw_person_distinct_ids
             WHERE team_id = {{team_id}}
+            {distinct_id_prefilter}
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi

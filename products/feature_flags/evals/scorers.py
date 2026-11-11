@@ -671,8 +671,10 @@ FLAG_MUTATION_TOOLS = frozenset(
     {
         "feature-flag-archive",
         "feature-flag-unarchive",
+        "feature-flag-restore",
         "feature-flag-disable",
         "feature-flag-enable",
+        "feature-flag-rules-update",
         "feature-flag-roll-out-to-everyone",
         "feature-flag-set-release-condition-rollout",
         "delete-feature-flag",

@@ -3,7 +3,8 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.temporal.helpers import block_if_ai_processing_not_approved, block_if_team_over_quota
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 
 logger = structlog.get_logger(__name__)
@@ -17,20 +18,18 @@ def enforce_posthog_code_billing_quota_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> bool:
-    """Block the workflow when the team has exhausted its AI-credits quota.
+    """Block the workflow when the organization has not approved AI data processing,
+    or when the team has exhausted its AI-credits quota.
 
-    Returns True when the team is over quota and the workflow must stop. Called
-    as the first activity in the mention workflow so the bot never proceeds to
-    Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
-    notably) for an over-quota team.
+    Returns True when the workflow must stop. Called as the first activity in the
+    mention workflow so the bot never proceeds to Slack roundtrips, thread fetches,
+    or LLM calls (the classifier, notably) for a team that cannot use AI. The
+    consent check lives in this activity, not a new one, so in-flight workflow
+    histories still replay.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
-    integration = Integration.objects.select_related("team").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     # An untagged reply or an untagged channel question has asked PostHog for nothing
     # yet, because both the classifier and the confirmation prompt run after this gate.
@@ -39,6 +38,16 @@ def enforce_posthog_code_billing_quota_activity(
     # PostHog owns, chitchat included. Stop the run without the message and keep the
     # message for a mention or a confirmed reply, which are the turns that asked for work.
     unrequested = (inputs.untagged_followup or inputs.untagged_question) and not inputs.untagged_confirmed
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+        post_denial=not unrequested,
+    ):
+        return True
     blocked = block_if_team_over_quota(
         integration=integration,
         slack=slack,

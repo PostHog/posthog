@@ -18,10 +18,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 

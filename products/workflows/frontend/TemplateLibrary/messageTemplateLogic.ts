@@ -35,6 +35,8 @@ import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { omitNullDesign } from './omitNullDesign'
+import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
@@ -75,12 +77,15 @@ export interface messageTemplateLogicValues {
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
+    isTransactional: boolean
+    listUrl: string
     logicProps: MessageTemplateLogicProps
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
     publishedContent: TemplateContent | null
     savedDraft: TemplateContent | null
+    section: TemplateSection
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -443,6 +448,9 @@ export interface messageTemplateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
+        isTransactional: (transactionalHogFlowId: string | null) => boolean
+        section: (location: { hash: string; pathname: string; search: string }) => TemplateSection
+        listUrl: (isTransactional: boolean, section: TemplateSection) => string
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
@@ -653,6 +661,21 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
         ],
+        isTransactional: [
+            (s) => [s.transactionalHogFlowId],
+            (transactionalHogFlowId: string | null): boolean => !!transactionalHogFlowId,
+        ],
+        // The nav section the page was opened under. Links from the page stay in it.
+        section: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): TemplateSection => templateSectionFor(location.pathname),
+        ],
+        // The list a person returns to: transactional emails live in their own section.
+        listUrl: [
+            (s) => [s.isTransactional, s.section],
+            (isTransactional: boolean, section: TemplateSection): string =>
+                isTransactional ? urls.transactional() : templateLibraryUrl(section),
+        ],
         // Sends use a transactional template's content, so its edits save as a draft until they are published.
         draftsEnabled: [
             (s) => [s.transactionalHogFlowId],
@@ -714,10 +737,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
                 // and the tags each save on their own, so a publish never sends them and can't undo a
                 // change made in another tab since this one loaded the template.
-                const { sensitive: _sensitive, tags: _tags, ...content } = template
+                const payload = template.content?.email
+                    ? { ...template, content: { ...template.content, email: omitNullDesign(template.content.email) } }
+                    : template
+                const { sensitive: _sensitive, tags: _tags, ...content } = payload
                 const saved =
                     template.id === 'new'
-                        ? await api.messaging.createTemplate(template)
+                        ? await api.messaging.createTemplate(payload)
                         : await api.messaging.updateTemplate(template.id, content)
                 const { form, draft, published } = splitDraft(saved)
                 actions.setDraftState(draft, published)
@@ -996,7 +1022,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (props.id === 'new') {
                 router.actions.push(urls.workflows('library'))
             } else if (template.id) {
-                router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+                router.actions.replace(templateUrlInSection(template.id, values.section))
             }
             actions.replayDeferredExternalEdit()
         },
@@ -1025,7 +1051,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     content: template.content,
                 })
                 lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
+                router.actions.push(templateUrlInSection(duplicatedTemplate.id, values.section))
             } catch {
                 lemonToast.error('Failed to duplicate template')
             }
@@ -1043,7 +1069,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
                 callback: (undo) => {
                     if (!undo) {
-                        router.actions.push(urls.workflows('library'))
+                        router.actions.push(values.listUrl)
                     }
                 },
             })

@@ -1020,7 +1020,7 @@ class TestSnowflakeSourceNonRetryableErrors:
         assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
-        "error_msg,expected_non_retryable",
+        "error_msg,expected_quota",
         [
             (
                 "090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
@@ -1032,20 +1032,19 @@ class TestSnowflakeSourceNonRetryableErrors:
                 True,
             ),
             ("090001 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed.", False),
-            (
-                "000606 (57P03): 01c00000-0000-0000-0000-000000000000: Statement reached its statement or warehouse timeout.",
-                False,
-            ),
         ],
     )
-    def test_resource_monitor_quota_is_non_retryable_only_for_that_error(
-        self, source, error_msg, expected_non_retryable
-    ):
-        non_retryable = source.get_non_retryable_errors()
-        matches = [message for pattern, message in non_retryable.items() if pattern in error_msg]
-        assert bool(matches) is expected_non_retryable
-        if expected_non_retryable:
-            assert all(message is not None and "resource monitor" in message for message in matches)
+    def test_resource_monitor_quota_keeps_the_schema_enabled(self, source, error_msg, expected_quota):
+        assert error_message_matches(error_msg, source.get_retryable_errors()) is expected_quota
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors())
+        exhausted = [
+            message
+            for key, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
+        assert bool(exhausted) is expected_quota
+        if expected_quota:
+            assert "tries again on its own" in exhausted[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1230,6 +1229,21 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Invalid account identifier: only letters, digits, '_', '-' and '.' (as a label "
+            "separator) allowed; no slashes or backslashes",
+            # The real shape from production: the duplicated errno prefix varies, the substring is stable.
+            "251001: 251001: Invalid account identifier: only letters, digits, '_', '-' and '.' "
+            "(as a label separator) allowed; no slashes or backslashes",
+        ],
+    )
+    def test_invalid_account_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-account-identifier error should be non-retryable: {error_msg}"
+
 
 class TestSnowflakeSourceRetryableErrors:
     @pytest.fixture
@@ -1350,6 +1364,19 @@ class TestSnowflakeValidateCredentials:
         assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
 
+    def test_resource_monitor_quota_names_the_quota_not_a_network_blip(self, source):
+        error = ProgrammingError(
+            msg="090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+            "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+            errno=90073,
+        )
+        with patch.object(source, "get_schemas", side_effect=error):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "resource monitor" in message
+        assert "brief" not in message
+
     def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
         # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
         # user config error that should surface an actionable message, not be captured.
@@ -1435,6 +1462,27 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
         assert "snowflakecomputing.com" not in message
+        mock_capture.assert_not_called()
+
+    def test_invalid_account_identifier_returns_friendly_message_without_capture(self, source):
+        # The connector's own `_validate_account` rejects the account id (e.g. a pasted URL or
+        # hostname) before any request reaches Snowflake. This is a user config error, not an
+        # unexpected failure worth capturing.
+        error = ProgrammingError(
+            msg="251001: 251001: Invalid account identifier: only letters, digits, '_', '-' and '.' "
+            "(as a label separator) allowed; no slashes or backslashes",
+            errno=251001,
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "account identifier" in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):

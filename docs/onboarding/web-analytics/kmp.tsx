@@ -26,7 +26,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Kotlin',
                                 code: dedent`
                                     PostHogConfig(
-                                        apiKey = "<ph_project_token>",
+                                        projectToken = "<ph_project_token>",
                                         host = "<ph_client_api_host>",
                                         captureScreenViews = true,
                                     )

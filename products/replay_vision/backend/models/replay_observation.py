@@ -3,6 +3,7 @@ from django.db.models import Case, CharField, Exists, Expression, F, FloatField,
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
@@ -45,8 +46,12 @@ class ObservationTrigger(models.TextChoices):
 class ReplayObservation(UUIDModel):
     """One application of a `ReplayScanner` to a session recording (see README)."""
 
-    scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_index=False: rlo_scanner_status_idx leads with scanner_id and serves every scanner filter.
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations", db_index=False
+    )
+    # db_index=False: rlo_team_created_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
     distinct_id = models.CharField(
         max_length=400,
@@ -98,10 +103,14 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
-    watch_rank = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="What to watch ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+    # Ranks live in `ReplayObservationRank`.
+    watch_rank = deprecate_field(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="Highlight feed ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+        ),
+        raise_on_access=True,
     )
     created_task_id = models.UUIDField(
         null=True,
@@ -163,24 +172,12 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            models.Index(
-                fields=["workflow_id"],
-                name="rlo_workflow_id_idx",
-                condition=~models.Q(workflow_id=""),
-            ),
             # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
             # in-flight statuses only, since terminal rows dominate and are never counted.
             models.Index(
                 fields=["team", "scanner"],
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
-            ),
-            # Serves the embedding feed's whole-window pick query, which reads only these columns of ranked rows.
-            models.Index(
-                fields=["scanner", "created_at"],
-                include=["id", "team", "completed_at", "watch_rank", "distinct_id", "session_id"],
-                name="rlo_scanner_ranked_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(

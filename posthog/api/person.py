@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import builtins
 import dataclasses
@@ -15,7 +16,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
-    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -25,7 +25,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
@@ -41,6 +40,7 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
@@ -59,12 +59,12 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence.repairs import is_person_busy, is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -90,6 +90,7 @@ from posthog.utils import (
     str_to_bool,
 )
 
+from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
@@ -104,8 +105,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
-# A reset request waits this long for Kafka to confirm the republished rows; a rerun of the reset is safe.
-RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS = 10
 
 # The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
 # Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
@@ -155,7 +154,7 @@ API_PERSON_LIST_SEARCH_COUNTER = Counter(
 )
 
 
-class PersonLimitOffsetPagination(LimitOffsetPagination):
+class PersonLimitOffsetPagination(BoundedLimitOffsetPagination):
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",
@@ -183,7 +182,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int | str | uuid.UUID, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
@@ -219,13 +218,29 @@ class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
 
 
 class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="The property key to set.")
-    value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
+    key = serializers.CharField(
+        required=False, help_text="The property key to set. Pair it with 'value' to set one property."
+    )
+    value = serializers.JSONField(
+        required=False, help_text="The property value. Can be a string, number, boolean, or object."
+    )
+    properties = serializers.DictField(
+        required=False,
+        child=serializers.JSONField(),
+        help_text=(
+            "Property keys and values to set together, instead of 'key' and 'value'. "
+            "One request sets up to 1000 properties and emits a single $set event."
+        ),
+    )
 
 
-# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
-# capture event safely under the ~1 MB Kafka message limit.
-MAX_UNSET_KEYS_PER_REQUEST = 1000
+# Matches the cap on the persons bulk-delete endpoint.
+MAX_PROPERTY_KEYS_PER_REQUEST = 1000
+
+# Capture refuses an event over the ~1 MB Kafka message limit, and _set_properties
+# discards that failure, so an oversized request would answer 202 having written
+# nothing. The headroom covers the event envelope around the properties.
+MAX_PROPERTIES_PAYLOAD_BYTES = 900_000
 
 
 @extend_schema_field(
@@ -236,7 +251,7 @@ MAX_UNSET_KEYS_PER_REQUEST = 1000
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
                 "minItems": 1,
-                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+                "maxItems": MAX_PROPERTY_KEYS_PER_REQUEST,
             },
         ]
     }
@@ -252,7 +267,7 @@ class PersonDeletePropertyRequestSerializer(serializers.Serializer):
         fields = super().get_fields()
         # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
         fields["$unset"] = UnsetPropertyKeysField(
-            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            max_items=MAX_PROPERTY_KEYS_PER_REQUEST,
             help_text="A property key, or a list of property keys, to remove from this person.",
         )
         return fields
@@ -393,7 +408,7 @@ class DeletionStatusQueryParamsSerializer(serializers.Serializer):
     person_uuid = serializers.UUIDField(required=False)
 
 
-class DeletionStatusPagination(LimitOffsetPagination):
+class DeletionStatusPagination(BoundedLimitOffsetPagination):
     default_limit = 100
 
 
@@ -441,9 +456,13 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
             restricted = self.context.get("restricted_person_properties")
             if restricted and representation.get("properties"):
-                representation["properties"] = {
-                    k: v for k, v in representation["properties"].items() if k not in restricted
-                }
+                representation["properties"] = redact_restricted_properties(representation["properties"], restricted)
+                representation["name"] = get_person_name_helper(
+                    instance.pk,
+                    representation["properties"],
+                    representation["distinct_ids"],
+                    self.context["get_team"](),
+                )
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -728,9 +747,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_restricted_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = self.request.user if self.request.user.is_authenticated else None
         context["restricted_person_properties"] = get_restricted_property_names(
@@ -818,6 +836,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit, offset = CSV_EXPORT_LIMIT, 0
         elif not limit:
             limit = DEFAULT_PAGE_LIMIT
+        else:
+            # The view reads `limit` itself, so it applies the cap that the paginator states in the schema.
+            limit = min(limit, PersonLimitOffsetPagination.max_limit)
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -1019,9 +1040,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for person_dict in serialized_actors:
                 properties = person_dict.get("properties")
                 if isinstance(properties, dict):
-                    person_dict["properties"] = {
-                        k: v for k, v in properties.items() if k not in restricted_person_properties
-                    }
+                    person_dict["properties"] = redact_restricted_properties(properties, restricted_person_properties)
+                    person_dict["name"] = get_person_name_helper(
+                        person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+                    )
 
         # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
         # per-row columns.
@@ -1160,6 +1182,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
         if not keep_person:
+            # This path holds a web worker, so each saga call gets the request-path deadline.
             result = delete_persons_profile(
                 self.team_id,
                 persons,
@@ -1167,6 +1190,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 request=request,
                 organization_id=self.organization.id,
                 queue_ai_training_deletion=False,
+                run=DeletionRun.fresh(rpc_timeout=settings.PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS / 1000),
             )
             persons_deleted = result.deleted_count
             errors = [
@@ -1322,9 +1346,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
             # Check field-level access control: return empty results for restricted properties
-            from posthog.models import PropertyDefinition
-
             from products.access_control.backend.property_access_control import get_restricted_property_names
+            from products.event_definitions.backend.models import PropertyDefinition
 
             user = request.user if request.user.is_authenticated else None
             restricted = get_restricted_property_names(
@@ -1332,7 +1355,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=user,
                 property_type=PropertyDefinition.Type.PERSON,
             )
-            if key in restricted:
+            if property_key_overlaps_restriction(key, restricted):
                 span.set_attribute("result_count", 0)
                 resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
@@ -1461,31 +1484,52 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        if "value" not in request.data:
-            return Response(
-                {
-                    "attr": "value",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        properties = request.data.get("properties")
+        if properties is None:
+            if "value" not in request.data:
+                return Response(
+                    {
+                        "attr": "value",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            if request.data.get("key") is None:
+                return Response(
+                    {
+                        "attr": "key",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            properties = {request.data["key"]: request.data["value"]}
+        elif not isinstance(properties, dict) or not properties:
+            raise ValidationError(
+                {"properties": "Provide 'properties' as a non-empty object of property keys to values."}
             )
-        if request.data.get("key") is None:
-            return Response(
-                {
-                    "attr": "key",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        elif len(properties) > MAX_PROPERTY_KEYS_PER_REQUEST:
+            raise ValidationError(
+                {"properties": f"Set at most {MAX_PROPERTY_KEYS_PER_REQUEST} properties in one request."}
             )
-        key = request.data["key"]
+
+        payload_size = len(json.dumps(properties, default=str).encode())
+        if payload_size > MAX_PROPERTIES_PAYLOAD_BYTES:
+            raise ValidationError(
+                {
+                    "properties": f"Property values total {payload_size} bytes, over the "
+                    f"{MAX_PROPERTIES_PAYLOAD_BYTES} byte limit for one request. Send them in smaller batches."
+                }
+            )
+
         non_writable = self._get_non_writable_person_properties(request)
-        if key in non_writable:
-            raise ValidationError(f'You do not have write access to the property "{key}".')
-        self._set_properties({key: request.data["value"]}, request.user)
+        for key in properties:
+            if key in non_writable:
+                raise ValidationError(f'You do not have write access to the property "{key}".')
+        self._set_properties(properties, request.user)
         return Response(status=202)
 
     @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
@@ -1658,9 +1702,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.property_access_control import get_non_writable_property_names
+        from products.event_definitions.backend.models import PropertyDefinition
 
         user = request.user if request.user.is_authenticated else None
         return get_non_writable_property_names(
@@ -1833,47 +1876,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @extend_schema(
-        description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
-        responses={
-            202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
-            409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
-            503: OpenApiResponse(description="Person data is temporarily unavailable. Try again shortly."),
-        },
-    )
-    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
-    def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        distinct_id = request.data.get("distinct_id")
-        if not distinct_id or not isinstance(distinct_id, str):
-            raise ValidationError(detail="distinct_id is required")
-
-        try:
-            summary = repair_distinct_id(
-                self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
-            )
-        except Exception as error:
-            if is_person_busy(error):
-                return response.Response(
-                    {"detail": "This person is being updated right now. Try again in a few seconds."},
-                    status=409,
-                )
-            if is_retryable(error):
-                return response.Response(
-                    {"detail": "Person data is temporarily unavailable. Try again in a minute."},
-                    status=503,
-                )
-            raise
-        if summary is not None:
-            logger.info(
-                "person_reset_distinct_id",
-                team_id=self.team_id,
-                person_outcomes=summary.person_outcomes,
-                mapping_outcomes=summary.mapping_outcomes,
-                undelivered=summary.undelivered,
-            )
-
-        return response.Response(status=202)
-
     @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids", required_scopes=["person:read"])
     def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         distinct_ids = request.data.get("distinct_ids", [])
@@ -1978,7 +1980,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags=["persons"],
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
-    def properties_at_time(self, request: request.Request) -> response.Response:
+    def properties_at_time(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
 
@@ -2060,13 +2062,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # The serializer only filtered the current properties, not these reconstructed ones.
+            person_data["properties"] = redact_restricted_properties(
+                point_in_time_properties, serializer_context.get("restricted_person_properties") or set()
+            )
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {

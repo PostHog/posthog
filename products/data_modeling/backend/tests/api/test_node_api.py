@@ -14,8 +14,14 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_frequency import (
+    get_declared_pin,
+    get_declared_target,
+    set_declared_pin,
+    set_declared_target,
+)
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
@@ -32,6 +38,15 @@ from products.data_modeling.backend.models import (
     NodeType,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
+    DataWarehouseSavedQueryColumnAnnotation,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+)
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -317,22 +332,16 @@ class TestNodeViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            # node target wins even when the saved-query interval disagrees (tiered v2 teams
-            # carry NULL intervals, so a saved-query-only read shows a blank frequency)
-            ("target_first", timedelta(hours=6), timedelta(hours=12), "6hour"),
-            ("saved_query_fallback", None, timedelta(hours=12), "12hour"),
-            ("neither", None, None, None),
+            ("target", timedelta(hours=6), "6hour"),
+            ("no_target", None, None),
         ]
     )
-    def test_node_sync_interval_reads_target_first(
+    def test_node_sync_interval_reads_the_node_target(
         self,
         _name: str,
         target: timedelta | None,
-        saved_query_interval: timedelta | None,
         expected: str | None,
     ):
-        self.saved_query.sync_frequency_interval = saved_query_interval
-        self.saved_query.save(update_fields=["sync_frequency_interval"])
         if target is not None:
             set_declared_target(self.view_node, target)
 
@@ -510,6 +519,38 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
+
+    @parameterized.expand(
+        [
+            ("materialize", {}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("materialize", {}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_manual_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, action, body, job_status, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.view_node.saved_query,
+            status=job_status,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{action}/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == status.HTTP_200_OK else 0)
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(
@@ -700,7 +741,7 @@ class TestNodeViewSet(APIBaseTest):
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             managed_viewset=_managed_viewset(self.team),
         )
-        return Node.objects.create(team=self.team, dag=self.dag, saved_query=sq, type=NodeType.VIEW, description="orig")
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=sq, type=NodeType.VIEW)
 
     @parameterized.expand(["node", "edge"])
     def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
@@ -750,6 +791,147 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(len(lineage["edges"]), 2 if flag_enabled else 1)
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
 
+    def _node_url(self, node: Node) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/"
+
+    def _give_the_view_a_consumer(self, consumer_target: timedelta, *, reads_the_table_too: bool = False) -> Node:
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="consumer_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=consumer)
+        if reads_the_table_too:
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=consumer)
+        set_declared_target(consumer, consumer_target)
+        return consumer
+
+    def _patch_cadence(self, node: Node, payload: dict):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            return self.client.patch(self._node_url(node), data=payload, format="json")
+
+    def test_a_pinned_view_keeps_a_cadence_slower_than_its_consumer_until_unpinned(self):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        options = {option["cadence"]: option for option in bounds["options"]}
+        self.assertFalse(bounds["pinned"])
+        self.assertEqual([view["name"] for view in options["24hour"]["delays_if_pinned"]], ["consumer_view"])
+        self.assertEqual(options["6hour"]["delays_if_pinned"], [])
+        # Unpinned, the consumer's 6h demand wins, so the preview of unpinning a daily view is 6h
+        self.assertEqual((options["24hour"]["unpinned_cadence"], options["6hour"]["unpinned_cadence"]), ("6hour",) * 2)
+
+        # Without the pin the consumer's 6h demand refuses a daily cadence, so both have to land together.
+        self.assertEqual(self._patch_cadence(self.view_node, {"sync_frequency": "24hour"}).status_code, 400)
+        pinned = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        self.assertEqual(pinned.status_code, 200, pinned.json())
+        self.assertEqual((pinned.json()["sync_interval"], pinned.json()["pinned"]), ("24hour", True))
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), True)
+        )
+        self.assertTrue(self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()["pinned"])
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=str(self.saved_query.id))
+        assert log.detail is not None
+        changes = {change["field"]: (change["before"], change["after"]) for change in log.detail["changes"]}
+        self.assertEqual(
+            changes, {"sync_frequency_interval": (None, "1 day, 0:00:00"), "sync_frequency_pinned": (False, True)}
+        )
+
+        unpinned = self._patch_cadence(self.view_node, {"pinned": False})
+        self.assertEqual(unpinned.status_code, 200, unpinned.json())
+        self.assertFalse(unpinned.json()["pinned"])
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
+        )
+
+    @parameterized.expand([("unpinned", False, "6hour"), ("pinned", True, "24hour")])
+    def test_list_reports_the_cadence_a_view_runs_at(self, _name, pinned, expected):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
+        set_declared_target(self.view_node, timedelta(days=1))
+        set_declared_pin(self.view_node, pinned)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        listed = next(node for node in response.json()["results"] if node["id"] == str(self.view_node.id))
+        self.assertEqual((listed["sync_interval"], listed["effective_sync_interval"]), ("24hour", expected))
+
+    def test_a_cadence_write_clears_the_legacy_saved_query_interval(self):
+        DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(
+            sync_frequency_interval=timedelta(hours=12)
+        )
+        set_declared_target(self.view_node, timedelta(hours=6))
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "never"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIsNone(response.json()["sync_interval"])
+        self.saved_query.refresh_from_db()
+        self.assertIsNone(self.saved_query.sync_frequency_interval)
+
+    @parameterized.expand(
+        [
+            ("consumer_reads_only_this_view", False, {"6hour": None, "24hour": "consumer_view"}),
+            ("consumer_has_a_fresher_input", True, {"6hour": None, "24hour": None}),
+        ]
+    )
+    def test_a_pin_that_strands_a_downstream_view_is_marked_and_refused(
+        self, _name, reads_the_table_too, expected_blockers
+    ):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=reads_the_table_too)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        blockers = {
+            option["cadence"]: option["pin_blocked_by"] and option["pin_blocked_by"]["name"]
+            for option in bounds["options"]
+            if option["cadence"] in expected_blockers
+        }
+        self.assertEqual(blockers, expected_blockers)
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        if expected_blockers["24hour"] is None:
+            self.assertEqual(response.status_code, 200, response.json())
+            return
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't pin this view to 1 day: downstream view consumer_view refreshes every 6 hours and has no "
+            "fresher input than this view. Slow down consumer_view first, or pin a faster cadence.",
+        )
+        self.view_node.refresh_from_db()
+        self.assertEqual((get_declared_target(self.view_node), get_declared_pin(self.view_node)), (None, False))
+
+    @parameterized.expand(
+        [
+            ("no_cadence_yet", {"pinned": True}),
+            ("cadence_cleared_in_the_same_write", {"sync_frequency": "never", "pinned": True}),
+        ]
+    )
+    def test_pinning_needs_a_cadence(self, _name, payload):
+        response = self._patch_cadence(self.view_node, payload)
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.view_node.refresh_from_db()
+        self.assertFalse(get_declared_pin(self.view_node))
+
+    @parameterized.expand(["table", "managed_view"])
+    def test_cadence_is_only_writable_on_views_the_team_owns(self, kind):
+        node = self.table_node if kind == "table" else self._create_managed_node()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self._patch_cadence(node, {"sync_frequency": "24hour", "pinned": True})
+
+        self.assertEqual(response.status_code, 400, response.json())
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (None, False))
+
     def test_cannot_patch_node_of_managed_view(self):
         node = self._create_managed_node()
 
@@ -762,7 +944,11 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         node.refresh_from_db()
-        self.assertEqual(node.description, "orig")
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=node.saved_query)
+            .exists()
+        )
 
 
 class TestMetricNodeAPI(APIBaseTest):
@@ -843,13 +1029,13 @@ class TestMetricNodeAPI(APIBaseTest):
 
     @parameterized.expand(["name", "description"])
     def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
-        before = getattr(self.metric_node, field)
+        before = getattr(self.metric_node, field, None)
 
         response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={field: "changed"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.metric_node.refresh_from_db()
-        self.assertEqual(getattr(self.metric_node, field), before)
+        self.assertEqual(getattr(self.metric_node, field, None), before)
 
     def test_an_edge_into_a_metric_node_cannot_be_deleted_through_the_api(self):
         edge = Edge.objects.get(target=self.metric_node)
@@ -938,8 +1124,13 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        edge_ids = {edge["id"] for edge in response.json()["results"]}
-        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+        edges = {edge["id"]: edge for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edges, expected_visible)
+        if expected_visible:
+            self.assertEqual(
+                edges[str(self.edge.id)],
+                {"id": str(self.edge.id), "source_id": str(self.edge.source_id), "target_id": str(self.edge.target_id)},
+            )
 
     @parameterized.expand(
         [
@@ -975,6 +1166,117 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
 
 @pytest.mark.ee
+class TestNodeDescription(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+
+    def _url(self, node: Node | None = None) -> str:
+        base = f"/api/projects/{self.team.id}/data_modeling_nodes/"
+        return f"{base}{node.id}/" if node else base
+
+    def _table_node(self, name: str = "orders") -> tuple[DataWarehouseTable, Node]:
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=name, format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name=name,
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        return table, node
+
+    def _view_annotation(self, description: str, source: str, saved_query=None):
+        return DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=saved_query or self.saved_query,
+            column_name="",
+            description=description,
+            description_source=source,
+        )
+
+    def test_view_node_reads_the_annotation_and_its_source(self):
+        self._view_annotation("AI text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED)
+
+        response = self.client.get(self._url(self.view_node))
+
+        self.assertEqual(response.json()["description"], "AI text")
+        self.assertEqual(response.json()["description_source"], "ai_generated")
+
+    def test_view_node_write_stores_a_user_edit_longer_than_the_old_limit(self):
+        self._view_annotation("AI text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED)
+        text = "x" * 2000
+
+        response = self.client.patch(self._url(self.view_node), {"description": text}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], text)
+        self.assertEqual(response.json()["description_source"], "user_edited")
+        annotation = DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).get(
+            saved_query=self.saved_query, column_name=""
+        )
+        self.assertTrue(annotation.is_user_edited)
+
+    def test_empty_description_deletes_the_annotation(self):
+        self._view_annotation("Text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED)
+
+        response = self.client.patch(self._url(self.view_node), {"description": ""}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], "")
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=self.saved_query, column_name="")
+            .exists()
+        )
+
+    def test_table_node_prefers_the_annotation_over_the_schema_description(self):
+        table, node = self._table_node()
+        source = ExternalDataSource.objects.create(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name="orders", team=self.team, source=source, table=table, description="Source text"
+        )
+
+        before = self.client.get(self._url(node)).json()
+        written = self.client.patch(self._url(node), {"description": "Curated text"}, format="json")
+
+        self.assertEqual(before["description"], "Source text")
+        self.assertIsNone(before["description_source"])
+        self.assertEqual(written.json()["description"], "Curated text")
+        self.assertTrue(
+            WarehouseColumnAnnotation.objects.for_team(self.team.id)
+            .filter(table=table, column_name="", description="Curated text", is_user_edited=True)
+            .exists()
+        )
+
+        cleared = self.client.patch(self._url(node), {"description": ""}, format="json")
+
+        self.assertEqual(cleared.json()["description"], "Source text")
+        self.assertIsNone(cleared.json()["description_source"])
+
+    @parameterized.expand([("native", {}), ("malformed_table_id", {"warehouse_table_id": 123})])
+    def test_table_node_without_a_warehouse_table_refuses_a_description(self, _name, properties):
+        node = Node.objects.create(
+            team=self.team, dag=self.dag, name="events", type=NodeType.TABLE, properties=properties
+        )
+
+        read = self.client.get(self._url(node))
+        written = self.client.patch(self._url(node), {"description": "Text"}, format="json")
+
+        self.assertEqual(read.json()["description"], "")
+        self.assertEqual(written.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestNodeAccessControl(WarehouseAccessControlTestMixin):
     # NodeViewSet is scope_object = "INTERNAL", so AccessControlPermission does not gate it on any
     # resource — the actions re-apply warehouse RBAC by hand. warehouse_view inherits from
@@ -1017,6 +1319,52 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_setting_a_cadence_requires_warehouse_write_access(self, access_level, expected_status):
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"{self._list_url()}{self.node.id}/", data={"sync_frequency": "24hour", "pinned": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.node.refresh_from_db()
+        self.assertEqual(get_declared_pin(self.node), expected_status == status.HTTP_200_OK)
+
+    def test_pin_bounds_do_not_name_a_downstream_view_the_member_is_denied(self):
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="hidden_consumer", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.node, target=consumer)
+        set_declared_target(consumer, timedelta(hours=6))
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(consumer.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/frequency_bounds/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        options = {option["cadence"]: option for option in response.json()["options"]}
+        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": None, "name": None})
+        self.assertEqual(options["24hour"]["delays_if_pinned"], [])
+        self.assertNotIn("hidden_consumer", response.content.decode())
+        self.assertNotIn(str(consumer.id), response.content.decode())
+
+    @parameterized.expand(
+        [
             ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
             ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
             ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
@@ -1041,6 +1389,150 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(
             type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
         )
+
+    def test_description_is_withheld_from_a_member_denied_the_view(self):
+        assert self.node.saved_query is not None
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=self.node.saved_query,
+            column_name="",
+            description="Private text",
+            description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("Private text", response.content.decode())
+
+    def _described_view_and_table(self, name: str) -> tuple[DataWarehouseTable, Node]:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{name}_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=saved_query,
+            column_name="",
+            description=f"{name} view text",
+            description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=f"{name}_table", format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        source = ExternalDataSource.objects.create(
+            source_id=f"{name}_src", connection_id=f"{name}_conn", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name=f"{name}_table", team=self.team, source=source, table=table, description=f"{name} source text"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name=f"{name}_table",
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        return table, node
+
+    def test_list_loads_descriptions_without_one_query_per_node(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        self._described_view_and_table("first")
+        self.client.get(self._list_url())
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(self._list_url())
+
+        for index in range(3):
+            self._described_view_and_table(f"more_{index}")
+        with CaptureQueriesContext(connection) as larger:
+            response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("more_2 view text", response.content.decode())
+        self.assertIn("more_2 source text", response.content.decode())
+        self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
+
+    def test_table_description_is_withheld_from_a_member_denied_the_table(self):
+        table, node = self._described_view_and_table("private")
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        listed = self.client.get(self._list_url())
+        detail = self.client.get(f"{self._list_url()}{node.id}/")
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertNotIn("private source text", listed.content.decode())
+        self.assertIn("private view text", listed.content.decode())
+        self.assertEqual(detail.json()["description"], "")
+
+    def test_table_description_write_refuses_a_member_denied_the_table(self):
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="orders",
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.patch(f"{self._list_url()}{node.id}/", {"description": "Text"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(WarehouseColumnAnnotation.objects.for_team(self.team.id).filter(table=table).exists())
+
+    @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
+            response = self.client.delete(node_url)
+        elif action == "delete_edge":
+            response = self.client.delete(edge_url)
+        else:
+            response = self.client.post(f"{node_url}{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
+        self.node.refresh_from_db()
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=self.node.saved_query, description="changed")
+            .exists()
+        )
+        self.assertNotEqual(suspension_state(self.node), {})
+        mock_sync_connect.assert_not_called()
 
     @parameterized.expand(
         [

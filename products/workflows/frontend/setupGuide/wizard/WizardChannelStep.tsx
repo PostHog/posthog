@@ -4,10 +4,10 @@ import { IconLetter } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
+import { EmailIntegrationsList } from '../../Channels/EmailIntegrationsList'
 
 export function WizardChannelStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
@@ -39,7 +39,7 @@ export function WizardChannelStep(): JSX.Element {
                         <IconLetter className="size-6" />
                     </div>
                     <p className="mb-0 max-w-md text-secondary">
-                        You need a domain you control, such as mail.example.com. You can add SMS and push later in
+                        You need a domain you control, such as mail.example.com. You can add more channels later in
                         Messaging.
                     </p>
                     <LemonButton

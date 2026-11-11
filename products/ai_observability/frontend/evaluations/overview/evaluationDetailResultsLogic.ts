@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DateRange, NodeKind, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { HogQLMathType, type HogQLPropertyFilter, PropertyFilterType } from '~/types'
 
 import { evaluationsOverviewRetrieve } from '../../generated/api'
@@ -68,7 +68,7 @@ function breakdownCounts(response: TrendsQueryResponse): Map<string, BreakdownCo
         const raw = Array.isArray(entry.breakdown_value) ? entry.breakdown_value[0] : entry.breakdown_value
         const key = String(raw ?? BREAKDOWN_NULL)
         const current: BreakdownCounts = byValue.get(key) ?? { days: entry.days ?? [] }
-        current[entry.action?.order === 1 ? 'graded' : 'result'] = entry.data ?? []
+        current[entry.order === 1 ? 'graded' : 'result'] = entry.data ?? []
         byValue.set(key, current)
     }
     return byValue

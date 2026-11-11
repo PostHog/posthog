@@ -77,9 +77,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.sour
     _INVALID_CREDENTIALS_ERROR,
     MySQLSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
-    PlanetScaleMySQLSource,
-)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -337,7 +334,7 @@ class TestSchemaDiscovery:
         }
         sql, params = cursor.execute.call_args.args
         assert "table_schema NOT IN %(system_schemas)s" in sql
-        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys")
+        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys", "_vt")
 
     def test_get_columns_filters_qualified_names_when_schema_blank(self, impl, cursor):
         cursor.fetchall.return_value = [
@@ -1164,9 +1161,8 @@ class TestStreamingConnectionTimeouts:
         ],
         ids=["read_timeout", "write_timeout"],
     )
-    @pytest.mark.parametrize("source_class", [MySQLSource, PlanetScaleMySQLSource])
-    def test_driver_timeout_is_retryable(self, source_class, error, kept_out_of_error_tracking):
-        source = source_class()
+    def test_driver_timeout_is_retryable(self, error, kept_out_of_error_tracking):
+        source = MySQLSource()
         assert error_message_matches(str(error), source.get_retryable_errors()) is kept_out_of_error_tracking
         assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
@@ -2448,23 +2444,40 @@ class TestMySQLSourceNonRetryableErrors:
         return MySQLSource()
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg, stops_the_sync",
         [
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")", False),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 110] Connection timed out)\")", False),
+            (
+                "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)\")",
+                False,
+            ),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")", True),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 113] No route to host)\")", True),
+            (
+                "(2003, \"Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)\")",
+                True,
+            ),
         ],
     )
-    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
-        # A persistent connect failure is non-retryable, but the customer must get reachability
-        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
-        # umbrella message back to None.
-        non_retryable = source.get_non_retryable_errors()
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg, stops_the_sync):
+        # A refused port or an unknown host stays wrong on every attempt, so it stops the sync. A
+        # timeout or reset often clears by the next run, so it stays retryable. Both must replace
+        # pymysql's raw (2003, ...) tuple, which repeats the customer's host.
+        non_retryable = {**Any_Source_Errors, **source.get_non_retryable_errors()}
+        assert error_message_matches(error_msg, non_retryable) is stops_the_sync
+        if stops_the_sync:
+            messages = source.get_non_retryable_errors()
+        else:
+            assert error_message_matches(error_msg, source.get_retryable_errors())
+            messages = source.get_retry_exhausted_errors()
         friendly = next(
-            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            (message for pattern, message in messages.items() if error_message_matches(error_msg, [pattern])),
             None,
         )
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
+        assert "example.com" not in friendly
 
     def test_tidb_cloud_access_denied_surfaces_actionable_message(self, source):
         # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL
@@ -2505,11 +2518,13 @@ class TestMySQLSourceNonRetryableErrors:
         [
             "(3032, 'The server is currently in offline mode')",
             "OperationalError: (3032, 'The server is currently in offline mode')",
+            "(6400, 'The server is currently in offline mode since 2026-11-03 14:27:19.007589, reason: (HM) low disk space')",
         ],
     )
     def test_server_offline_mode_is_non_retryable(self, source, error_msg):
-        # A DB admin put the server into offline mode — only they can turn it back off, and
-        # every retry reconnects as the same non-admin user and fails identically until they do.
+        # A DB admin (3032) or the server's own health monitor (6400) put the server into offline
+        # mode — only an admin or a resolved resource problem turns it back off, and every retry
+        # reconnects to the same offline server and fails identically until then.
         non_retryable = source.get_non_retryable_errors()
         friendly = next(
             (message for pattern, message in non_retryable.items() if pattern in error_msg),
@@ -3457,8 +3472,8 @@ class TestConnectCertificateVerification:
             delegate.assert_called_once()
 
 
-class TestOOBDomainDetection:
-    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+class TestOOBDomainGuard:
+    def test_the_pinned_path_refuses_before_it_resolves(self, mocker):
         mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
         mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
         mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
@@ -3469,7 +3484,7 @@ class TestOOBDomainDetection:
         )
         log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(HostNotAllowedError):
             _pinned_addresses("abc.oast.live", 3306, 5, 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]

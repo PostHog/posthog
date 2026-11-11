@@ -193,15 +193,25 @@ fi
 
 # ── Go toolchain isolation ─────────────────────────────────────────
 # User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
-# installs. Keep flox builds on the pinned Go toolchain and cache compiled
-# packages inside the flox environment so host Go upgrades cannot poison builds.
+# installs. Keep flox builds on the pinned Go toolchain and in caches this repo
+# owns so host Go upgrades cannot poison builds. Go keys both caches by toolchain
+# and module version, so every worktree shares them.
 unset GOROOT
 export GOTOOLCHAIN=local
-export GOPATH="$FLOX_ENV_CACHE/go"
-export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOPATH="$HOME/.cache/posthog/go"
+export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
-# Go creates the module cache read-only by default, and `rm -rf` on a worktree
-# cannot delete a read-only directory tree.
+# Old per-checkout caches hold six-figure file counts, so delete them off the activation path.
+# A shell opened before this change may still build from them, so wait until no go runs.
+# Module caches made without -modcacherw are read-only.
+for old_go_cache in "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"; do
+  if [[ -d "$old_go_cache" ]] && ! pgrep -x go >/dev/null 2>&1 && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
+    (chmod -R u+w "$old_go_cache.old"; rm -rf "$old_go_cache.old") >/dev/null 2>&1 &
+    disown
+  fi
+done
+# Go creates the module cache read-only by default, so `rm -rf` on the shared
+# cache would need a chmod first.
 export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
@@ -340,6 +350,11 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
     ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+  elif [[ "$(uname -s)" == "Linux" ]]; then
+    # LDFLAGS links against flox's libs, which need the nix glibc. On a host with an
+    # older glibc, the host linker then rejects librdkafka's example programs, which
+    # node-rdkafka builds but never uses. Scoped to this install so other builds keep strict linking.
+    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   else
     ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
@@ -365,6 +380,15 @@ fi
 # Expose hogli on PATH via the uv-managed venv
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+fi
+
+# ── Stale worktree cleanup ──────────────────────────────────────────
+# Agent tools create worktrees faster than anyone removes them.
+# POSTHOG_WORKTREES_AUTOCLEAN=0 opts out. hogli writes the lock file on each real run.
+if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
+  && [[ -z "$(find "$HOME/.config/posthog/worktrees-clean.lock" -size +0c -mmin -1440 2>/dev/null)" ]]; then
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  disown
 fi
 
 # Install shell completions for hogli
@@ -514,9 +538,6 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
   fi
   unset -f _sdk_lld_can_link
 fi
-
-# Share a single Cargo target dir so worktrees skip redundant linking
-export CARGO_TARGET_DIR="$HOME/.cargo/target"
 
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)

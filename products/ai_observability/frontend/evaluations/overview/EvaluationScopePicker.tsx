@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -23,17 +22,17 @@ export function EvaluationScopePicker(): JSX.Element {
         <LemonDropdown
             closeOnClickInside={false}
             overlay={
-                <div className="flex flex-col gap-1 w-72 max-h-96">
+                <div className="flex flex-col w-72 max-h-96">
                     <LemonInput
                         type="search"
                         size="small"
+                        fullWidth
                         autoFocus
-                        prefix={<IconSearch />}
                         placeholder="Search evaluations"
                         value={search}
                         onChange={setSearch}
                     />
-                    <div className="flex flex-col overflow-y-auto">
+                    <div className="flex flex-col overflow-y-auto mt-1">
                         {matching.length === 0 ? (
                             <div className="px-2 py-1 text-secondary">No evaluations match this search</div>
                         ) : (
@@ -51,15 +50,17 @@ export function EvaluationScopePicker(): JSX.Element {
                         )}
                     </div>
                     {pickedIds.length > 0 && (
-                        <LemonButton
-                            size="small"
-                            fullWidth
-                            center
-                            onClick={() => setPickedIds([])}
-                            data-attr="evaluation-overview-scope-clear"
-                        >
-                            Show all evaluations
-                        </LemonButton>
+                        <>
+                            <LemonDivider className="my-1" />
+                            <LemonButton
+                                size="small"
+                                fullWidth
+                                onClick={() => setPickedIds([])}
+                                data-attr="evaluation-overview-scope-clear"
+                            >
+                                Show all evaluations
+                            </LemonButton>
+                        </>
                     )}
                 </div>
             }

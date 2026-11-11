@@ -30,7 +30,7 @@ aeo_citation_checks: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Check id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the check ran."),
         "run_id": UUIDDatabaseField(name="run_id", description="Groups every check from one runner pass."),
         "prompt_id": UUIDDatabaseField(name="prompt_id", description="Prompt that ran; joins to the prompt set."),
@@ -87,6 +87,16 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         ),
         "top_cited_domains": StringJSONDatabaseField(
             name="top_cited_domains", description="JSON array of distinct hosts across the cited URLs."
+        ),
+        "brand_sentiment": StringDatabaseField(
+            name="brand_sentiment",
+            nullable=True,
+            description="Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand.",
+        ),
+        "brand_sentiment_score": FloatDatabaseField(
+            name="brand_sentiment_score",
+            nullable=True,
+            description="Classifier confidence (0-1) in brand_sentiment.",
         ),
         "cost_usd": FloatDatabaseField(
             name="cost_usd", nullable=True, description="Engine-reported cost, where the engine reports one."

@@ -38,6 +38,24 @@ def get_imported_module_names(tree: ast.Module) -> set[str]:
     return imported
 
 
+def product_app_labels(products_dir: Path) -> dict[str, str]:
+    """Django app label -> product name, read off each product's AppConfig."""
+    labels: dict[str, str] = {}
+    for apps_py in sorted(products_dir.glob("*/backend/apps.py")):
+        product = apps_py.parents[1].name
+        try:
+            tree = ast.parse(apps_py.read_text(encoding="utf-8", errors="ignore"))
+        except (SyntaxError, OSError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and target.id == "label" and isinstance(node.value, ast.Constant):
+                labels[str(node.value.value)] = product
+    return labels
+
+
 # The bases a Django model reaches. `Model` is django.db.models.Model under both the bare and the
 # `models.Model` spelling, because _base_names keeps the attribute and drops the module. The rest are
 # the abstract bases posthog/models/utils.py and posthog/models/scoping/ export, every one of which
@@ -534,7 +552,7 @@ def _importing_package(file_path: Path, package_root: Path, package_prefix: str)
     return ".".join([package_prefix, *file_path.relative_to(package_root).parent.parts])
 
 
-def _import_from_module(node: ast.ImportFrom, package: str) -> str | None:
+def import_from_module(node: ast.ImportFrom, package: str) -> str | None:
     """The absolute module an `ImportFrom` reads from, with relative forms resolved.
 
     None when the import climbs past the top of the package and so names nothing.
@@ -575,7 +593,7 @@ def module_import_targets(file_path: Path, package_root: Path, package_prefix: s
         if isinstance(node, ast.Import):
             targets.extend((node.lineno, a.name) for a in node.names if a.name.startswith(prefix_dot))
         elif isinstance(node, ast.ImportFrom):
-            module = _import_from_module(node, package)
+            module = import_from_module(node, package)
             if not module or (module != package_prefix and not module.startswith(prefix_dot)):
                 continue
             for alias in node.names:

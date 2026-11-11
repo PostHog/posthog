@@ -51,6 +51,12 @@ it's about how an experienced person would approach a job using those tools.
 Ask: "If a customer asked an agent to do X with my feature, would the agent know the right approach?"
 If not, write a skill.
 
+### Docs or skill?
+
+A skill holds only what an agent needs on top of the docs: the steps of one job, the checks before it reports done, and the decisions it must not make alone.
+How a system works, its setup, options and gotchas go in docs (a README next to the code, or an existing page under `docs/`), and the skill links to them.
+If an engineer would look it up without an agent, it is docs.
+
 ### How many is too many?
 
 Skill count is a budgeted, shared resource — agents pick from a list of _all_ skill descriptions, and many harnesses truncate that list once it grows long, so every extra skill makes the others less likely to fire.

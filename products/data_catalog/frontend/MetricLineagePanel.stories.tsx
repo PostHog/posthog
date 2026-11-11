@@ -41,8 +41,8 @@ const NODES: DataModelingNode[] = [
     node({ id: '3', name: 'weekly_active_accounts', type: 'metric', metric_id: 'metric-1' }),
 ]
 const EDGES: DataModelingEdge[] = [
-    { id: 'e1', source_id: '1', target_id: '2', properties: {}, created_at: '', updated_at: '' },
-    { id: 'e2', source_id: '2', target_id: '3', properties: {}, created_at: '', updated_at: '' },
+    { id: 'e1', source_id: '1', target_id: '2' },
+    { id: 'e2', source_id: '2', target_id: '3' },
 ]
 
 const BASE: MetricLineagePanelProps = {

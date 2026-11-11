@@ -26,8 +26,17 @@
 //! static, so tests can build isolated instances; the binding crate passes
 //! [`ProcessLimits::global()`], a lazily-initialised process-wide singleton configured
 //! from environment variables.
+//!
+//! Each wait on a process-wide budget has an upper bound
+//! (`DELTALITE_PERMIT_WAIT_TIMEOUT_SECS`). The waits are fair, so one call that holds
+//! permits and stops making progress blocks every later waiter. The bound changes that
+//! hang into an [`Error::Timeout`] that names the budget, and
+//! [`ProcessLimits::snapshot`] shows how much of each budget is free.
 
+use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -43,22 +52,144 @@ pub const DEFAULT_PROCESS_MAX_BUFFERED_BYTES: usize = 256 * 1024 * 1024;
 pub const DEFAULT_PROCESS_MAX_FETCH_BYTES: usize = 256 * 1024 * 1024;
 /// Default ceiling for the source-size guard (resident source + estimated PK set).
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024 * 1024;
+/// Default upper bound on one wait for a process-wide budget. It is much longer than a
+/// normal wait, which ends when the holders finish their I/O, so it fires only when a
+/// holder does not make progress.
+pub const DEFAULT_PERMIT_WAIT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Environment override for [`DEFAULT_PERMIT_WAIT_TIMEOUT`], in seconds; `0` removes the
+/// bound.
+pub const PERMIT_WAIT_TIMEOUT_ENV: &str = "DELTALITE_PERMIT_WAIT_TIMEOUT_SECS";
+
+/// One of the four process-wide budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Budget {
+    Partitions,
+    Files,
+    /// Decoded bytes in flight, in KiB.
+    Buffer,
+    /// Compressed row-group bytes held by readers, in KiB.
+    Fetch,
+}
+
+impl Budget {
+    /// Name of the budget in errors and in [`LimitsSnapshot`] consumers.
+    pub fn name(self) -> &'static str {
+        match self {
+            Budget::Partitions => "partitions",
+            Budget::Files => "files",
+            Budget::Buffer => "buffer_kb",
+            Budget::Fetch => "fetch_kb",
+        }
+    }
+}
+
+/// Free and total permits of one budget, and the acquisitions that wait for it. A
+/// waiter that needs more permits than are free takes the free ones and waits for the
+/// rest, so `available` can be 0 while a part of the budget belongs to a waiter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BudgetSnapshot {
+    pub available: usize,
+    pub total: usize,
+    pub waiters: usize,
+}
+
+/// [`BudgetSnapshot`] of each process-wide budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LimitsSnapshot {
+    pub partitions: BudgetSnapshot,
+    pub files: BudgetSnapshot,
+    pub buffer_kb: BudgetSnapshot,
+    pub fetch_kb: BudgetSnapshot,
+}
+
+impl LimitsSnapshot {
+    pub fn get(&self, budget: Budget) -> BudgetSnapshot {
+        match budget {
+            Budget::Partitions => self.partitions,
+            Budget::Files => self.files,
+            Budget::Buffer => self.buffer_kb,
+            Budget::Fetch => self.fetch_kb,
+        }
+    }
+}
+
+/// One process-wide semaphore and the count of the acquisitions that wait for it.
+#[derive(Debug)]
+struct Pool {
+    semaphore: Arc<Semaphore>,
+    total: u32,
+    waiters: AtomicUsize,
+}
+
+impl Pool {
+    fn new(total: u32) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(total as usize)),
+            total,
+            waiters: AtomicUsize::new(0),
+        }
+    }
+
+    fn snapshot(&self) -> BudgetSnapshot {
+        BudgetSnapshot {
+            available: self.semaphore.available_permits(),
+            total: self.total as usize,
+            waiters: self.waiters.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Counts one waiter of a [`Pool`] until dropped, also when the wait is cancelled.
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl<'a> Waiting<'a> {
+    fn new(waiters: &'a AtomicUsize) -> Self {
+        waiters.fetch_add(1, Ordering::Relaxed);
+        Self(waiters)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 /// Process-wide concurrency budgets shared by every concurrent `upsert` call.
 #[derive(Debug)]
 pub struct ProcessLimits {
-    partitions: Arc<Semaphore>,
-    files: Arc<Semaphore>,
-    buffer: Arc<Semaphore>,
-    /// Capacity of `buffer` in KiB (tokio permits are u32-denominated).
-    buffer_cap_kb: u32,
-    fetch: Arc<Semaphore>,
-    /// Capacity of `fetch` in KiB.
-    fetch_cap_kb: u32,
+    partitions: Pool,
+    files: Pool,
+    /// Capacity in KiB (tokio permits are u32-denominated).
+    buffer: Pool,
+    /// Capacity in KiB.
+    fetch: Pool,
+    /// Upper bound on one wait for any of the budgets; `None` waits without a bound.
+    wait_timeout: Option<Duration>,
 }
 
 fn cap_kb(bytes: usize) -> u32 {
     (bytes / 1024).clamp(1, u32::MAX as usize) as u32
+}
+
+/// Seconds from the environment variable `name` as a duration: unset or invalid gives
+/// `default`, and `0` gives `None` (no bound).
+pub(crate) fn env_secs(name: &str, default: Duration) -> Option<Duration> {
+    secs_setting(name, std::env::var(name).ok().as_deref(), default)
+}
+
+fn secs_setting(name: &str, value: Option<&str>, default: Duration) -> Option<Duration> {
+    let Some(v) = value else {
+        return Some(default);
+    };
+    match v.trim().parse::<u64>() {
+        Ok(0) => None,
+        Ok(n) => Some(Duration::from_secs(n)),
+        Err(_) => {
+            tracing::warn!(var = name, value = %v, "invalid value, using default");
+            Some(default)
+        }
+    }
 }
 
 pub(crate) fn env_usize(name: &str, default: usize) -> usize {
@@ -111,21 +242,26 @@ impl ProcessLimits {
         max_buffered_bytes: usize,
         max_fetch_bytes: usize,
     ) -> Self {
-        let buffer_cap_kb = cap_kb(max_buffered_bytes);
-        let fetch_cap_kb = cap_kb(max_fetch_bytes);
+        let count = |n: usize| n.clamp(1, u32::MAX as usize) as u32;
         Self {
-            partitions: Arc::new(Semaphore::new(max_partitions.max(1))),
-            files: Arc::new(Semaphore::new(max_files.max(1))),
-            buffer: Arc::new(Semaphore::new(buffer_cap_kb as usize)),
-            buffer_cap_kb,
-            fetch: Arc::new(Semaphore::new(fetch_cap_kb as usize)),
-            fetch_cap_kb,
+            partitions: Pool::new(count(max_partitions)),
+            files: Pool::new(count(max_files)),
+            buffer: Pool::new(cap_kb(max_buffered_bytes)),
+            fetch: Pool::new(cap_kb(max_fetch_bytes)),
+            wait_timeout: Some(DEFAULT_PERMIT_WAIT_TIMEOUT),
         }
+    }
+
+    /// Replace the upper bound on one wait for a budget; `None` removes it.
+    pub fn with_wait_timeout(mut self, wait_timeout: Option<Duration>) -> Self {
+        self.wait_timeout = wait_timeout;
+        self
     }
 
     /// Capacities from `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS`,
     /// `DELTALITE_PROCESS_MAX_PARALLEL_FILES`, `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` and
-    /// `DELTALITE_PROCESS_MAX_FETCH_BYTES`, with the module defaults as fallback.
+    /// `DELTALITE_PROCESS_MAX_FETCH_BYTES`, and the wait bound from
+    /// [`PERMIT_WAIT_TIMEOUT_ENV`], with the module defaults as fallback.
     pub fn from_env() -> Self {
         Self::with_fetch(
             env_usize(
@@ -145,6 +281,10 @@ impl ProcessLimits {
                 DEFAULT_PROCESS_MAX_FETCH_BYTES,
             ),
         )
+        .with_wait_timeout(env_secs(
+            PERMIT_WAIT_TIMEOUT_ENV,
+            DEFAULT_PERMIT_WAIT_TIMEOUT,
+        ))
     }
 
     /// The process-wide singleton, initialised from the environment on first use.
@@ -153,32 +293,88 @@ impl ProcessLimits {
         GLOBAL.get_or_init(|| Arc::new(ProcessLimits::from_env()))
     }
 
+    fn pool(&self, budget: Budget) -> &Pool {
+        match budget {
+            Budget::Partitions => &self.partitions,
+            Budget::Files => &self.files,
+            Budget::Buffer => &self.buffer,
+            Budget::Fetch => &self.fetch,
+        }
+    }
+
+    /// Free and total permits of every budget, and the acquisitions that wait for each.
+    pub fn snapshot(&self) -> LimitsSnapshot {
+        LimitsSnapshot {
+            partitions: self.partitions.snapshot(),
+            files: self.files.snapshot(),
+            buffer_kb: self.buffer.snapshot(),
+            fetch_kb: self.fetch.snapshot(),
+        }
+    }
+
+    /// Take `n` permits of `budget`, or fail with [`Error::Timeout`] after the wait bound.
+    /// A cancelled acquisition gives back the permits it had collected.
+    async fn acquire(&self, budget: Budget, n: u32) -> Result<OwnedSemaphorePermit> {
+        let pool = self.pool(budget);
+        let _waiting = Waiting::new(&pool.waiters);
+        let wait = pool.semaphore.clone().acquire_many_owned(n);
+        let closed = || Error::Generic(format!("process {} semaphore closed", budget.name()));
+        let Some(limit) = self.wait_timeout else {
+            return wait.await.map_err(|_| closed());
+        };
+        match tokio::time::timeout(limit, wait).await {
+            Ok(permit) => permit.map_err(|_| closed()),
+            Err(_) => Err(self.timeout_error(budget, n, limit)),
+        }
+    }
+
+    fn timeout_error(&self, budget: Budget, wanted: u32, limit: Duration) -> Error {
+        let s = self.pool(budget).snapshot();
+        Error::Timeout(format!(
+            "waited more than {}s for {wanted} permit(s) of the process-wide {} budget: \
+             {} of {} free, {} waiter(s). A call that holds this budget does not make \
+             progress. {PERMIT_WAIT_TIMEOUT_ENV} sets this bound.",
+            limit.as_secs(),
+            budget.name(),
+            s.available,
+            s.total,
+            s.waiters,
+        ))
+    }
+
+    /// Run `wait`, an acquisition that ends in a wait for `budget`, under the same bound
+    /// as one process-wide wait. Callers use it to bound a per-call wait that comes
+    /// before the process-wide one.
+    pub(crate) async fn bounded<T>(
+        &self,
+        budget: Budget,
+        wanted: u32,
+        wait: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let Some(limit) = self.wait_timeout else {
+            return wait.await;
+        };
+        match tokio::time::timeout(limit, wait).await {
+            Ok(r) => r,
+            Err(_) => Err(self.timeout_error(budget, wanted, limit)),
+        }
+    }
+
     /// Acquire one process-global partition permit.
     pub async fn acquire_partition(&self) -> Result<OwnedSemaphorePermit> {
-        self.partitions
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| Error::Generic("process partition semaphore closed".into()))
+        self.acquire(Budget::Partitions, 1).await
     }
 
     /// Acquire one process-global file-reader permit.
     pub async fn acquire_file(&self) -> Result<OwnedSemaphorePermit> {
-        self.files
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| Error::Generic("process file semaphore closed".into()))
+        self.acquire(Budget::Files, 1).await
     }
 
     /// Acquire `kb` KiB of the process-global byte budget; requests larger than the
     /// whole budget are capped so an oversized batch still makes progress.
     pub async fn acquire_buffer_kb(&self, kb: u32) -> Result<OwnedSemaphorePermit> {
-        self.buffer
-            .clone()
-            .acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
+        self.acquire(Budget::Buffer, kb.min(self.buffer.total).max(1))
             .await
-            .map_err(|_| Error::Generic("process byte-budget semaphore closed".into()))
     }
 
     /// Try to reserve `kb` KiB without waiting. Callers that can fall back to a
@@ -186,29 +382,27 @@ impl ProcessLimits {
     /// part of the process budget and need one more allocation to finish.
     pub fn try_acquire_buffer_kb(&self, kb: u32) -> Option<OwnedSemaphorePermit> {
         self.buffer
+            .semaphore
             .clone()
-            .try_acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
+            .try_acquire_many_owned(kb.min(self.buffer.total).max(1))
             .ok()
     }
 
     /// Capacity of the byte budget in KiB.
     pub fn buffer_cap_kb(&self) -> u32 {
-        self.buffer_cap_kb
+        self.buffer.total
     }
 
     /// Acquire `kb` KiB of the process-global fetch budget, capped at its capacity so a
     /// row group larger than the whole budget still proceeds (alone).
     pub async fn acquire_fetch_kb(&self, kb: u32) -> Result<OwnedSemaphorePermit> {
-        self.fetch
-            .clone()
-            .acquire_many_owned(kb.min(self.fetch_cap_kb).max(1))
+        self.acquire(Budget::Fetch, kb.min(self.fetch.total).max(1))
             .await
-            .map_err(|_| Error::Generic("process fetch-budget semaphore closed".into()))
     }
 
     /// Capacity of the fetch budget in KiB.
     pub fn fetch_cap_kb(&self) -> u32 {
-        self.fetch_cap_kb
+        self.fetch.total
     }
 }
 
@@ -340,6 +534,100 @@ mod tests {
         assert!(pending.is_err(), "budget should be exhausted");
         drop(p1);
         drop(p2);
+    }
+
+    async fn take(limits: &ProcessLimits, budget: Budget, n: u32) -> Result<OwnedSemaphorePermit> {
+        match budget {
+            Budget::Partitions => limits.acquire_partition().await,
+            Budget::Files => limits.acquire_file().await,
+            Budget::Buffer => limits.acquire_buffer_kb(n).await,
+            Budget::Fetch => limits.acquire_fetch_kb(n).await,
+        }
+    }
+
+    const ALL_BUDGETS: [Budget; 4] = [
+        Budget::Partitions,
+        Budget::Files,
+        Budget::Buffer,
+        Budget::Fetch,
+    ];
+
+    #[tokio::test(start_paused = true)]
+    async fn a_wait_past_the_bound_fails_names_the_budget_and_leaves_no_waiter() {
+        for budget in ALL_BUDGETS {
+            let limits = ProcessLimits::with_fetch(1, 1, 64 * 1024, 64 * 1024)
+                .with_wait_timeout(Some(Duration::from_secs(30)));
+            let total = limits.snapshot().get(budget).total as u32;
+            let held = take(&limits, budget, total).await.unwrap();
+
+            let err = take(&limits, budget, 1).await.unwrap_err();
+            assert_eq!(err.kind(), "timeout", "{budget:?}");
+            let msg = err.to_string();
+            assert!(msg.contains(budget.name()), "{msg}");
+            assert!(msg.contains(&format!("0 of {total} free")), "{msg}");
+            assert!(msg.contains("1 waiter(s)"), "{msg}");
+            assert_eq!(limits.snapshot().get(budget).waiters, 0, "{budget:?}");
+
+            drop(held);
+            assert!(take(&limits, budget, 1).await.is_ok(), "{budget:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_bound_waits_past_the_default_bound() {
+        let limits = ProcessLimits::with_fetch(1, 1, 1024, 1024).with_wait_timeout(None);
+        let _held = limits.acquire_partition().await.unwrap();
+        let wait =
+            tokio::time::timeout(DEFAULT_PERMIT_WAIT_TIMEOUT * 2, limits.acquire_partition()).await;
+        assert!(wait.is_err(), "the acquisition must still wait");
+    }
+
+    #[test]
+    fn wait_bound_setting_parses_seconds_and_zero_turns_it_off() {
+        let default = Duration::from_secs(1800);
+        let cases = [
+            (None, Some(default)),
+            (Some("0"), None),
+            (Some(" 45 "), Some(Duration::from_secs(45))),
+            (Some("-1"), Some(default)),
+            (Some("ten"), Some(default)),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(secs_setting("X", value, default), expected, "{value:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_reports_free_permits_and_waiters() {
+        let limits = Arc::new(ProcessLimits::with_fetch(2, 3, 8 * 1024, 4 * 1024));
+        let full = limits.snapshot();
+        for (budget, total) in [
+            (Budget::Partitions, 2),
+            (Budget::Files, 3),
+            (Budget::Buffer, 8),
+            (Budget::Fetch, 4),
+        ] {
+            let s = full.get(budget);
+            assert_eq!(
+                (s.available, s.total, s.waiters),
+                (total, total, 0),
+                "{budget:?}"
+            );
+        }
+
+        let held = limits.acquire_buffer_kb(6).await.unwrap();
+        let waiter = tokio::spawn({
+            let limits = limits.clone();
+            async move { limits.acquire_buffer_kb(4).await.map(drop) }
+        });
+        while limits.snapshot().buffer_kb.waiters == 0 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(limits.snapshot().buffer_kb.waiters, 1);
+
+        drop(held);
+        waiter.await.unwrap().unwrap();
+        assert_eq!(limits.snapshot(), full);
     }
 
     #[tokio::test]

@@ -17,7 +17,7 @@ tools:
             - warehouse_view:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Accept a warehouse suggestion
         description: >
@@ -26,26 +26,48 @@ tools:
             stops its refreshes and deletes its stored table, so the view is computed when read; pass
             keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or
             its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization`
-            says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a
-            plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about
-            `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now
-            reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the
-            view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use
-            another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
-            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a
-            starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key,
-            unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
-            with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
-            changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
-            confirmation.
+            says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost.
+            Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this
+            cannot be undone. A 409 means another view, a sync, a destination or a workflow now reads from it, or it now
+            reads a direct-connection source, whose reads are not logged. A 400 means some days in the read window have
+            no read data, so only marking it deprecated is allowed. Unmaterialize suggestions turn a rarely read
+            materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read
+            computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made,
+            for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn
+            on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass
+            refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental
+            refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the
+            whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds,
+            refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value.
+            Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and
+            why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply.
+            Requires human typed confirmation.
+        exclude_params:
+            - surface
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
                 If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
                 cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is
-                deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes
-                stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.
+                deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it
+                is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read
+                computes the view instead. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
+    warehouse-suggestions-assign:
+        operation: warehouse_suggestions_assign_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Assign a warehouse suggestion
+        description: >
+            Assign a proposed warehouse suggestion to the person who should accept or dismiss it, or pass
+            assignee_id=null to remove the assignee. The caller needs edit access to the view or table, the same as for
+            dismiss. The assignee must be able to accept it: edit access to the view or table, and to the data catalog
+            for certify and deprecate suggestions. A 400 means they cannot. They get a notification unless they assign
+            themselves or already are the assignee. Nothing changes on the view or table. Find user ids with the
+            organization member tools.
     warehouse-suggestions-dismiss:
         operation: warehouse_suggestions_dismiss_create
         enabled: true
@@ -57,6 +79,8 @@ tools:
         description: >
             Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note.
             Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
+        exclude_params:
+            - surface
     warehouse-suggestions-get:
         operation: warehouse_suggestions_retrieve
         enabled: true
@@ -87,7 +111,8 @@ tools:
             the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion,
             compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take
             (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from
-            warehouse-suggestions-get.
+            warehouse-suggestions-get. `assignee` is the person who should decide it; pass assignee_id to list only one
+            person's suggestions.
         response:
             include:
                 - id
@@ -97,6 +122,7 @@ tools:
                 - payload
                 - status
                 - can_act
+                - assignee
     warehouse-suggestions-resume:
         operation: warehouse_suggestions_resume_create
         enabled: true
@@ -115,3 +141,9 @@ tools:
             Explain why the project has or lacks warehouse suggestions. Reports whether suggestions are turned on,
             whether the project reads its views often enough to get them, how many days of read history the daily job
             has so far, and when it last ran.
+    warehouse-suggestions-surface-more:
+        operation: warehouse_suggestions_surface_more_create
+        enabled: false
+        disabled_reason:
+            The button behind this endpoint relaxes the daily limit for a person browsing the page. Agents already
+            list every open suggestion, so they gain nothing from showing more.

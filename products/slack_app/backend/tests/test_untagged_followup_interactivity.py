@@ -122,7 +122,7 @@ class TestUntaggedFollowupInteractivity(TestCase):
             timeout=900,
         )
 
-    def _stash_thread_join_prompt(self) -> None:
+    def _stash_thread_join_prompt(self, report_implementation_message_ts: str | None = None) -> None:
         cache.set(
             _picker_context_cache_key(self.context_token),
             {
@@ -132,6 +132,7 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 "thread_ts": "1000.0000",
                 "owner_slack_user_id": "U_ALICE",
                 "joiner_slack_user_id": "U_BOB",
+                "report_implementation_message_ts": report_implementation_message_ts,
                 "event": self.event,
                 "untagged_followup": False,
                 "untagged_followup_confirmed": False,
@@ -286,11 +287,16 @@ class TestUntaggedFollowupInteractivity(TestCase):
         assert response.status_code == 200
         mock_start.assert_not_called()
 
-    def test_a_waiting_join_prompt_is_not_posted_again(self, mock_slack_cls, mock_post):
+    @parameterized.expand([("followup", None), ("implementation", "1000.0000")])
+    def test_a_waiting_join_prompt_is_not_posted_again(self, mock_slack_cls, mock_post, _name, implementation_ts):
         # A joiner who keeps typing while the creator has not answered must not flood the creator.
         slack = MagicMock()
         inputs = PostHogCodeSlackMentionWorkflowInputs(
-            event=self.event, integration_id=self.integration.id, slack_team_id=self.slack_team_id, user_id=1
+            event=self.event,
+            integration_id=self.integration.id,
+            slack_team_id=self.slack_team_id,
+            user_id=1,
+            report_implementation_message_ts=implementation_ts,
         )
         for _ in range(3):
             post_thread_join_prompt(
@@ -304,7 +310,13 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 opens_thread=False,
             )
 
-        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_ALICE", "U_BOB"]
+        # The creator gets a DM, which notifies them. The joiner hears in the thread that the creator was asked.
+        assert [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list] == ["U_ALICE"]
+        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_BOB"]
+        context_token = slack.client.chat_postMessage.call_args.kwargs["blocks"][0]["block_id"].rsplit(":", 1)[1]
+        assert (
+            cache.get(_picker_context_cache_key(context_token))["report_implementation_message_ts"] == implementation_ts
+        )
 
     @parameterized.expand([("thread_creator", "U_ALICE", True), ("someone_else", "U_MALLORY", False)])
     def test_only_the_thread_creator_can_let_someone_join(
@@ -331,10 +343,13 @@ class TestUntaggedFollowupInteractivity(TestCase):
             assert mock_start.call_args.args[0] == self.event
             assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
 
-    def test_an_approval_that_fails_to_send_can_be_clicked_again(self, mock_slack_cls, mock_post):
+    @parameterized.expand([("followup", None), ("implementation", "1000.0000")])
+    def test_an_approval_that_fails_to_send_can_be_clicked_again(
+        self, mock_slack_cls, mock_post, _name, implementation_ts
+    ):
         # A database or Temporal error must not lose the message that asked to join.
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        self._stash_thread_join_prompt()
+        self._stash_thread_join_prompt(implementation_ts)
 
         with (
             self._stub_slack_user_email(self.member_user.email),
@@ -350,6 +365,7 @@ class TestUntaggedFollowupInteractivity(TestCase):
         assert mock_start.call_count == 2
         assert mock_start.call_args.args[0] == self.event
         assert mock_start.call_args.kwargs["thread_join_approved"] is True
+        assert mock_start.call_args.kwargs["report_implementation_message_ts"] == implementation_ts
         assert cache.get(_picker_context_cache_key(self.context_token)) is None
 
     def test_declining_tells_the_person_who_asked(self, mock_slack_cls, mock_post):
@@ -414,7 +430,6 @@ class TestUntaggedQuestionInteractivity(TestCase):
         action_id: str,
         slack_user_id: str = "U_BOB",
         *,
-        flag_on: bool = True,
         start_fails: bool = False,
         ext_shared: bool | None = False,
     ) -> Any:
@@ -442,7 +457,6 @@ class TestUntaggedQuestionInteractivity(TestCase):
                 "products.slack_app.backend.api._start_mention_workflow",
                 side_effect=RuntimeError("temporal down") if start_fails else None,
             ) as mock_start,
-            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
             patch("products.slack_app.backend.api.channel_ext_shared_state", return_value=ext_shared),
         ):
             self.client.post(
@@ -517,8 +531,3 @@ class TestUntaggedQuestionInteractivity(TestCase):
         )
 
         assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called
-
-    def test_confirmation_after_the_flag_was_turned_off_answers_nothing(self, mock_slack_cls, mock_post):
-        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-
-        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, flag_on=False).called

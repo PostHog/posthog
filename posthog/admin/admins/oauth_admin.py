@@ -6,16 +6,16 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin, messages
-from django.contrib.admin import helpers
-from django.template.response import TemplateResponse
-from django.utils import timezone
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 from django.utils.html import format_html
 
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.api.oauth.cimd import is_cimd_client_id
-from posthog.models.oauth import OAuthApplication, revoke_application_sessions
+from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES, UNLIMITED_OVERRIDE, ProvisioningConfig
 
 # The provisioning config is one JSONB column, but an operator should still get the checkboxes
@@ -24,15 +24,14 @@ from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES, UNLIMIT
 # Derived from the pydantic schema so a capability added there shows up here automatically.
 PROVISIONING_FIELD_PREFIX = "provisioning_"
 PROVISIONING_RATE_LIMIT_PREFIX = "provisioning_rate_limit_"
-UNSIGNED_ALLOWED_UNTIL_FIELD = f"{PROVISIONING_FIELD_PREFIX}unsigned_allowed_until"
 SIGNING_CAPABILITY_FIELDS = tuple(
     f"{PROVISIONING_FIELD_PREFIX}{name}" for name in ("pays_for_customers", "can_create_accounts")
 )
 
 
 def _provisioning_form_fields() -> dict[str, forms.Field]:
-    """One form field per capability, plus the unsigned-requests deadline. Rate-limit
-    override fields are generated per request in ``get_form`` from the endpoint registry."""
+    """One form field per capability. Rate-limit override fields are generated per request
+    in ``get_form`` from the endpoint registry."""
     fields: dict[str, forms.Field] = {}
     for name in PROVISIONING_CAPABILITIES:
         fields[f"{PROVISIONING_FIELD_PREFIX}{name}"] = forms.BooleanField(
@@ -40,11 +39,6 @@ def _provisioning_form_fields() -> dict[str, forms.Field]:
             label=name.replace("_", " "),
             help_text=ProvisioningConfig.model_fields[name].description or "",
         )
-    fields[UNSIGNED_ALLOWED_UNTIL_FIELD] = forms.DateTimeField(
-        required=False,
-        label="unsigned allowed until",
-        help_text=ProvisioningConfig.model_fields["unsigned_allowed_until"].description or "",
-    )
     return fields
 
 
@@ -120,7 +114,6 @@ class OAuthApplicationForm(forms.ModelForm):
         config = self.instance.provisioning if self.instance.pk else ProvisioningConfig()
         for name in PROVISIONING_CAPABILITIES:
             self.fields[f"{PROVISIONING_FIELD_PREFIX}{name}"].initial = getattr(config, name)
-        self.fields[UNSIGNED_ALLOWED_UNTIL_FIELD].initial = config.unsigned_allowed_until
         for field_name in self._rate_limit_field_names():
             endpoint = field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX)
             self.fields[field_name].initial = config.rate_limits.get(endpoint)
@@ -143,11 +136,6 @@ class OAuthApplicationForm(forms.ModelForm):
             )
 
     def _provisioning_after_save(self, cleaned: dict) -> ProvisioningConfig:
-        # Built while self.instance still holds the stored row, which is the only point the promotion is visible.
-        before = self.instance
-        promoted = not before.is_provisioning_partner and cleaned.get(
-            "is_provisioning_partner", before.is_provisioning_partner
-        )
         return ProvisioningConfig(
             **{name: bool(cleaned.get(f"{PROVISIONING_FIELD_PREFIX}{name}")) for name in PROVISIONING_CAPABILITIES},
             rate_limits={
@@ -155,8 +143,6 @@ class OAuthApplicationForm(forms.ModelForm):
                 for field_name in self._rate_limit_field_names()
                 if (value := cleaned.get(field_name)) is not None
             },
-            unsigned_allowed_until=cleaned.get(UNSIGNED_ALLOWED_UNTIL_FIELD),
-            partner_since=timezone.now() if promoted else before.provisioning.partner_since,
         )
 
     def _reject_partner_that_cannot_sign(self, cleaned: dict, provisioning: ProvisioningConfig) -> None:
@@ -170,7 +156,6 @@ class OAuthApplicationForm(forms.ModelForm):
         """
         before = self.instance
         after = OAuthApplication(
-            created=before.created,
             is_provisioning_partner=cleaned.get("is_provisioning_partner", before.is_provisioning_partner),
             client_type=cleaned.get("client_type", before.client_type),
             jwks_uri=cleaned.get("jwks_uri", before.jwks_uri),
@@ -183,8 +168,7 @@ class OAuthApplicationForm(forms.ModelForm):
                 self.add_error(
                     field_name,
                     "A provisioning partner that can create accounts or pays for its customers must sign its "
-                    "requests with a private key. Make it a confidential client with a jwks_uri first, or set "
-                    "a date it may send unsigned requests until.",
+                    "requests with a private key. Make it a confidential client with a jwks_uri first.",
                 )
 
     def clean(self):
@@ -214,20 +198,6 @@ class OAuthApplicationForm(forms.ModelForm):
 for _field_name, _form_field in _provisioning_form_fields().items():
     OAuthApplicationForm.declared_fields[_field_name] = _form_field
     OAuthApplicationForm.base_fields[_field_name] = _form_field
-
-
-class UnsignedProvisioningDeadlineForm(forms.Form):
-    unsigned_allowed_until = forms.DateTimeField(
-        label="Allow unsigned requests until",
-        help_text="In UTC, for example 2026-11-02 16:00. Replaces the shared grace period for the selected partners.",
-    )
-
-    def clean_unsigned_allowed_until(self):
-        value = self.cleaned_data["unsigned_allowed_until"]
-        # A past date would end the partner's grace at once, which is not what this action is for.
-        if value <= timezone.now():
-            raise forms.ValidationError("Choose a date in the future.")
-        return value
 
 
 class ProvisioningCapabilityFilter(admin.SimpleListFilter):
@@ -274,6 +244,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_dcr_client",
         "is_cimd_client",
         "is_first_party",
+        "supports_step_up",
         "auth_brand",
         "is_provisioning_partner",
         ProvisioningCapabilityFilter,
@@ -281,7 +252,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
-    actions = ("revoke_all_sessions", "regenerate_client_secret", "allow_unsigned_provisioning_until")
+    actions = ("revoke_all_sessions", "regenerate_client_secret")
 
     @admin.action(description="Generate a new client secret")
     def regenerate_client_secret(self, request, queryset):
@@ -314,53 +285,19 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
-        # Irreversible and app-wide (signs out every user/connection), so gate it behind an
-        # interstitial confirmation instead of firing on the first click.
-        if request.POST.get("confirm"):
-            count = queryset.count()
-            for application in queryset:
-                revoke_application_sessions(application)
-            self.message_user(request, f"Revoked all sessions for {count} application(s).")
-            return None
-        context = {
-            **self.admin_site.each_context(request),
-            "title": "Revoke all sessions",
-            "queryset": queryset,
-            "opts": self.model._meta,
-            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
-        }
-        return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
-
-    @admin.action(description="Allow unsigned provisioning requests until a date")
-    def allow_unsigned_provisioning_until(self, request, queryset):
-        form = UnsignedProvisioningDeadlineForm(request.POST if request.POST.get("apply") else None)
-        if form.is_valid():
-            until = form.cleaned_data["unsigned_allowed_until"]
-            updated = 0
-            for application in queryset:
-                if not application.is_provisioning_partner:
-                    self.message_user(
-                        request,
-                        f"{application.name}: skipped, it is not a provisioning partner.",
-                        level=messages.ERROR,
-                    )
-                    continue
-                application.update_provisioning(unsigned_allowed_until=until)
-                updated += 1
+        # The confirm step lives in PostHog Admin, which previews the applications and asks for a reason.
+        if queryset.count() > RevokeSessionsForm.MAX_APPLICATIONS:
             self.message_user(
-                request, f"{updated} partner(s) may send unsigned provisioning requests until {until.isoformat()}."
+                request,
+                f"Pick {RevokeSessionsForm.MAX_APPLICATIONS} applications or fewer to revoke their sessions.",
+                level=messages.ERROR,
             )
             return None
-        context = {
-            **self.admin_site.each_context(request),
-            "title": "Allow unsigned provisioning requests until a date",
-            "form": form,
-            "queryset": queryset,
-            "opts": self.model._meta,
-            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
-        }
-        return TemplateResponse(
-            request, "admin/posthog/oauthapplication/allow_unsigned_provisioning_until.html", context
+        query = urlencode(
+            [("application", str(application_id)) for application_id in queryset.values_list("id", flat=True)]
+        )
+        return HttpResponseRedirect(
+            f"{reverse('admin_console_tool_operation', args=['oauth-sessions', 'revoke'])}?{query}"
         )
 
     def view_on_site(self, obj: OAuthApplication):
@@ -424,7 +361,18 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
+                (
+                    "Status",
+                    {
+                        "fields": (
+                            "is_verified",
+                            "is_first_party",
+                            "supports_step_up",
+                            "is_dcr_client",
+                            "is_cimd_client",
+                        )
+                    },
+                ),
                 (
                     "Provisioning",
                     {
@@ -465,7 +413,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):

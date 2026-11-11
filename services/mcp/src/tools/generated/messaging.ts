@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/messaging/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const MessageCategoriesCreateSchema = () => {
@@ -201,6 +201,80 @@ const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schem
     },
 })
 
+const SupabaseAuthEmailsSettingsGetSchema = () => z.object({})
+
+const supabaseAuthEmailsSettingsGet = (): ToolBase<
+    ReturnType<typeof SupabaseAuthEmailsSettingsGetSchema>,
+    Schemas.SupabaseAuthEmailSettings
+> => ({
+    name: 'supabase-auth-emails-settings-get',
+    schema: SupabaseAuthEmailsSettingsGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SupabaseAuthEmailsSettingsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SupabaseAuthEmailSettings>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_supabase_auth_emails/settings/`,
+        })
+        return result
+    },
+})
+
+const SupabaseAuthEmailsSettingsUpdateSchema = () => {
+    const MessagingSupabaseAuthEmailsSettingsPartialUpdateBody =
+        orvalSchemas.MessagingSupabaseAuthEmailsSettingsPartialUpdateBody()
+    return MessagingSupabaseAuthEmailsSettingsPartialUpdateBody
+}
+
+const supabaseAuthEmailsSettingsUpdate = (): ToolBase<
+    ReturnType<typeof SupabaseAuthEmailsSettingsUpdateSchema>,
+    Schemas.SupabaseAuthEmailSettings
+> => ({
+    name: 'supabase-auth-emails-settings-update',
+    schema: SupabaseAuthEmailsSettingsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SupabaseAuthEmailsSettingsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.supabase_url !== undefined) {
+            body['supabase_url'] = params.supabase_url
+        }
+        if (params.hook_secret !== undefined) {
+            body['hook_secret'] = params.hook_secret
+        }
+        if (params.templates !== undefined) {
+            body['templates'] = params.templates
+        }
+        const result = await context.api.request<Schemas.SupabaseAuthEmailSettings>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_supabase_auth_emails/settings/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['email_types', 'hook_url']) as typeof result
+        return filtered
+    },
+})
+
+const SupabaseAuthEmailsStarterTemplatesCreateSchema = () => z.object({})
+
+const supabaseAuthEmailsStarterTemplatesCreate = (): ToolBase<
+    ReturnType<typeof SupabaseAuthEmailsStarterTemplatesCreateSchema>,
+    Schemas.SupabaseAuthEmailSettings
+> => ({
+    name: 'supabase-auth-emails-starter-templates-create',
+    schema: SupabaseAuthEmailsStarterTemplatesCreateSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof SupabaseAuthEmailsStarterTemplatesCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SupabaseAuthEmailSettings>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_supabase_auth_emails/starter_templates/`,
+        })
+        const filtered = omitResponseFields(result, ['email_types', 'hook_url']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'message-categories-create': messageCategoriesCreate,
     'message-categories-get': messageCategoriesGet,
@@ -209,4 +283,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
     'opt-outs-list': optOutsList,
     'opt-outs-remove': optOutsRemove,
+    'supabase-auth-emails-settings-get': supabaseAuthEmailsSettingsGet,
+    'supabase-auth-emails-settings-update': supabaseAuthEmailsSettingsUpdate,
+    'supabase-auth-emails-starter-templates-create': supabaseAuthEmailsStarterTemplatesCreate,
 }

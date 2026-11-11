@@ -33,18 +33,24 @@ class SpikeGPTMatrix(Matrix):
             team=team,
             name="Signed-up users",
             created_by=user,
-            groups=[
-                {
-                    "properties": [
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
                         {
-                            "key": "email",
-                            "type": "person",
-                            "value": "is_set",
-                            "operator": "is_set",
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "is_set",
+                                    "operator": "is_set",
+                                }
+                            ],
                         }
-                    ]
+                    ],
                 }
-            ],
+            },
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
         from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort

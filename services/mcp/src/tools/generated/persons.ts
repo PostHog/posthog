@@ -159,6 +159,9 @@ const personsPropertySet = (): ToolBase<ReturnType<typeof PersonsPropertySetSche
         if (params.value !== undefined) {
             body['value'] = params.value
         }
+        if (params.properties !== undefined) {
+            body['properties'] = params.properties
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/update_property/`,

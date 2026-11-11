@@ -203,7 +203,11 @@ class TestObservationMedia(BaseTest):
             observation_id=self.observation.id,
         )
 
-        linked = ReplayObservationMedia.objects.for_team(self.team.id).filter(observation_id=self.observation.id)
+        linked = (
+            ReplayObservationMedia.objects.for_team(self.team.id)
+            .filter(observation_id=self.observation.id)
+            .select_related("asset", "small_asset")
+        )
         assert sorted((m.kind, m.position, m.asset_id, m.small_asset_id) for m in linked) == sorted(
             [(f.kind, f.position, f.media_asset_id, f.small_media_asset_id) for f in prepared.frames[:2]]
             + [(f.kind, f.position, f.media_asset_id, None) for f in prepared.frames[2:3]]
@@ -215,9 +219,13 @@ class TestObservationMedia(BaseTest):
                 assert (m.small_asset.content_location or "").endswith("-small.webp")
                 assert m.small_asset.expires_after == m.asset.expires_after
         unlinked = [
-            prepared.frames[2].small_media_asset_id,
-            prepared.frames[3].media_asset_id,
-            prepared.frames[3].small_media_asset_id,
+            asset_id
+            for asset_id in (
+                prepared.frames[2].small_media_asset_id,
+                prepared.frames[3].media_asset_id,
+                prepared.frames[3].small_media_asset_id,
+            )
+            if asset_id is not None
         ]
         for asset in ExportedAsset.objects_including_ttl_deleted.filter(pk__in=unlinked):
             assert asset.expires_after is not None and asset.expires_after <= timezone.now()

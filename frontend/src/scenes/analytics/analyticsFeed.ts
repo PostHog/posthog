@@ -2,19 +2,33 @@ import api from 'lib/api'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import {
-    ANALYTICS_TYPES,
-    AnalyticsItem,
-    AnalyticsType,
-    AnalyticsTypeFilter,
-    fileSystemEntryToAnalytics,
-} from './analyticsUtils'
+import { ANALYTICS_TYPES, AnalyticsItem, AnalyticsType, fileSystemEntryToAnalytics } from './analyticsUtils'
 
 export const ANALYTICS_FEED_PAGE_SIZE = 20
 
+const ANALYTICS_ORDER_BYS = ['-created_at', 'created_at', '-last_viewed_at', 'last_viewed_at'] as const
+
+/** A column of the list, with a leading `-` for descending, as the file system API takes it. */
+export type AnalyticsOrderBy = (typeof ANALYTICS_ORDER_BYS)[number]
+
+export function isAnalyticsOrderBy(value: unknown): value is AnalyticsOrderBy {
+    return ANALYTICS_ORDER_BYS.includes(value as AnalyticsOrderBy)
+}
+
+export function parseAnalyticsOrderBy(orderBy: AnalyticsOrderBy): { id: string; desc: boolean } {
+    return { id: orderBy.replace('-', ''), desc: orderBy.startsWith('-') }
+}
+
+/** The order for a sorted column, or undefined for a column the list cannot sort on. */
+export function analyticsOrderByOfColumn({ id, desc }: { id: string; desc: boolean }): AnalyticsOrderBy | undefined {
+    const orderBy = `${desc ? '-' : ''}${id}`
+    return isAnalyticsOrderBy(orderBy) ? orderBy : undefined
+}
+
 export interface AnalyticsFeedQuery {
-    type: AnalyticsTypeFilter
-    orderBy?: '-created_at' | '-last_viewed_at' | 'last_viewed_at'
+    /** The types to list; empty means every type. */
+    types: AnalyticsType[]
+    orderBy?: AnalyticsOrderBy
     search: string
     /** Creators' uuids; empty means anyone. The file system cannot filter on a uuid, so the rows are narrowed on the client. */
     createdBy: string[]
@@ -22,10 +36,12 @@ export interface AnalyticsFeedQuery {
     createdByMe: boolean
     /** Tag names a row must all carry. Like the creator, narrowed on the client. */
     tags: string[]
+    /** Leaves insights out of the list of every type. Picking the insight type still shows them. */
+    hideInsights?: boolean
 }
 
 export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
-    type: 'all',
+    types: [],
     search: '',
     createdBy: [],
     createdByMe: false,
@@ -66,7 +82,9 @@ export interface AnalyticsFeed {
 const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
 
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
-    const types = query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    const types = query.types.length
+        ? query.types
+        : ANALYTICS_TYPES.map((info) => info.type).filter((type) => !query.hideInsights || type !== 'insight')
     return query.tags.length ? types.filter((type) => TAGGABLE_ANALYTICS_TYPES.has(type)) : types
 }
 
@@ -117,7 +135,7 @@ export async function fetchAnalyticsSourcePage(
         if (!item || !matchesAnalyticsQuery(item, query)) {
             return []
         }
-        if (query.orderBy && query.orderBy !== '-created_at') {
+        if (query.orderBy && parseAnalyticsOrderBy(query.orderBy).id === 'last_viewed_at') {
             item.timestamp = entry.last_viewed_at ?? null
         }
         return [item]
@@ -130,7 +148,7 @@ export function analyticsTime(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery[
         return -Infinity
     }
     const time = new Date(item.timestamp).getTime()
-    return orderBy === 'last_viewed_at' ? -time : time
+    return orderBy && !parseAnalyticsOrderBy(orderBy).desc ? -time : time
 }
 
 function analyticsItemComesFirst(
@@ -193,6 +211,7 @@ export function analyticsFeedFromSources(sources: (AnalyticsSourceState | undefi
         loading: sources.some((source) => !source || source.loading || source.refreshing),
         hasMore: blocking.length > 0,
         failedTypes: failed.map((source) => source.type),
-        loadFailed: initialized && failed.length === sources.length && items.length === 0,
+        // A tag filter on untaggable types leaves no sources at all, which is an empty list and not a failure.
+        loadFailed: initialized && sources.length > 0 && failed.length === sources.length && items.length === 0,
     }
 }

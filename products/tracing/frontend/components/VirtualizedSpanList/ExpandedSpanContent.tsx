@@ -5,6 +5,7 @@ import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
+import { SpanEvents } from './SpanEvents'
 
 export interface ExpandedSpanContentProps {
     span: Span
@@ -61,6 +62,9 @@ export function ExpandedSpanContent({
                     showFilterActions={showFilterActions}
                     propertyType={PropertyFilterType.SpanResourceAttribute}
                 />
+            )}
+            {span.events && span.events.length > 0 && (
+                <SpanEvents events={span.events} spanTimestamp={span.timestamp} />
             )}
             {showDetails && <SpanAttributes title="Span details" attributes={details} showFilterActions={false} />}
         </div>

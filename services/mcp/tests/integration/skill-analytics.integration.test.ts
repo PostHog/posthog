@@ -111,7 +111,6 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
             clientProfile: {
                 capabilities: { supportsInstructions: true },
                 isCliModeEnabled: () => true,
-                isClaudeUiHost: () => false,
                 isInlineExecUiHost: () => false,
                 isClaudeChatHost: () => false,
                 isAnthropicConnector: () => false,
@@ -127,6 +126,8 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
             sessionContext: null,
             allTools: tools,
             scopeGatedTools: [],
+            findScopeGatedTool: () => undefined,
+            supportsStepUp: false,
             flagGatedTools: [],
             gatewayToolsEnabled: false,
             distinctId: 'e2e-distinct-id',

@@ -2,13 +2,17 @@ import api, { isAbortError } from 'lib/api'
 import {
     SearchItem,
     accountToSearchItem,
+    alertToSearchItem,
+    hogFlowToSearchItem,
     fileSystemEntryToSearchItem,
     groupToSearchItem,
     personToSearchItem,
+    productTourToSearchItem,
+    ticketResultToSearchItem,
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
-import { shouldSearchTickets } from 'lib/components/Search/utils'
+import { isTicketNumberQuery, shouldSearchTickets } from 'lib/components/Search/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -18,15 +22,23 @@ import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import type { Noun } from '~/models/groupsModel'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
-import { GroupType, GroupTypeIndex } from '~/types'
+import { GroupType, GroupTypeIndex, SearchableEntity } from '~/types'
 
+import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
+import { productToursList } from 'products/product_tours/frontend/generated/api'
+import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
-import { freeWords } from './commandKRanking'
+import { fileSystemTypesFor } from './commandKFilterOptions'
+import { TypeSearchTerms, parseToken, tokenize, typeSearchTerms } from './commandKQuery'
+import { compareRanks, freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
+export const REMOTE_DEBOUNCE_MS = 150
+export const OBJECTS_DEBOUNCE_MS = 50
+const FAST_REQUESTS = ['objects', 'persons']
 export const REQUEST_DEADLINE_MS = 3000
 // An AbortError, so the API layer treats it like any cancelled request and reports nothing.
 const DEADLINE_PASSED = new DOMException('The request deadline passed', 'AbortError')
@@ -171,21 +183,171 @@ const UNIFIED_TYPES: Record<string, RemoteSource> = {
     hog_flow: 'workflows',
 }
 
+type TypeSearch = (terms: TypeSearchTerms, signal: AbortSignal, context: RemoteContext) => Promise<SearchItem[]>
+
+const unifiedTypeSearch =
+    (entity: SearchableEntity, type: string): TypeSearch =>
+    async ({ text }, signal) => {
+        const response = await api.search.list(
+            { q: text || undefined, entities: [entity], include_counts: false },
+            { signal }
+        )
+        return response.results.map((result) => {
+            const item = unifiedSearchResultToSearchItem(result)
+            return { ...item, category: 'results', record: { ...item.record, type } }
+        })
+    }
+
+const TYPE_SEARCHES: Record<string, TypeSearch> = {
+    alert: async ({ text }, signal, context) => {
+        const response = await alertsList(
+            String(context.currentTeamId),
+            { search: text || undefined, limit: SECONDARY_LIMIT },
+            { signal }
+        )
+        return response.results.map(alertToSearchItem)
+    },
+    endpoints: unifiedTypeSearch('endpoint', 'endpoints'),
+    product_tour: async ({ text }, signal, context) => {
+        const response = await productToursList(
+            String(context.currentTeamId),
+            { search: text || undefined, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(productTourToSearchItem)
+    },
+    ticket: async ({ text, name, freeText }, signal, context) => {
+        const search = name && isTicketNumberQuery(text) ? freeText : text
+        if (search && !shouldSearchTickets(search)) {
+            return []
+        }
+        const response = await conversationsTicketsList(
+            String(context.currentTeamId),
+            { search: search || undefined, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(ticketResultToSearchItem)
+    },
+    workflows: async (terms, signal, context) => {
+        if (!terms.name) {
+            return unifiedTypeSearch('hog_flow', 'workflows')(terms, signal, context)
+        }
+        if (terms.freeText) {
+            return unifiedTypeSearch('hog_flow', 'workflows')({ ...terms, text: terms.freeText }, signal, context)
+        }
+        const response = await hogFlowsList(
+            String(context.currentTeamId),
+            { name: terms.name, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(hogFlowToSearchItem)
+    },
+}
+
+const PHRASE_FILTER_KEYS = new Set(['is', 'name'])
+
+function typeSearchFor(search: string): TypeSearch | null {
+    const type = tokenize(search)
+        .map((token) => parseToken(token.raw))
+        .find((token) => token.filter?.key === 'is' && !token.negated)?.value
+    return type && Object.hasOwn(TYPE_SEARCHES, type) ? TYPE_SEARCHES[type] : null
+}
+
+const nameOf = (item: SearchItem): string => String(item.displayName || item.name).toLowerCase()
+
+async function fetchTypeResults(
+    search: string,
+    signal: AbortSignal,
+    context: RemoteContext
+): Promise<SearchItem[] | null> {
+    const typeSearch = typeSearchFor(search)
+    if (!typeSearch) {
+        return null
+    }
+    const terms = typeSearchTerms({ backendSearch: search })
+    const otherFilters = tokenize(search)
+        .map((token) => parseToken(token.raw))
+        .some((token) => token.filter && !PHRASE_FILTER_KEYS.has(token.filter.key))
+    if (terms.excludes || otherFilters) {
+        return []
+    }
+    const items = await typeSearch(terms, signal, context)
+    const name = terms.name?.toLowerCase()
+    return name ? items.filter((item) => nameOf(item).includes(name)) : items
+}
+
+export function requestDebounceMs(request: RemoteRequest, query: string): number {
+    const fast = FAST_REQUESTS.includes(request.id) && !(request.id === 'objects' && typeSearchFor(query))
+    return fast ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+}
+
+function fileSystemSearches(search: string): string[] {
+    const raws = tokenize(search).map((token) => token.raw)
+    const index = raws.findIndex((raw) => {
+        const token = parseToken(raw)
+        return token.filter?.key === 'is' && fileSystemTypesFor(token.value).length > 1
+    })
+    if (index === -1) {
+        return [search]
+    }
+    const token = parseToken(raws[index])
+    const replaced = (replacement: string): string =>
+        [...raws.slice(0, index), replacement, ...raws.slice(index + 1)].join(' ')
+    const types = fileSystemTypesFor(token.value)
+    return token.negated
+        ? [replaced(types.map((type) => `-type:${type}`).join(' '))]
+        : types.map((type) => replaced(`type:${type}`))
+}
+
+async function fetchFileSystemResults(
+    search: string,
+    signal: AbortSignal,
+    context: RemoteContext,
+    featureFlags: Record<string, unknown>,
+    merged: boolean
+): Promise<SearchItem[]> {
+    if (freeWords(search).length > 0) {
+        return await fetchRankedResults(search, signal, context, featureFlags)
+    }
+    const response = await api.fileSystem.list({
+        search,
+        limit: RESULTS_LIMIT,
+        notType: 'folder',
+        orderBy: merged ? '-created_at' : undefined,
+        signal,
+    })
+    return response.results
+        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+        .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' }))
+}
+
+const createdAtOf = (item: SearchItem): string => String(item.record?.created_at ?? '')
+
+function mergeFileSystemResults(batches: SearchItem[][], ranked: boolean): SearchItem[] {
+    const items = batches.flat()
+    return ranked
+        ? items.sort((a, b) => compareRanks(a.rankKey ?? [], b.rankKey ?? []))
+        : items.sort((a, b) => createdAtOf(b).localeCompare(createdAtOf(a))).slice(0, RESULTS_LIMIT)
+}
+
 export const REMOTE_REQUESTS: RemoteRequest[] = [
     {
         id: 'objects',
         query: 'objects',
         sources: ['results'],
         fetch: async (search, signal, context) => {
-            const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
-            if (freeWords(search).length > 0) {
-                return { results: await fetchRankedResults(search, signal, context, featureFlags) }
+            const typeResults = await fetchTypeResults(search, signal, context)
+            if (typeResults) {
+                return { results: typeResults }
             }
-            const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
+            const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
+            const searches = fileSystemSearches(search)
+            const batches = await Promise.all(
+                searches.map((each) => fetchFileSystemResults(each, signal, context, featureFlags, searches.length > 1))
+            )
             return {
-                results: response.results
-                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
-                    .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })),
+                results:
+                    batches.length === 1 ? batches[0] : mergeFileSystemResults(batches, freeWords(search).length > 0),
             }
         },
     },

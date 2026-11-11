@@ -151,10 +151,17 @@ class Rejection:
 
 
 @frozen
+class MeasurementRequest:
+    subject: Subject
+    consumer_runs_per_month: float
+
+
+@frozen
 class CandidateResult:
     drafts: tuple[SuggestionDraft, ...]
     rejections: tuple[Rejection, ...]
     skipped_reason: str | None = None
+    measurement_requests: tuple[MeasurementRequest, ...] = ()
 
 
 class Candidate(ABC):

@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -10,6 +11,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.html import escape
 from django.utils.http import content_disposition_header
@@ -60,7 +62,7 @@ from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.outbound_proxy import internal_requests_session
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.token_bucket import (
     BucketDecision,
     BucketUnavailable,
@@ -86,6 +88,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
+from products.tasks.backend.facade.api import asks_for_run, idempotent_request, uses_public_create
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -112,6 +115,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     RunSource,
@@ -204,9 +208,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunLogsQuerySerializer,
     TaskRunLogsView,
-    TaskRunPeerMessageRequestSerializer,
-    TaskRunPeerMessageResponseSerializer,
-    TaskRunPeersResponseSerializer,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -328,7 +329,6 @@ WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
 # Origins that warm for every user, with no flag left to evaluate.
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
-        tasks_facade.TaskOriginProduct.POSTHOG_AI,
         tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
@@ -423,15 +423,13 @@ def _agent_run_enabled(request, team) -> bool:
 
 
 class _SchemaAwareLimitOffsetPagination(PrecountedLimitOffsetPagination):
-    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+    """LimitOffsetPagination subclass that surfaces `default_limit` and the bounds in the OpenAPI schema."""
 
     def get_schema_operation_parameters(self, view):
         parameters = super().get_schema_operation_parameters(view)
         for parameter in parameters:
             if parameter.get("name") == self.limit_query_param:
                 parameter["schema"]["default"] = self.default_limit
-                if self.max_limit is not None:
-                    parameter["schema"]["maximum"] = self.max_limit
                 parameter["schema"]["minimum"] = 1
             elif parameter.get("name") == self.offset_query_param:
                 parameter["schema"]["default"] = 0
@@ -470,6 +468,14 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
+def _requests_signal_report_origin(data: dict) -> bool:
+    if data.get("origin_product") == "signal_report":
+        return True
+    profile_key = data.get("profile")
+    profile = find_task_profile(profile_key) if isinstance(profile_key, str) else None
+    return profile is not None and profile.origin_product == "signal_report"
+
+
 class _SignalReportTaskThrottle(UserRateThrottle):
     """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
@@ -480,7 +486,7 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         data = request.data
-        if not isinstance(data, dict) or data.get("origin_product") != "signal_report":
+        if not isinstance(data, dict) or not _requests_signal_report_origin(data):
             return True
         return super().allow_request(request, view)
 
@@ -553,7 +559,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
@@ -804,7 +810,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         ],
         responses={
+            200: OpenApiResponse(
+                response=TaskCreateResponseSerializer,
+                description="The request repeated an idempotency key with the same body. This is the task the first request created. If that request asked for a run that never started, this one starts it.",
+            ),
             201: TaskCreateResponseSerializer,
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The idempotency key belongs to a task that a different request created (code `idempotency_key_reused`)",
+            ),
             402: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -842,6 +856,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
     )
     def create(self, request, **kwargs):
+        replay_request = idempotent_request(self._user_id(), request.data)
+        replayed: tasks_contracts.TaskDetailDTO | None = None
+        if replay_request is not None:
+            try:
+                replayed = tasks_facade.find_task_for_idempotency_key(
+                    self.team_id, self._user_id(), replay_request.key, replay_request.fingerprint
+                )
+            except tasks_facade.IdempotencyKeyReused:
+                return self._idempotency_key_reused_response()
+            if replayed is not None and not (replayed.latest_run is None and asks_for_run(request.data)):
+                return Response(TaskSerializer(replayed).data)
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
         validated_data["state"] = {"created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile"}
@@ -873,7 +898,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Scoped to warmable origins, which is what a warm can ever be reused for. The repo-less Inbox
         # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
-        can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
+        can_activate_warm_run = (
+            "branch" in validated_data
+            and origin_product in WARMABLE_ORIGIN_PRODUCTS
+            and not uses_public_create(validated_data)
+        )
         # An agent run never activates a warm run (see `run_task`), so only a create without a run is refused.
         if can_activate_warm_run and not start_run and is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
@@ -888,7 +917,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 and validated_data.get("github_user_integration") is None
             )
             if not is_code_access_exempt and (
-                access_response := code_access_required_response(request, self.organization)
+                access_response := code_access_required_response(
+                    request, self.organization, origin_product=origin_product
+                )
             ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
@@ -922,13 +953,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             run_error = None
             if start_run:
-                create_result = tasks_facade.create_task_and_run(
-                    self.team_id,
-                    self._user_id(),
-                    validated_data=validated_data,
-                    run_data=run_data,
-                    client_provenance=get_task_client_provenance(request),
-                    code_access_allowed=code_access_allowed,
+                create_result = (
+                    tasks_facade.start_missing_first_run(
+                        self.team_id, self._user_id(), task=replayed, run_data=run_data
+                    )
+                    if replayed is not None
+                    else tasks_facade.create_task_and_run(
+                        self.team_id,
+                        self._user_id(),
+                        validated_data=validated_data,
+                        run_data=run_data,
+                        client_provenance=get_task_client_provenance(request),
+                        code_access_allowed=code_access_allowed,
+                    )
                 )
                 if create_result.error is not None:
                     return self._task_error_response(create_result.error)
@@ -953,8 +990,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
+        except tasks_facade.ActiveSessionCapRefused as error:
+            return Response({"detail": error.detail, "code": error.code}, status=status.HTTP_400_BAD_REQUEST)
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
+        except IntegrityError:
+            replay_response = (
+                self._idempotent_replay_response(
+                    validated_data["idempotency_key"], validated_data["idempotency_fingerprint"]
+                )
+                if "idempotency_key" in validated_data
+                else None
+            )
+            if replay_response is None:
+                raise
+            return replay_response
         finally:
             if sandbox_starter is not None:
                 if run_started:
@@ -965,7 +1015,26 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_data = TaskSerializer(task).data
         if run_error:
             response_data["run_error"] = run_error
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_200_OK if replayed is not None else status.HTTP_201_CREATED)
+
+    def _idempotency_key_reused_response(self) -> Response:
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "type": "idempotency_error",
+                    "code": "idempotency_key_reused",
+                    "error": "This idempotency key was used for a different request.",
+                }
+            ).data,
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def _idempotent_replay_response(self, key: str, fingerprint: str) -> Response | None:
+        try:
+            existing = tasks_facade.find_task_for_idempotency_key(self.team_id, self._user_id(), key, fingerprint)
+        except tasks_facade.IdempotencyKeyReused:
+            return self._idempotency_key_reused_response()
+        return Response(TaskSerializer(existing).data) if existing is not None else None
 
     def _warm_activation_unavailable_response(self, error: tasks_facade.WarmRunActivationUnavailable) -> Response:
         return Response(
@@ -1601,13 +1670,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
-        if (
-            not result.run_error
-            and result.run_id is not None
-            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
-        ):
-            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
-        response_data = TaskSerializer(result.task).data
+        task = result.task
+        if not result.run_error and result.run_id is not None:
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
+            if request.validated_data.get("pending_user_message") or request.validated_data.get(
+                "pending_user_artifact_ids"
+            ):
+                client = get_task_client_provenance(request)
+                recorded_at = tasks_facade.record_task_client(task_id=str(pk), team_id=self.team_id, client=client)
+                if task is not None and recorded_at is not None:
+                    task = dataclasses.replace(task, last_client=client, last_client_at=recorded_at)
+        response_data = TaskSerializer(task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
         response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
@@ -1715,6 +1789,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
             return True
+        if origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI:
+            return tasks_access.get_posthog_ai_access_decision(cast(User, self.request.user), self.organization).allowed
         flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
         if flag is None:
             return False
@@ -1770,7 +1846,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
-        if not self._warm_enabled(origin_product):
+        profile = public_profile_for_origin(origin_product)
+        if profile is None or not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
@@ -1780,7 +1857,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         code_access_allowed = False
         if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
             code_access_allowed = code_access_required_response(request, self.organization) is None
-        elif access_response := code_access_required_response(request, self.organization):
+        elif access_response := code_access_required_response(
+            request, self.organization, origin_product=origin_product
+        ):
             return access_response
 
         user_id = self._user_id()
@@ -1809,7 +1888,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
-            origin_product=request.validated_data["origin_product"],
+            profile=profile,
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
             signal_report_id=signal_report.id if signal_report is not None else None,
             code_access_allowed=code_access_allowed,
@@ -1894,6 +1973,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if error.kind == "detail":
             body: dict[str, Any] = {"detail": error.detail}
+            if error.code is not None:
+                body["code"] = error.code
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
@@ -2010,11 +2091,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._authorized_task_id = self._ensure_task_accessible()
 
     @staticmethod
-    def _is_trial_lifecycle_update(payload: object) -> bool:
-        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+    def _is_runtime_lifecycle_update(payload: object) -> bool:
+        if (
+            not isinstance(payload, dict)
+            or not payload
+            or set(payload) - {"status", "error_message", "error_type", "output", "state"}
+        ):
             return False
         if "status" in payload and (
             not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "error_type" in payload and payload.get("status") != "failed":
+            return False
+        if "output" in payload and not (
+            payload.get("status") in {"completed", "failed"} and tasks_facade.is_finish_report_output(payload["output"])
         ):
             return False
         if "state" in payload:
@@ -2032,6 +2123,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self.action not in {
             "append_log",
             "set_summary",
+            "set_output",
             "update",
             "partial_update",
             "artifacts_download",
@@ -2039,13 +2131,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        runtime_scope = "internal_run:write" if "internal_run:write" in scopes else "scout_experiment_internal:read"
         if (
             "task:read" in scopes
-            and "scout_experiment_internal:read" in scopes
+            and runtime_scope in scopes
             and (
                 self.action in {"append_log", "set_summary"}
+                or self.action == "set_output"
+                and runtime_scope == "internal_run:write"
                 or self.action in {"update", "partial_update"}
-                and self._is_trial_lifecycle_update(request.data)
+                and self._is_runtime_lifecycle_update(request.data)
             )
             and run_context.is_sandbox_run_request(
                 request=request,
@@ -2054,7 +2149,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=self.kwargs.get("pk"),
             )
         ):
-            return ["task:read", "scout_experiment_internal:read"]
+            return ["task:read", runtime_scope]
         if self.action == "artifacts_download":
             return ["task:read"]
         if self.action == "retrieve":
@@ -2099,6 +2194,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list",
         "retrieve",
         "logs",
+        "log_entries",
         "session_logs",
         "task_session",
         "stream",
@@ -2500,7 +2596,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_output",
-        required_scopes=["task:write"],
     )
     def set_output(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2535,12 +2630,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
         run = tasks_facade.set_task_run_summary(
             pk,
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
             tags=request.validated_data.get("tags"),
+            sync_task_tags="internal_run:write" not in scopes or "task:write" in scopes,
             include_agent_state=run_context.is_sandbox_run_request(
                 request=self.request,
                 team_id=self.team_id,
@@ -3333,86 +3430,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         return self._preview_unavailable_page(redirect.outcome, task_id)
 
-    def _peer_messaging_gate(self, task_id: str) -> Response | None:
-        """Server-side authorization for the peers endpoints. Tool gating in the
-        harness is UX, never authorization — everything is re-checked here.
-
-        - A sandbox-app OAuth token must be bound to exactly this task: the token's
-          user may well control other tasks too (same creator), so without this a
-          compromised sandbox for task A could send as task B's runs.
-        - The requester must be the task's creator: peer visibility and message
-          attribution derive entirely from the creating user, so broader task
-          access (e.g. the Slack same-team carve-out) must not let a teammate
-          enumerate or send as another user's runs.
-        - Both feature flags and the Pi runtime are enforced per request, mirroring
-          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
-          tool in a resumed sandbox can't outlive a rollback of either flag.
-        """
-        authenticator = self.request.successful_authenticator
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            access_token = authenticator.access_token
-            application = access_token.application
-            if (
-                application is not None
-                and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-                and access_token.sandbox_task_id != UUID(task_id)
-            ):
-                raise NotFound("Task not found")
-        user = cast(User, self.request.user)
-        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"error": "Peer messaging is only available to the task creator's runs"}
-                ).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.task_uses_pi_runtime(task_id, self.team_id):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging requires the Pi runtime"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "The Pi cloud runtime is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.agent_peer_messaging_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
-
-    @validated_request(
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeersResponseSerializer,
-                description="Active agent runs this run may message",
-            ),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="List peer agent runs",
-        description=(
-            "Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, "
-            "currently in progress or queued. Discovery and send validation share one visibility policy, "
-            "so a run can only message what it can list; the per-entry `sendable` flag is the liveness "
-            "contract."
-        ),
-    )
-    @action(detail=True, methods=["get"], url_path="peers", required_scopes=["task:read"])
-    def peers(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        peers = tasks_facade.list_task_run_peers(pk, task_id, self.team_id)
-        if peers is None:
-            raise NotFound()
-        return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
-
     @validated_request(
         responses={
             200: OpenApiResponse(
@@ -3510,51 +3527,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=TaskRunPeerMessageRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeerMessageResponseSerializer,
-                description="Synchronous send result (accepted / target_finished / rejected)",
-            ),
-            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid message payload"),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="Send a message to a peer agent run",
-        description=(
-            "Relay a message from this run to a peer agent run. The body is delivered below a "
-            "server-composed provenance envelope as a queued (non-steer) turn; attachments are copied "
-            "into the target run's own artifact storage. `accepted` means queued for delivery, never "
-            "delivered — the sandbox handoff happens later inside the target's workflow."
-        ),
-        strict_request_validation=True,
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path=r"peers/(?P<target_run_id>[^/]+)/message",
-        required_scopes=["task:write"],
-    )
-    def peers_message(self, request, pk=None, target_run_id=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        result = tasks_facade.signal_task_run_peer_message(
-            pk,
-            task_id,
-            self.team_id,
-            target_run_id=target_run_id,
-            content=request.validated_data["content"],
-            artifact_ids=list(request.validated_data.get("artifact_ids") or []),
-        )
-        if result is None:
-            raise NotFound()
-        return Response(TaskRunPeerMessageResponseSerializer(result).data)
-
-    @validated_request(
         query_serializer=TaskRunLogsQuerySerializer,
         extensions={"x-product": "logs"},
         responses={
@@ -3579,6 +3551,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
+    @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
+    def log_entries(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
         query = request.validated_query_data
         timer = ServerTimingsGathered()
@@ -3816,7 +3796,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
-            if access_response := code_access_required_response(request, self.organization):
+            if access_response := code_access_required_response(request, self.organization, posthog_ai_task_id=task_id):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
@@ -3879,14 +3859,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            self._record_person_turn(request, task_id)
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
             # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
             try:
-                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+                tasks_facade.activate_warm_task_run(pk)
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
 
@@ -4036,12 +4015,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if (
-                success
-                and method == "permission_response"
-                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            if (success and method == "permission_response") or (
+                agent_response.ok and self._is_pi_person_answer(method, params, response_data)
             ):
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+                self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4097,6 +4074,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_pi_person_answer(method: str, params: object, response_data: object) -> bool:
+        command = params.get("command") if method == "pi/rpc" and isinstance(params, dict) else None
+        if not isinstance(command, dict) or not isinstance(response_data, dict) or "error" in response_data:
+            return False
+        if command.get("type") == "mcp_permission_response":
+            return True
+        return command.get("type") == "extension_ui_response" and ("confirmed" in command or "value" in command)
+
+    def _record_person_turn(self, request: Request, task_id: str) -> None:
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+        tasks_facade.record_task_client(
+            task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

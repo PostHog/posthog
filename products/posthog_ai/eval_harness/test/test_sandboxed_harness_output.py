@@ -467,10 +467,7 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
     module = importlib.import_module(discovered.fn.__module__)
     if domain == "taxonomic_filter":
         monkeypatch.setattr(module, "system_one_configured", lambda: True)
-        if module_name == "eval_event_match":
-            monkeypatch.setattr(module, "EVENT_MATCH_MODEL", MagicMock())
-        else:
-            monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
+        monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
     runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
     monkeypatch.setattr(module, f"{runner_kind}Eval", run)

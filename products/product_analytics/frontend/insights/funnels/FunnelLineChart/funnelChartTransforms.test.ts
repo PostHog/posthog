@@ -6,13 +6,11 @@ const makeStep = (overrides: Partial<IndexedFunnelStep> = {}): IndexedFunnelStep
     ({
         id: 0,
         seriesIndex: 0,
-        action_id: 'pageview',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 100,
         name: 'Step 1',
         order: 0,
-        type: 'events',
         converted_people_url: '',
         dropped_people_url: null,
         data: [10, 20, 30, 40, 50],

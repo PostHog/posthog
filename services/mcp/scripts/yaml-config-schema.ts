@@ -7,8 +7,6 @@
  */
 import { z } from 'zod'
 
-import { INGESTED_DATA_KINDS } from '../src/lib/no-data-guard'
-
 export const ToolConfigSchema = z
     .object({
         operation: z.string(),
@@ -48,6 +46,7 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
         /**
          * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
          * so the agent sees it at point of use instead of it growing the always-loaded tool
@@ -214,8 +213,6 @@ export const ToolConfigSchema = z
          */
         /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
         hidden_when_flag_on: z.string().optional(),
-        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
-        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
@@ -247,6 +244,13 @@ export const ToolConfigSchema = z
                  */
                 strip_nulls: z.boolean().optional(),
                 /**
+                 * Dot-path patterns of response fields to remove unless the caller asks for them. Codegen adds
+                 * an optional `expand` request param constrained to these paths. Use it on a detail tool where
+                 * a few fields dominate the payload but an agent needs them only for some tasks.
+                 * Incompatible with `include`, and with a path `exclude` also lists.
+                 */
+                expandable: z.array(z.string()).optional(),
+                /**
                  * Dot-path allowlist for the compact text projection the model reads, applied to each item in
                  * `results`. The structured payload stays whole, so a UI app still renders every field. Use it
                  * on a list tool whose rows are far larger than what a reader needs to choose between them —
@@ -267,6 +271,13 @@ export const ToolConfigSchema = z
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {
                 message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .refine((data) => !(data.expandable?.length && data.include?.length), {
+                message:
+                    'response.expandable removes fields by default, so it cannot be combined with response.include',
+            })
+            .refine((data) => !data.expandable?.some((path) => data.exclude?.includes(path)), {
+                message: 'response.exclude always removes its paths, so `expand` could never restore them',
             })
             .refine((data) => !(data.selectable && !data.include?.length), {
                 message: 'response.selectable requires response.include (the allowlist to select from)',
@@ -483,6 +494,8 @@ const CustomUiAppSchema = z
                 data_type: z.string().optional(),
                 /** Prop name that receives the host's link opener, for a view that opens links. */
                 link_prop: z.string().optional(),
+                /** Prop name that receives the host app, for a view that calls server tools. */
+                app_prop: z.string().optional(),
             })
             .strict()
             .optional(),
@@ -533,6 +546,7 @@ export interface ResolvedCustomUiApp {
         view_prop: string
         data_type?: string
         link_prop?: string
+        app_prop?: string
     }
 }
 
@@ -581,6 +595,7 @@ export const QueryWrapperToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
@@ -630,8 +645,6 @@ export const QueryWrapperToolConfigSchema = z
          */
         /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
         hidden_when_flag_on: z.string().optional(),
-        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
-        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),

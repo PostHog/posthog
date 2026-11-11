@@ -446,8 +446,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert retrieve.status_code == status.HTTP_404_NOT_FOUND
         assert search.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.business_knowledge.backend.api.libraries.has_github_repos_feature_flag", return_value=True)
-    def test_parent_repo_replace_keeps_a_child_only_link(self, _ff, _repos_flag) -> None:
+    def test_parent_repo_replace_keeps_a_child_only_link(self, _ff) -> None:
         from posthog.models.integration import Integration
         from posthog.models.scoping import team_scope
         from posthog.models.team import Team

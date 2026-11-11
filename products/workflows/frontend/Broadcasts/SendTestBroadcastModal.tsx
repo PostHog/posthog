@@ -12,16 +12,25 @@ export function SendTestBroadcastModal(): JSX.Element {
         sendDisabledReason,
         testSendResult,
         testSendSkipReason,
+        testSendPartialFailure,
         testSendResultLoading,
+        channel,
+        recipientDistinctId,
     } = useValues(broadcastTestSendLogic)
-    const { setModalOpen, setRecipientEmail, sendTestEmail } = useActions(broadcastTestSendLogic)
+    const { setModalOpen, setRecipientEmail, setRecipientDistinctId, sendTestEmail } =
+        useActions(broadcastTestSendLogic)
+    const isPush = channel === 'push'
 
     return (
         <LemonModal
             isOpen={isModalOpen}
             onClose={() => setModalOpen(false)}
-            title="Send a test email"
-            description="Goes to this address only. Nobody in the audience receives it."
+            title={isPush ? 'Send a test notification' : 'Send a test email'}
+            description={
+                isPush
+                    ? "Goes to this person's devices only. Nobody in the audience receives it."
+                    : 'Goes to this address only. Nobody in the audience receives it.'
+            }
             footer={
                 <>
                     <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
@@ -40,17 +49,31 @@ export function SendTestBroadcastModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-3 max-w-160">
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Send to</LemonLabel>
-                    <LemonInput
-                        type="email"
-                        value={recipientEmail}
-                        onChange={setRecipientEmail}
-                        placeholder="you@example.com"
-                        autoFocus
-                        data-attr="broadcast-test-email-recipient"
-                    />
-                </div>
+                {isPush ? (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel info="Starts as your own PostHog user's distinct ID. Use the ID your app identifies you with.">
+                            Send to distinct ID
+                        </LemonLabel>
+                        <LemonInput
+                            value={recipientDistinctId}
+                            onChange={setRecipientDistinctId}
+                            autoFocus
+                            data-attr="broadcast-test-push-recipient"
+                        />
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Send to</LemonLabel>
+                        <LemonInput
+                            type="email"
+                            value={recipientEmail}
+                            onChange={setRecipientEmail}
+                            placeholder="you@example.com"
+                            autoFocus
+                            data-attr="broadcast-test-email-recipient"
+                        />
+                    </div>
+                )}
 
                 <span className="text-muted text-xs">
                     {previewPerson
@@ -60,15 +83,20 @@ export function SendTestBroadcastModal(): JSX.Element {
 
                 {testSendSkipReason ? (
                     <LemonBanner type="warning">{testSendSkipReason}</LemonBanner>
+                ) : testSendPartialFailure ? (
+                    <LemonBanner type="warning">
+                        Some apps took the notification, but at least one failed: {testSendPartialFailure}
+                    </LemonBanner>
                 ) : testSendResult?.status === 'skipped' ? (
                     <LemonBanner type="warning">
                         {testSendResult.logs?.map((log) => log.message).join(' ') ||
-                            'The email step was skipped, so nothing was sent.'}
+                            `The ${isPush ? 'push' : 'email'} step was skipped, so nothing was sent.`}
                     </LemonBanner>
                 ) : null}
                 {testSendResult?.status === 'error' && (
                     <LemonBanner type="error">
-                        {testSendResult.errors?.join(', ') || 'Could not send the test email.'}
+                        {testSendResult.errors?.join(', ') ||
+                            `Could not send the test ${isPush ? 'notification' : 'email'}.`}
                     </LemonBanner>
                 )}
             </div>

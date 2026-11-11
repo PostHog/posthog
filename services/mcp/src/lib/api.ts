@@ -5,6 +5,7 @@ const SERVER_MINT_ONLY_SCOPE_OBJECTS = new Set([
     'internal_run',
     'mcp_builtin_agent',
     'signal_scout_internal',
+    'signal_scout_monitoring',
     'signal_scout_report',
     'signal_scratchpad_internal',
 ])

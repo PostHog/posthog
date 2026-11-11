@@ -24,7 +24,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    NamingConvention,
+    fold_column_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -317,7 +320,7 @@ def evolve_pyarrow_schema(
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
-    merge_keys = {_fold_column_name_for_match(name) for name in merge_key_columns or []}
+    merge_keys = {fold_column_name(name) for name in merge_key_columns or []}
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -390,7 +393,7 @@ def evolve_pyarrow_schema(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
             elif (
-                _fold_column_name_for_match(delta_field.name) in merge_keys
+                fold_column_name(delta_field.name) in merge_keys
                 and (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type))
                 and (pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type))
             ):
@@ -470,6 +473,9 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     debug_info = f'{{"load_id": {load_id}}}'
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
+    # Source data can already carry `_ph_debug`, e.g. files written by an earlier PostHog sync.
+    if "_ph_debug" in table.column_names:
+        return table.set_column(table.schema.get_field_index("_ph_debug"), "_ph_debug", column)
     return table.append_column("_ph_debug", column)
 
 
@@ -497,11 +503,14 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
 
 
-def _fold_column_name_for_match(name: str) -> str:
-    try:
-        return NamingConvention.normalize_identifier(name)
-    except ValueError:
-        return name
+def drop_internal_columns(table: pa.Table) -> pa.Table:
+    """Drop the columns the pipeline adds itself from a source batch.
+
+    A source can return them when it reads a table PostHog wrote, such as a Delta table in a bucket.
+    Kept, they would exist twice in the batch once the pipeline adds its own.
+    """
+    internal = [name for name in table.column_names if name in INTERNAL_COLUMN_NAMES]
+    return table.drop_columns(internal) if internal else table
 
 
 def apply_enabled_columns_projection(
@@ -528,18 +537,16 @@ def apply_enabled_columns_projection(
     if enabled_columns is None:
         return table, []
 
-    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    retained = {fold_column_name(name) for name in enabled_columns}
     for primary_key in primary_keys or []:
-        retained.add(_fold_column_name_for_match(primary_key))
+        retained.add(fold_column_name(primary_key))
     if incremental_field:
-        retained.add(_fold_column_name_for_match(incremental_field))
+        retained.add(fold_column_name(incremental_field))
     for partition_key in partition_keys or []:
-        retained.add(_fold_column_name_for_match(partition_key))
+        retained.add(fold_column_name(partition_key))
 
     kept_names = [
-        name
-        for name in table.column_names
-        if name in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(name) in retained
+        name for name in table.column_names if name in INTERNAL_COLUMN_NAMES or fold_column_name(name) in retained
     ]
     dropped_names = [name for name in table.column_names if name not in set(kept_names)]
     if not dropped_names:
@@ -591,10 +598,9 @@ def source_uses_delta_write_column_selection(source_type: str) -> bool:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
         SourceRegistry,  # noqa: PLC0415
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception:
         return False
     return not source.supports_column_selection and not source.has_managed_hogql_schema
@@ -821,12 +827,15 @@ def table_from_iterator(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter)
+    processed_batch = _process_batch(
+        batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter, masked_columns=masked_columns
+    )
 
     return processed_batch
 
@@ -837,13 +846,18 @@ def table_from_py_list(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
     return table_from_iterator(
-        iter(table_data), schema=schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+        iter(table_data),
+        schema=schema,
+        primary_keys=primary_keys,
+        binary_reporter=binary_reporter,
+        masked_columns=masked_columns,
     )
 
 
@@ -1280,8 +1294,8 @@ def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
     """Stop the sync when a batch has nulls in a column the table declares non-nullable.
 
-    delta-rs cannot write a null into a non-nullable column, and deltalake 1.6.1 has no operation to
-    relax an existing column to nullable in place. So a source that starts emitting nulls in a
+    delta-rs cannot write a null into a non-nullable column, and this path does not relax an existing
+    column to nullable in place. So a source that starts emitting nulls in a
     column the table created non-nullable is a schema change under the table, and the only fix is to
     reset and fully re-sync it -- which recreates the column as nullable. Surfaced as
     SchemaColumnTypeChangedException, the same reset-and-re-sync signal the decimal-widening path
@@ -1437,6 +1451,7 @@ def _process_batch(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     # Every step below reads a row as a mapping, so without this check a keyless row fails deep in
     # the conversion with a bare `'list' object has no attribute 'items'`, which names neither the
@@ -1446,6 +1461,7 @@ def _process_batch(
             raise NonMappingRowError(type(row).__name__)
 
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+    masked = {fold_column_name(column) for column in masked_columns or []}
 
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
@@ -1661,11 +1677,15 @@ def _process_batch(
                     # not str" phrase so source non-retryable matching still fires, but name the
                     # column and show examples so the offending cells can be found in the source.
                     offenders = [x for x in all_values if isinstance(x, str)]
-                    sample = [(x if x != "" else "<blank>") for x in offenders[:5]]
+                    # A masked column's cells must not reach the sync error, which project members can read.
+                    if fold_column_name(str(field_name)) in masked:
+                        examples = ""
+                    else:
+                        examples = f" such as {[(x if x != '' else '<blank>') for x in offenders[:5]]}"
                     raise TypeError(
                         f"must be real number, not str: column '{field_name}' is imported as a "
-                        f"number but contains {len(offenders)} non-numeric value(s) such as "
-                        f"{sample}. Ensure every cell in this column is a plain number (or empty)."
+                        f"number but contains {len(offenders)} non-numeric value(s){examples}. "
+                        "Ensure every cell in this column is a plain number (or empty)."
                     ) from e
 
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):

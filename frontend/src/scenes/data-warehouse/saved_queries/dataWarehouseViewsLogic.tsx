@@ -29,12 +29,25 @@ import {
 
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
+import {
+    BreakingColumnChangeDeclinedError,
+    confirmBreakingColumnChange,
+    getBreakingColumnChange,
+} from '../editor/BreakingColumnChangeDialog'
 
 // Materialization is async: enabling it flips `is_materialized` either synchronously (the
 // /materialize action) or later, when the Temporal job runs (scheduled sync frequency). After
 // kicking it off we reload the saved-query list a few times so the sidebar reflects the settled
 // state without a manual refresh, then stop.
 const MATERIALIZATION_POLL_INTERVAL_MS = 5000
+
+// The catalog keys views by name, so only an added, removed or renamed view needs a catalog refresh.
+function savedQueryCatalogKey(views: DataWarehouseSavedQuerySummary[]): string {
+    return views
+        .map((view) => `${view.id}:${view.name}`)
+        .sort()
+        .join('\n')
+}
 const MATERIALIZATION_POLL_MAX_ATTEMPTS = 12
 
 /** Mirrors the server's default for the materialize action, so the picker opens on what it would pick. */
@@ -90,6 +103,7 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
+    acknowledge_breaking_changes?: boolean
 }
 
 export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
@@ -346,6 +360,9 @@ export interface dataWarehouseViewsLogicActions {
             viewId: string
         }
     }
+    refreshAfterWindowFocus: () => {
+        value: true
+    }
     revertMaterialization: (viewId: string) => {
         viewId: string
     }
@@ -516,6 +533,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
+        refreshAfterWindowFocus: true,
         loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => ({ viewId }),
         loadDataWarehouseSavedQueryDownstreamReferencesFailure: (viewId: string) => ({ viewId }),
         loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (
@@ -672,7 +690,27 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 updateDataWarehouseSavedQuery: async (view: DataWarehouseSavedQueryUpdate) => {
                     try {
-                        const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                        const save = async (
+                            payload: DataWarehouseSavedQueryUpdate
+                        ): Promise<DataWarehouseSavedQuerySummary> =>
+                            (await warehouseSavedQueriesPartialUpdate(
+                                String(ApiConfig.getCurrentTeamId()),
+                                payload.id,
+                                payload as Parameters<typeof warehouseSavedQueriesPartialUpdate>[2]
+                            )) as unknown as DataWarehouseSavedQuerySummary
+                        let newView: DataWarehouseSavedQuerySummary
+                        try {
+                            newView = await save(view)
+                        } catch (error) {
+                            const breakingChange = getBreakingColumnChange(error)
+                            if (!breakingChange) {
+                                throw error
+                            }
+                            if (!(await confirmBreakingColumnChange(breakingChange))) {
+                                throw new BreakingColumnChangeDeclinedError()
+                            }
+                            newView = await save({ ...view, acknowledge_breaking_changes: true })
+                        }
                         return values.dataWarehouseSavedQueries.map((savedQuery) => {
                             if (savedQuery.id === view.id) {
                                 return newView
@@ -712,7 +750,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, asyncActions, values, cache }) => ({
+        refreshAfterWindowFocus: async () => {
+            const catalogKeyBefore = savedQueryCatalogKey(values.dataWarehouseSavedQueries)
+            actions.loadDataWarehouseSavedQueryFolders()
+            try {
+                await asyncActions.loadDataWarehouseSavedQueries()
+            } catch {
+                return
+            }
+            if (cache.disposables.isDisposed) {
+                return
+            }
+            // A full catalog reload empties the schema tree while it runs, so skip it when no view changed.
+            if (savedQueryCatalogKey(values.dataWarehouseSavedQueries) !== catalogKeyBefore) {
+                actions.refreshDatabaseSchema()
+            }
+        },
         loadDataWarehouseSavedQueryDownstreamReferences: async ({ viewId }) => {
             try {
                 const lineage = await dataModelingNodesLineageRetrieve(String(ApiConfig.getCurrentTeamId()), {
@@ -847,8 +901,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.runDataWarehouseSavedQuerySuccess(viewId)
                 lemonToast.success(fullRefresh ? 'Full refresh started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
-            } catch {
-                lemonToast.error(fullRefresh ? 'Failed to start full refresh' : 'Failed to run materialization')
+            } catch (error: any) {
+                const retryAfter = error?.formattedRetryAfter
+                lemonToast.error(
+                    retryAfter
+                        ? `This view can't run again yet. Try again ${retryAfter}.`
+                        : error?.detail ||
+                              (fullRefresh ? 'Failed to start full refresh' : 'Failed to run materialization')
+                )
                 actions.runDataWarehouseSavedQueryFailure(viewId)
             }
         },
@@ -916,10 +976,26 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     }),
-    events(({ actions }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
             actions.loadDataWarehouseSavedQueryFolders()
+            // A view saved in another browser tab reaches this tab only on a reload, so refresh on focus.
+            cache.disposables.add(
+                () => {
+                    const onFocus = (): void => {
+                        // A failed load clears `dataWarehouseSavedQueriesLoaded`, so do not gate on it, or one
+                        // failed refresh would stop every later one.
+                        if (!values.dataWarehouseSavedQueriesLoading) {
+                            actions.refreshAfterWindowFocus()
+                        }
+                    }
+                    window.addEventListener('focus', onFocus)
+                    return () => window.removeEventListener('focus', onFocus)
+                },
+                'focusRefetch',
+                { pauseOnPageHidden: false }
+            )
         },
     })),
 ])

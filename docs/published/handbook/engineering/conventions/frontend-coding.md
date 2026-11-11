@@ -73,7 +73,7 @@ Hence the explicit separation between the data and view layers.
   - Before adding a test, make sure it earns its place and sits as low on the test pyramid as it can — the value/cost rubric in [Backend coding conventions › Testing](backend-coding#testing) is language-agnostic.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
-  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally.
+  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally. The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers running it, writing stories, and mocking data.
   - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
   - A story must render the same picture on every run. See [Deterministic stories](#deterministic-stories).
 
@@ -85,10 +85,8 @@ Every pattern below caused a real quarantine. Each one has a fix that removes th
 
 ##### What the runner already does
 
-`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
+`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits until no known loader is visible, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
 Do not add your own waits for these.
-The loader wait checks only the first element that matches a loader selector.
-When a story shows more than one loader, set `waitForSelector` to content that renders after the last one.
 The runner does not know when your own async content is done, when a timer changes the UI, or when a component measured itself at the wrong size.
 
 ##### Pin the clock

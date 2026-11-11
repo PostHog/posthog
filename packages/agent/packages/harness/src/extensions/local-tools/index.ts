@@ -37,13 +37,12 @@ export {
   type SignedCommitToolCtx,
   type SignedCommitToolResult,
 } from "./signed-commit-shared";
+export { TaskToolsApiClient, TaskToolsApiError } from "./task-tools-client";
 export {
-  type PeerMessageSendResult,
-  type TaskRunPeer,
-  TaskToolsApiClient,
-  TaskToolsApiError,
-} from "./task-tools-client";
-export { FINISH_TOOL_NAME } from "./tools/finish";
+  buildFinishRunUpdate,
+  FINISH_TOOL_NAME,
+  isFinishReportRequired,
+} from "./tools/finish";
 export { GH_STACK_QUALIFIED_TOOL_NAME } from "./tools/gh-stack";
 export { SHOW_ACTIONS_TOOL_NAME } from "./tools/show-actions";
 export { SPEAK_TOOL_NAME } from "./tools/speak";

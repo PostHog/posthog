@@ -4,35 +4,34 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_serializer
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.models.integration import (
-    GitHubIntegration,
-    GitLabIntegration,
-    Integration,
-    JiraIntegration,
-    LinearIntegration,
-)
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, JiraIntegration, LinearIntegration
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
 logger = structlog.get_logger(__name__)
 
 
-class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
+_EXTERNAL_ISSUE_INTEGRATIONS = IntegrationManager.kinds(
+    IntegrationKind.LINEAR, IntegrationKind.GITHUB, IntegrationKind.GITLAB, IntegrationKind.JIRA, auth_types="any"
+)
+
+
+class SessionRecordingExternalReferenceIntegrationSerializer(serializers.Serializer):
     """Read-only serializer for Integration info embedded in external references"""
 
-    class Meta:
-        model = Integration
-        fields = ["id", "kind", "display_name"]
-        read_only_fields = ["id", "kind", "display_name"]
+    id = serializers.IntegerField(read_only=True)
+    kind = serializers.CharField(read_only=True, help_text="The provider of the integration, for example 'github'.")
+    display_name = serializers.CharField(read_only=True)
 
 
 @extend_schema_serializer(component_name="SessionRecordingExternalRef")
@@ -44,9 +43,16 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 
     config = serializers.JSONField(write_only=True)
     session_recording_id = serializers.CharField(write_only=True)
-    integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration"
+    integration = serializers.SerializerMethodField()
+    integration_id = IntegrationReferenceField(
+        kinds=[
+            IntegrationKind.LINEAR,
+            IntegrationKind.GITHUB,
+            IntegrationKind.GITLAB,
+            IntegrationKind.JIRA,
+        ],
+        write_only=True,
+        source="integration",
     )
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
@@ -68,25 +74,50 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["external_url", "title", "issue_id", "metadata"]
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._integration_cache: dict[int, IntegrationRecord | None] = {}
+
+    def _get_integration(self, reference: SessionRecordingExternalReference) -> IntegrationRecord | None:
+        cache = self._integration_cache
+        if reference.integration_id not in cache:
+            try:
+                cache[reference.integration_id] = _EXTERNAL_ISSUE_INTEGRATIONS.get(
+                    self.context["get_team"]().id, reference.integration_id
+                )
+            except IntegrationNotFound:
+                cache[reference.integration_id] = None
+        return cache[reference.integration_id]
+
+    @extend_schema_field(SessionRecordingExternalReferenceIntegrationSerializer(allow_null=True))
+    def get_integration(self, reference: SessionRecordingExternalReference) -> dict[str, Any] | None:
+        integration = self._get_integration(reference)
+        if integration is None:
+            return None
+        return SessionRecordingExternalReferenceIntegrationSerializer(integration).data
+
     def get_external_url(self, reference: SessionRecordingExternalReference) -> str:
         external_context = self._get_external_context(reference)
+        integration = self._get_integration(reference)
+        if integration is None:
+            return ""
 
-        if reference.integration.kind == Integration.IntegrationKind.LINEAR:
-            url_key = LinearIntegration(reference.integration).url_key()
+        if integration.kind == IntegrationKind.LINEAR:
+            url_key = LinearIntegration(integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
-        elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
+        elif integration.kind == IntegrationKind.GITHUB:
             org = GitHubIntegration(
-                reference.integration, source="replay_external_references", priority=Priority.NORMAL
+                integration, source="replay_external_references", priority=Priority.NORMAL
             ).organization()
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
-        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
-            gitlab = GitLabIntegration(reference.integration)
+        elif integration.kind == IntegrationKind.GITLAB:
+            gitlab = GitLabIntegration(integration)
             issue_id = external_context.get("issue_id", "")
             return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{issue_id}" if issue_id else ""
-        elif reference.integration.kind == Integration.IntegrationKind.JIRA:
-            site_url = JiraIntegration(reference.integration).site_url()
+        elif integration.kind == IntegrationKind.JIRA:
+            site_url = JiraIntegration(integration).site_url()
             issue_key = external_context.get("id", "")
             return f"{site_url}/browse/{issue_key}"
         else:
@@ -106,9 +137,13 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         """Get provider-specific metadata (e.g. repository for GitHub, project for Jira)"""
         external_context = self._get_external_context(reference)
 
-        if reference.integration.kind == Integration.IntegrationKind.GITHUB:
+        integration = self._get_integration(reference)
+        if integration is None:
+            return {}
+
+        if integration.kind == IntegrationKind.GITHUB:
             return {"repository": external_context.get("repository", "")}
-        elif reference.integration.kind == Integration.IntegrationKind.JIRA:
+        elif integration.kind == IntegrationKind.JIRA:
             return {"project": external_context.get("project", "")}
 
         return {}
@@ -151,17 +186,17 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         """
         team = self.context["get_team"]()
         session_recording: SessionRecording = validated_data.get("session_recording")
-        integration: Integration = validated_data.get("integration")
+        integration: IntegrationRecord = validated_data.get("integration")
         config: dict[str, Any] = validated_data.get("config")
 
         recording_url = self._build_recording_url(team.pk, session_recording.session_id, config)
 
-        if integration.kind == Integration.IntegrationKind.LINEAR:
+        if integration.kind == IntegrationKind.LINEAR:
             title = config.get("title", "")
             config["description"] = f"{config.get('description', '')}\n\nPostHog recording: {recording_url}"
             external_context = LinearIntegration(integration).create_issue(recording_url, config)
             external_context["title"] = title
-        elif integration.kind == Integration.IntegrationKind.GITHUB:
+        elif integration.kind == IntegrationKind.GITHUB:
             title = config.get("title", "")
             config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
             response = GitHubIntegration(
@@ -172,7 +207,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 "title": title,
                 "repository": response.get("repository", ""),
             }
-        elif integration.kind == Integration.IntegrationKind.GITLAB:
+        elif integration.kind == IntegrationKind.GITLAB:
             title = config.get("title", "")
             config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
             response = GitLabIntegration(integration).create_issue(config)
@@ -183,7 +218,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 "title": title,
                 "issue_id": response.get("issue_id", ""),
             }
-        elif integration.kind == Integration.IntegrationKind.JIRA:
+        elif integration.kind == IntegrationKind.JIRA:
             title = config.get("title", "")
             project_key = config.get("project_key", "")
             config["description"] = f"{config.get('description', '')}\n\nPostHog recording: {recording_url}"
@@ -198,7 +233,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 
         instance = SessionRecordingExternalReference.objects.create(
             session_recording=session_recording,
-            integration=integration,
+            integration_id=integration.id,
             external_context=external_context,
         )
 

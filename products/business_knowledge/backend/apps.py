@@ -9,4 +9,6 @@ class BusinessKnowledgeConfig(AppConfig):
     verbose_name = "Business knowledge"
 
     def ready(self) -> None:
-        from . import signals  # noqa: F401
+        from . import signals, task_profiles  # noqa: F401
+
+        task_profiles.register()

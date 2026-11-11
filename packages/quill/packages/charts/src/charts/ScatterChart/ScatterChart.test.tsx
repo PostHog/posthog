@@ -41,8 +41,7 @@ function renderScatter(props: Partial<React.ComponentProps<typeof ScatterChart>>
             theme={THEME}
             config={{ margins: MARGINS, xAxis: { label: 'Reads' }, yAxis: { label: 'Writes' }, ...props.config }}
             {...props}
-        />,
-        { nativeTooltip: true }
+        />
     )
 }
 
@@ -169,8 +168,7 @@ describe('ScatterChart', () => {
                     xAxis: { domain: [0, 100] },
                     yAxis: { scaleType: 'log', domain: [1, 100] },
                 }}
-            />,
-            { nativeTooltip: true }
+            />
         )
         // A log scale clamps, so the excluded point would otherwise sit hoverable on the top edge.
         await waitForChartTooltip(3000, () => {
@@ -200,8 +198,7 @@ describe('ScatterChart', () => {
             { key: 'orgs', label: 'Orgs', points: [{ x: 100, y: 100, label: 'Hedgebox', meta: { orgId: 'hb' } }] },
         ]
         const { chart } = renderChart(
-            <ScatterChart series={series} theme={THEME} config={{ margins: MARGINS }} onPointClick={onPointClick} />,
-            { nativeTooltip: true }
+            <ScatterChart series={series} theme={THEME} config={{ margins: MARGINS }} onPointClick={onPointClick} />
         )
         await hoverPoint(chart.element, 100, 100)
         fireEvent.click(chart.element)

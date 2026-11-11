@@ -3,15 +3,24 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { IconFilter } from '@posthog/icons'
+import { Popover } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
-import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu/TaxonomicFilterMenu'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { Button, ToggleGroup, ToggleGroupItem } from 'lib/ui/quill'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    ToggleGroup,
+    ToggleGroupItem,
+} from 'lib/ui/quill'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
@@ -21,6 +30,7 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 const ERROR_TRACKING_EVENT_NAMES = ['$exception']
 
 export const FilterGroup = ({
+    rootKey = TAXONOMIC_FILTER_LOGIC_KEY,
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
     excludeFilterTypes,
     activeFiltersInline = false,
@@ -29,6 +39,8 @@ export const FilterGroup = ({
     menuItems,
     leadingFilters,
 }: {
+    // A surface outside the Issues screen passes its own key, so the two never share filter state.
+    rootKey?: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     excludeFilterTypes?: PropertyFilterType[]
     activeFiltersInline?: boolean
@@ -49,7 +61,7 @@ export const FilterGroup = ({
 
     return (
         <UniversalFilters
-            rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
+            rootKey={rootKey}
             group={displayGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
@@ -172,41 +184,57 @@ const FilterPicker = ({
     menuItems?: ReactNode
 }): JSX.Element => {
     const { addGroupFilter } = useActions(universalFiltersLogic)
-    const [openRequest, setOpenRequest] = useState(0)
+    const [pickerOpen, setPickerOpen] = useState(false)
+    const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null)
+
+    const buttonProps = {
+        variant: iconOnly ? 'default' : 'outline',
+        size: iconOnly ? 'icon-sm' : 'default',
+        'aria-label': iconOnly ? 'Add filter' : undefined,
+        title: iconOnly ? 'Add filter' : undefined,
+        children: (
+            <>
+                <IconFilter />
+                {!iconOnly && 'Add filter'}
+            </>
+        ),
+    } as const
 
     return (
-        <TaxonomicFilterHeadless.Root
-            className="contents"
-            bindRootProps={false}
-            groupType={taxonomicGroupTypes[0] ?? TaxonomicFilterGroupType.ErrorTrackingProperties}
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            eventNames={ERROR_TRACKING_EVENT_NAMES}
-            onChange={(group, value, item) => addGroupFilter(group, value, item)}
-        >
-            <TaxonomicFilterMenu
-                key={openRequest}
-                defaultOpen={openRequest > 0}
-                defaultOpenState="combobox"
-                menuItems={menuItems}
-                trigger={({ open }) => (
-                    <Button
-                        variant={iconOnly ? 'default' : 'outline'}
-                        size={iconOnly ? 'icon-sm' : 'default'}
-                        aria-label={iconOnly ? 'Add filter' : undefined}
-                        title={iconOnly ? 'Add filter' : undefined}
-                        aria-expanded={open}
-                        onClick={() => {
-                            if (!open && !menuItems) {
-                                setOpenRequest((request) => request + 1)
-                            }
-                        }}
-                    >
-                        <IconFilter />
-                        {!iconOnly && 'Add filter'}
-                    </Button>
+        <>
+            <span ref={setPickerAnchor} className="inline-flex">
+                {menuItems ? (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger render={<Button {...buttonProps} />} />
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setPickerOpen(true)}>Add filter</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {menuItems}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : (
+                    <Button {...buttonProps} aria-expanded={pickerOpen} onClick={() => setPickerOpen(!pickerOpen)} />
                 )}
+            </span>
+            {/* Beside the trigger, not around it: a LemonDropdown around a quill menu stops the menu opening. */}
+            <Popover
+                referenceElement={pickerAnchor}
+                visible={pickerOpen}
+                onClickOutside={() => setPickerOpen(false)}
+                overlay={
+                    <TaxonomicFilter
+                        groupType={taxonomicGroupTypes[0] ?? TaxonomicFilterGroupType.ErrorTrackingProperties}
+                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        eventNames={ERROR_TRACKING_EVENT_NAMES}
+                        onChange={(group, value, item) => {
+                            addGroupFilter(group, value, item)
+                            setPickerOpen(false)
+                        }}
+                        enableKeywordShortcuts
+                    />
+                }
             />
-        </TaxonomicFilterHeadless.Root>
+        </>
     )
 }
 

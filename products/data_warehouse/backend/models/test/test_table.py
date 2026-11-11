@@ -972,7 +972,7 @@ class TestTable(BaseTest):
             (
                 "Cannot extract table structure from CSV format file, because there are no files with "
                 "provided path in S3 or all files are empty",
-                "doesn't exist in the bucket",
+                "No files match your Files URL pattern",
             ),
             ("Cannot extract table structure: the file is empty", "contains no data"),
         ]
@@ -1263,7 +1263,13 @@ class TestTable(BaseTest):
                 "empty_csv",
                 "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
                 499,
-                "The provided file doesn't exist in the bucket",
+                "No files match your Files URL pattern",
+            ),
+            (
+                "empty_csv_with_names",
+                "Cannot extract table structure from CSVWithNames format file, because there are no files with provided path in S3 or all files are empty",
+                499,
+                "No files match your Files URL pattern",
             ),
             (
                 "corrupted_parquet_thrift",

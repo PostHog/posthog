@@ -1,10 +1,12 @@
 //! Event-level counts for one block: activity, interactions, navigation, console and network.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ops::Bound;
 
 use crate::bytescan::{self as scan, Span};
 
+use super::features::js_trim;
 use super::rrweb::*;
 use super::stats::BlockStats;
 use crate::scan::message::Event;
@@ -14,7 +16,8 @@ const ACTIVITY_THRESHOLD_MS: f64 = 5000.0;
 /// The distinct times an open inactive segment keeps. Past this the oldest go, so a late active event older than all
 /// that remain changes nothing. Out-of-order input then costs a log-time insert, and the state stays small.
 const MAX_INACTIVE_TIMES: usize = 1024;
-/// The status field of a `posthog/network@1` payload, as `session-feature-recorder.ts` reads it.
+/// The duration and status fields of a `posthog/network@1` payload, as `session-feature-recorder.ts` reads them.
+const POSTHOG_NETWORK_DURATION_KEY: &[u8] = b"39";
 const POSTHOG_NETWORK_STATUS_KEY: &[u8] = b"21";
 /// The longest DNS name. A longer host resolves nowhere, so it names no site.
 const MAX_HOST_BYTES: usize = 253;
@@ -73,9 +76,127 @@ pub(crate) fn number(bytes: &[u8], span: Option<Span>) -> Option<f64> {
     span.and_then(|span| scan::parse_number(bytes, span))
 }
 
-pub(crate) fn text<'b>(bytes: &'b [u8], span: Option<Span>) -> Option<std::borrow::Cow<'b, str>> {
+pub(crate) fn text<'b>(bytes: &'b [u8], span: Option<Span>) -> Option<Cow<'b, str>> {
     span.filter(|&span| scan::is_string(bytes, span))
         .and_then(|span| scan::unescape(bytes, span).ok())
+}
+
+/// One request of an `rrweb/network@1` event, as `session-feature-recorder.ts` reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct NetworkRequest {
+    pub duration: Option<f64>,
+    /// `req.status ?? req.responseStatus`
+    pub status: Option<f64>,
+}
+
+/// The fields of an event's `data`, and of `data.payload`, that the counters and the feature recorder read. Each object
+/// is read once per event, for all of them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DataFields {
+    /// `type`: the kind of a mouse interaction.
+    pub interaction: Option<Span>,
+    pub x: Option<Span>,
+    pub y: Option<Span>,
+    pub id: Option<Span>,
+    pub text: Option<Span>,
+    pub plugin: Option<Span>,
+    pub payload: Option<Span>,
+    pub href: Option<Span>,
+    pub tag: Option<Span>,
+    pub width: Option<Span>,
+    pub height: Option<Span>,
+    pub payload_href: Option<Span>,
+    pub level: Option<Span>,
+    pub network_duration: Option<Span>,
+    pub network_status: Option<Span>,
+    /// The requests of an `rrweb/network@1` event, which [`DataFields::for_each_network_request`] reads.
+    network_requests: Option<Span>,
+}
+
+impl DataFields {
+    /// Reads the fields of the events that use them. A snapshot, a mutation or a mouse move's positions are large and
+    /// use none of them, so their `data` is read only when it has a key where `hrefFrom` looks for a page.
+    pub fn read(inner: &[u8], event: &Event) -> Self {
+        let Some(data) = event.data else {
+            return Self::default();
+        };
+        let used = match event.kind {
+            Some(META | CUSTOM | PLUGIN) => true,
+            Some(INCREMENTAL_SNAPSHOT) => matches!(
+                event.source,
+                Some(MOUSE_INTERACTION | SCROLL | VIEWPORT_RESIZE | INPUT)
+            ),
+            _ => false,
+        };
+        if !used && !event.may_carry_page_url {
+            return Self::default();
+        }
+        let [interaction, x, y, id, text, plugin, payload, href, tag, width, height] = fields(
+            inner,
+            data,
+            [
+                b"type", b"x", b"y", b"id", b"text", b"plugin", b"payload", b"href", b"tag",
+                b"width", b"height",
+            ],
+        );
+        let [payload_href, level, network_requests, network_duration, network_status] = payload
+            .map(|payload| {
+                fields(
+                    inner,
+                    payload,
+                    [
+                        b"href",
+                        b"level",
+                        b"requests",
+                        POSTHOG_NETWORK_DURATION_KEY,
+                        POSTHOG_NETWORK_STATUS_KEY,
+                    ],
+                )
+            })
+            .unwrap_or_default();
+        let network_plugin = event.kind == Some(PLUGIN)
+            && self::text(inner, plugin).as_deref() == Some("rrweb/network@1");
+        Self {
+            interaction,
+            x,
+            y,
+            id,
+            text,
+            plugin,
+            payload,
+            href,
+            tag,
+            width,
+            height,
+            payload_href,
+            level,
+            network_duration,
+            network_status,
+            network_requests: network_requests.filter(|_| network_plugin),
+        }
+    }
+
+    /// Calls `each` with every request of an `rrweb/network@1` event, in order, as one pass reads them. The requests
+    /// are not kept, because an event of many tiny requests would take far more memory as a list than in its payload.
+    pub fn for_each_network_request(&self, inner: &[u8], mut each: impl FnMut(NetworkRequest)) {
+        let Some(items) = self
+            .network_requests
+            .and_then(|r| scan::array_items(inner, r).ok())
+        else {
+            return;
+        };
+        for request in items.filter_map(Result::ok) {
+            let [duration, status, response_status] =
+                fields(inner, request, [b"duration", b"status", b"responseStatus"]);
+            let status = status
+                .filter(|&s| !scan::is_null(inner, s))
+                .or(response_status);
+            each(NetworkRequest {
+                duration: number(inner, duration),
+                status: number(inner, status),
+            });
+        }
+    }
 }
 
 /// Counts what one block's events did. Navigation and active time need the session's earlier events, so the caller
@@ -93,6 +214,7 @@ impl EventCounter {
         &mut self,
         inner: &[u8],
         event: &Event,
+        data: &DataFields,
         last_href: &mut Option<String>,
         activity: &mut Activity,
     ) -> bool {
@@ -110,18 +232,15 @@ impl EventCounter {
             stats.first_ts_ms = Some(stats.first_ts_ms.map_or(ts, |first| first.min(ts)));
             stats.last_ts_ms = Some(stats.last_ts_ms.map_or(ts, |last| last.max(ts)));
         }
-        let Some(data) = event.data else { return false };
+        if event.data.is_none() {
+            return false;
+        }
         match (event.kind, event.source) {
             (Some(META | CUSTOM), _) => {
-                let [href, payload, tag, width, height] = fields(
-                    inner,
-                    data,
-                    [b"href", b"payload", b"tag", b"width", b"height"],
-                );
                 if event.kind == Some(META) {
-                    set_viewport(stats, inner, event, width, height);
+                    set_viewport(stats, inner, event, data.width, data.height);
                 }
-                let Some(href) = page_url(inner, event.kind, href, payload, tag) else {
+                let Some(href) = href_from(inner, event.kind, data) else {
                     return false;
                 };
                 if stats.host.is_none() {
@@ -129,13 +248,13 @@ impl EventCounter {
                 }
                 if last_href.as_deref() != Some(&*href) {
                     stats.navigations += 1;
-                    *last_href = Some(href);
+                    *last_href = Some(href.into_owned());
                 }
                 return true;
             }
             (Some(INCREMENTAL_SNAPSHOT), Some(MOUSE_INTERACTION)) => {
                 stats.mouse_interactions += 1;
-                let interaction = number(inner, field(inner, data, b"type")).map(|t| t as u8);
+                let interaction = number(inner, data.interaction).map(|t| t as u8);
                 if interaction.is_some_and(is_click) {
                     stats.clicks += 1;
                 }
@@ -153,8 +272,7 @@ impl EventCounter {
             (Some(INCREMENTAL_SNAPSHOT), Some(SCROLL)) => stats.scrolls += 1,
             (Some(INCREMENTAL_SNAPSHOT), Some(VIEWPORT_RESIZE)) => {
                 stats.viewport_resizes += 1;
-                let [width, height] = fields(inner, data, [b"width", b"height"]);
-                set_viewport(stats, inner, event, width, height);
+                set_viewport(stats, inner, event, data.width, data.height);
             }
             (Some(INCREMENTAL_SNAPSHOT), Some(INPUT)) => stats.keypresses += 1,
             (Some(INCREMENTAL_SNAPSHOT), Some(MEDIA_INTERACTION)) => stats.media_events += 1,
@@ -165,41 +283,23 @@ impl EventCounter {
         false
     }
 
-    fn observe_plugin(&mut self, inner: &[u8], data: Span) {
+    /// Counts one request of an `rrweb/network@1` event. The inspector reads an event's requests in one pass for this
+    /// and the feature recorder.
+    pub fn count_network_request(&mut self, status: Option<f64>) {
+        count_request(&mut self.stats, status);
+    }
+
+    fn observe_plugin(&mut self, inner: &[u8], data: &DataFields) {
         let stats = &mut self.stats;
-        let payload = field(inner, data, b"payload");
-        match text(inner, field(inner, data, b"plugin")).as_deref() {
-            Some("rrweb/console@1") => match payload
-                .and_then(|p| text(inner, field(inner, p, b"level")))
-                .as_deref()
-            {
+        match text(inner, data.plugin).as_deref() {
+            Some("rrweb/console@1") => match text(inner, data.level).as_deref() {
                 Some("error") => stats.console_errors += 1,
                 Some("warn") => stats.console_warnings += 1,
                 _ => {}
             },
-            Some("rrweb/network@1") => {
-                let Some(requests) = payload.and_then(|p| field(inner, p, b"requests")) else {
-                    return;
-                };
-                let Ok(items) = scan::array_items(inner, requests) else {
-                    return;
-                };
-                for request in items.filter_map(Result::ok) {
-                    // `req.status ?? req.responseStatus`, as `session-feature-recorder.ts` reads it.
-                    let [status, response_status] =
-                        fields(inner, request, [b"status", b"responseStatus"]);
-                    let status = status
-                        .filter(|&s| !scan::is_null(inner, s))
-                        .or(response_status);
-                    count_request(stats, number(inner, status));
-                }
-            }
             Some("posthog/network@1") => {
-                if let Some(payload) = payload.filter(|&p| scan::is_object(inner, p)) {
-                    count_request(
-                        stats,
-                        number(inner, field(inner, payload, POSTHOG_NETWORK_STATUS_KEY)),
-                    );
+                if data.payload.is_some_and(|p| scan::is_object(inner, p)) {
+                    count_request(stats, number(inner, data.network_status));
                 }
             }
             _ => {}
@@ -240,32 +340,28 @@ fn set_viewport(
     );
 }
 
-/// The page URL of a Meta or custom event, by the rules of [`page_url`].
+/// The page URL of a Meta or custom event, by the rules of [`href_from`].
 pub fn event_page_url(inner: &[u8], event: &Event) -> Option<String> {
     if !matches!(event.kind, Some(META | CUSTOM)) {
         return None;
     }
-    let [href, payload, tag] = fields(inner, event.data?, [b"href", b"payload", b"tag"]);
-    page_url(inner, event.kind, href, payload, tag)
+    href_from(inner, event.kind, &DataFields::read(inner, event)).map(Cow::into_owned)
 }
 
-/// The page URL an event carries, as `hrefFrom` in `rrweb-types.ts` reads it: a Meta event's `href`, or the
-/// `payload.href` of a custom event such as posthog-js's `$url_changed`. JSON-LD custom events carry no page.
-fn page_url(
-    inner: &[u8],
-    kind: Option<u8>,
-    href: Option<Span>,
-    payload: Option<Span>,
-    tag: Option<Span>,
-) -> Option<String> {
-    if kind == Some(CUSTOM) && text(inner, tag).as_deref() == Some("$json_ld") {
+/// The page URL an event carries, as `hrefFrom` in `rrweb-types.ts` reads it: `data.href`, such as a Meta event's, or
+/// `data.payload.href`, such as that of posthog-js's `$url_changed` custom event, trimmed as JavaScript trims.
+/// JSON-LD custom events carry no page.
+pub fn href_from<'b>(inner: &'b [u8], kind: Option<u8>, data: &DataFields) -> Option<Cow<'b, str>> {
+    if kind == Some(CUSTOM) && text(inner, data.tag).as_deref() == Some("$json_ld") {
         return None;
     }
-    let payload_href = payload.and_then(|p| field(inner, p, b"href"));
-    [href, payload_href]
+    [data.href, data.payload_href]
         .into_iter()
         .filter_map(|span| text(inner, span))
-        .map(|href| href.trim().to_owned())
+        .map(|href| match href {
+            Cow::Borrowed(href) => Cow::Borrowed(js_trim(href)),
+            Cow::Owned(href) => Cow::Owned(js_trim(&href).to_owned()),
+        })
         .find(|href| !href.is_empty())
 }
 
@@ -521,7 +617,11 @@ mod tests {
         let mut counter = EventCounter::default();
         let (mut last_href, mut activity) = (None, Activity::default());
         for event in &message.events {
-            counter.observe(&message.inner, event, &mut last_href, &mut activity);
+            let data = DataFields::read(&message.inner, event);
+            counter.observe(&message.inner, event, &data, &mut last_href, &mut activity);
+            data.for_each_network_request(&message.inner, |request| {
+                counter.count_network_request(request.status);
+            });
         }
         let stats = counter.finish();
 

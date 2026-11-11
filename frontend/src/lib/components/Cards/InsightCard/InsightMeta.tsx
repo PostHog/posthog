@@ -1,23 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
-import {
-    IconChevronRight,
-    IconClock,
-    IconInfo,
-    IconPulse,
-    IconThumbsDown,
-    IconThumbsUp,
-    IconWarning,
-} from '@posthog/icons'
+import { IconChevronRight, IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
+import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { EditableField } from 'lib/components/EditableField/EditableField'
+import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
@@ -31,7 +25,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -40,9 +33,8 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -59,14 +51,13 @@ import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTool
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -86,6 +77,9 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
+import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -130,6 +124,7 @@ interface InsightMetaProps extends Pick<
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
+    headerStatus?: JSX.Element
     insight: InsightModel
     refreshDisabledReason?: string
     areDetailsShown?: boolean
@@ -141,7 +136,27 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-export function InsightMeta({
+const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
+
+// SQL tiles have no display option tabs, so they skip the hook and the insight logics it mounts.
+export function InsightMeta(props: InsightMetaProps): JSX.Element {
+    return isDataVisualizationNode(props.insight.query) ? (
+        <InsightMetaBody {...props} displayOptionTabs={NO_DISPLAY_OPTION_TABS} />
+    ) : (
+        <InsightMetaWithDisplayOptions {...props} />
+    )
+}
+
+function InsightMetaWithDisplayOptions(props: InsightMetaProps): JSX.Element {
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
+    // portal, which cascades into closing the dropdown before the user can interact with it.
+    const { tabs } = useDisplayOptions(insightDisplayOptions)
+    return <InsightMetaBody {...props} displayOptionTabs={tabs} />
+}
+
+function InsightMetaBody({
+    displayOptionTabs,
+    headerStatus,
     tile,
     insight,
     ribbonColor,
@@ -181,7 +196,7 @@ export function InsightMeta({
     onCreateAnomalyAlert,
     projectId,
     contextHeading,
-}: InsightMetaProps): JSX.Element {
+}: InsightMetaProps & { displayOptionTabs: DisplayOptionTab[] }): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
     const insightLogicProps: InsightLogicProps = {
@@ -225,7 +240,7 @@ export function InsightMeta({
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
+    const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -307,9 +322,6 @@ export function InsightMeta({
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
-    // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,
@@ -490,6 +502,7 @@ export function InsightMeta({
         <>
             <CardMeta
                 compact={showCompactTile}
+                headerStatus={headerStatus}
                 ribbonColor={ribbonColor}
                 showEditingControls={showEditingControls}
                 showDetailsControls={showDetailsControls}
@@ -987,140 +1000,5 @@ export function InsightMetaContent({
             {!compact && tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
             <LemonTableLoader loading={loading} />
         </>
-    )
-}
-
-function CompactInfoPopover({
-    onVisibilityChange,
-    popoverTopHeading,
-    metaTitle,
-    metaDescription,
-    metaDescriptionText,
-    onMetaSave,
-    metaDetails,
-}: {
-    onVisibilityChange?: (visible: boolean) => void
-    popoverTopHeading?: JSX.Element | null
-    metaTitle: string
-    metaDescription?: JSX.Element | null
-    metaDescriptionText: string
-    onMetaSave?: (updates: { name?: string; description?: string }) => void
-    metaDetails?: JSX.Element | null
-}): JSX.Element {
-    const [popoverVisible, setPopoverVisible] = useState(false)
-    useEffect(() => {
-        onVisibilityChange?.(popoverVisible)
-    }, [popoverVisible, onVisibilityChange])
-    useEffect(() => () => onVisibilityChange?.(false), [onVisibilityChange])
-    const [pinned, setPinned] = useState(false)
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
-
-    useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
-
-    const clearHoverTimer = (): void => clearTimeout(hoverTimerRef.current)
-
-    const showDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(true), 300)
-    }, [])
-
-    const hideDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
-    }, [])
-
-    const handleClickInfo = useCallback(
-        (e: React.MouseEvent) => {
-            e.preventDefault()
-            e.stopPropagation()
-            clearHoverTimer()
-            const newPinned = !pinned
-            setPinned(newPinned)
-            setPopoverVisible(newPinned)
-        },
-        [pinned]
-    )
-
-    const handleClickOutside = useCallback(() => {
-        clearHoverTimer()
-        setPinned(false)
-        setPopoverVisible(false)
-    }, [])
-
-    return (
-        <Popover
-            visible={popoverVisible}
-            placement="bottom"
-            showArrow
-            onClickOutside={handleClickOutside}
-            onMouseEnterInside={showDetails}
-            onMouseLeaveInside={pinned ? undefined : hideDetails}
-            overlay={
-                <div
-                    className="p-4 max-w-md space-y-3"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                    }}
-                >
-                    {popoverTopHeading && (
-                        <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
-                            {popoverTopHeading}
-                        </h5>
-                    )}
-                    {onMetaSave ? (
-                        <>
-                            <EditableField
-                                name="title"
-                                value={metaTitle || ''}
-                                onSave={(value) => onMetaSave({ name: value })}
-                                placeholder="Untitled"
-                                saveOnBlur
-                                clickToEdit
-                                compactButtons
-                                compactIcon
-                                className="font-semibold text-sm mt-1"
-                                data-attr="insight-card-title"
-                            />
-                            <EditableField
-                                name="description"
-                                value={metaDescriptionText || ''}
-                                onSave={(value) => onMetaSave({ description: value })}
-                                placeholder="Enter description (optional)"
-                                saveOnBlur
-                                clickToEdit
-                                multiline
-                                markdown
-                                compactButtons
-                                compactIcon
-                                className="text-xs w-full"
-                                data-attr="insight-card-description"
-                            />
-                        </>
-                    ) : (
-                        <>
-                            {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                            {metaDescription}
-                        </>
-                    )}
-                    {metaDetails}
-                </div>
-            }
-        >
-            <span
-                className="ml-1 flex-shrink-0"
-                onMouseEnter={showDetails}
-                onMouseLeave={pinned ? undefined : hideDetails}
-            >
-                <LemonButton
-                    icon={<IconInfo />}
-                    size="small"
-                    noPadding
-                    data-attr="card-meta-info"
-                    onClick={handleClickInfo}
-                />
-            </span>
-        </Popover>
     )
 }

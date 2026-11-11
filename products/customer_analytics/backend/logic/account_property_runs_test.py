@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.paging import PageRequest
+
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
@@ -92,13 +94,9 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert {str(run.workflow_run_id) for run in runs} == {"00000000-0000-4000-8000-000000000001"}
         assert {run.attempt for run in runs} == {0}
 
-        views, total_count = api.list_custom_property_sync_runs(
-            self.team.id,
-            str(self.source.id),
-            offset=0,
-            limit=10,
-        )
-        assert total_count == 2
+        runs_page = api.list_custom_property_sync_runs(self.team.id, str(self.source.id), page=PageRequest(limit=10))
+        views = runs_page.results
+        assert runs_page.count == 2
         assert {view.account_segment for view in views} == {"tracked", "ignored"}
         assert {view.sync_phase for view in views} == {"staging"}
         assert {view.job_id for view in views} == {"job-1"}
@@ -106,26 +104,24 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert {view.workflow_run_id for view in views} == {None}
         assert {view.temporal_url for view in views} == {None}
 
-        staff_views, _ = api.list_custom_property_sync_runs(
+        staff_views = api.list_custom_property_sync_runs(
             self.team.id,
             str(self.source.id),
-            offset=0,
-            limit=10,
+            page=PageRequest(limit=10),
             include_temporal_urls=True,
-        )
+        ).results
         assert {view.workflow_id for view in staff_views} == {"stage-workflow-job-1"}
         assert {str(view.workflow_run_id) for view in staff_views} == {"00000000-0000-4000-8000-000000000001"}
         assert all(view.temporal_url is not None for view in staff_views)
 
-        search_views, search_count = api.list_custom_property_sync_runs(
+        search_page = api.list_custom_property_sync_runs(
             self.team.id,
             str(self.source.id),
-            offset=0,
-            limit=20,
+            page=PageRequest(limit=20),
             search="ignored",
         )
-        assert search_count == 1
-        assert [view.account_segment for view in search_views] == ["ignored"]
+        assert search_page.count == 1
+        assert [view.account_segment for view in search_page.results] == ["ignored"]
 
     def test_phase_updates_record_retries_without_regressing_the_sibling(self) -> None:
         self._start_runs()
@@ -230,12 +226,9 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
             started_at=timezone.now() - timedelta(hours=7)
         )
 
-        views, _ = api.list_custom_property_sync_runs(
-            self.team.id,
-            str(self.source.id),
-            offset=0,
-            limit=10,
-        )
+        views = api.list_custom_property_sync_runs(
+            self.team.id, str(self.source.id), page=PageRequest(limit=10)
+        ).results
 
         assert {view.status for view in views} == {"running"}
 

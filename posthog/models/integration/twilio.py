@@ -4,21 +4,39 @@ from typing import TYPE_CHECKING
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationRecord
+
 from . import model
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.workflows.backend.facade.contracts import TwilioPhoneNumber
 
 
 class TwilioIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self._account_sid = self.integration.config["account_sid"]
         self._auth_token = self.integration.sensitive_config["auth_token"]
+
+    @classmethod
+    def integration_from_credentials(
+        cls, *, account_sid: str, auth_token: str, team_id: int, created_by: "User | None"
+    ) -> model.Integration:
+        """Check the typed-in credentials with Twilio, then create or update the team's row for the account."""
+        unsaved = model.Integration(
+            team_id=team_id,
+            created_by=created_by,
+            kind="twilio",
+            config={"account_sid": account_sid},
+            sensitive_config={"auth_token": auth_token},
+        )
+        return cls(unsaved).integration_from_keys()
 
     def list_twilio_phone_numbers(self) -> list["TwilioPhoneNumber"]:
         from products.workflows.backend.facade.api import (
@@ -53,11 +71,9 @@ class TwilioIntegration:
                 "sensitive_config": {
                     "auth_token": self.integration.sensitive_config["auth_token"],
                 },
-                "created_by": self.integration.created_by,
+                "created_by_id": self.integration.created_by_id,
+                "errors": "",
             },
         )
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration

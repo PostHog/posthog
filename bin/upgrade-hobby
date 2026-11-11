@@ -449,9 +449,9 @@ read -r -p "Do you want to restart the PostHog stack now ? (docker-compose up) [
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
 then
     echo "OK, Restarting the stack!"
-    sudo -E docker-compose up -d
+    sudo -E docker-compose up -d --remove-orphans
 else
-    echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d' when you are ready to start it."
+    echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d --remove-orphans' when you are ready to start it."
     exit
 fi
 

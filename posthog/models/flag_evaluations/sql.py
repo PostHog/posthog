@@ -23,8 +23,8 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 # person properties, lifecycle insights read the person's created_at, and a
 # persons join at query time does not fit in memory on the largest teams.
 # person_mode tells a call processed without a person profile from a person with
-# no properties, because both store '{}' in person_properties. The 90-day TTL is
-# what makes rows that wide affordable.
+# no properties, because both store '{}' in person_properties. The TTL is what
+# makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded ReplicatedReplacingMergeTree on DATA nodes.
@@ -40,8 +40,17 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
+# PostHog tells customers that this table keeps this many days. The frontend mirrors this value as
+# FLAG_EVALUATIONS_RETENTION_DAYS in flagEvaluationsTable.ts. Change both together.
+FLAG_EVALUATIONS_RETENTION_DAYS = 90
+
+# A row dated day D expires when day D + FLAG_EVALUATIONS_TTL_DAYS starts in UTC. A "Last 90 days" range starts at
+# midnight 90 days back in the team's timezone. That midnight falls on the UTC day 90 or 91 days back, depending on
+# the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
+# This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
+# migration, such as 0362_flag_evaluations_ttl_92_days.
 # The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
-FLAG_EVALUATIONS_TTL_DAYS = 90
+FLAG_EVALUATIONS_TTL_DAYS = 92
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
 # for deletion requests that name other events, so a producer writing a second event name here has
@@ -198,7 +207,7 @@ _FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS = _single_line(
 # person, session, or flags-service request). The minmax on inserted_at serves
 # incremental consumers that checkpoint on it: partitioning is on timestamp, so an
 # inserted_at range predicate prunes no partitions on its own and would otherwise
-# read all 90 days. A skip index only covers parts written after it exists, so
+# read every retained day. A skip index only covers parts written after it exists, so
 # retrofitting one means a full MATERIALIZE INDEX mutation — much cheaper to
 # declare up front.
 _FLAG_EVALUATIONS_INDEXES = """
@@ -238,14 +247,14 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
--- Monthly, matching the events family. Daily partitions would put ~90 of them
--- under a 90-day TTL, and enough parts across them to strain merges. The cost
+-- Monthly, matching the events family. Daily partitions would put one partition
+-- under the TTL for each retained day, and enough parts across them to strain merges. The cost
 -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
 -- row expires, so rows survive up to a month past the TTL.
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1
+SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
 """
 )
 

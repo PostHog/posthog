@@ -32,16 +32,16 @@ Confirm the survey's `lib` / the customer's platform before anything else, then 
 this table. Verified against the SDK source — re-verify if it's been months, the gaps
 get filled over time.
 
-| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                            |
-| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------------- |
-| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)           |
-| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter       |
-| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                                     |
-| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | stored but **comparison commented out** |
-| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)              |
-| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
-| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                                  |
+| Feature                          | Web (posthog-js)                | iOS                                       | Android                            | Flutter                            | React Native                      |
+| -------------------------------- | ------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- | --------------------------------- |
+| Rendering                        | DOM + shadow root               | Native SwiftUI (`SurveysWindow`)          | **No built-in UI** — delegate only | Dart widgets (`SurveyBottomSheet`) | RN components (`SurveyModal`)     |
+| Event-based triggers             | yes (since 1.137.0, 2024-06-05) | yes                                       | yes                                | yes (native side)                  | yes                               |
+| URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter |
+| Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                               |
+| `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | yes (≥ 4.81.5)                    |
+| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)        |
+| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
+| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
 
 The last two rows are per the editor's own help text ("Doesn't work with the mobile SDKs for
 now" / "Not available for the mobile SDKs at the moment") rather than a per-SDK source audit.
@@ -53,7 +53,7 @@ Consequences worth memorizing:
 - **URL targeting is effectively web-only.** Mobile SDKs decode the field but never enforce it; React Native filters those surveys out entirely. A mobile survey with a URL condition behaves as "no URL condition" (mobile/flutter) or "never shows" (RN).
 - **Android ships no survey UI.** The app (or the Flutter plugin) must provide a `PostHogSurveysDelegate`. "Survey never renders on Android" is often a missing delegate, not a PostHog bug.
 - **Flutter is hybrid:** triggering/eligibility runs in the native iOS/Android layer; rendering is Dart (`SurveyService.showSurvey` → `showModalBottomSheet`). It does _not_ "just call native" for UI. So a Flutter rendering bug lives in Dart; a Flutter eligibility bug lives in native.
-- **React Native wait period is silently disabled** (the check is commented out). Don't blame the wait period on RN.
+- **React Native enforces the wait period from 4.81.5.** Older versions skip the check, so on those versions don't blame the wait period.
 
 For a deeper version-by-version capability audit, see the `survey-sdk-audit` skill if available.
 

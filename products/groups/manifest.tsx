@@ -1,7 +1,11 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Groups',
+    activityDescribers: {
+        [ActivityScope.GROUP]: () =>
+            import('./frontend/activityDescriptions').then((module) => module.groupActivityDescriber),
+    },
     scenes: {
         Group: {
             name: 'People & groups',

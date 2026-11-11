@@ -78,7 +78,21 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
     'loadSnapshotsForSourceFailure',
     'loadSnapshotSourcesFailure',
     'snapshotSourceLoadExhausted',
+    'snapshotRateLimited',
 ]
+
+// The frame failure reports show an online browser and a frame that never started to load, and a retry
+// from this card almost always fixes it. So the message leads with the retry, and it mentions extensions
+// only after a retry from this card also failed.
+function playerFrameFailureMessage(restarts: number): string {
+    if (!navigator.onLine) {
+        return "Your browser is offline, so the player couldn't load. Reconnect to the internet and retry."
+    }
+    if (restarts === 0) {
+        return "The player didn't start in your browser. Retry usually fixes this."
+    }
+    return "The player still didn't start. A browser extension or security setting may be blocking it. Turn off extensions for PostHog, or try another browser."
+}
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const {
@@ -87,6 +101,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         logicProps,
         playerError,
         playerFrameDocumentFailed,
+        playerFrameLoadRestarts,
         isWaitingForIngestion,
         sessionPlayerMetaData,
         matchingEventSkipTarget,
@@ -149,14 +164,16 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 </div>
                 <div className="text-secondary text-sm text-center">
                     {playerFrameDocumentFailed
-                        ? "Your browser couldn't load the player. Check your internet connection and retry. If it keeps happening, a browser extension or security setting may be blocking it. Try turning off extensions for PostHog or using another browser."
+                        ? playerFrameFailureMessage(playerFrameLoadRestarts)
                         : isMissingFullSnapshot
                           ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
                           : isUnauthorized
                             ? 'Your session has expired. Sign in again to keep watching this recording.'
-                            : isRecoverable
-                              ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                              : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                            : playerError === 'snapshotRateLimited'
+                              ? "You've loaded a lot of recording data in a short time. Wait a few minutes, then retry."
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
                     <LemonButton data-attr="replay-overlay-sign-in" to={urls.login()} type="primary" fullWidth center>

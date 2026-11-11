@@ -19,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.user import User
@@ -32,8 +33,10 @@ from ..constants import (
     BK_DRILLDOWN_MAX_RADIUS,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
+from ..github_repos import connection_status
 from ..libraries import LibraryNotFound
 from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
@@ -48,6 +51,7 @@ from .serializers import (
     GapActionSerializer,
     GapTopicActionResultSerializer,
     GapTopicActionSerializer,
+    KnowledgeAvailabilitySerializer,
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
@@ -64,6 +68,14 @@ logger = structlog.get_logger(__name__)
 def _ensure_user_managed_source(source: KnowledgeSource) -> None:
     if source.is_generated:
         raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+
+
+def _can_read_parent_knowledge(view: TeamAndOrgViewSetMixin, request: Request) -> bool:
+    # Sources live on the parent project, so a child environment's own token scope and grant are not enough.
+    return not view.team.parent_team_id or (
+        CanonicalTeamTokenPermission().has_permission(request, view)
+        and canonical_user_access_control(view).check_access_level_for_resource("business_knowledge", "viewer")
+    )
 
 
 def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
@@ -83,6 +95,11 @@ def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
     except libraries.LibraryRejected as exc:
         raise exceptions.ValidationError(exc.errors) from None
     return parsed
+
+
+class SourceDocumentsPagination(BoundedLimitOffsetPagination):
+    # The frontend reads a source's whole document list in one request, and a crawl stops at this many URLs.
+    max_limit = MAX_URLS_PER_SOURCE
 
 
 class _ConflictError(exceptions.APIException):
@@ -454,12 +471,41 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
 
+    @extend_schema(
+        responses={200: KnowledgeAvailabilitySerializer},
+        summary="Check whether business knowledge has content",
+        description="Whether the project has any source and whether this environment has any selected GitHub repository.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="availability",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def availability(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but these flags describe the whole resource.
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
+        return Response(
+            KnowledgeAvailabilitySerializer(
+                {
+                    "has_sources": logic.has_sources(self.team_id),
+                    "has_repositories": bool(connection_status(self.team)["repos"]),
+                }
+            ).data
+        )
+
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(
         detail=True,
         methods=["get"],
         url_path="documents",
         required_scopes=["business_knowledge:read"],
+        pagination_class=SourceDocumentsPagination,
     )
     def documents(self, request: Request, pk: str, **kwargs) -> Response:
         try:
@@ -681,11 +727,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
-        # Search reads the parent project's rows, so a child environment's own token scope and grant are not enough.
-        if self.team.parent_team_id and not (
-            CanonicalTeamTokenPermission().has_permission(request, self)
-            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
-        ):
+        if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(
                 detail="You need access to business knowledge in this project to search it."
             )

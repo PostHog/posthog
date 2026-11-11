@@ -140,12 +140,16 @@ So every event in the tile that live will ever count is already counted, and `ma
 Without the fence, a tile could apply while an event it already counted is still waiting in the live topic.
 When that event arrived, live would add 1 on top of the tile and double count it.
 A shuffler stall longer than the margin can still cause that.
+This applies to both shufflers.
+When a run reads flag calls from `flag_evaluations`, a tile counts flag calls that reach the live path through `cohort-event-shuffler-realtime-only`.
+A stall of that shuffler alone opens the fence early in the same way.
 
 One residue remains.
 A late event that reaches ClickHouse after `S_chunk` is not in the tile.
 If live folds it before the tile applies, `max` takes the larger of two disjoint counts instead of their sum, so the day is under-counted.
 If live folds it after the tile applies, live adds it on top of the tile, which is correct.
 That is bounded to late arrivals on old days.
+The day before the boundary day is claimed first, so when `B` falls just after the team's midnight, its events still in ingestion reach ClickHouse after the scan.
 It can drop a person out of a `gte` or `gt` cohort, and wrongly keep one in an `lt`, `lte`, `eq` or negated one.
 
 ### Rule 4: person seeds are judged by time, with a margin
@@ -257,7 +261,7 @@ Every backfill gate is on, and the default timings apply: a 5-minute save deboun
    The seeder picks up R and sets `B` to 10:05:10.
    It plans one chunk per day from 2026-03-03 through 2026-03-09.
 4. **10:05:25, scan.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    The 2026-03-05 chunk is claimed at 10:05:25, so its `S_chunk` is 10:05:25.
    ClickHouse returns p-1's 4 pageviews, all of which arrived long ago.
    The seeder produces a tile: p-1, condition H, 2026-03-05, count 4.
@@ -302,4 +306,6 @@ A backlog, a failure or a slow catalog refresh makes it longer.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
-- Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.
+- Behavioral claims share a replica's slots between teams first, then between a team's runs, and only then take the newest day.
+  A claim never takes a slot back, so a run that arrives while a heavy run holds every slot waits at least until one of that run's chunks ends.
+  When more teams wait than slots free, the newest day decides between them, so the older days of a long-window run can still wait behind the newer days of other runs.

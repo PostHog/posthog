@@ -9,12 +9,14 @@ from django.utils import timezone
 
 from prometheus_client import Counter
 
+from posthog.constants import AvailableFeature
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import PERSONAL_API_KEY_PREFIX, EncryptionModeType, generate_random_token, hash_key_value
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
+    from posthog.models.user import User
 
 HashMode = tuple[EncryptionModeType, Optional[int]]
 
@@ -27,6 +29,8 @@ PERSONAL_API_KEY_MODES_TO_TRY: tuple[HashMode, ...] = (
 
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
+
+DEFAULT_MAX_PERSONAL_API_KEYS = 10
 
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     "personal_api_key_hash_mode_total",
@@ -69,6 +73,22 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     @property
     def is_expired(self) -> bool:
         return self.expires_at is not None and self.expires_at <= timezone.now()
+
+
+def max_personal_api_keys_for_user(user: "User") -> int:
+    """How many personal API keys the user may hold.
+
+    A key is not bound to one organization, so the highest `personal_api_keys` limit across the
+    user's organizations applies. Organizations without a numeric limit grant the default.
+    """
+    org_features = user.organization_memberships.values_list("organization__available_product_features", flat=True)
+    limits = [
+        feature.get("limit")
+        for features in org_features
+        for feature in features or []
+        if feature and feature.get("key") == AvailableFeature.PERSONAL_API_KEYS
+    ]
+    return max([DEFAULT_MAX_PERSONAL_API_KEYS, *(limit for limit in limits if isinstance(limit, int))])
 
 
 _LEGACY_PERSONAL_API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")

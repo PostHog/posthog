@@ -1,7 +1,7 @@
 """Contract types for warehouse_suggestions."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -10,6 +10,7 @@ from .enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
@@ -17,6 +18,21 @@ from .enums import (
 )
 
 PAYLOAD_VERSION = 1
+WAREHOUSE_SCOPE_OBJECT: Final = "warehouse_objects"
+SUBJECT_SCOPE_OBJECTS = {
+    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
+    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
+}
+
+
+@frozen
+class WarehouseSuggestionNote:
+    id: UUID
+    kind: WarehouseSuggestionKind
+    view_name: str
+    message: str
+    url: str
+    can_act: bool
 
 
 @frozen
@@ -41,11 +57,12 @@ class DeprecatePayload:
     subject_name: str
     refresh_seconds_per_month: float
     refresh_bytes_per_month: float
+    materialized: bool = True
 
 
 @frozen
-class MaterializePayload:
-    """The stored materialize payload, with the warehouse table id of each source."""
+class MaterializePayloadFields:
+    """The materialize fields the stored payload and the payload a caller sees share."""
 
     subject_name: str
     refresh_interval_seconds: int
@@ -53,13 +70,24 @@ class MaterializePayload:
     saves_bytes_per_month: float
     freshness_today_seconds: int | None
     freshness_after_seconds: int
-    live_sources: tuple[SourceRef, ...]
-    unknown_sources: tuple[SourceRef, ...]
     refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
     incremental_key: str | None = None
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
+    waiting_seconds_saved_per_month: float | None = None
+    background_seconds_saved_per_month: float | None = None
+    main_saving: WarehouseSuggestionMainSaving | None = None
+    read_seconds: float | None = None
+
+
+@frozen
+class MaterializePayload(MaterializePayloadFields):
+    """The stored materialize payload, with the warehouse table id of each source."""
+
+    live_sources: tuple[SourceRef, ...]
+    unknown_sources: tuple[SourceRef, ...]
 
 
 @frozen
@@ -83,22 +111,11 @@ class VisibleSources:
 
 
 @frozen
-class MaterializeSuggestionPayload:
+class MaterializeSuggestionPayload(MaterializePayloadFields):
     """The materialize payload a caller sees: the source names they can read, and a count of the others."""
 
-    subject_name: str
-    refresh_interval_seconds: int
-    saves_seconds_per_month: float
-    saves_bytes_per_month: float
-    freshness_today_seconds: int | None
-    freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
-    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
-    incremental_key: str | None = None
-    unique_key: tuple[str, ...] = ()
-    lookback_seconds: int = 0
-    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
@@ -153,6 +170,7 @@ class Suggestion:
     can_act: bool
     subject_source_id: UUID | None = None
     subject_schema_id: UUID | None = None
+    assignee: SuggestionReviewer | None = None
 
 
 @frozen
@@ -181,6 +199,7 @@ class AcceptOptions:
     unique_key: tuple[str, ...] | None = None
     lookback_seconds: int | None = None
     keep_materialized: bool | None = None
+    delete_view: bool | None = None
 
 
 @frozen
@@ -188,7 +207,13 @@ class UnmaterializationAsset:
     saved_query_id: str
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
+@frozen
+class DeletionAsset:
+    saved_query_id: str
+    stopped_materialization: bool
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset | DeletionAsset
 
 
 @frozen
@@ -199,12 +224,13 @@ class SuggestionStatus:
     window_days: int
     paused_reason: str | None
     refreshed_at: datetime | None
+    waiting: int
+    can_show_more: bool
 
 
 @frozen
-class SuggestionPage:
-    count: int
-    results: list[Suggestion]
+class SurfaceMoreResult:
+    surfaced: int
 
 
 class SuggestionNotFoundError(Exception):
@@ -250,6 +276,14 @@ class AcceptOptionRefusedError(Exception):
 
 
 class SuggestionOutdatedError(Exception):
+    pass
+
+
+class AssigneeCannotActError(Exception):
+    pass
+
+
+class SuggestionNotOpenError(Exception):
     pass
 
 

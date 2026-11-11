@@ -5,13 +5,15 @@ import { LemonTag } from '@posthog/lemon-ui'
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatChips } from './NodeStatChips'
+import { StepFeedbackChips, StepFeedbackChipsProps } from './StepFeedbackChips'
 
 export interface NodeDetailHeaderProps {
     node: TraceNodeApi
     actions?: ReactNode
+    stepFeedback?: StepFeedbackChipsProps | null
 }
 
-export function NodeDetailHeader({ node, actions }: NodeDetailHeaderProps): JSX.Element {
+export function NodeDetailHeader({ node, actions, stepFeedback = null }: NodeDetailHeaderProps): JSX.Element {
     return (
         <header className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2 min-w-0">
@@ -27,6 +29,7 @@ export function NodeDetailHeader({ node, actions }: NodeDetailHeaderProps): JSX.
                     </LemonTag>
                 ) : null}
                 {node.hasError ? <LemonTag type="danger">Error</LemonTag> : null}
+                {stepFeedback ? <StepFeedbackChips {...stepFeedback} /> : null}
             </div>
         </header>
     )

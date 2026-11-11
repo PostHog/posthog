@@ -1,11 +1,19 @@
+import json
+from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import connection
+from django.http import HttpResponse
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -14,7 +22,10 @@ from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -23,6 +34,7 @@ from products.batch_exports.backend.facade.contracts import (
     DestinationTestStep,
     DestinationTestStepResult,
 )
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedDestination
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
@@ -32,6 +44,11 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
+    CONNECT_TOKEN_TTL,
+    issue_connect_token,
+)
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     FAILURE_MESSAGES,
     CheckFailure,
@@ -42,9 +59,15 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     new_connection_test_table,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
+    DestinationConnectLinkQuerySerializer,
     ExternalDataDestinationViewSet,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+REDSHIFT_ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-redshift"
+REDSHIFT_CLUSTER_HOST = "my-cluster.abc123.us-east-1.redshift.amazonaws.com"
+REDSHIFT_WORKGROUP_HOST = "my-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com"
+REDSHIFT_WORKGROUP_ARN = "arn:aws:redshift-serverless:us-east-1:123456789012:workgroup/1a2b3c4d"
 
 
 def _destination_test(step_count: int) -> DestinationTest:
@@ -101,9 +124,30 @@ class DestinationAPITestBase(APIBaseTest):
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
 
     def _integration(self, kind: str = Integration.IntegrationKind.POSTGRESQL) -> Integration:
+        if kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            return self._redshift_integration("password")
         self._integration_seq = getattr(self, "_integration_seq", 0) + 1
         return Integration.objects.create(
             team=self.team, kind=kind, integration_id=f"{kind}-{self._integration_seq}", config={}
+        )
+
+    def _redshift_integration(self, mode: str, **config) -> Integration:
+        self._integration_seq = getattr(self, "_integration_seq", 0) + 1
+        sensitive_config: dict[str, str] = {}
+        if mode == "role":
+            config = {"aws_role_arn": REDSHIFT_ROLE_ARN, "user": "posthog", **config}
+        elif mode == "access_key":
+            config = {"name": "keys", "user": "posthog", **config}
+            sensitive_config = {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "fake-secret"}
+        else:
+            config = {"host": "my-cluster.example.com", "port": 5439, "user": "posthog", **config}
+            sensitive_config = {"password": "fake-secret"}
+        return Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AWS_REDSHIFT,
+            integration_id=f"redshift-{self._integration_seq}",
+            config=config,
+            sensitive_config=sensitive_config,
         )
 
     def _create_destination(self, **overrides) -> ExternalDataDestination:
@@ -376,6 +420,180 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         self.describe_test.assert_not_called()
         self.run_test_step.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("password_needs_no_host", "password", {}, {}, None),
+            ("role_with_cluster_host", "role", {}, {"host": REDSHIFT_CLUSTER_HOST}, None),
+            ("role_with_cluster_host_and_port", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 5440}, None),
+            ("access_key_with_cluster_host", "access_key", {}, {"host": REDSHIFT_CLUSTER_HOST}, None),
+            ("host_with_stray_space", "access_key", {}, {"host": f" {REDSHIFT_CLUSTER_HOST} "}, None),
+            (
+                "role_with_workgroup_host_and_arn",
+                "role",
+                {"workgroup_arn": REDSHIFT_WORKGROUP_ARN},
+                {"host": REDSHIFT_WORKGROUP_HOST},
+                None,
+            ),
+            ("access_key_with_workgroup_host", "access_key", {}, {"host": REDSHIFT_WORKGROUP_HOST}, None),
+            ("role_without_host", "role", {}, {}, "Add the cluster endpoint"),
+            ("access_key_without_host", "access_key", {}, {}, "Add the cluster endpoint"),
+            ("role_with_blank_host", "role", {}, {"host": "  "}, "Add the cluster endpoint"),
+            ("host_not_a_redshift_endpoint", "role", {}, {"host": "db.example.com"}, "not a recognized"),
+            ("role_with_workgroup_host_no_arn", "role", {}, {"host": REDSHIFT_WORKGROUP_HOST}, "workgroup_arn"),
+            (
+                "role_with_workgroup_arn_in_another_account",
+                "role",
+                {"workgroup_arn": REDSHIFT_WORKGROUP_ARN.replace("123456789012", "210987654321")},
+                {"host": REDSHIFT_WORKGROUP_HOST},
+                "does not match",
+            ),
+            ("port_zero", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 0}, "Port must be"),
+            ("port_too_large", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 70000}, "Port must be"),
+            ("port_as_text", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": "5439"}, "Port must be"),
+        ]
+    )
+    def test_a_redshift_destination_names_the_cluster_when_its_connection_has_none(
+        self, _name: str, mode: str, integration_config: dict, target: dict, error: str | None
+    ) -> None:
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.REDSHIFT,
+                "name": "analytics redshift",
+                "integration": self._redshift_integration(mode, **integration_config).pk,
+                "config": {"database": "dev", "schema": "public", **target},
+            },
+            format="json",
+        )
+
+        if error is None:
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            if "host" in target:
+                assert response.json()["config"]["host"] == target["host"].strip()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "config"
+            assert error in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("empty", {}, {}, "host, port, username or password"),
+            ("no_password", {"host": "my-cluster.example.com", "port": 5439, "user": "posthog"}, {}, "password"),
+            (
+                "blank_password",
+                {"host": "my-cluster.example.com", "port": 5439, "user": "posthog"},
+                {"password": ""},
+                "password",
+            ),
+            ("no_host", {"port": 5439, "user": "posthog"}, {"password": "fake-secret"}, "host"),
+            ("blank_host", {"host": "  ", "port": 5439, "user": "posthog"}, {"password": "fake-secret"}, "host"),
+            ("no_port", {"host": "my-cluster.example.com", "user": "posthog"}, {"password": "fake-secret"}, "port"),
+            (
+                "no_user",
+                {"host": "my-cluster.example.com", "port": 5439},
+                {"password": "fake-secret"},
+                "username",
+            ),
+        ]
+    )
+    def test_a_redshift_destination_rejects_an_incomplete_password_connection(
+        self, _name: str, config: dict, sensitive_config: dict, missing: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AWS_REDSHIFT,
+            integration_id=f"redshift-incomplete-{_name}",
+            config=config,
+            sensitive_config=sensitive_config,
+        )
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.REDSHIFT,
+                "name": "broken redshift",
+                "integration": integration.pk,
+                "config": {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "integration"
+        assert f"This Redshift connection has no {missing}." in response.json()["detail"]
+        assert "fake-secret" not in response.content.decode()
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="broken redshift").exists()
+
+    @parameterized.expand(
+        [
+            ("another_host", {"host": "other.abc123.us-east-1.redshift.amazonaws.com"}, "keeps the host"),
+            ("port_negative", {"port": -1}, "Port must be"),
+            ("port_too_large", {"port": 70000}, "Port must be"),
+            ("port_as_text", {"port": "5440"}, "Port must be"),
+            ("port_as_bool", {"port": True}, "Port must be"),
+            ("valid_port", {"port": 5440}, None),
+        ]
+    )
+    def test_a_redshift_destination_update_keeps_the_host_and_checks_the_port(
+        self, _name: str, patch: dict, error: str | None
+    ) -> None:
+        created = {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST, "port": 5439}
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            integration=self._redshift_integration("access_key").pk,
+            config=created,
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": patch}, format="json")
+
+        destination.refresh_from_db()
+        if error is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert destination.config == {**created, **patch}
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "config"
+            assert error in response.json()["detail"]
+            assert destination.config == created
+
+    @parameterized.expand(
+        [
+            ("list_on_create", "create", ["invalid"]),
+            ("text_on_create", "create", "invalid"),
+            ("number_on_create", "create", 5439),
+            ("list_on_update", "update", ["invalid"]),
+            ("text_on_update", "update", "invalid"),
+        ]
+    )
+    def test_a_destination_config_must_be_an_object(self, _name: str, action: str, config: object) -> None:
+        integration = self._redshift_integration("role")
+        if action == "create":
+            response = self.client.post(
+                self.base,
+                {
+                    "type": ExternalDataDestination.Type.REDSHIFT,
+                    "name": "malformed redshift",
+                    "integration": integration.pk,
+                    "config": config,
+                },
+                format="json",
+            )
+        else:
+            destination = self._create_destination(
+                type=ExternalDataDestination.Type.REDSHIFT,
+                name="malformed redshift",
+                integration=integration.pk,
+                config={"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            )
+            response = self.client.patch(f"{self.base}/{destination.id}", {"config": config}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "config"
+        assert "Config must be an object" in response.json()["detail"]
+        if action == "update":
+            destination.refresh_from_db()
+            assert destination.config == {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST}
 
     def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
         destination = self._create_destination()
@@ -1245,3 +1463,399 @@ class TestDestinationResumeAccessControl(DestinationAPITestBase):
         self.hidden_link.refresh_from_db()
         assert self.destination.status == ExternalDataDestination.Status.PAUSED
         assert self.hidden_link.enabled is False
+
+
+class TestDestinationConnectLinkQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("posthog_warehouse", {"destination_type": "PostHogWarehouse"}, "destination_type"),
+            ("unknown_type", {"destination_type": "Oracle"}, "destination_type"),
+            ("kind_of_another_type", {"destination_type": "S3", "integration_kind": "snowflake"}, "integration_kind"),
+            (
+                "second_kind_on_single_kind_type",
+                {"destination_type": "Snowflake", "integration_kind": "aws-s3"},
+                "integration_kind",
+            ),
+        ]
+    )
+    def test_rejects(self, _name: str, query: dict[str, str], field: str) -> None:
+        serializer = DestinationConnectLinkQuerySerializer(data=query)
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+
+class TestDestinationConnectLink(DestinationAPITestBase):
+    @parameterized.expand(
+        [
+            ("single_kind", "destination_type=Snowflake", "Snowflake", "snowflake", True),
+            ("s3_defaults_to_aws", "destination_type=S3", "S3", "aws-s3", True),
+            ("s3_compatible", "destination_type=S3&integration_kind=s3-compatible", "S3", "s3-compatible", True),
+            ("untested_type", "destination_type=Redshift", "Redshift", "aws-redshift", False),
+        ]
+    )
+    def test_points_at_the_connect_page_for_the_integration_kind(
+        self, _name: str, query: str, destination_type: str, kind: str, tested_on_create: bool
+    ) -> None:
+        response = self.client.get(f"{self.base}/connect_link?{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["destination_type"] == destination_type
+        assert data["integration_kind"] == kind
+        url = urlparse(data["connect_url"])
+        assert url.path == f"/project/{self.team.pk}/data-warehouse/connect-destination"
+        assert parse_qs(url.query) == {"kind": [kind], "token": [data["connect_token"]]}
+        assert len(data["connect_token"]) >= 40
+        assert "external-data-destinations-connect-link-status" in data["instructions"]
+        assert f"type='{destination_type}'" in data["instructions"]
+        assert ("tests the connection" in data["instructions"]) == tested_on_create
+
+    def _planned_item(self, team: Team, destination_type: str = "Postgres") -> WarehouseMigrationItem:
+        return WarehouseMigrationItem.objects.for_team(team.pk).create(
+            team_id=team.pk,
+            migration=WarehouseMigration.objects.for_team(team.pk).create(team_id=team.pk, provider="fivetran"),
+            vendor_connection_id="conn_shop",
+            vendor_service="postgres",
+            name="shop",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.POSTGRES,
+                prefix="shop",
+                prefill={},
+                schemas=None,
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=ProposedDestination(
+                    type=destination_type,
+                    config={"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
+                ),
+            ).to_json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("planned_type", "own", "Postgres", status.HTTP_200_OK),
+            ("other_team", "other", "Postgres", status.HTTP_400_BAD_REQUEST),
+            ("type_mismatch", "own", "Snowflake", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_carries_a_migration_item_for_prefill(
+        self, _name: str, owner: str, destination_type: str, expected_status: int
+    ) -> None:
+        team = self.team if owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team)
+
+        response = self.client.get(
+            f"{self.base}/connect_link",
+            {"destination_type": destination_type, "migration_item_id": str(item.id)},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            data = response.json()
+            assert data["connect_url"].endswith(f"&migration_id={item.migration_id}&migration_item_id={item.id}")
+            assert data["suggested_config"] == {"database": "analytics", "schema": "posthog_shop"}
+            assert "suggested_config" in data["instructions"]
+            assert "analytics" not in data["instructions"]
+
+    @parameterized.expand(
+        [
+            ("matching_settings", "own", "Postgres", "db.example.com", 5432, status.HTTP_201_CREATED, None),
+            ("port_as_text", "own", "Postgres", "db.example.com", "5432", status.HTTP_201_CREATED, None),
+            (
+                "changed_host",
+                "own",
+                "Postgres",
+                "elsewhere.example.net",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "integration",
+            ),
+            (
+                "other_team_item",
+                "other",
+                "Postgres",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
+            ),
+            (
+                "other_type_item",
+                "own",
+                "Snowflake",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
+            ),
+        ]
+    )
+    def test_create_rejects_an_integration_that_changes_the_migration_prefill(
+        self,
+        _name: str,
+        item_owner: str,
+        planned_type: str,
+        host: str,
+        port: int | str,
+        expected_status: int,
+        error_attr: str | None,
+    ) -> None:
+        team = self.team if item_owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team, planned_type)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id="pg-shop",
+            config={"host": host, "port": port, "user": "loader"},
+        )
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": "Postgres",
+                "name": "shop",
+                "integration": integration.pk,
+                "config": {"database": "analytics", "schema": "posthog_shop"},
+                "migration_item_id": str(item.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            self.check_connection.assert_called_once()
+        else:
+            assert response.json()["attr"] == error_attr
+            self.check_connection.assert_not_called()
+
+    @time_machine.travel("2026-03-01T12:00:00Z", tick=False)
+    def test_each_link_gets_its_own_token_that_expires_after_the_ttl(self) -> None:
+        first = self.client.get(f"{self.base}/connect_link?destination_type=Snowflake").json()
+        second = self.client.get(f"{self.base}/connect_link?destination_type=Snowflake").json()
+
+        assert first["connect_token"] != second["connect_token"]
+        assert datetime.fromisoformat(first["expires_at"]) == datetime.fromisoformat("2026-03-01T12:00:00+00:00") + (
+            CONNECT_TOKEN_TTL
+        )
+
+
+class TestDestinationConnectToken(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.SNOWFLAKE,
+            integration_id="acme-account",
+            config={"account": "acme", "user": "loader", "warehouse": "wh-config-only"},
+            sensitive_config={"password": "hunter2-secret"},
+        )
+
+    def _link(self, destination_type: str = "Snowflake", **params: str) -> str:
+        query = "&".join(f"{key}={value}" for key, value in {"destination_type": destination_type, **params}.items())
+        response = self.client.get(f"{self.base}/connect_link?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["connect_token"]
+
+    def _complete(self, token: str, integration_id: int) -> HttpResponse:
+        return self.client.post(
+            f"{self.base}/connect_link_complete",
+            {"connect_token": token, "integration_id": integration_id},
+            format="json",
+        )
+
+    def _status(self, token: str) -> dict:
+        response = self.client.get(f"{self.base}/connect_link_status", {"connect_token": token})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def test_status_is_pending_until_the_page_reports_the_integration(self) -> None:
+        token = self._link()
+
+        assert self._status(token) == {
+            "status": "pending",
+            "integration_id": None,
+            "integration_kind": "snowflake",
+            "display_name": None,
+        }
+
+        completed = self._complete(token, self.integration.pk)
+
+        assert completed.status_code == status.HTTP_200_OK, completed.content
+        expected = {
+            "status": "connected",
+            "integration_id": self.integration.pk,
+            "integration_kind": "snowflake",
+            "display_name": self.integration.display_name,
+        }
+        assert json.loads(completed.content) == expected
+        assert self._status(token) == expected
+
+    def test_status_never_contains_integration_config_or_secrets(self) -> None:
+        token = self._link()
+        self._complete(token, self.integration.pk)
+
+        body = self.client.get(f"{self.base}/connect_link_status", {"connect_token": token}).content.decode()
+
+        for secret_or_config in ("hunter2-secret", "loader", "wh-config-only", "config"):
+            assert secret_or_config not in body
+
+    def test_s3_compatible_link_accepts_only_an_s3_compatible_integration(self) -> None:
+        token = self._link("S3", integration_kind="s3-compatible")
+        aws = self._integration(Integration.IntegrationKind.AWS_S3)
+        compatible = self._integration(Integration.IntegrationKind.S3_COMPATIBLE)
+
+        assert self._complete(token, aws.pk).status_code == status.HTTP_400_BAD_REQUEST
+        assert self._complete(token, compatible.pk).status_code == status.HTTP_200_OK
+        assert self._status(token)["integration_id"] == compatible.pk
+
+    @parameterized.expand(
+        [
+            ("wrong_kind", status.HTTP_400_BAD_REQUEST),
+            ("other_team_integration", status.HTTP_400_BAD_REQUEST),
+            ("unknown_integration", status.HTTP_400_BAD_REQUEST),
+            ("unknown_token", status.HTTP_404_NOT_FOUND),
+            ("other_team_token", status.HTTP_404_NOT_FOUND),
+            ("other_user_token", status.HTTP_403_FORBIDDEN),
+            ("expired_token", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_complete_rejects(self, case: str, expected_status: int) -> None:
+        token = self._link()
+        integration_id = self.integration.pk
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", "testtest")
+        if case == "wrong_kind":
+            integration_id = self._integration(Integration.IntegrationKind.POSTGRESQL).pk
+        elif case == "other_team_integration":
+            integration_id = Integration.objects.create(
+                team=other_team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="theirs", config={}
+            ).pk
+        elif case == "unknown_integration":
+            integration_id = 987654
+        elif case == "unknown_token":
+            token = "not-a-real-token"
+        elif case == "other_team_token":
+            token = issue_connect_token(team_id=other_team.pk, user_id=self.user.pk, integration_kind="snowflake").token
+        elif case == "other_user_token":
+            token = issue_connect_token(team_id=self.team.pk, user_id=other_user.pk, integration_kind="snowflake").token
+
+        if case == "expired_token":
+            with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL + timedelta(seconds=1), tick=False):
+                response = self._complete(token, integration_id)
+        else:
+            response = self._complete(token, integration_id)
+
+        assert response.status_code == expected_status, response.content
+        if case in ("other_team_token", "other_user_token"):
+            return
+        assert self._status(token)["status"] in ("pending", "expired")
+        assert self._status(token)["integration_id"] is None
+
+    def test_complete_is_idempotent_and_does_not_switch_integrations(self) -> None:
+        token = self._link()
+        other = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="other-account", config={}
+        )
+
+        first = self._complete(token, self.integration.pk)
+        repeat = self._complete(token, self.integration.pk)
+        switch = self._complete(token, other.pk)
+
+        assert first.status_code == repeat.status_code == status.HTTP_200_OK
+        assert json.loads(repeat.content) == json.loads(first.content)
+        assert switch.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._status(token)["integration_id"] == self.integration.pk
+
+    def test_concurrent_completions_with_different_integrations_keep_the_first(self) -> None:
+        token = self._link()
+        other = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="other-account", config={}
+        )
+        record_key = f"wh_dest_connect:{self.team.pk}:{token}"
+        pending = cache.get(record_key)
+
+        first = self._complete(token, other.pk)
+        # The second tab read the token before the first save landed, so it still sees it pending.
+        cache.set(record_key, pending)
+        second = self._complete(token, self.integration.pk)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
+        assert self._status(token)["integration_id"] is None
+
+    @parameterized.expand([("unknown",), ("other_user",), ("other_team",), ("evicted",)])
+    def test_status_of_a_token_the_user_cannot_read_is_expired(self, case: str) -> None:
+        token = self._link()
+        if case == "unknown":
+            token = "not-a-real-token"
+        elif case == "other_user":
+            other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", "testtest")
+            token = issue_connect_token(team_id=self.team.pk, user_id=other_user.pk, integration_kind="snowflake").token
+        elif case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            token = issue_connect_token(team_id=other_team.pk, user_id=self.user.pk, integration_kind="snowflake").token
+        else:
+            cache.clear()
+
+        assert self._status(token) == {
+            "status": "expired",
+            "integration_id": None,
+            "integration_kind": None,
+            "display_name": None,
+        }
+
+    def test_status_expires_while_pending_but_a_connection_outlives_the_link(self) -> None:
+        pending_token = self._link()
+        connected_token = self._link()
+        with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL - timedelta(minutes=1), tick=False):
+            assert self._complete(connected_token, self.integration.pk).status_code == status.HTTP_200_OK
+
+        with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL + timedelta(minutes=1), tick=False):
+            assert self._status(pending_token)["status"] == "expired"
+            assert self._status(connected_token)["status"] == "connected"
+
+    def test_status_needs_a_token(self) -> None:
+        response = self.client.get(f"{self.base}/connect_link_status")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestDestinationAPIKeyScopes(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = self._create_destination(
+            type=ExternalDataDestination.Type.BIGQUERY,
+            integration=self._integration(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT).pk,
+            config={"dataset": "analytics"},
+        )
+        self.client.force_authenticate(None)
+
+    @parameterized.expand(
+        [
+            ("external_data_source:read", "GET", "connect_link?destination_type=Postgres", status.HTTP_200_OK),
+            ("external_data_source:read", "GET", "connect_link_status?connect_token=unknown", status.HTTP_200_OK),
+            ("external_data_source:read", "POST", "connect_link_complete", status.HTTP_403_FORBIDDEN),
+            # The write scope passes, then the body (which has no token) fails validation.
+            ("external_data_source:write", "POST", "connect_link_complete", status.HTTP_400_BAD_REQUEST),
+            ("external_data_source:read", "POST", "{destination}/add_sources", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "POST", "{destination}/add_sources", status.HTTP_200_OK),
+            ("external_data_source:read", "POST", "{destination}/test_connection", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "POST", "{destination}/test_connection", status.HTTP_200_OK),
+        ]
+    )
+    def test_custom_actions_map_to_scopes(self, scope: str, method: str, path: str, expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(value), scopes=[scope])
+
+        response = self.client.generic(
+            method,
+            f"{self.base}/{path.format(destination=self.destination.id)}",
+            json.dumps({"source_ids": [str(self.source.id)]}),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+        assert response.status_code == expected_status, response.json()

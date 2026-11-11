@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { RefObject, useEffect } from 'react'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { PANEL_NAVBAR_COLLAPSE_THRESHOLD, PANEL_NAVBAR_DEFAULT_WIDTH, panelLayoutLogic } from '../panelLayoutLogic'
