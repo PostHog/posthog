@@ -709,7 +709,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result = await temporalio.workflow.execute_activity(
                     execute_tagger_activity,
                     ExecuteTaggerInputs(tagger=tagger, event_data=inputs.event_data),
-                    schedule_to_close_timeout=timedelta(minutes=6),
+                    # The waits for a live reference that is not in ai_events yet come on top of
+                    # the time the tagger call needs, so they do not cut into the provider timeout.
+                    schedule_to_close_timeout=timedelta(minutes=6) + GENERATION_NOT_FOUND_RETRY_WINDOW,
                     retry_policy=LLM_TAGGER_RETRY_POLICY,
                 )
             except temporalio.exceptions.ActivityError as e:
