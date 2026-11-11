@@ -74,7 +74,12 @@ from products.experiments.backend.metric_resolution import (
     saved_metric_links,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    exposure_flag_key,
+    get_experiment_rule,
+    metric_display_rank,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.stats.frequentist.method import DEFAULT_SEQUENTIAL_TUNING_PARAMETER
 from products.feature_flags.backend.facade.config import ConfigFormatError
@@ -395,7 +400,7 @@ class ExperimentCalculationSettings:
         return cls(
             team_id=team.id,
             start_date=start_date,
-            feature_flag_key=feature_flag.key_without_tombstone(),
+            feature_flag_key=exposure_flag_key(feature_flag, rule),
             aggregation_group_type_index=aggregation_group_type_index,
             variants=variants,
             baseline=get_baseline_variant_key(stats_config, list(variants)),

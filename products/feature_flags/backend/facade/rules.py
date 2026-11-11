@@ -45,6 +45,8 @@ class ExperimentRuleConfig:
     holdout: HoldoutRef | None
     # The config version 2 rule this was read from. None for a v1 flag, whose document is the one implicit rule.
     rule_id: str | None = None
+    # The flag's key when the rule was read, which a snapshot keeps after a rename. None for a v1 flag.
+    flag_key: str | None = None
 
 
 class ExperimentRuleError(ValueError):
@@ -141,6 +143,9 @@ def experiment_rule_from_snapshot(snapshot: object) -> ExperimentRuleConfig:
     rule_id = rule.get("id")
     if not isinstance(rule_id, str) or not rule_id or rule.get("rule_type") != EXPERIMENT_RULE_TYPE:
         raise ExperimentRuleError("The experiment rule snapshot does not hold an experiment rule")
+    flag_key = flag.get("key")
+    if not isinstance(flag_key, str) or not flag_key:
+        raise ExperimentRuleError(f"The snapshot of the experiment rule {rule_id} has no flag key")
     variants = rule.get("variants")
     if not isinstance(variants, list) or len(variants) < 2:
         raise ExperimentRuleError(f"The experiment rule {rule_id} has fewer than two variants")
@@ -156,6 +161,7 @@ def experiment_rule_from_snapshot(snapshot: object) -> ExperimentRuleConfig:
         assign_variant_by=aggregation,
         holdout=_rule_local_holdout(rule.get("holdout"), rule_id),
         rule_id=rule_id,
+        flag_key=flag_key,
     )
 
 

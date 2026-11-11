@@ -1176,6 +1176,7 @@ class TestExperimentRuleSnapshot:
             assign_variant_by=1,
             holdout=HoldoutRef(id=None, exclusion_percentage=5),
             rule_id=EXPERIMENT_RULE_ID,
+            flag_key="checkout",
         )
 
     def test_rule_ids_lists_the_experiment_rules_only(self) -> None:
@@ -1225,6 +1226,7 @@ class TestExperimentRuleSnapshot:
                 "aggregation_that_is_no_index",
                 {**_snapshot(), "flag": {**_snapshot()["flag"], "aggregation_group_type_index": "1"}},
             ),
+            ("no_flag_key", {**_snapshot(), "flag": {**_snapshot()["flag"], "key": None}}),
         ]
     )
     def test_reader_refuses_a_snapshot_that_is_not_one(self, _name: str, snapshot: object) -> None:

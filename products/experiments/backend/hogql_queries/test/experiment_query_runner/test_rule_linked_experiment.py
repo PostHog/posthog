@@ -228,6 +228,26 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
 
         assert self._samples_and_sums(result) == {"control": (1, 0), "test": (1, 20)}
 
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_a_flag_renamed_after_the_launch_keeps_its_exposures(self):
+        experiment = self._create_rule_linked_experiment()
+        query = self._mean_query(experiment)
+        self._expose("control_0", "control")
+        self._expose("test_0", "test")
+        self._purchase("test_0", amount=20)
+        flush_persons_and_events()
+        self.flag.key = "renamed-flag"
+        self.flag.save()
+
+        result = cast(ExperimentQueryResponse, ExperimentQueryRunner(query=query, team=self.team).calculate())
+        exposures = cast(
+            ExperimentExposureQueryResponse,
+            ExperimentExposuresQueryRunner(query=self._exposure_query(experiment), team=self.team).calculate(),
+        )
+
+        assert self._samples_and_sums(result) == {"control": (1, 0), "test": (1, 20)}
+        assert exposures.total_exposures == {"control": 1, "test": 1}
+
     @time_machine.travel("2020-01-07T12:00:00Z", tick=False)
     def test_never_reads_precomputed_exposures(self):
         # Old enough for the minimum runtime, on a team with precomputation on: every other gate is open.

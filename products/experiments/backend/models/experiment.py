@@ -499,6 +499,18 @@ def experiment_variants(experiment: Experiment) -> list[dict]:
     return get_experiment_rule(experiment).variants
 
 
+def exposure_flag_key(feature_flag: Any, rule: ExperimentRuleConfig | None) -> str:
+    """The flag key that an experiment's exposure events carry.
+
+    A legacy experiment (`rule` is None) reads the flag's current key, as before. A rule-linked
+    experiment reads the key its rule holds, which from the launch on is the key in the snapshot:
+    a flag renamed later keeps the results it had. Exposures sent under a later key do not count.
+    """
+    if rule is not None and rule.flag_key is not None:
+        return rule.flag_key
+    return feature_flag.key_without_tombstone()
+
+
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
 

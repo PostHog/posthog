@@ -1885,10 +1885,15 @@ class ExperimentService:
         if criteria_error is not None:
             raise ValidationError(criteria_error)
 
-    @staticmethod
-    def _locked_rule_snapshot(experiment: Experiment) -> dict[str, Any]:
+    @classmethod
+    def _locked_rule_snapshot(cls, experiment: Experiment, *, validated_variant_keys: list[str]) -> dict[str, Any]:
         """The snapshot that a launch stores, read from the flag row under a lock. A flag write takes
-        the same lock, so the snapshot is the rule as it is when the experiment starts."""
+        the same lock, so the snapshot is the rule as it is when the experiment starts.
+
+        The launch validated the baseline and the excluded variants against `validated_variant_keys`
+        before it took the lock. A rule that holds other variants by now fails the launch, so that the
+        stored snapshot is the rule those checks passed on.
+        """
         feature_flag = (
             FeatureFlag.objects.select_for_update()
             .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
@@ -1897,9 +1902,16 @@ class ExperimentService:
         if feature_flag is None:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
         try:
-            return build_rule_snapshot(feature_flag, experiment.feature_flag_rule_id)
+            snapshot = build_rule_snapshot(feature_flag, experiment.feature_flag_rule_id)
+            locked_variant_keys = cls._variant_keys(experiment_rule_from_snapshot(snapshot).variants)
         except (ExperimentRuleError, ConfigFormatError) as error:
             raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
+        if locked_variant_keys != validated_variant_keys:
+            raise ValidationError(
+                "The variants of this experiment's feature flag rule changed during the launch. "
+                "Launch the experiment again."
+            )
+        return snapshot
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -2126,8 +2138,13 @@ class ExperimentService:
             )
             experiment.refresh_from_db(fields=["metrics", "metrics_secondary"])
             if experiment.is_rule_linked:
+                # A launch that lost a race to another one must not replace the snapshot the first stored.
+                if Experiment.objects.filter(pk=experiment.pk, start_date__isnull=False).exists():
+                    raise ValidationError("Experiment has already been launched.")
                 # Before the start date, so that the fingerprints below read the snapshot too.
-                experiment.feature_flag_rule_snapshot = self._locked_rule_snapshot(experiment)
+                experiment.feature_flag_rule_snapshot = self._locked_rule_snapshot(
+                    experiment, validated_variant_keys=flag_variant_keys
+                )
                 update_fields.append("feature_flag_rule_snapshot")
             experiment.start_date = timezone.now()
 

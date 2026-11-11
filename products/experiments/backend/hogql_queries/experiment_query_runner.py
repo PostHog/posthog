@@ -84,7 +84,7 @@ from products.experiments.backend.metric_resolution import (
     metric_uses_warehouse_native_source,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
@@ -159,8 +159,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # covers the full [start, end_date] window, or [start, now] while the experiment runs.
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
-        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         rule = rule_for_query(self.experiment)
+        self.feature_flag_key = exposure_flag_key(self.feature_flag, rule)
         self.feature_flag_rule_id = rule.rule_id if rule is not None else None
         self.group_type_index = (
             rule.assign_variant_by if rule is not None else self.feature_flag.aggregation_group_type_index

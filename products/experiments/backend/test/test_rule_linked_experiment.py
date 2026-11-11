@@ -8,9 +8,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -79,11 +81,12 @@ class RuleLinkedExperimentTestCase(APILicensedTest):
         return Experiment.objects.get(pk=response.json()["id"])
 
     def _launched(self, flag: FeatureFlag | None = None, **body: Any) -> Experiment:
-        experiment = self._draft(flag, **body)
+        return self._launched_experiment(self._draft(flag, **body))
+
+    def _launched_experiment(self, experiment: Experiment) -> Experiment:
         response = self.client.post(f"{self.url}{experiment.id}/launch/")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        experiment.refresh_from_db()
-        return experiment
+        return Experiment.objects.get(pk=experiment.pk)
 
 
 class TestRuleLinkedCreate(RuleLinkedExperimentTestCase):
@@ -304,6 +307,54 @@ class TestRuleLinkedLaunch(RuleLinkedExperimentTestCase):
         experiment.refresh_from_db()
         assert experiment.start_date is None
         assert experiment.feature_flag_rule_snapshot is None
+
+    def test_a_launch_that_lost_a_race_keeps_the_first_snapshot(self) -> None:
+        flag = self._flag()
+        experiment = self._draft(flag)
+        read_as_a_draft = Experiment.objects.get(pk=experiment.pk)
+        launched = self._launched_experiment(experiment)
+        flag.filters = _v2_filters(_experiment_rule(RULE_A, weights=(20, 80)))
+        flag.save()
+
+        with pytest.raises(ValidationError, match="already been launched"):
+            ExperimentService(team=self.team, user=self.user).launch_experiment(read_as_a_draft)
+
+        experiment.refresh_from_db()
+        assert experiment.start_date == launched.start_date
+        snapshot = experiment.feature_flag_rule_snapshot
+        assert snapshot is not None and snapshot == launched.feature_flag_rule_snapshot
+        assert [variant["weight"] for variant in snapshot["rule"]["variants"]] == [50, 50]
+
+    def test_launch_refuses_variants_that_changed_after_its_checks(self) -> None:
+        flag = self._flag()
+        experiment = self._draft(flag)
+        # The launch checks the baseline against the flag it loaded, and snapshots the flag row it locks.
+        with_the_flag_loaded = Experiment.objects.select_related("feature_flag").get(pk=experiment.pk)
+        renamed_variant = _experiment_rule(RULE_A)
+        renamed_variant["variants"][0]["key"] = "baseline"
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=_v2_filters(renamed_variant))
+
+        with pytest.raises(ValidationError, match="changed during the launch"):
+            ExperimentService(team=self.team, user=self.user).launch_experiment(with_the_flag_loaded)
+
+        experiment.refresh_from_db()
+        assert experiment.start_date is None
+        assert experiment.feature_flag_rule_snapshot is None
+
+    def test_a_started_experiment_keeps_the_flag_key_of_its_launch(self) -> None:
+        flag = self._flag()
+        started = self._launched(flag)
+        draft = self._draft(self._flag("another-flag", _experiment_rule(RULE_B)))
+        flag.key = "renamed-flag"
+        flag.save()
+        FeatureFlag.objects.filter(pk=draft.feature_flag_id).update(key="another-renamed-flag")
+
+        started, draft = (Experiment.objects.get(pk=experiment.pk) for experiment in (started, draft))
+
+        assert get_experiment_rule(started).flag_key == "flag-with-rules"
+        assert ExperimentCalculationSettings.from_experiment(started).feature_flag_key == "flag-with-rules"
+        # A draft has no results yet, so it follows the flag.
+        assert ExperimentCalculationSettings.from_experiment(draft).feature_flag_key == "another-renamed-flag"
 
     def test_a_started_experiment_reads_its_snapshot_after_the_rule_is_removed(self) -> None:
         flag = self._flag("flag-with-rules", _experiment_rule(RULE_A, weights=(30, 70)))

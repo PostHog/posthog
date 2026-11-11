@@ -314,6 +314,8 @@ def list_running_experiments(
         start_date__lte=started_before,
         end_date__isnull=True,
         archived=False,
+        # The caller counts flag calls, and a rule-linked experiment enrolls on $experiment_exposure.
+        feature_flag_rule_id__isnull=True,
     ).exclude(deleted=True)
     if started_after is not None:
         experiments = experiments.filter(start_date__gt=started_after)

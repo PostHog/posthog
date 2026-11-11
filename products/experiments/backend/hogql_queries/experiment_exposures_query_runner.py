@@ -99,7 +99,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     rule_exposure_criteria_error,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.edits import parse_variants
 
@@ -162,8 +162,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
-        self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
         self._rule = rule_for_query(self.experiment)
+        self.feature_flag_key: str = exposure_flag_key(self.experiment.feature_flag, self._rule)
         # Read from the DB flag, not the query dict, because callers pass different feature_flag
         # shapes (full flag object or bare filters). A missed group index would bypass the
         # group-aggregation precompute gate below.
