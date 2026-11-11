@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
-import { urls } from 'scenes/urls'
 
 import {
     aiObservabilityTracesEvaluationsRetrieve,
@@ -20,8 +19,8 @@ import type {
     TraceNodeRawApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
-import { TraceSummaryBarProps } from './components/TraceSummaryBar'
 import { encodeTraceIdSegment } from './traceIdSegment'
+import { traceViewTracking } from './traceViewTracking'
 import type { LoadFailure, NodeLoad, NodeLoadTrigger, RawLoad } from './types'
 
 export interface TraceViewLogicProps {
@@ -35,28 +34,23 @@ export type TraceViewStatus = 'loading' | 'error' | 'ready'
 export interface traceViewLogicValues {
     createdAt: string | null
     defaultNodeId: string
-    errorMessage: string
     evaluationResults: TraceEvaluationResultsApi | null
     evaluationResultsFailed: boolean
     evaluationResultsLoading: boolean
     loadFailure: LoadFailure | null
-    nodeIdsByAlias: Record<string, string>
-    nodes: Record<string, NodeLoad>
-    nodesMissedWithoutHint: Record<string, NodeLoadTrigger>
-    personLabel: string | null
-    rawNodes: Record<string, RawLoad>
+    nodeIdsByAlias: ReadonlyMap<string, string>
+    nodes: ReadonlyMap<string, NodeLoad>
+    nodesMissedWithoutHint: ReadonlyMap<string, NodeLoadTrigger>
+    rawNodes: ReadonlyMap<string, RawLoad>
     sessionId: string | null
     status: TraceViewStatus
-    summary: TraceSummaryBarProps | null
     threadNodeIds: string[]
     timeline: {
         rows: TraceTimelineRowApi[]
         totalMs: number
     }
     trace: TraceApi | null
-    traceHasError: boolean
     traceLoading: boolean
-    traceName: string
     tree: TraceNodeApi[]
 }
 
@@ -154,21 +148,16 @@ export interface traceViewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         status: (trace: TraceApi | null, loadFailure: LoadFailure | null) => TraceViewStatus
-        errorMessage: (loadFailure: LoadFailure | null) => string
         tree: (trace: TraceApi | null) => TraceNodeApi[]
         timeline: (trace: TraceApi | null) => {
             rows: TraceTimelineRowApi[]
             totalMs: number
         }
-        traceName: (trace: TraceApi | null) => string
-        traceHasError: (trace: TraceApi | null) => boolean
-        personLabel: (trace: TraceApi | null) => string | null
-        summary: (trace: TraceApi | null) => TraceSummaryBarProps | null
         threadNodeIds: (trace: TraceApi | null) => string[]
         createdAt: (trace: TraceApi | null) => string | null
         sessionId: (trace: TraceApi | null) => string | null
         defaultNodeId: (trace: TraceApi | null, traceId: string) => string
-        nodeIdsByAlias: (trace: TraceApi | null) => Record<string, string>
+        nodeIdsByAlias: (trace: TraceApi | null) => ReadonlyMap<string, string>
     }
 }
 
@@ -193,6 +182,31 @@ async function readOrFailure<T>(request: Promise<T>): Promise<{ value: T } | { f
         }
         return { failure }
     }
+}
+
+// Node ids come from SDKs and URLs, so they can be any string. A plain object keyed by them returns an inherited
+// member for an id such as `constructor`, so node state is kept in maps.
+function noEntries<V>(): ReadonlyMap<string, V> {
+    return new Map()
+}
+
+function withEntry<V>(entries: ReadonlyMap<string, V>, nodeId: string, value: V): ReadonlyMap<string, V> {
+    return new Map(entries).set(nodeId, value)
+}
+
+function withoutEntry<V>(entries: ReadonlyMap<string, V>, nodeId: string): ReadonlyMap<string, V> {
+    if (!entries.has(nodeId)) {
+        return entries
+    }
+    const remaining = new Map(entries)
+    remaining.delete(nodeId)
+    return remaining
+}
+
+function firstTimeFor(times: Map<string, number>, nodeId: string): number {
+    const time = times.get(nodeId) ?? performance.now()
+    times.set(nodeId, time)
+    return time
 }
 
 function needsRead(current: NodeLoad | undefined, trigger: NodeLoadTrigger): boolean {
@@ -262,37 +276,25 @@ export const traceViewLogic = kea<traceViewLogicType>([
             },
         ],
         nodes: [
-            {} as Record<string, NodeLoad>,
+            noEntries<NodeLoad>(),
             {
-                nodeRequested: (state, { nodeId }): Record<string, NodeLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'loading' },
-                }),
-                loadNodeSuccess: (state, { nodeId, node }): Record<string, NodeLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'ready', node },
-                }),
-                loadNodeFailure: (state, { nodeId, failure }): Record<string, NodeLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'error', failure },
-                }),
+                nodeRequested: (state, { nodeId }): ReadonlyMap<string, NodeLoad> =>
+                    withEntry(state, nodeId, { status: 'loading' }),
+                loadNodeSuccess: (state, { nodeId, node }): ReadonlyMap<string, NodeLoad> =>
+                    withEntry(state, nodeId, { status: 'ready', node }),
+                loadNodeFailure: (state, { nodeId, failure }): ReadonlyMap<string, NodeLoad> =>
+                    withEntry(state, nodeId, { status: 'error', failure }),
             },
         ],
         rawNodes: [
-            {} as Record<string, RawLoad>,
+            noEntries<RawLoad>(),
             {
-                rawNodeRequested: (state, { nodeId }): Record<string, RawLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'loading' },
-                }),
-                loadRawNodeSuccess: (state, { nodeId, raw }): Record<string, RawLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'ready', raw },
-                }),
-                loadRawNodeFailure: (state, { nodeId, failure }): Record<string, RawLoad> => ({
-                    ...state,
-                    [nodeId]: { status: 'error', failure },
-                }),
+                rawNodeRequested: (state, { nodeId }): ReadonlyMap<string, RawLoad> =>
+                    withEntry(state, nodeId, { status: 'loading' }),
+                loadRawNodeSuccess: (state, { nodeId, raw }): ReadonlyMap<string, RawLoad> =>
+                    withEntry(state, nodeId, { status: 'ready', raw }),
+                loadRawNodeFailure: (state, { nodeId, failure }): ReadonlyMap<string, RawLoad> =>
+                    withEntry(state, nodeId, { status: 'error', failure }),
             },
         ],
     }),
@@ -302,13 +304,6 @@ export const traceViewLogic = kea<traceViewLogicType>([
             (trace: TraceApi | null, loadFailure: LoadFailure | null): TraceViewStatus =>
                 trace ? 'ready' : loadFailure ? 'error' : 'loading',
         ],
-        errorMessage: [
-            (s) => [s.loadFailure],
-            (loadFailure: LoadFailure | null): string =>
-                loadFailure === 'failed'
-                    ? 'Something went wrong while loading it. Try again in a moment.'
-                    : 'It may have been deleted, or it is outside the retention period.',
-        ],
         tree: [(s) => [s.trace], (trace: TraceApi | null): TraceNodeApi[] => trace?.tree ?? []],
         timeline: [
             (s) => [s.trace],
@@ -316,23 +311,6 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 rows: trace?.timeline ?? [],
                 totalMs: trace?.totalMs ?? 0,
             }),
-        ],
-        traceName: [(s) => [s.trace], (trace: TraceApi | null): string => trace?.name || 'Untitled trace'],
-        traceHasError: [(s) => [s.trace], (trace: TraceApi | null): boolean => trace?.hasError ?? false],
-        personLabel: [(s) => [s.trace], (trace: TraceApi | null): string | null => trace?.person?.label ?? null],
-        summary: [
-            (s) => [s.trace],
-            (trace: TraceApi | null): TraceSummaryBarProps | null =>
-                trace
-                    ? {
-                          traceId: trace.id,
-                          timestamp: trace.createdAt,
-                          person: trace.person
-                              ? { label: trace.person.label, href: urls.personByDistinctId(trace.person.distinctId) }
-                              : null,
-                          totals: trace.totals,
-                      }
-                    : null,
         ],
         threadNodeIds: [(s) => [s.trace], (trace: TraceApi | null): string[] => trace?.threadNodeIds ?? []],
         createdAt: [(s) => [s.trace], (trace: TraceApi | null): string | null => trace?.createdAt ?? null],
@@ -343,16 +321,17 @@ export const traceViewLogic = kea<traceViewLogicType>([
         ],
         nodeIdsByAlias: [
             (s) => [s.trace],
-            (trace: TraceApi | null): Record<string, string> => trace?.nodeIdsByAlias ?? {},
+            (trace: TraceApi | null): ReadonlyMap<string, string> =>
+                new Map(Object.entries(trace?.nodeIdsByAlias ?? {})),
         ],
     }),
     listeners(({ actions, values, props, cache }) => {
-        const selectedAt = (): Record<string, number> => (cache.selectedAt ??= {})
-        const requestedAt = (): Record<string, number> => (cache.requestedAt ??= {})
+        const selectedAt = (): Map<string, number> => (cache.selectedAt ??= new Map())
+        const requestedAt = (): Map<string, number> => (cache.requestedAt ??= new Map())
 
         const endRead = (nodeId: string): void => {
-            delete selectedAt()[nodeId]
-            delete requestedAt()[nodeId]
+            selectedAt().delete(nodeId)
+            requestedAt().delete(nodeId)
             if (cache.prefetchingNodeId === nodeId) {
                 cache.prefetchingNodeId = null
             }
@@ -360,19 +339,16 @@ export const traceViewLogic = kea<traceViewLogicType>([
 
         return {
             loadTraceSuccess: ({ trace }) => {
-                posthog.capture('llma trace view loaded', {
-                    trace_load_ms: elapsedMs(cache.traceRequestedAt),
-                    // The timeline lists every step but the root.
-                    node_count: trace.timeline.length + 1,
-                })
+                // The timeline lists every step but the root.
+                traceViewTracking.viewLoaded(elapsedMs(cache.traceRequestedAt), trace.timeline.length + 1)
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
                 }
             },
             loadNode: ({ nodeId, trigger }) => {
-                const current = values.nodes[nodeId]
+                const current = values.nodes.get(nodeId)
                 if (trigger === 'selection' && current?.status !== 'ready') {
-                    selectedAt()[nodeId] ??= performance.now()
+                    firstTimeFor(selectedAt(), nodeId)
                 }
                 if (!needsRead(current, trigger)) {
                     return
@@ -389,7 +365,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
             },
             nodeRequested: async ({ nodeId, trigger }) => {
                 const hint = values.createdAt
-                const firstRequestedAt = (requestedAt()[nodeId] ??= performance.now())
+                const firstRequestedAt = firstTimeFor(requestedAt(), nodeId)
                 const result = await readOrFailure(
                     aiObservabilityTracesNodesRetrieve(
                         String(ApiConfig.getCurrentProjectId()),
@@ -410,14 +386,14 @@ export const traceViewLogic = kea<traceViewLogicType>([
                     }
                     return
                 }
-                const waitedSince = selectedAt()[nodeId]
+                const waitedSince = selectedAt().get(nodeId)
                 const loadMs = elapsedMs(firstRequestedAt)
                 const waitedMs = waitedSince === undefined ? null : elapsedMs(waitedSince)
                 actions.loadNodeSuccess(nodeId, result.value)
-                posthog.capture('llma trace node loaded', { load_ms: loadMs, trigger, waited_ms: waitedMs })
+                traceViewTracking.nodeLoaded(trigger, loadMs, waitedMs)
             },
             loadRawNode: ({ nodeId }) => {
-                const status = values.rawNodes[nodeId]?.status
+                const status = values.rawNodes.get(nodeId)?.status
                 if (status !== 'loading' && status !== 'ready') {
                     actions.rawNodeRequested(nodeId)
                 }
@@ -453,20 +429,13 @@ export const traceViewLogic = kea<traceViewLogicType>([
     // retention misses. The node stays loading and is read again once the trace's timestamp is known.
     reducers({
         nodesMissedWithoutHint: [
-            {} as Record<string, NodeLoadTrigger>,
+            noEntries<NodeLoadTrigger>(),
             {
-                nodeMissedWithoutHint: (state, { nodeId, trigger }): Record<string, NodeLoadTrigger> => ({
-                    ...state,
-                    [nodeId]: trigger,
-                }),
-                nodeRequested: (state, { nodeId }): Record<string, NodeLoadTrigger> => {
-                    const { [nodeId]: _, ...rest } = state
-                    return rest
-                },
-                loadNodeFailure: (state, { nodeId }): Record<string, NodeLoadTrigger> => {
-                    const { [nodeId]: _, ...rest } = state
-                    return rest
-                },
+                nodeMissedWithoutHint: (state, { nodeId, trigger }): ReadonlyMap<string, NodeLoadTrigger> =>
+                    withEntry(state, nodeId, trigger),
+                nodeRequested: (state, { nodeId }): ReadonlyMap<string, NodeLoadTrigger> => withoutEntry(state, nodeId),
+                loadNodeFailure: (state, { nodeId }): ReadonlyMap<string, NodeLoadTrigger> =>
+                    withoutEntry(state, nodeId),
             },
         ],
     }),
@@ -480,7 +449,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
             if (!trace) {
                 return
             }
-            for (const [nodeId, trigger] of Object.entries(values.nodesMissedWithoutHint)) {
+            for (const [nodeId, trigger] of values.nodesMissedWithoutHint) {
                 if (isTraceNode(trace, nodeId)) {
                     actions.nodeRequested(nodeId, trigger)
                 } else {

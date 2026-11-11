@@ -68,6 +68,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import Property, PropertyValidationError
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -644,7 +645,54 @@ BATCH_FLAG_CONDITION_REJECTION = (
 )
 
 
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+
+
+def _is_condition_group(condition: Any) -> bool:
+    return isinstance(condition, dict) and "type" in condition and "values" in condition
+
+
+VALUELESS_OPERATORS = ("is_set", "is_not_set")
+
+
+def _is_finished_condition(condition: Any) -> bool:
+    try:
+        Property(**condition)
+    except (PropertyValidationError, exceptions.ValidationError, TypeError):
+        return False
+    if condition.get("type") == "cohort" and not str(condition.get("value")).isdigit():
+        return False
+    return (
+        condition.get("value") != []
+        or condition.get("operator") in VALUELESS_OPERATORS
+        or condition.get("type") == "hogql"
+    )
+
+
+def _has_unfinished_condition(conditions: Any) -> bool:
+    if _is_condition_group(conditions):
+        if not isinstance(conditions["values"], list):
+            return True
+        conditions = conditions["values"]
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        _has_unfinished_condition(condition)
+        if _is_condition_group(condition)
+        else not _is_finished_condition(condition)
+        for condition in conditions
+    )
+
+
+def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
+    properties = (filters or {}).get("properties")
+    if isinstance(properties, str) and properties.strip():
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            properties = None
+    if _has_unfinished_condition(properties):
+        raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
@@ -2106,6 +2154,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
+                        stored_filters = (self.context.get("stored_batch_audience_filters") or {}).get(data.get("id"))
+                        if filters != stored_filters:
+                            reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
@@ -3619,6 +3670,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
+
+        self.context["stored_batch_audience_filters"] = {
+            action["id"]: (action.get("config") or {}).get("filters")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+        }
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -6935,7 +6995,7 @@ class HogFlowViewSet(
                 ).data
             )
 
-        reject_flag_conditions_in_audience(self.team, filters)
+        reject_unusable_audience_conditions(self.team, filters)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7865,7 +7925,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             result = get_audience_size(
                 team_id=team.id,
                 filters=filters,
@@ -7914,7 +7974,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,

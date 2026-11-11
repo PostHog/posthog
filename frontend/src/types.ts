@@ -401,7 +401,14 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
+export type OnboardingSkippedReason =
+    | 'delegated'
+    | 'later'
+    | 'other'
+    | 'provisioned'
+    | 'connector'
+    | 'device_login'
+    | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
