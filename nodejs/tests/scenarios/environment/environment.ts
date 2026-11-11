@@ -11,6 +11,7 @@ import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
+    Hogli,
     STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
@@ -53,12 +54,18 @@ export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
 }
 
-async function groupsWithMembers(groups: ConsumerGroup[]): Promise<string[]> {
-    const members = await Promise.all(groups.map(({ group }) => groupMembers(group)))
+async function groupsWithMembers(groups: ConsumerGroup[], docker: string): Promise<string[]> {
+    const members = await Promise.all(groups.map(({ group }) => groupMembers(group, docker)))
     return groups.filter((_, i) => members[i] > 0).map(({ group }) => group)
 }
 
-export function createEnvironment(): Environment {
+export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string }
+
+export function createEnvironment({
+    hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
+    docker = 'docker',
+    postgresUrl = STACK.postgresUrl,
+}: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     const stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
@@ -100,7 +107,7 @@ export function createEnvironment(): Environment {
             const groups = consumerGroupsOf(specs)
             await waitForExpect(
                 async () => {
-                    const busy = await groupsWithMembers(groups)
+                    const busy = await groupsWithMembers(groups, docker)
                     if (busy.length > 0) {
                         throw new Error(
                             `The consumer groups ${busy.join(', ')} still have members ${GROUPS_EMPTY_WITHIN_MS / 1000}s after the roles stopped.`
@@ -114,7 +121,7 @@ export function createEnvironment(): Environment {
             await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
             await forgetSesBucket(STACK.sesRateLimiterValkey)
             for (const group of groups) {
-                await seekToEnd(group)
+                await seekToEnd(group, docker)
             }
             await refuseHeldPorts(specs.map((spec) => spec.role))
             await supervisor.start(specs)
@@ -124,7 +131,7 @@ export function createEnvironment(): Environment {
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async health() {
-            const down = await downServices(edge?.url)
+            const down = await downServices(edge?.url, postgresUrl)
             return { healthy: down.length === 0, down }
         },
 
@@ -180,13 +187,13 @@ export function createEnvironment(): Environment {
             throw strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(REPO_ROOT, stateDir, env)
+        await startStack(hogli, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
-                const busy = await groupsWithMembers(groups)
+                const busy = await groupsWithMembers(groups, docker)
                 if (busy.length > 0) {
                     throw new StackConflictError(
                         `The CDP consumer groups ${busy.join(', ')} have members the runner did not start. Run \`hogli down\`, then run the scenario again.`
@@ -201,12 +208,12 @@ export function createEnvironment(): Environment {
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)
         await untilHealthy(api, exitsBefore)
-        if ((await missingTemplates()).length > 0) {
-            await syncTemplates(REPO_ROOT, stateDir, env)
+        if ((await missingTemplates(postgresUrl)).length > 0) {
+            await syncTemplates(hogli, stateDir, env)
         }
         await waitForExpect(
             async () => {
-                const missing = await missingTemplates()
+                const missing = await missingTemplates(postgresUrl)
                 if (missing.length > 0) {
                     throw new Error(`Django has not synced the templates ${missing.join(', ')}.`)
                 }

@@ -23,14 +23,16 @@ export const STACK = {
     templates: ['template-email', 'template-webhook'],
 }
 
+export type Hogli = { command: string; cwd: string }
+
 async function hogliExit(
-    repoRoot: string,
+    hogli: Hogli,
     args: string[],
     logFile: string,
     env: NodeJS.ProcessEnv
 ): Promise<number | null> {
     const log = openSync(logFile, 'a')
-    const child = spawn(`${repoRoot}/bin/hogli`, args, { cwd: repoRoot, env, stdio: ['ignore', log, log] })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log] })
     closeSync(log)
     return await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject)
@@ -38,8 +40,8 @@ async function hogliExit(
     })
 }
 
-async function hogli(repoRoot: string, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
-    const code = await hogliExit(repoRoot, args, logFile, env)
+async function runHogli(hogli: Hogli, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
+    const code = await hogliExit(hogli, args, logFile, env)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
@@ -47,19 +49,19 @@ async function hogli(repoRoot: string, args: string[], logFile: string, env: Nod
 
 const NOT_REACHABLE = 3
 
-export async function startStack(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    if ((await hogliExit(repoRoot, ['wait', '--timeout', '0'], logFile, hogliEnv)) === NOT_REACHABLE) {
-        await hogli(repoRoot, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
-        await hogli(repoRoot, ['up', '-d', '--custom', config], logFile, hogliEnv)
+    if ((await hogliExit(hogli, ['wait', '--timeout', '0'], logFile, hogliEnv)) === NOT_REACHABLE) {
+        await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
+        await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
     }
-    await hogli(repoRoot, ['wait'], logFile, hogliEnv)
+    await runHogli(hogli, ['wait'], logFile, hogliEnv)
 }
 
-export async function syncTemplates(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-    await hogli(repoRoot, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
 }
 
 export async function withPostgres<T>(
@@ -84,14 +86,14 @@ export async function withPostgres<T>(
     }
 }
 
-export async function missingTemplates(): Promise<string[]> {
+export async function missingTemplates(postgresUrl: string): Promise<string[]> {
     const present = await withPostgres(async (client) => {
         const { rows } = await client.query<{ template_id: string }>(
             'SELECT DISTINCT template_id FROM posthog_hogfunctiontemplate WHERE template_id = ANY($1)',
             [STACK.templates]
         )
         return rows.map((row) => row.template_id)
-    })
+    }, postgresUrl)
     return STACK.templates.filter((template) => !present.includes(template))
 }
 
@@ -100,9 +102,9 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(args: string[]): Promise<string> {
+async function rpk(docker: string, args: string[]): Promise<string> {
     try {
-        const { stdout } = await promisify(execFile)('docker', ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
             timeout: 10_000,
         })
         return stdout
@@ -112,8 +114,8 @@ async function rpk(args: string[]): Promise<string> {
     }
 }
 
-export async function groupMembers(group: string): Promise<number> {
-    const output = await rpk(['group', 'describe', group])
+export async function groupMembers(group: string, docker: string): Promise<number> {
+    const output = await rpk(docker, ['group', 'describe', group])
     const members = membersOf(output)
     if (members === null) {
         throw new Error(`Could not read the members of ${group} from rpk:\n${output}`)
@@ -141,9 +143,18 @@ export function seekFailures(rpkSeek: string): string[] {
     })
 }
 
-export async function seekToEnd({ group, topics }: ConsumerGroup): Promise<void> {
+export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string): Promise<void> {
     for (const topic of topics) {
-        const output = await rpk(['group', 'seek', group, '--to', 'end', '--topics', topic, '--allow-new-topics'])
+        const output = await rpk(docker, [
+            'group',
+            'seek',
+            group,
+            '--to',
+            'end',
+            '--topics',
+            topic,
+            '--allow-new-topics',
+        ])
         const failures = seekFailures(output)
         if (failures.length > 0) {
             throw new Error(`Could not move ${group} to the end of ${topic}:\n${failures.join('\n')}`)
@@ -224,9 +235,9 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export async function downServices(edgeUrl: string | undefined): Promise<string[]> {
+export async function downServices(edgeUrl: string | undefined, postgresUrl: string): Promise<string[]> {
     const probes: Record<string, () => Promise<unknown>> = {
-        postgres: () => withPostgres((client) => client.query('SELECT 1')),
+        postgres: () => withPostgres((client) => client.query('SELECT 1'), postgresUrl),
         kafka: pingKafka,
         redis: () => pingRedis(STACK.redis),
         'ses-rate-limiter-valkey': () => pingRedis(STACK.sesRateLimiterValkey),
