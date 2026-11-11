@@ -14,6 +14,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
@@ -246,6 +247,9 @@ const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
 
 const MAX_INDEX_LOADS = 3
 
+// A stalled request would leave the folders loading with no way to retry, so each one fails after this long.
+export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
+
 const WORKFLOW_FILE_SEARCHES = ['type:folder', 'type:hog_flow', 'type:message_template']
 const OTHER_FILES_SEARCH = '-type:folder -type:hog_flow -type:message_template'
 
@@ -256,7 +260,11 @@ async function listAllFiles(
 ): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
     for (let offset = 0; ; offset += 500) {
-        const page = await fileSystemList(teamId, { search, limit: 500, offset })
+        const page = await withTimeout(
+            (signal) => fileSystemList(teamId, { search, limit: 500, offset }, { signal }),
+            FOLDER_REQUEST_TIMEOUT_MS,
+            'workflowFoldersLogic: listing project files timed out'
+        )
         breakpoint()
         entries.push(
             ...page.results.map((entry) => ({
@@ -453,7 +461,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         return false
                     }
                     const teamId = String(values.currentTeamId)
-                    await fileSystemUnfiledRetrieve(teamId)
+                    await withTimeout(
+                        (signal) => fileSystemUnfiledRetrieve(teamId, { signal }),
+                        FOLDER_REQUEST_TIMEOUT_MS,
+                        'workflowFoldersLogic: filing unfiled project files timed out'
+                    )
                     breakpoint()
                     for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
                         const changesBefore = changeCount(cache)

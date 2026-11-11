@@ -13,7 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { FOLDER_REQUEST_TIMEOUT_MS, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -440,6 +440,23 @@ describe('workflowFoldersLogic', () => {
         logic.actions.loadBrowser()
         await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
         expect(logic.values.browserLoadFailed).toBe(true)
+    })
+
+    it.each([
+        ['the unfiled backfill', '/api/projects/:team_id/file_system/unfiled/'],
+        ['a file list page', '/api/projects/:team_id/file_system/'],
+    ])('offers a retry when %s stalls', async (_name, stalled) => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { [stalled]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+        try {
+            logic.actions.loadBrowser()
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            expect(logic.values.browserReadyLoading).toBe(false)
+            expect(logic.values.browserLoadFailed).toBe(true)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it("moves workflow files and drops folders and other products' files to match a full reload", async () => {
