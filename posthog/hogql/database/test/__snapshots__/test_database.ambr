@@ -6866,6 +6866,7 @@
                       "metadata",
                       "description"
                   ],
+                  "description": "Description of the event, written by a person; NULL if nobody described it.",
                   "fields": null,
                   "hogql_value": "description",
                   "id": null,
@@ -6879,6 +6880,7 @@
                       "metadata",
                       "verified"
                   ],
+                  "description": "1 if a person marked the event as verified, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "verified",
                   "id": null,
@@ -6892,6 +6894,7 @@
                       "metadata",
                       "verified_at"
                   ],
+                  "description": "When a person marked the event as verified.",
                   "fields": null,
                   "hogql_value": "verified_at",
                   "id": null,
@@ -6905,6 +6908,7 @@
                       "metadata",
                       "verified_by_id"
                   ],
+                  "description": "User who marked the event as verified.",
                   "fields": null,
                   "hogql_value": "verified_by_id",
                   "id": null,
@@ -6918,6 +6922,7 @@
                       "metadata",
                       "hidden"
                   ],
+                  "description": "1 if a person hid the event from the lists in PostHog, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "hidden",
                   "id": null,
@@ -6931,6 +6936,7 @@
                       "metadata",
                       "updated_at"
                   ],
+                  "description": "When a person last edited the event's metadata; NULL if nobody edited it.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,
@@ -6944,6 +6950,7 @@
                       "metadata",
                       "updated_by_id"
                   ],
+                  "description": "User who last edited the event's metadata.",
                   "fields": null,
                   "hogql_value": "updated_by_id",
                   "id": null,
@@ -6957,6 +6964,7 @@
                       "metadata",
                       "owner_id"
                   ],
+                  "description": "User who owns the event; NULL if it has no owner.",
                   "fields": null,
                   "hogql_value": "owner_id",
                   "id": null,
@@ -13722,6 +13730,7 @@
                       "metadata",
                       "description"
                   ],
+                  "description": "Description of the property, written by a person; NULL if nobody described it.",
                   "fields": null,
                   "hogql_value": "description",
                   "id": null,
@@ -13735,6 +13744,7 @@
                       "metadata",
                       "verified"
                   ],
+                  "description": "1 if a person marked the property as verified, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "verified",
                   "id": null,
@@ -13748,6 +13758,7 @@
                       "metadata",
                       "verified_at"
                   ],
+                  "description": "When a person marked the property as verified.",
                   "fields": null,
                   "hogql_value": "verified_at",
                   "id": null,
@@ -13761,6 +13772,7 @@
                       "metadata",
                       "verified_by_id"
                   ],
+                  "description": "User who marked the property as verified.",
                   "fields": null,
                   "hogql_value": "verified_by_id",
                   "id": null,
@@ -13774,6 +13786,7 @@
                       "metadata",
                       "hidden"
                   ],
+                  "description": "1 if a person hid the property from the lists in PostHog, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "hidden",
                   "id": null,
@@ -13787,6 +13800,7 @@
                       "metadata",
                       "updated_at"
                   ],
+                  "description": "When a person last edited the property's metadata; NULL if nobody edited it.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,
@@ -13800,6 +13814,7 @@
                       "metadata",
                       "updated_by_id"
                   ],
+                  "description": "User who last edited the property's metadata.",
                   "fields": null,
                   "hogql_value": "updated_by_id",
                   "id": null,
@@ -23805,6 +23820,7 @@
                       "metadata",
                       "description"
                   ],
+                  "description": "Description of the event, written by a person; NULL if nobody described it.",
                   "fields": null,
                   "hogql_value": "description",
                   "id": null,
@@ -23818,6 +23834,7 @@
                       "metadata",
                       "verified"
                   ],
+                  "description": "1 if a person marked the event as verified, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "verified",
                   "id": null,
@@ -23831,6 +23848,7 @@
                       "metadata",
                       "verified_at"
                   ],
+                  "description": "When a person marked the event as verified.",
                   "fields": null,
                   "hogql_value": "verified_at",
                   "id": null,
@@ -23844,6 +23862,7 @@
                       "metadata",
                       "verified_by_id"
                   ],
+                  "description": "User who marked the event as verified.",
                   "fields": null,
                   "hogql_value": "verified_by_id",
                   "id": null,
@@ -23857,6 +23876,7 @@
                       "metadata",
                       "hidden"
                   ],
+                  "description": "1 if a person hid the event from the lists in PostHog, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "hidden",
                   "id": null,
@@ -23870,6 +23890,7 @@
                       "metadata",
                       "updated_at"
                   ],
+                  "description": "When a person last edited the event's metadata; NULL if nobody edited it.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,
@@ -23883,6 +23904,7 @@
                       "metadata",
                       "updated_by_id"
                   ],
+                  "description": "User who last edited the event's metadata.",
                   "fields": null,
                   "hogql_value": "updated_by_id",
                   "id": null,
@@ -23896,6 +23918,7 @@
                       "metadata",
                       "owner_id"
                   ],
+                  "description": "User who owns the event; NULL if it has no owner.",
                   "fields": null,
                   "hogql_value": "owner_id",
                   "id": null,
@@ -30661,6 +30684,7 @@
                       "metadata",
                       "description"
                   ],
+                  "description": "Description of the property, written by a person; NULL if nobody described it.",
                   "fields": null,
                   "hogql_value": "description",
                   "id": null,
@@ -30674,6 +30698,7 @@
                       "metadata",
                       "verified"
                   ],
+                  "description": "1 if a person marked the property as verified, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "verified",
                   "id": null,
@@ -30687,6 +30712,7 @@
                       "metadata",
                       "verified_at"
                   ],
+                  "description": "When a person marked the property as verified.",
                   "fields": null,
                   "hogql_value": "verified_at",
                   "id": null,
@@ -30700,6 +30726,7 @@
                       "metadata",
                       "verified_by_id"
                   ],
+                  "description": "User who marked the property as verified.",
                   "fields": null,
                   "hogql_value": "verified_by_id",
                   "id": null,
@@ -30713,6 +30740,7 @@
                       "metadata",
                       "hidden"
                   ],
+                  "description": "1 if a person hid the property from the lists in PostHog, 0 otherwise.",
                   "fields": null,
                   "hogql_value": "hidden",
                   "id": null,
@@ -30726,6 +30754,7 @@
                       "metadata",
                       "updated_at"
                   ],
+                  "description": "When a person last edited the property's metadata; NULL if nobody edited it.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,
@@ -30739,6 +30768,7 @@
                       "metadata",
                       "updated_by_id"
                   ],
+                  "description": "User who last edited the property's metadata.",
                   "fields": null,
                   "hogql_value": "updated_by_id",
                   "id": null,
