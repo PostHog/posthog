@@ -96,6 +96,12 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
                 "Grant the relevant permission — and ensure the site is on a Commerce plan for orders/inventory — "
                 "then reconnect."
             ),
+            # Squarespace returns 402 for every request against a site with expired billing, per its
+            # changelog. Resyncing can't fix the merchant's own billing state.
+            "402 Client Error: Payment Required for url: https://api.squarespace.com": (
+                "Your Squarespace site's billing is expired, so Squarespace is refusing API access. "
+                "Resolve the site's billing in Squarespace, then reconnect."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

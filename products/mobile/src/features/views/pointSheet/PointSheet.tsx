@@ -1,9 +1,10 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ActorRow, InsightSnapshot, ViewKind } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -53,7 +54,7 @@ function openLink(url: string | undefined, viewType: ViewKind | 'recordings' | '
         return
     }
     trackViewOpenedInWeb({ viewType, reason: 'action' })
-    Linking.openURL(safe).catch(() => undefined)
+    openPostHogUrl(safe).catch(() => undefined)
 }
 
 /**

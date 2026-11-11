@@ -47,6 +47,10 @@ export function sqlNameFromDisplayName(displayName: string): string {
     return /^[0-9]/.test(sqlName) ? `metric_${sqlName}` : sqlName
 }
 
+export function sqlNameAfterDisplayNameChange(displayName: string, sqlName: string, nextDisplayName: string): string {
+    return sqlName === sqlNameFromDisplayName(displayName) ? sqlNameFromDisplayName(nextDisplayName) : sqlName
+}
+
 export function validateMetricName(name: string): string | undefined {
     if (!name) {
         return 'SQL name is required'

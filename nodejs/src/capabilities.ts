@@ -15,6 +15,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
+    cdpSesWebhooks: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
@@ -119,6 +120,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
+            }
+        case PluginServerMode.cdp_ses_webhooks:
+            return {
+                cdpSesWebhooks: true,
             }
         case PluginServerMode.cdp_cyclotron_worker:
             return {

@@ -158,6 +158,7 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
                 INTERNAL_PERSONS,
                 select="SELECT distinct_id FROM posthog.flag_evaluations",
             ),
+            param("dotted_events", [INTERNAL], INTERNAL_PERSONS, select="SELECT event FROM posthog.events"),
             param(
                 "select_alias_named_person_id",
                 [INTERNAL],

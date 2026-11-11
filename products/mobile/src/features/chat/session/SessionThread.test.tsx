@@ -112,18 +112,26 @@ describe('SessionThread', () => {
         expect(JSON.stringify(capture.mock.calls)).not.toContain('SELECT 1')
     })
 
-    test('offers copying only for nonempty completed messages and uses the final reply', async () => {
+    test.each(['sandbox', 'langgraph'] as const)('shows one set of actions per %s reply', async (runtime) => {
         const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
         const items: SessionThreadItem[] = [
             { kind: 'user', id: 'empty-user', text: '  ' },
             { kind: 'assistant', id: 'empty-assistant', text: '\n', complete: true },
-            { kind: 'assistant', id: 'reply', text: 'Partial', complete: false },
+            { kind: 'assistant', id: 'intro', text: 'I’ll check.', complete: true, traceId: 'trace-1' },
+            {
+                kind: 'assistant',
+                id: 'chart',
+                text: '[View chart](https://example.com/chart)',
+                complete: true,
+                traceId: 'trace-1',
+            },
         ]
+        const feedbackContext = { sessionId: 'task-1', runtime }
         const view = render(
             <SessionThread
-                session={session({ items })}
+                session={session({ items, phase: 'working' })}
                 onRetryHistory={jest.fn()}
-                feedbackContext={{ sessionId: 'task-1', runtime: 'sandbox' }}
+                feedbackContext={feedbackContext}
             />
         )
         expect(screen.queryByTestId('chat-copy-message')).toBeNull()
@@ -133,13 +141,15 @@ describe('SessionThread', () => {
             <SessionThread
                 session={session({
                     items: [
-                        ...items.slice(0, 2),
-                        { kind: 'assistant', id: 'reply', text: 'Final reply', complete: true },
-                        { kind: 'turn_end', id: 'end', traceId: 'trace-1' },
+                        ...items,
+                        { kind: 'assistant', id: 'reply', text: 'Final reply', complete: true, traceId: 'trace-1' },
+                        ...(runtime === 'sandbox'
+                            ? [{ kind: 'turn_end' as const, id: 'end', traceId: 'trace-1' }]
+                            : []),
                     ],
                 })}
                 onRetryHistory={jest.fn()}
-                feedbackContext={{ sessionId: 'task-1', runtime: 'sandbox' }}
+                feedbackContext={feedbackContext}
             />
         )
         await act(async () => fireEvent.press(screen.getByTestId('chat-copy-message')))

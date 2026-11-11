@@ -76,6 +76,7 @@ _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
 _NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
+_NULLABLE_DATETIME = "nullable_datetime"
 
 
 def _cell(value: Any) -> ast.Constant:
@@ -102,6 +103,10 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
+    if kind == _NULLABLE_DATETIME:
+        return ast.Call(
+            name="parseDateTimeBestEffort", args=[ast.Call(name="nullIf", args=[source, ast.Constant(value="")])]
+        )
     raise ValueError(f"Unknown information_schema column kind: {kind}")
 
 
