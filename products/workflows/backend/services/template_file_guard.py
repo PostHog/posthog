@@ -13,6 +13,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from posthog.api.file_system.deletion import DeletionContext, RestoreContext
     from posthog.models import Team, User
 
@@ -25,12 +27,11 @@ class LinkedTemplate(Protocol):
 
 # A folder delete runs this guard once per template while it holds row locks. So each request keeps one
 # UserAccessControl per user and team, because an instance loads the team's access rules once and caches
-# them. It also keeps the access fields of the team's workflows, read in one query on the first check. The
-# check reads only the id, the team and the creator, never the step graph or the encrypted inputs. The weak
-# keys drop both caches together with the request.
+# them. It also keeps the access fields of the linked workflows, which the prepare hook reads in one query
+# before the first lock. The weak keys drop both caches with the request.
 _ACCESS_FIELDS = ("id", "team_id", "created_by_id")
 _access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
-_workflows_by_request: "WeakKeyDictionary[Any, dict[int, dict[str, HogFlow]]]" = WeakKeyDictionary()
+_workflows_by_request: "WeakKeyDictionary[Any, dict[tuple[int, str], HogFlow]]" = WeakKeyDictionary()
 
 
 def _access_control_for(request: Any | None, user: "User", template: LinkedTemplate) -> UserAccessControl:
@@ -43,16 +44,22 @@ def _access_control_for(request: Any | None, user: "User", template: LinkedTempl
     return access_controls[key]
 
 
-def _linked_workflow(request: Any | None, template: LinkedTemplate) -> HogFlow | None:
-    workflow_id = str(template.transactional_hog_flow_id)
+def prepare_linked_workflows(request: Any | None, templates: "QuerySet[Any]") -> None:
     if request is None:
-        return HogFlow.objects.filter(team_id=template.team_id, pk=workflow_id).only(*_ACCESS_FIELDS).first()
-    workflows_by_team = _workflows_by_request.setdefault(request, {})
-    if template.team_id not in workflows_by_team:
-        workflows_by_team[template.team_id] = {
-            str(flow.id): flow for flow in HogFlow.objects.filter(team_id=template.team_id).only(*_ACCESS_FIELDS)
-        }
-    return workflows_by_team[template.team_id].get(workflow_id)
+        return
+    linked = HogFlow.objects.filter(
+        pk__in=templates.filter(transactional_hog_flow_id__isnull=False).values("transactional_hog_flow_id")
+    ).only(*_ACCESS_FIELDS)
+    workflows = _workflows_by_request.setdefault(request, {})
+    for flow in linked:
+        workflows[(flow.team_id, str(flow.id))] = flow
+
+
+def _linked_workflow(request: Any | None, template: LinkedTemplate) -> HogFlow | None:
+    key = (template.team_id, str(template.transactional_hog_flow_id))
+    if request is not None and key in _workflows_by_request.get(request, {}):
+        return _workflows_by_request[request][key]
+    return HogFlow.objects.filter(team_id=key[0], pk=key[1]).only(*_ACCESS_FIELDS).first()
 
 
 def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> None:

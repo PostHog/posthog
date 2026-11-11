@@ -1763,10 +1763,10 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    def test_a_folder_delete_checks_linked_workflows_in_one_read_without_their_content(self, mock_post, _flag):
+    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(self, mock_post, _flag):
         self._login_member("editor@example.com", {None: "editor"})
 
-        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, int, int]:
+        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, list[str], list[int], int]:
             for index in range(count):
                 template = MessageTemplate.objects.create(
                     team=self.team,
@@ -1790,14 +1790,31 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
             sqls = [query["sql"] for query in queries.captured_queries]
             access_rule_reads = sum("accesscontrol" in sql for sql in sqls)
-            workflow_reads = sum(sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql for sql in sqls)
+            workflow_reads = [
+                (position, sql)
+                for position, sql in enumerate(sqls)
+                if sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql
+            ]
+            template_locks = [
+                position
+                for position, sql in enumerate(sqls)
+                if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql
+            ]
             workflow_content_reads = sum('"posthog_hogflow"."encrypted_inputs"' in sql for sql in sqls)
-            return access_rule_reads, workflow_reads, workflow_content_reads
+            return (
+                access_rule_reads,
+                [sql for _position, sql in workflow_reads],
+                [position for position, _sql in workflow_reads] + template_locks[:1],
+                workflow_content_reads,
+            )
 
         one = reads_deleting_a_folder_of(1, "One")
         three = reads_deleting_a_folder_of(3, "Three")
-        assert (one[0], one[1]) == (three[0], three[1])
-        assert (one[2], three[2]) == (0, 0)
+        assert HogFlow.objects.filter(team=self.team).count() > 3
+        assert (one[0], len(one[1])) == (three[0], len(three[1])) == (one[0], 1)
+        assert all('"posthog_hogflow"."id" IN' in sql for sql in one[1] + three[1])
+        assert one[2] == sorted(one[2]) and three[2] == sorted(three[2])
+        assert (one[3], three[3]) == (0, 0)
 
     def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
         self.template.refresh_from_db()
