@@ -399,7 +399,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )

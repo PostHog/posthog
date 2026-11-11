@@ -45,6 +45,7 @@ import {
     FunnelConversionWindowTimeUnit,
 } from '~/types'
 
+import { ExperimentMetricValueFormatSection } from 'products/experiments/frontend/components/ExperimentMetricValueFormatSection'
 import { ExperimentQuantileMetricFields } from 'products/experiments/frontend/components/ExperimentQuantileMetricFields'
 import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
 import {
@@ -859,6 +860,7 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
+            <ExperimentMetricValueFormatSection metric={metric} handleSetMetric={handleSetMetric} />
             {/* The backend ignores the conversion window for exposure-anchored retention: the retention window already anchors on exposure */}
             {!(isExperimentRetentionMetric(metric) && isExperimentExposureNode(metric.start_event)) && (
                 <>

@@ -3,6 +3,8 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    MetricThresholdConfigApi,
+    ReportMetricApi,
     SignalReportStatusEnumApi,
     SignalReportCheckApi,
     SignalReportCheckInconclusiveReasonEnumApi,
@@ -470,4 +472,26 @@ export const CHECK_LIFECYCLE_ENTRIES: Record<
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,
     check_cancelled: checkCancelledEntry,
+}
+
+export function reportCheckMetric(
+    check: SignalReportCheckApi
+): { config: MetricThresholdConfigApi; metric: ReportMetricApi } | null {
+    if (check.kind !== 'metric_threshold' || !('comparison' in check.config)) {
+        return null
+    }
+    const config = check.config
+    return {
+        config,
+        metric: {
+            metric_id: config.metric_id ?? check.id,
+            title: check.title,
+            kind: config.metric_kind ?? 'custom',
+            query: config.query,
+            value_format: config.value_format ?? 'number',
+            unit: config.unit,
+            goal_value: config.comparison.operator === 'between' ? null : config.comparison.value,
+            goal_direction: config.comparison.operator === 'lte' ? 'at_most' : 'at_least',
+        },
+    }
 }

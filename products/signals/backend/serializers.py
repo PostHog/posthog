@@ -38,6 +38,7 @@ from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
+    HOGQL_FILTER_KEY,
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
@@ -57,6 +58,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
@@ -87,6 +89,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filters import compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -424,6 +427,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
                 source_product, source_type, config[ISSUE_FILTERS_KEY]
             )
+        if config is not None and HOGQL_FILTER_KEY in config:
+            config[HOGQL_FILTER_KEY] = self._saved_hogql_filter(source_product, source_type, config[HOGQL_FILTER_KEY])
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -445,6 +450,29 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def _saved_hogql_filter(self, source_product: str | None, source_type: str | None, raw: object) -> object:
+        current_config = self.instance.config if self.instance is not None else None
+        current = current_config.get(HOGQL_FILTER_KEY) if isinstance(current_config, dict) else None
+        # A whole-config write echoes the stored filter back; keep it without re-checking the rollout gate.
+        if current is not None and raw == current:
+            return current
+        if not isinstance(raw, str):
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} must be a string expression"})
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None or not source_product or not source_type:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} needs a project and source"})
+        try:
+            saved = compile_source_filter(
+                organization_id=str(team.organization_id),
+                source_product=source_product,
+                source_type=source_type,
+                expression=raw,
+            )
+        except FilterValidationError as error:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY}: {error}"})
+        return saved.to_config()
 
     def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
         if (source_product, source_type) not in ISSUE_FILTER_SOURCES:
@@ -2284,6 +2312,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
+    implementation_in_flight = serializers.SerializerMethodField(
+        help_text=(
+            "Whether an implementation run for this report is still working. A new implementation run "
+            "cannot start until it settles."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -2369,6 +2403,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_issues",
             "work_state",
             "assignee",
+            "implementation_in_flight",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -2752,6 +2787,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_implementation_in_flight(self, obj: SignalReport) -> bool:
+        from products.signals.backend.task_run_artefacts import implementation_in_flight_report_ids
+
+        in_flight = self.context.get("implementation_in_flight_ids")
+        if in_flight is None:
+            in_flight = implementation_in_flight_report_ids(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return str(obj.id) in in_flight
+
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:
         assignment = self._get_assignment(obj)
@@ -2856,14 +2900,14 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     personal_tier = serializers.SerializerMethodField(
         help_text=(
-            "The tier your personal ranking gave this report, for sort=personal. Null when the language model "
-            "did not rank the report, and for every other sort."
+            "The tier your personal ranking gave this report, when the list response's ranker is personal. Null "
+            "when the language model did not rank the report, and for every other ranker."
         ),
     )
     personal_reason = serializers.SerializerMethodField(
         help_text=(
-            "Why your personal ranking put this report where it is, for sort=personal. Null when the language "
-            "model did not rank the report, and for every other sort."
+            "Why your personal ranking put this report where it is, when the list response's ranker is personal. "
+            "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
 
@@ -2929,7 +2973,8 @@ class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal "
+            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),
     )

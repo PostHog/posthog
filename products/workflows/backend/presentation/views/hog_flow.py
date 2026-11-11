@@ -68,6 +68,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import Property, PropertyValidationError
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -644,7 +645,52 @@ BATCH_FLAG_CONDITION_REJECTION = (
 )
 
 
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+
+
+def _is_condition_group(condition: Any) -> bool:
+    return isinstance(condition, dict) and "type" in condition and "values" in condition
+
+
+VALUELESS_OPERATORS = ("is_set", "is_not_set")
+
+
+def _is_finished_condition(condition: Any) -> bool:
+    try:
+        Property(**condition)
+    except (PropertyValidationError, exceptions.ValidationError, TypeError):
+        return False
+    return (
+        condition.get("value") != []
+        or condition.get("operator") in VALUELESS_OPERATORS
+        or condition.get("type") == "hogql"
+    )
+
+
+def _has_unfinished_condition(conditions: Any) -> bool:
+    if _is_condition_group(conditions):
+        if not isinstance(conditions["values"], list):
+            return True
+        conditions = conditions["values"]
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        _has_unfinished_condition(condition)
+        if _is_condition_group(condition)
+        else not _is_finished_condition(condition)
+        for condition in conditions
+    )
+
+
+def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
+    properties = (filters or {}).get("properties")
+    if isinstance(properties, str) and properties.strip():
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            properties = None
+    if _has_unfinished_condition(properties):
+        raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
@@ -1047,6 +1093,19 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
         value = item.get("value") if isinstance(item, dict) else None
         if not isinstance(value, list) or not value:
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
+
+
+_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+
+def _reject_unmatchable_time_window_days(day: Any) -> None:
+    if day in ("any", "weekday", "weekend"):
+        return
+    if isinstance(day, list) and day and all(isinstance(name, str) and name in _WEEKDAYS for name in day):
+        return
+    raise serializers.ValidationError(
+        {"config": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name."}
+    )
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -2440,6 +2499,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
 
+        if strict and data.get("type") == "wait_until_time_window":
+            day = (data.get("config") or {}).get("day")
+            stored_days = self.context.get("stored_time_window_days") or {}
+            if data.get("id") not in stored_days or stored_days[data.get("id")] != day:
+                _reject_unmatchable_time_window_days(day)
+
         return data
 
     def _validate_delay(self, data: dict, strict: bool) -> None:
@@ -3562,6 +3627,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        self.context["stored_time_window_days"] = {
+            action["id"]: (action.get("config") or {}).get("day")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_time_window"
         }
 
         # Durations the flow already stores, so the cap check refuses new over-cap values only.
@@ -6910,7 +6981,7 @@ class HogFlowViewSet(
                 ).data
             )
 
-        reject_flag_conditions_in_audience(self.team, filters)
+        reject_unusable_audience_conditions(self.team, filters)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7840,7 +7911,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             result = get_audience_size(
                 team_id=team.id,
                 filters=filters,
@@ -7889,7 +7960,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,

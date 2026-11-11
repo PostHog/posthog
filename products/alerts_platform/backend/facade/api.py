@@ -15,11 +15,15 @@ from uuid import UUID
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertEventKind,
     AlertReceiverEdit,
     AlertRouteEdit,
+    ControlChangeKind,
     DestinationSend,
+    DestinationType,
     HandbackRefusal,
     HeldDeliveryAddress,
+    NativeConfigurationMatch,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -33,6 +37,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
@@ -93,12 +99,12 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
-def source_suppressed_holds_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+def source_suppressed_holds_by_public_id(
+    *, team_id: int, public_id: UUID, evaluation_keys: Collection[str]
 ) -> frozenset[str]:
     """The named evaluations of an alert the platform owns whose held delivery its source released
     with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
-    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+    return delivery_holds.source_suppressed_holds_by_public_id(team_id, public_id, evaluation_keys)
 
 
 def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
@@ -223,13 +229,32 @@ def native_configuration_keys(
     )
 
 
-def native_configuration_ids(
-    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+def native_configuration_matches(
+    *, team_id: int, source_kind: SourceKind, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
+    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
+    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+
+
+def owned_configuration_ids_without_source_rows(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    source_config_key: str,
+    values: Collection[Any],
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
 ) -> tuple[UUID, ...]:
-    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
-    `values`, such as the alerts on a set of insights."""
-    return platform_reads.native_configuration_ids(
-        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    """Ids of the team's alerts of a kind the platform owns whose `source_config[key]` is one of
+    `values` and that have no source row, such as the alerts left on a set of deleted insights.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_reads.owned_configuration_ids_without_source_rows(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        source_config_key=source_config_key,
+        values=values,
+        existing_source_ids=existing_source_ids,
     )
 
 
@@ -346,6 +371,28 @@ def notable_checks_by_public_id(
     return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
 
 
+def control_changes_by_public_id(
+    *, team_id: int, public_id: UUID, kinds: Collection[ControlChangeKind], limit: int
+) -> PlatformControlChangePage | None:
+    """The newest `limit` control-plane changes of `kinds` to a named alert, with their total and the
+    time of the oldest change of any kind, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
+
+
+def control_history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """The control-plane changes in `[since, until)` of each named alert the platform owns, keyed by its
+    public id, with when its oldest kept change happened and its newest enable or disable before `since`.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
+
+
 def update_configuration(
     *,
     team_id: int,
@@ -423,10 +470,12 @@ def update_owned_copy(
     snooze_changed: bool = False,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
-    next due at the cadence's `next_check_at`.
+    next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
+    it wrote any history row of its own, so the platform's row of the same change is no later.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -438,6 +487,7 @@ def update_owned_copy(
         snooze_changed=snooze_changed,
         cadence=cadence,
         rescheduled=rescheduled,
+        at=at,
     )
 
 
@@ -452,10 +502,20 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> bool:
     """Deletes the copy of a source alert with the source row, in its transaction or after it
-    commits. With `owner`, only a copy that stack owns."""
-    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+    commits. With `owner`, only a copy that stack owns.
+
+    True when the copy was the platform's: its HogFunction destinations went with it, and the source
+    must not remove them again.
+    """
+    return platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+
+
+def delete_owned_configuration(*, team_id: int, configuration_id: UUID) -> None:
+    """Deletes a configuration the platform owns whose source row is gone or never existed, after
+    sending the resolves of its open firings. Call it outside any transaction."""
+    platform_writes.delete_owned_configuration(team_id=team_id, configuration_id=configuration_id)
 
 
 def delete_orphaned_shadow_copies(
@@ -494,6 +554,39 @@ def create_alert_destinations(
     )
 
 
+def set_subscriber_destinations(
+    *,
+    team_id: int,
+    public_id: UUID,
+    user_ids: Collection[int],
+    event_kinds: Collection[AlertEventKind],
+    in_app_resource_type: str,
+    in_app_resource_id: str,
+) -> bool:
+    """Replaces the email and in-app destinations that name the alert's subscribers. False when the
+    platform has no alert under `public_id`, such as an insight alert never copied."""
+    return alert_destinations.set_subscriber_destinations(
+        team_id=team_id,
+        public_id=public_id,
+        user_ids=user_ids,
+        event_kinds=event_kinds,
+        in_app_resource_type=in_app_resource_type,
+        in_app_resource_id=in_app_resource_id,
+    )
+
+
+def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
+    """Takes a user who left an organization out of every subscriber destination of its teams' alerts,
+    and returns how many alerts named them."""
+    return alert_destinations.remove_subscriber(team_ids=team_ids, user_id=user_id)
+
+
+def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
+    """The subscribers each alert's destinations name, by public id. An alert with no subscriber
+    destination is left out, which is not the same as one whose subscribers all left."""
+    return alert_destinations.subscriber_user_ids_by_public_id(team_id=team_id, public_ids=public_ids)
+
+
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
 
@@ -506,6 +599,15 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     """Whether an alert whose destinations the platform owns has an enabled incident manager."""
     return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+
+
+def destination_hears_kind(
+    *, team_id: int, configuration_id: UUID, destination_type: DestinationType, event_kind: AlertEventKind
+) -> bool:
+    """Whether an enabled destination of this type that the platform keeps for the alert sends this kind."""
+    return alert_destinations.hears_kind(
+        team_id=team_id, configuration_id=configuration_id, destination_type=destination_type, event_kind=event_kind
+    )
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
