@@ -841,7 +841,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(CAST(e.properties.`$version`, 'Nullable(String)'), 'xyz'), 0)), 1, 0) AS step_1,
-                  [ifNull(toString(if(notEquals(toJSONString(e.properties.^`$browser`), '{}'), toJSONString(e.properties.^`$browser`), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
+                  [ifNull(toString(CAST(nullIf(toString(e.properties.`$browser`), ''), 'Nullable(String)')), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -911,7 +911,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(CAST(e.properties.`$version`, 'Nullable(String)'), 'xyz'), 0)), 1, 0) AS step_1,
-                  [ifNull(toString(if(notEquals(toJSONString(e.properties.^`$browser`), '{}'), toJSONString(e.properties.^`$browser`), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
+                  [ifNull(toString(CAST(nullIf(toString(e.properties.`$browser`), ''), 'Nullable(String)')), '')] AS prop_basic,
                   if(equals(step_1, 1), prop_basic, []) AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -981,8 +981,7 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'buy'), 1, 0) AS step_1,
-                  [ifNull(toString(if(notEquals(toJSONString(e.properties.^`$browser`), '{}'), toJSONString(e.properties.^`$browser`), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), ''),
-                   ifNull(toString(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(e.properties.`$version`), NULL, if(and(in(ascii(toString(e.properties.`$version`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$version`)), tuple(91, 123))), toJSONString(e.properties.`$version`), toString(e.properties.`$version`))))), '')] AS prop_basic,
+                  [ifNull(toString(CAST(nullIf(toString(e.properties.`$browser`), ''), 'Nullable(String)')), ''), ifNull(toString(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(e.properties.`$version`), NULL, if(and(in(ascii(toString(e.properties.`$version`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$version`)), tuple(91, 123))), toJSONString(e.properties.`$version`), toString(e.properties.`$version`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN

@@ -6,7 +6,7 @@
             if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(events.properties.`$feature_flag_response`), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), toJSONString(events.properties.`$feature_flag_response`), toString(events.properties.`$feature_flag_response`)))) AS variant_value,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.uuid AS uuid,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
             and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), toJSONString(events.person_properties.email), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(events.properties.`$feature_flag_response`), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), toJSONString(events.properties.`$feature_flag_response`), toString(events.properties.`$feature_flag_response`)))), ['control', 'test'])) AS step_0,
             if(equals(events.event, 'purchase'), 1, 0) AS step_1
      FROM events_json AS events
@@ -113,8 +113,8 @@
             if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(events.properties.`$feature_flag_response`), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), toJSONString(events.properties.`$feature_flag_response`), toString(events.properties.`$feature_flag_response`)))) AS variant_value,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.uuid AS uuid,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_2,
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2,
             and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), toJSONString(events.person_properties.email), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(events.properties.`$feature_flag_response`), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), toJSONString(events.properties.`$feature_flag_response`), toString(events.properties.`$feature_flag_response`)))), ['control', 'test'])) AS step_0,
             if(equals(events.event, 'purchase'), 1, 0) AS step_1
      FROM events_json AS events
@@ -172,7 +172,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -187,7 +187,7 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -242,7 +242,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -257,7 +257,7 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -312,7 +312,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -327,7 +327,7 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -452,8 +452,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$current_url`), '{}'), toJSONString(events.properties.^`$current_url`), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(nullIf(toString(events.properties.`$current_url`), '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -468,8 +468,8 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$current_url`), '{}'), toJSONString(events.properties.^`$current_url`), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(events.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+            coalesce(toString(nullIf(toString(events.properties.`$current_url`), '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -598,8 +598,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -614,8 +614,8 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -674,7 +674,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -689,7 +689,7 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -757,8 +757,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -773,8 +773,8 @@
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-            coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+            coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -903,7 +903,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1101,8 +1101,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1205,7 +1205,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1379,8 +1379,8 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

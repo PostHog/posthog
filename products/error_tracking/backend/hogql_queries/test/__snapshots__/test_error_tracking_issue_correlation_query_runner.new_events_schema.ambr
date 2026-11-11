@@ -8,7 +8,7 @@
      FROM
        (SELECT events__fingerprint_issue_state.issue_id AS issue_id,
                max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-               argMax(if(notEquals(toJSONString(events.properties.^`$lib`), '{}'), toJSONString(events.properties.^`$lib`), if(isNull(nullIf(toString(events.properties.`$lib`), '')), NULL, if(and(in(ascii(toString(events.properties.`$lib`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$lib`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$lib`), '[]'), '{}'), toString(events.properties.`$lib`)))), toTimeZone(events.timestamp, 'UTC')) AS library
+               argMax(CAST(nullIf(toString(events.properties.`$lib`), ''), 'Nullable(String)'), toTimeZone(events.timestamp, 'UTC')) AS library
         FROM events_json AS events
         LEFT OUTER JOIN
           (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
