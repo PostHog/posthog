@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -56,6 +56,9 @@ pub struct Options {
     pub max_rows: usize,
     pub max_bytes: usize,
     pub row_group_rows: usize,
+    /// A flush longer than this can outlast the consumer's poll interval, after which the group may have given the
+    /// partitions away, so the flush then leaves the watermark files to the next poll.
+    pub owned_for: Duration,
 }
 
 #[derive(Debug)]
@@ -261,8 +264,11 @@ impl<O: OffsetStore> Batcher<O> {
     }
 
     pub async fn flush(&mut self, now_ms: i64) -> Result<(), StoreError> {
+        let started = Instant::now();
         self.write_taken(now_ms).await?;
-        self.write_watermark_files_if_due(now_ms).await;
+        if started.elapsed() < self.options.owned_for {
+            self.write_watermark_files_if_due(now_ms).await;
+        }
         Ok(())
     }
 
@@ -565,6 +571,7 @@ mod tests {
                 max_rows,
                 max_bytes: 1024 * 1024,
                 row_group_rows: 1_000,
+                owned_for: Duration::from_secs(3_600),
             },
             0,
         )
@@ -985,6 +992,28 @@ mod tests {
                 json!({"partition": 0, "complete_up_to_capture_ms": 1_000, "committed_offset": 2, "written_at_ms": WALL_CLOCK_MS + interval})
             )]
         );
+    }
+
+    #[tokio::test]
+    async fn leaves_the_watermark_files_to_the_next_poll_after_a_flush_that_outlasts_the_poll_interval(
+    ) {
+        let Fixture {
+            store,
+            offsets,
+            mut batcher,
+        } = fixture(1_000);
+        batcher.options.owned_for = Duration::ZERO;
+        add(
+            &mut batcher,
+            &[raw(1, "blocks", "2026-10-15", &block_row("s1")).captured(1_000)],
+        );
+
+        batcher.flush(2).await.unwrap();
+        assert_eq!(*offsets.stored.lock().unwrap(), [vec![(tp(0), 2)]]);
+        assert!(store.watermark_files().is_empty());
+
+        poll(&mut batcher, &[], 3).await.unwrap();
+        assert_eq!(store.watermark_files().len(), 1);
     }
 
     #[tokio::test]

@@ -11,7 +11,7 @@ use metrics::counter;
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, RebalanceProtocol, StreamConsumer,
 };
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::types::RDKafkaRespErr;
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
@@ -24,6 +24,9 @@ const POLL_BATCH: usize = 500;
 /// An empty poll still checks the flush interval.
 const IDLE_TICK: Duration = Duration::from_millis(500);
 const HEARTBEAT: Duration = Duration::from_secs(10);
+const MAX_POLL_INTERVAL: Duration = Duration::from_secs(300);
+/// How long a flush can run and still own its partitions, with a margin for the polls around it.
+pub const OWNED_FOR: Duration = Duration::from_secs(MAX_POLL_INTERVAL.as_secs() - 30);
 
 pub struct SinkContext {
     topic: &'static str,
@@ -33,6 +36,15 @@ pub struct SinkContext {
 impl ClientContext for SinkContext {}
 
 impl ConsumerContext for SinkContext {
+    /// librdkafka commits in the background, so a failed commit reaches no poll. Offsets that stop committing replay
+    /// on the next restart.
+    fn commit_callback(&self, result: KafkaResult<()>, offsets: &TopicPartitionList) {
+        if let Err(error) = result {
+            counter!("ai_research_v4_parquet_sink_commit_failures_total").increment(1);
+            tracing::warn!(%error, partitions = offsets.count(), "committing offsets failed");
+        }
+    }
+
     fn rebalance(
         &self,
         consumer: &BaseConsumer<Self>,
@@ -93,7 +105,10 @@ impl SinkConsumer {
             .set("partition.assignment.strategy", "cooperative-sticky")
             .set("session.timeout.ms", "30000")
             .set("heartbeat.interval.ms", "10000")
-            .set("max.poll.interval.ms", "300000")
+            .set(
+                "max.poll.interval.ms",
+                MAX_POLL_INTERVAL.as_millis().to_string(),
+            )
             .set("fetch.max.bytes", "50242880")
             .set("max.partition.fetch.bytes", "10485760")
             .set("fetch.wait.max.ms", "10000")
@@ -105,9 +120,7 @@ impl SinkConsumer {
             .set("socket.timeout.ms", "30000")
             .set("enable.partition.eof", "false");
         if kafka.kafka_tls {
-            client
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
+            client.set("security.protocol", "ssl");
         }
         if !kafka.kafka_client_rack.is_empty() {
             client.set("client.rack", &kafka.kafka_client_rack);

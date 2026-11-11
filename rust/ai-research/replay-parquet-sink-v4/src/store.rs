@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use aws_sdk_s3::error::DisplayErrorContext;
 
 use crate::batcher::{IndexStore, StoreError};
 
@@ -51,7 +52,7 @@ impl IndexStore for S3Store {
                 {
                     Ok(())
                 }
-                Err(error) => Err(StoreError(error.to_string())),
+                Err(error) => Err(StoreError(DisplayErrorContext(error).to_string())),
             }
         })
         .await
@@ -68,7 +69,7 @@ impl IndexStore for S3Store {
                 .send()
                 .await
                 .map(|_| ())
-                .map_err(|error| StoreError(error.to_string()))
+                .map_err(|error| StoreError(DisplayErrorContext(error).to_string()))
         })
         .await
     }

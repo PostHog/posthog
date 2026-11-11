@@ -36,6 +36,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     config.validate()?;
     tracing::info!(topic = %config.topic, group = %config.group_id, "starting the v4 Parquet sink");
 
+    // Before any component registers, because a component keeps the health gauge it creates at registration.
+    let recorder = PrometheusBuilder::new().install_recorder()?;
     let mut manager = Manager::builder("replay-parquet-sink-v4")
         .with_global_shutdown_timeout(SHUTDOWN_FLUSH + Duration::from_secs(20))
         .build();
@@ -54,7 +56,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let monitor = manager.monitor_background();
 
     let watermark = Arc::new(Mutex::new(CaptureWatermark::default()));
-    let recorder = PrometheusBuilder::new().install_recorder()?;
     let gauge = watermark.clone();
     let port = config.metrics_port;
     tokio::spawn(async move {
@@ -112,6 +113,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             max_rows: config.max_rows,
             max_bytes: config.max_bytes,
             row_group_rows: config.row_group_rows,
+            owned_for: consumer::OWNED_FOR,
         },
         now_ms(),
     );
