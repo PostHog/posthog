@@ -76,6 +76,7 @@ export const TransactionalEmailRequestSchema = z.object({
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
+export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 

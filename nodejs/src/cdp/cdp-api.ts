@@ -54,6 +54,7 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
+    ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
     AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
@@ -71,6 +72,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { AttachmentUploads, countUploadRequest } from './services/messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -237,6 +239,7 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
+    private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
@@ -323,6 +326,10 @@ export class CdpApi {
             deps.idempotencyValkey ?? null,
             'transactional-email'
         )
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
+            teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
+            maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
+        })
         // The same workers that wake parked steps wake parked batch resolvers, so they share the
         // key. The audience keeps a step-resume token from waking a batch, and the reverse.
         this.resumeBatchJwt = new ScopedServiceJwt(
@@ -426,6 +433,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
+        )
+        router.post(
+            '/api/projects/:team_id/transactional_email/attachments/uploads',
+            asyncHandler(this.postAttachmentUploads)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -1448,6 +1459,29 @@ export class CdpApi {
                 stages.finish()
             }
         }
+
+    private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        if (!this.transactionalEmailJwt.enabled) {
+            countUploadRequest('not_configured')
+            return res.status(503).json({
+                error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+            })
+        }
+        if (
+            !this.verifyScopedWorkflowJwt(
+                this.transactionalEmailJwt,
+                req,
+                res,
+                'attachment upload',
+                ATTACHMENT_UPLOAD_TOKEN_CLAIMS
+            )
+        ) {
+            countUploadRequest('unauthorized')
+            return
+        }
+        const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
+        return res.status(status).json(body)
+    }
 
     // The email worker skips a send for these reasons too, but only after the caller has its 202. Checking them
     // here tells the caller that the email will not go out. The worker keeps its checks, because the state can
