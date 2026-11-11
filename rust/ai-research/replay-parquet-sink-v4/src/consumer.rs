@@ -201,16 +201,18 @@ async fn with_heartbeat<T>(handle: &Handle, work: impl Future<Output = T>) -> T 
     }
 }
 
-/// Returns true when the error disabled the client for good, so only a restart recovers.
-fn receive_failed(consumer: &SinkConsumer, handle: &Handle, error: &KafkaError) -> bool {
+/// The reason the client failed for good, when only a restart recovers it.
+fn receive_failed(consumer: &SinkConsumer, error: &KafkaError) -> Option<String> {
     tracing::warn!(%error, "kafka receive failed");
     counter!("ai_research_v4_parquet_sink_kafka_errors_total").increment(1);
-    match consumer.consumer.client().fatal_error() {
-        Some((code, reason)) => {
-            handle.signal_failure(format!("kafka consumer fatal error {code}: {reason}"));
-            true
-        }
-        None => false,
+    let (code, reason) = consumer.consumer.client().fatal_error()?;
+    Some(format!("kafka consumer fatal error {code}: {reason}"))
+}
+
+fn release_revoked<O: OffsetStore>(consumer: &SinkConsumer, batcher: &mut Batcher<O>) {
+    let revoked = consumer.take_revoked();
+    if !revoked.is_empty() {
+        batcher.release(&revoked);
     }
 }
 
@@ -220,13 +222,12 @@ fn add_batch<O: OffsetStore>(
     consumer: &SinkConsumer,
     batcher: &mut Batcher<O>,
     first: BorrowedMessage<'_>,
-    handle: &Handle,
-) -> bool {
+) -> Option<String> {
     let topic = consumer.topic();
     let mut segment = Vec::with_capacity(POLL_BATCH);
     let mut received = 0;
     let mut next = Some(first);
-    let mut fatal = false;
+    let mut fatal = None;
     while let Some(borrowed) = next.take() {
         let revoked = consumer.take_revoked();
         if !revoked.is_empty() {
@@ -244,7 +245,7 @@ fn add_batch<O: OffsetStore>(
         if received < POLL_BATCH {
             match consumer.consumer.recv().now_or_never() {
                 Some(Ok(borrowed)) => next = Some(borrowed),
-                Some(Err(error)) => fatal = receive_failed(consumer, handle, &error),
+                Some(Err(error)) => fatal = receive_failed(consumer, &error),
                 None => {}
             }
         }
@@ -255,11 +256,13 @@ fn add_batch<O: OffsetStore>(
             .map(|m| message(topic, m))
             .collect::<Vec<_>>(),
     );
-    let revoked = consumer.take_revoked();
-    if !revoked.is_empty() {
-        batcher.release(&revoked);
-    }
     fatal
+}
+
+enum Step {
+    Continue,
+    Shutdown,
+    Fatal(String),
 }
 
 pub async fn consume<O: OffsetStore>(
@@ -270,23 +273,28 @@ pub async fn consume<O: OffsetStore>(
     let shutdown = handle.shutdown_signal();
     tokio::pin!(shutdown);
     let mut tick = tokio::time::interval(IDLE_TICK);
+    let mut failure = None;
     loop {
-        let stop = tokio::select! {
-            _ = &mut shutdown => break,
-            _ = tick.tick() => {
-                let revoked = consumer.take_revoked();
-                if !revoked.is_empty() {
-                    batcher.release(&revoked);
-                }
-                false
+        let step = tokio::select! {
+            _ = &mut shutdown => Step::Shutdown,
+            _ = tick.tick() => Step::Continue,
+            received = consumer.consumer.recv() => {
+                let fatal = match received {
+                    Ok(first) => add_batch(&consumer, &mut batcher, first),
+                    Err(error) => receive_failed(&consumer, &error),
+                };
+                fatal.map_or(Step::Continue, Step::Fatal)
             }
-            received = consumer.consumer.recv() => match received {
-                Ok(first) => add_batch(&consumer, &mut batcher, first, &handle),
-                Err(error) => receive_failed(&consumer, &handle, &error),
-            },
         };
-        if stop {
-            break;
+        // A poll can run the rebalance callback and still return nothing, so every step releases what it revoked.
+        release_revoked(&consumer, &mut batcher);
+        match step {
+            Step::Continue => {}
+            Step::Shutdown => break,
+            Step::Fatal(reason) => {
+                failure = Some(reason);
+                break;
+            }
         }
         handle.report_healthy();
         let now = now_ms();
@@ -294,7 +302,7 @@ pub async fn consume<O: OffsetStore>(
             if let Err(error) = with_heartbeat(&handle, batcher.flush(now)).await {
                 // Nothing of this flush is stored. The shutdown flush below tries once more.
                 tracing::error!(%error, "flush failed");
-                handle.signal_failure(format!("flush failed: {error}"));
+                failure = Some(format!("flush failed: {error}"));
                 break;
             }
         } else if batcher.watermark_files_due(now) {
@@ -306,4 +314,8 @@ pub async fn consume<O: OffsetStore>(
         tracing::warn!(%error, "ai_research_v4_parquet_sink_shutdown_flush_failed");
     }
     consumer.commit_stored();
+    // Reported only now: a failed component ends the process, which would cancel the flush above.
+    if let Some(reason) = failure {
+        handle.signal_failure(reason);
+    }
 }

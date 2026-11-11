@@ -649,7 +649,7 @@ A row that the sink holds but has not written keeps the value at or below its ca
 The sink rewrites its files once every `WATERMARK_FILE_INTERVAL` (`batcher.rs`), on the first flush or poll after the interval, also when no rows arrive.
 A value can rise without new rows, because the watermark also counts the rows that it finished in the last `FINISHED_WINDOW_MS` (`watermark.rs`).
 Each write is a plain PUT that replaces the file.
-A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. The sink handles a revoke only after its writes end, so a write never replaces a file that the next owner of the partition wrote.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
 To learn how far the sink has written an index, a reader:
@@ -661,7 +661,7 @@ To learn how far the sink has written an index, a reader:
 Some limits apply:
 
 - A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
-- When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
+- When the sink loses a partition, it handles the revoke only after its watermark writes return or time out. A write that timed out can still land in S3. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
 - A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
 - The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete. The [recorder watermark files](#recorder-watermark-files) cover the recorder.
 - A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
