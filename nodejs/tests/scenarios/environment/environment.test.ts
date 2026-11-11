@@ -549,6 +549,27 @@ describe('scenario environment', () => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
         }
+        const bindWithoutListening = async (role: Role): Promise<() => void> => {
+            const holder = spawn(
+                'python3',
+                [
+                    '-c',
+                    "import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1]))); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0); print('bound', flush=True); time.sleep(60)",
+                    String(ROLE_PORTS[role]),
+                ],
+                { stdio: ['ignore', 'pipe', 'inherit'] }
+            )
+            const said = await new Promise<string>((resolve, reject) => {
+                holder.once('error', reject)
+                holder.once('exit', (code) => reject(new Error(`python3 exited with ${code} before it bound the port`)))
+                holder.stdout!.once('data', (chunk) => resolve(String(chunk).trim()))
+            })
+            if (said !== 'bound') {
+                holder.kill('SIGKILL')
+                throw new Error(`python3 said ${said} instead of bound`)
+            }
+            return () => holder.kill('SIGKILL')
+        }
         const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
         const answersSoFar = (): number =>
             existsSync(path.join(fakes, 'answers')) ? Number(readFileSync(path.join(fakes, 'answers'), 'utf8')) : 0
@@ -788,17 +809,34 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('refuses a role port another server already answers on, naming the port and how to see its holder', async () => {
-            await holdPort('cdp-processed-events')
-            environment = environmentOf()
+        it.each<[string, (role: Role) => Promise<() => void>]>([
+            [
+                'answers on',
+                async (role) => {
+                    await holdPort(role)
+                    return () => undefined
+                },
+            ],
+            ['binds without listening on', bindWithoutListening],
+        ])(
+            'refuses a role port another process %s, naming the port and how to see its holder',
+            async (_name, hold) => {
+                const release = await hold('cdp-processed-events')
+                try {
+                    environment = environmentOf()
 
-            await expect(environment.up()).rejects.toMatchObject({
-                exitCode: 2,
-                message: expect.stringMatching(
-                    /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
-                ),
-            })
-        }, 30_000)
+                    await expect(environment.up()).rejects.toMatchObject({
+                        exitCode: 2,
+                        message: expect.stringMatching(
+                            /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
+                        ),
+                    })
+                } finally {
+                    release()
+                }
+            },
+            30_000
+        )
 
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
             const {
