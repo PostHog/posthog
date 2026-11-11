@@ -1695,22 +1695,25 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
-                it('charges it once, and waits before the retry, when the ownership check of the first try fails', async () => {
+                it('charges it once, waits before each retry, and sends once the ownership check failed on each of its retries', async () => {
                     const emailService = sender({ teamDailyCap: 2 })
-                    let checkFails = true
-                    emailService.checkJobOwnershipBeforeSend(() =>
-                        checkFails
+                    emailService.checkJobOwnershipBeforeSend((checked) =>
+                        checked.id === invocation.id
                             ? Promise.reject(new Error('Connection terminated unexpectedly'))
                             : Promise.resolve(true)
                     )
 
-                    const retried = await emailService.executeSendEmail(invocation)
-                    checkFails = false
-                    expect(retried.finished).toBe(false)
-                    expect(retried.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-                    await untilDue(retried.invocation.queueScheduledAt!)
-                    const result = await emailService.executeSendEmail(retried.invocation)
+                    const stopped: boolean[] = []
+                    let result = await emailService.executeSendEmail(invocation)
+                    while (!result.finished && stopped.length < 10) {
+                        stopped.push(
+                            deliveredTo(ses, recipient).length === 0 &&
+                                result.invocation.queueScheduledAt!.toMillis() > Date.now()
+                        )
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
 
+                    expect(stopped).toEqual([true, true, true, true, true])
                     expect(result.finished).toBe(true)
                     expect(deliveredTo(ses, recipient)).toHaveLength(1)
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
@@ -1797,20 +1800,6 @@ describe('EmailService', () => {
                     expect(deliveredTo(ses, recipient)).toEqual([])
                 }
             )
-
-            it('sends without the ownership check once that check failed on each of its retries', async () => {
-                const emailService = sender()
-                emailService.checkJobOwnershipBeforeSend(() =>
-                    Promise.reject(new Error('Connection terminated unexpectedly'))
-                )
-                send([pdf])
-                invocation.queueMetadata = { ...invocation.queueMetadata, ownershipCheckRetries: 5 }
-
-                const result = await emailService.executeSendEmail(invocation)
-
-                expect(outcomeOf(result)).toEqual(sent)
-                expect(deliveredTo(ses, recipient)).toHaveLength(1)
-            })
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })

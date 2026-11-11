@@ -3046,33 +3046,50 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('starts a new run once the previous one has run past its stuck limit', async () => {
-            const applicationName = `janitor-stuck-${uuidv7()}`
-            const janitorQueriesRunning = async (): Promise<number> => {
-                const { rows } = await assertPool.query<{ n: number }>(
-                    `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1 AND state = 'active'`,
-                    [applicationName]
-                )
-                return rows[0].n
-            }
-            const blocker = await assertPool.connect()
-            await blocker.query('BEGIN')
-            await blocker.query('LOCK TABLE conversion_watchers IN ACCESS EXCLUSIVE MODE')
-            const stuckBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')
-            const janitor = createJanitor({
-                pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
-                cleanupIntervalMs: 10,
-                stuckRunAfterMs: 200,
+        it('resets a stalled job in a new run while the previous run is stuck past its limit', async () => {
+            const stuckTeam = 434343
+            const holdKey = 434343
+            await insertRawJob({
+                id: uuidv7(),
+                team_id: stuckTeam,
+                status: 'completed',
+                last_transition: new Date(Date.now() - 60_000),
             })
+            const stalledId = uuidv7()
+            await insertRawJob({
+                id: stalledId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION hold_janitor_stuck_test_delete() RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.team_id = ${stuckTeam} THEN
+                        PERFORM pg_advisory_lock(${holdKey});
+                        PERFORM pg_advisory_unlock(${holdKey});
+                    END IF;
+                    RETURN OLD;
+                END
+                $$ LANGUAGE plpgsql`)
+            await assertPool.query(`
+                CREATE OR REPLACE TRIGGER hold_janitor_stuck_test_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION hold_janitor_stuck_test_delete()`)
+            const holder = await assertPool.connect()
+            await holder.query('SELECT pg_advisory_lock($1)', [holdKey])
+            const stuckBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 10, stuckRunAfterMs: 200 })
             const started = janitor.start()
             try {
-                await waitForExpect(async () => expect(await janitorQueriesRunning()).toBeGreaterThanOrEqual(2), 3000)
+                await waitForExpect(async () => expect((await queryJob(stalledId)).status).toBe('available'), 3000)
                 expect(await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')).toBeGreaterThan(stuckBefore)
             } finally {
-                await blocker.query('COMMIT')
-                blocker.release()
+                await holder.query('SELECT pg_advisory_unlock($1)', [holdKey])
+                holder.release()
                 await started
                 await janitor.stop()
+                await assertPool.query('DROP TRIGGER hold_janitor_stuck_test_delete ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION hold_janitor_stuck_test_delete()')
             }
         })
 
