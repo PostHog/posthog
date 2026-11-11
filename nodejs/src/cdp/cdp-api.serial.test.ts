@@ -4,6 +4,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -41,6 +42,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -2407,10 +2409,6 @@ describe('CDP API', () => {
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
             const otherSenderId = codeSend.from.integrationId + 3
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
-            const queuedJobIds = (): string[] =>
-                mockQueueInvocations.mock.calls.flatMap(([invocations]) =>
-                    invocations.map((invocation: { id: string }) => invocation.id)
-                )
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
@@ -2434,21 +2432,33 @@ describe('CDP API', () => {
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
-                    const sent = await sendKeyedOn(route, first)
-                    const replayed = await sendKeyedOn(route, retry)
+                    const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                    const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                    await queue.startAsProducer()
+                    api['hogflowQueue'] = queue
+                    try {
+                        const sent = await sendKeyedOn(route, first)
+                        const replayed = await sendKeyedOn(route, retry)
 
-                    expect(sent.status).toEqual(202)
-                    expect(sent.body).toMatchObject({ replayed: false })
-                    expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({
-                        status: 'queued',
-                        invocation_id: sent.body.invocation_id,
-                        replayed: true,
-                    })
-                    expect(queuedJobIds()).toEqual([sent.body.invocation_id])
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                    ])
+                        expect(sent.status).toEqual(202)
+                        expect(sent.body).toMatchObject({ replayed: false })
+                        expect(replayed.status).toEqual(202)
+                        expect(replayed.body).toEqual({
+                            status: 'queued',
+                            invocation_id: sent.body.invocation_id,
+                            replayed: true,
+                        })
+                        const { rows } = await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [
+                            hogFlow.id,
+                        ])
+                        expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
+                        expect(emailStatusRows()).toEqual([
+                            expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
+                        ])
+                    } finally {
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    }
                 }
             )
 
