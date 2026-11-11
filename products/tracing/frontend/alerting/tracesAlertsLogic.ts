@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
 import {
     platformAlertsDestroy,
     platformAlertsList,
@@ -17,9 +18,12 @@ import {
 } from 'products/alerts_platform/frontend/generated/api'
 import {
     PatchedTracesPlatformAlertConfigurationEditApiSourceKind,
+    PlatformAlertCreateDestinationApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
+
+import { snoozeUntilError } from './tracesAlertUtils'
 
 const ALERT_POLL_INTERVAL_MS = 30_000
 
@@ -73,6 +77,13 @@ export interface tracesAlertsLogicActions {
     }
     openEditAlertModal: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
+    }
+    openEditWithFailedDestinations: (
+        alert: PlatformAlertConfigurationApi,
+        destinations: PlatformAlertCreateDestinationApi[]
+    ) => {
+        alert: PlatformAlertConfigurationApi
+        destinations: PlatformAlertCreateDestinationApi[]
     }
     openHistoryModal: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
@@ -149,6 +160,10 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
         openCreateAlertModal: true,
         closeCreateAlertModal: true,
         openEditAlertModal: (alert: PlatformAlertConfigurationApi) => ({ alert }),
+        openEditWithFailedDestinations: (
+            alert: PlatformAlertConfigurationApi,
+            destinations: PlatformAlertCreateDestinationApi[]
+        ) => ({ alert, destinations }),
         closeEditAlertModal: true,
         openHistoryModal: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         closeHistoryModal: true,
@@ -217,13 +232,26 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setCreatedByFilter: () => actions.loadAlerts(),
         openCreateAlertModal: () => {
             posthog.capture('traces alert create started')
         },
         openEditAlertModal: () => {
             posthog.capture('traces alert edit started')
+        },
+        openEditWithFailedDestinations: ({ alert, destinations }) => {
+            // The saved alert's editor keys its destinations by the alert's id, so the ones that failed
+            // during the create move there, mounted until the modal closes, to be retried.
+            const destinationsLogic = platformAlertDestinationsLogic({ alertId: alert.id, sourceKind: 'traces' })
+            cache.unmountFailedDestinations?.()
+            cache.unmountFailedDestinations = destinationsLogic.mount()
+            destinationsLogic.actions.setPendingDestinations(destinations)
+            actions.openEditAlertModal(alert)
+        },
+        closeEditAlertModal: () => {
+            cache.unmountFailedDestinations?.()
+            cache.unmountFailedDestinations = null
         },
         openHistoryModal: () => {
             posthog.capture('traces alert history viewed')
@@ -283,10 +311,16 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
             }
         },
         snoozeAlertUntil: async ({ alertId, snoozeUntil }) => {
+            const resolved = resolveSnoozeUntil(snoozeUntil)
+            const error = snoozeUntilError(resolved)
+            if (error) {
+                lemonToast.error(error)
+                return
+            }
             actions.setSnoozingAlertId(alertId, true)
             try {
                 await platformAlertsSnoozeCreate(String(values.currentTeamId), alertId, {
-                    snooze_until: resolveSnoozeUntil(snoozeUntil),
+                    snooze_until: resolved,
                 })
                 posthog.capture('traces alert snoozed')
                 actions.loadAlerts()

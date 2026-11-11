@@ -147,6 +147,14 @@ const EVENTS: PlatformAlertEventApi[] = [
         state: 'firing',
         value: 0.083,
         error_message: null,
+        grouping_key: '',
+        condition: {
+            measure: 'error_rate',
+            percentile: null,
+            threshold: 0.05,
+            threshold_operator: 'above',
+            window_minutes: 5,
+        },
     },
     {
         occurred_at: '2026-11-11T09:10:00Z',
@@ -155,6 +163,8 @@ const EVENTS: PlatformAlertEventApi[] = [
         state: 'snoozed',
         value: null,
         error_message: null,
+        grouping_key: '',
+        condition: {},
     },
     {
         occurred_at: '2026-11-10T22:05:00Z',
@@ -163,6 +173,14 @@ const EVENTS: PlatformAlertEventApi[] = [
         state: 'not_firing',
         value: 0.012,
         error_message: null,
+        grouping_key: '',
+        condition: {
+            measure: 'error_rate',
+            percentile: null,
+            threshold: 0.05,
+            threshold_operator: 'above',
+            window_minutes: 5,
+        },
     },
 ]
 

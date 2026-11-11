@@ -1,6 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -23,16 +23,27 @@ import { tracesAlertEventHistoryLogic } from './tracesAlertEventHistoryLogic'
 import { formatMeasured, measureLabel, tracesSourceConfig } from './tracesAlertUtils'
 
 export function TracesAlertEventHistory({ alert }: { alert: PlatformAlertConfigurationApi }): JSX.Element {
+    const groupNames = Object.fromEntries(
+        alert.alerts.map((instance) => [instance.grouping_key, Object.values(instance.labels).join(' · ')])
+    )
     return (
         <BindLogic logic={tracesAlertEventHistoryLogic} props={{ alertId: alert.id }}>
-            <TracesAlertEventTimeline condition={tracesSourceConfig(alert)?.condition} />
+            <TracesAlertEventTimeline condition={tracesSourceConfig(alert)?.condition} groupNames={groupNames} />
         </BindLogic>
     )
 }
 
+/** The condition a check was evaluated against, as recorded with it. Older checks may hold another measure. */
+function checkedCondition(event: PlatformAlertEventApi): TracesPlatformAlertConditionApi | undefined {
+    const condition = event.condition as Partial<TracesPlatformAlertConditionApi>
+    return condition.measure && typeof condition.threshold === 'number'
+        ? (condition as TracesPlatformAlertConditionApi)
+        : undefined
+}
+
 // The chart plots an error rate as a percentage, so its axis reads in the same unit as the labels.
-function charted(condition: TracesPlatformAlertConditionApi | undefined, value: number): number {
-    return condition?.measure === 'error_rate' ? value * 100 : value
+function charted(condition: TracesPlatformAlertConditionApi, value: number): number {
+    return condition.measure === 'error_rate' ? value * 100 : value
 }
 
 function historyThresholds(condition: TracesPlatformAlertConditionApi): AlertEvaluationThreshold[] {
@@ -46,12 +57,18 @@ function historyThresholds(condition: TracesPlatformAlertConditionApi): AlertEva
     ]
 }
 
+/** Checks in the current condition's measure only, because one axis cannot hold a count and a latency. */
 function historyPoints(
     events: PlatformAlertEventApi[],
-    condition: TracesPlatformAlertConditionApi | undefined
+    condition: TracesPlatformAlertConditionApi
 ): AlertEvaluationHistoryPoint[] {
     return events
-        .filter((event) => event.kind === PlatformAlertEventKindEnumApi.Check && event.value !== null)
+        .filter(
+            (event) =>
+                event.kind === PlatformAlertEventKindEnumApi.Check &&
+                event.value !== null &&
+                (checkedCondition(event)?.measure ?? condition.measure) === condition.measure
+        )
         .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at))
         .map((event) => ({
             label: dayjs(event.occurred_at).format('MMM D, HH:mm'),
@@ -62,11 +79,14 @@ function historyPoints(
 
 function TracesAlertEventTimeline({
     condition,
+    groupNames,
 }: {
     condition: TracesPlatformAlertConditionApi | undefined
+    groupNames: Record<string, string>
 }): JSX.Element {
-    const { events, eventsLoading } = useValues(tracesAlertEventHistoryLogic)
-    const points = historyPoints(events, condition)
+    const { events, eventsLoading, eventsLoadFailed } = useValues(tracesAlertEventHistoryLogic)
+    const { loadEvents } = useActions(tracesAlertEventHistoryLogic)
+    const points = condition ? historyPoints(events, condition) : []
 
     const columns: LemonTableColumns<PlatformAlertEventApi> = [
         {
@@ -84,10 +104,20 @@ function TracesAlertEventTimeline({
             title: 'Detail',
             render: (_, event) => {
                 const { detail } = describeEvent(event, condition)
-                return detail ? <span className="text-muted text-xs">{detail}</span> : null
+                const group = event.grouping_key ? groupNames[event.grouping_key] : undefined
+                const shown = [group, detail].filter(Boolean).join(' · ')
+                return shown ? <span className="text-muted text-xs">{shown}</span> : null
             },
         },
     ]
+
+    if (eventsLoadFailed && !eventsLoading) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadEvents() }}>
+                Could not load this alert's history. Retry, and if it keeps failing, contact support.
+            </LemonBanner>
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -104,7 +134,7 @@ function TracesAlertEventTimeline({
                 <LemonTable
                     columns={columns}
                     dataSource={events}
-                    rowKey={(event) => `${event.kind}-${event.occurred_at}`}
+                    rowKey={(event) => `${event.kind}-${event.occurred_at}-${event.grouping_key}`}
                     loading={eventsLoading}
                     emptyState="No history yet. Checks that change the alert's state, and changes people make, appear here."
                     size="small"
@@ -134,7 +164,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
 
 function describeEvent(
     event: PlatformAlertEventApi,
-    condition: TracesPlatformAlertConditionApi | undefined
+    current: TracesPlatformAlertConditionApi | undefined
 ): EventDescription {
     if (event.kind !== PlatformAlertEventKindEnumApi.Check) {
         return {
@@ -142,6 +172,8 @@ function describeEvent(
             detail: event.previous_state === event.state ? null : `${event.previous_state} → ${event.state}`,
         }
     }
+    // A check's value reads in the unit of the condition it was checked against, not today's.
+    const condition = checkedCondition(event) ?? current
     const measured =
         event.value !== null && condition
             ? `${measureLabel(condition)} ${formatMeasured(condition, event.value)}`

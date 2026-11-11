@@ -217,6 +217,10 @@ export function PlatformAlertStateTimeline({
     const tzSuffix = tz ? ` ${tz}` : ''
     const tooltipClientX = hover && hoverInfo ? hover.barLeft + hoverInfo.hairlineX : 0
 
+    // A flapping alert has more intervals than the bar has room for at the minimum, and forcing it
+    // would push the newest ones, the current state among them, out of view.
+    const minIntervalPx = measuredWidth >= timeline.length * MIN_INTERVAL_PX ? MIN_INTERVAL_PX : 0
+
     const bar = (
         <div
             ref={containerRef}
@@ -235,7 +239,7 @@ export function PlatformAlertStateTimeline({
                             }}
                             className={cn('h-full', bgForInterval(interval.state, interval.enabled))}
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ flex: `${flex} 0 0`, minWidth: MIN_INTERVAL_PX }}
+                            style={{ flex: `${flex} 0 0`, minWidth: minIntervalPx }}
                         />
                     )
                 })}

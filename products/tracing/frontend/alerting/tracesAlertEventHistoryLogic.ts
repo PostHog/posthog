@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +17,7 @@ const HISTORY_LIMIT = 100
 export interface tracesAlertEventHistoryLogicValues {
     currentTeamId: number | null // teamLogic
     events: PlatformAlertEventApi[]
+    eventsLoadFailed: boolean
     eventsLoading: boolean
 }
 
@@ -59,6 +60,14 @@ export const tracesAlertEventHistoryLogic = kea<tracesAlertEventHistoryLogicType
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
+
+    reducers({
+        // A failed load leaves the list empty, which must not read as an alert with no history.
+        eventsLoadFailed: [
+            false,
+            { loadEvents: () => false, loadEventsSuccess: () => false, loadEventsFailure: () => true },
+        ],
+    }),
 
     loaders(({ props, values }) => ({
         events: [

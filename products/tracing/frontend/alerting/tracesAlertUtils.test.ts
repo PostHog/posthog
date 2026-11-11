@@ -7,7 +7,14 @@ import {
     TracesAlertThresholdOperatorApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { TracesAlertFormType, buildFormDefaults, toWritePayload, validateForm } from './tracesAlertUtils'
+import {
+    TracesAlertFormType,
+    buildFormDefaults,
+    indicatorState,
+    snoozeUntilError,
+    toWritePayload,
+    validateForm,
+} from './tracesAlertUtils'
 
 function savedAlert(payload: ReturnType<typeof toWritePayload>): PlatformAlertConfigurationApi {
     return {
@@ -75,5 +82,27 @@ describe('tracesAlertUtils', () => {
         ['a negative cooldown', form({ cooldownMinutes: -5 }), 'cooldownMinutes'],
     ])('refuses %s, which the API would reject', (_, invalid, field) => {
         expect(Object.keys(validateForm(invalid))).toEqual([field])
+    })
+
+    it.each([
+        ['an active snooze shows as snoozed', { snooze_until: '2099-01-01T00:00:00Z' }, 'snoozed'],
+        ['a snooze that ran out shows the groups', { snooze_until: '2000-01-01T00:00:00Z' }, 'not_firing'],
+        [
+            'a broken check outranks a snooze',
+            { snooze_until: '2099-01-01T00:00:00Z', check_status: 'broken' },
+            'broken',
+        ],
+    ])('%s', (_, fields, expected) => {
+        const alert = { enabled: true, alerts: [], check_status: 'ok', snooze_until: null, ...fields }
+        expect(indicatorState(alert as unknown as PlatformAlertConfigurationApi)).toBe(expected)
+    })
+
+    it.each([
+        ['in the past', '2026-01-01T11:00:00Z', 'future'],
+        ['more than 30 days away', '2026-02-15T12:00:00Z', '30 days'],
+        ['tomorrow', '2026-01-02T12:00:00Z', null],
+    ])('checks a snooze %s against the API bounds', (_, until, expected) => {
+        const error = snoozeUntilError(until, new Date('2026-01-01T12:00:00Z'))
+        expect(error ?? null).toEqual(expected ? expect.stringContaining(expected) : null)
     })
 })

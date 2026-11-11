@@ -324,6 +324,24 @@ export function indicatorState(alert: PlatformAlertConfigurationApi): PlatformAl
     if (alert.check_status === 'broken' || alert.check_status === 'errored') {
         return alert.check_status
     }
+    // A whole-alert snooze is kept on the configuration, not on its groups' states.
+    if (alert.enabled && alert.snooze_until && new Date(alert.snooze_until) > new Date()) {
+        return 'snoozed'
+    }
     const status = configurationStatus(alert)
     return status === 'disabled' || status === 'not_checked' ? 'not_firing' : status
+}
+
+// The API refuses a snooze further out than this, so a picked date past it gets a clear message instead.
+export const MAX_SNOOZE_DAYS = 30
+
+/** Why a snooze until `snoozeUntil` would be refused, or null when it is within the API's bounds. */
+export function snoozeUntilError(snoozeUntil: string, now: Date = new Date()): string | null {
+    const until = new Date(snoozeUntil).getTime()
+    if (!(until > now.getTime())) {
+        return 'Pick a time in the future.'
+    }
+    return until > now.getTime() + MAX_SNOOZE_DAYS * 24 * 60 * 60 * 1000
+        ? `An alert can be snoozed for up to ${MAX_SNOOZE_DAYS} days.`
+        : null
 }
