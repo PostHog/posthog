@@ -200,7 +200,6 @@ def code_send_sender_id(*, team_id: int, email: str | None) -> int:
 
 
 def code_send_sandbox_sender_available(team: Team) -> bool:
-    """Whether a code send with no verified sender can go out from the team's sandbox sender instead."""
     return not has_verified_own_sender(team.id) and sandbox_adoption_enabled(team) and not organization_blocked(team)
 
 
