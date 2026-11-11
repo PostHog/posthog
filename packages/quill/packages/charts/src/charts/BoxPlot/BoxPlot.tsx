@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
+import { seriesKeysAtCursor } from '../../core/band-slot'
 import {
     drawAxes,
     drawBoxes,
@@ -33,7 +34,6 @@ import type {
 import { BoxPlotTooltip } from './BoxPlotTooltip'
 import { computeBoxRect, computeSeriesBoxes } from './computeBoxLayout'
 import type { BoxPlotDatum, BoxPlotSeries } from './types'
-import { seriesKeysAtCursor } from './utils/boxes-under-cursor'
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover
  *  can read the d3 scales and the per-series datums lookup without recomputing them. */
@@ -345,7 +345,7 @@ function BoxPlotInner<Meta = unknown>({
             // Same band-axis hit-test as BarChart's hover layer — anchors the highlight to
             // whichever group slot the cursor lines up with. `seriesKeysAtCursor` is now
             // band-only, so we only materialise the full `BoxRect` for hit series in the loop.
-            const hits = seriesKeysAtCursor<Meta>({
+            const hits = seriesKeysAtCursor({
                 series,
                 label: hoveredLabel,
                 dataIndex: hoverIndex,

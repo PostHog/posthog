@@ -1,25 +1,7 @@
-import { type BarScaleSet, groupedBandSlot } from '../../core/scales'
-import type { BandSlot, BoxRect } from '../../core/types'
+import { computeBandSlot } from '../../core/band-slot'
+import type { BarScaleSet } from '../../core/scales'
+import type { BoxRect } from '../../core/types'
 import type { BoxPlotDatum } from './types'
-
-/** Resolve only the band-axis extent of a (series, x) slot. Cheap — touches the band/group
- *  scales and nothing on the value axis — so callers like band-only hit-testing don't pay
- *  for six value-axis lookups they'd immediately throw away. */
-export function computeBoxBand(
-    seriesKey: string,
-    label: string,
-    scales: BarScaleSet,
-    grouped: boolean
-): BandSlot | null {
-    if (grouped) {
-        return groupedBandSlot(scales, label, seriesKey) ?? null
-    }
-    const bandStart = scales.band(label)
-    if (bandStart == null) {
-        return null
-    }
-    return { x: bandStart, width: scales.band.bandwidth() }
-}
 
 export interface ComputeBoxRectOptions {
     seriesKey: string
@@ -53,7 +35,7 @@ export function computeBoxRect({
     if (!Number.isFinite(datum.median) || !Number.isFinite(datum.mean)) {
         return null
     }
-    const slot = computeBoxBand(seriesKey, label, scales, grouped)
+    const slot = computeBandSlot(seriesKey, label, scales, grouped)
     if (!slot) {
         return null
     }
