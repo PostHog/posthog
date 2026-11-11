@@ -114,7 +114,6 @@ class Metric(
     ai_model = models.CharField(
         max_length=128, blank=True, help_text="Model that generated the metric, if AI-authored."
     )
-    confidence = models.FloatField(null=True, blank=True, help_text="AI author's confidence in the proposal, 0-1.")
     reasoning = models.TextField(blank=True, help_text="AI author's reasoning, surfaced as review context.")
 
     class Meta:

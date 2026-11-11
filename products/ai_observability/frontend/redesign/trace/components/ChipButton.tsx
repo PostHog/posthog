@@ -1,6 +1,8 @@
 import { forwardRef, ReactNode } from 'react'
 
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonTagType } from '@posthog/lemon-ui'
+
+import { ChipTag } from './ChipTag'
 
 export interface ChipButtonProps {
     children: ReactNode
@@ -26,9 +28,9 @@ export const ChipButton = forwardRef<HTMLButtonElement, ChipButtonProps>(functio
             className="inline-flex rounded"
             {...rest}
         >
-            <LemonTag type={type} icon={icon} weight="normal" className="cursor-pointer">
+            <ChipTag type={type} icon={icon} weight="normal" className="cursor-pointer">
                 {children}
-            </LemonTag>
+            </ChipTag>
         </button>
     )
 })

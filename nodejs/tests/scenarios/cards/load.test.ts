@@ -226,12 +226,6 @@ describe('load', () => {
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
         ],
         [
-            'a profile that enables the SES webhook queue',
-            card,
-            { ...profile, settings: { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'true' } },
-            'profile.settings.CDP_SES_WEBHOOKS_QUEUE_ENABLED: ',
-        ],
-        [
             'a profile without the traffic a card drives',
             card,
             { ...profile, traffic: {} },
@@ -304,7 +298,7 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
     })
 
-    const settings = { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'false', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
+    const settings = { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: '10000', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
 
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],

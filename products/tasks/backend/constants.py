@@ -13,6 +13,8 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
 # ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
