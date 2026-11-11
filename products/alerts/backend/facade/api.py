@@ -142,12 +142,18 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     incidents first, which calls the providers, and a rollback cannot take a resolve back. The
     workflow retries each delete. An alert insight owns loses its destinations here.
     """
-    # Caller-supplied ids that are already team-scoped by the caller's own query.
-    # nosemgrep: idor-lookup-without-team
-    for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
-        if not alert.platform_owned:
-            retire_alert_hog_functions(team_id=alert.team_id, alert_id=str(alert.id))
-        alert.delete()
+    # The alert rows are locked, in id order, before any destination is saved. The alert API's delete
+    # locks the alert before its destinations too, so the two cannot deadlock on one alert.
+    with transaction.atomic():
+        # Caller-supplied ids that are already team-scoped by the caller's own query.
+        # nosemgrep: idor-lookup-without-team
+        alerts = list(
+            AlertConfiguration.objects.select_for_update(of=("self",)).filter(insight_id__in=insight_ids).order_by("id")
+        )
+        for alert in alerts:
+            if not alert.platform_owned:
+                retire_alert_hog_functions(team_id=alert.team_id, alert_id=str(alert.id))
+            alert.delete()
     # nosemgrep: idor-lookup-without-team
     insights_by_team: dict[int, list[int]] = {}
     for team_id, insight_id in Insight.objects_including_soft_deleted.filter(id__in=insight_ids).values_list(
