@@ -45,6 +45,7 @@ from products.stamphog.backend.facade.finished_review_hooks import FinishedRevie
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _HANDOFF_QUEUE = "products.review_hog.backend.tasks.process_stamphog_handoff.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_QUEUE_ROUTING = "products.review_hog.backend.automatic_reviews.queue_routing_after_external_review"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
 _HEAD_STATUS = "products.review_hog.backend.stamphog_handoff.HeadReviewStatusLookup.status"
 _SECRET = "test-review-hog-webhook-secret"
@@ -168,6 +169,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             github_repo_id=_REPO_ID,
             draft=draft,
             skip_agent_review=False,
+            action=action,
         )
 
     @parameterized.expand(
@@ -324,14 +326,14 @@ class TestAuthoredPRReviewTask(BaseTest):
         )
 
     def _queued_event(
-        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = (), action: str = "opened"
     ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels, action=action))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
-    def _expected_start(self, *, team_id: int, user_id: int) -> dict[str, object]:
+    def _expected_start(self, *, team_id: int, user_id: int, marks_ready: bool = True) -> dict[str, object]:
         return {
             "pr_url": "https://github.com/PostHog/posthog/pull/42",
             "team_id": team_id,
@@ -342,6 +344,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             "review_mode": "flash",
             "trigger_source": "automatic",
             "requested_head_sha": _HEAD_SHA,
+            "trigger_action": "opened",
+            "marks_ready": marks_ready,
             "installation_id": _INSTALLATION_ID,
             "github_repo_id": _REPO_ID,
         }
@@ -375,7 +379,9 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         process_authored_pr_event.run(**self._queued_event(draft=drafts))
 
-        start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+        start.assert_called_once_with(
+            **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not drafts)
+        )
         assert _dispatch_count("started") - started_before == 1.0
         # The first sighting stores GitHub's id, so a later rename keeps the row.
         self.repository.refresh_from_db()
@@ -383,21 +389,22 @@ class TestAuthoredPRReviewTask(BaseTest):
 
     @parameterized.expand(
         [
-            ("opted_out", "not_opted_in"),
-            ("repository_removed", "repository_not_added"),
-            ("inactive", "bot_skipped"),
-            ("left_org", "bot_skipped"),
-            ("unmapped", "bot_skipped"),
-            ("missing_installation", "installation_mismatch"),
-            ("full_review_published", "full_review_published"),
-            ("draft_with_drafts_off", "draft_skipped"),
-            ("draft_in_a_repository_without_drafts", "draft_skipped"),
-            ("skip_agent_review_label", "label_skipped"),
+            ("opted_out", "not_opted_in", True),
+            ("repository_removed", "repository_not_added", False),
+            ("inactive", "bot_skipped", True),
+            ("left_org", "bot_skipped", True),
+            ("unmapped", "bot_skipped", True),
+            ("missing_installation", "installation_mismatch", True),
+            ("full_review_published", "full_review_published", True),
+            ("draft_with_drafts_off", "draft_skipped", False),
+            ("draft_in_a_repository_without_drafts", "draft_skipped", False),
+            ("skip_agent_review_label", "label_skipped", True),
         ]
     )
+    @patch(_QUEUE_ROUTING)
     @patch(_START)
     def test_queued_events_recheck_ownership_consent_and_membership(
-        self, change: str, expected_outcome: str, start: MagicMock
+        self, change: str, expected_outcome: str, expect_reported: bool, start: MagicMock, report: MagicMock
     ) -> None:
         queued = self._queued_event(
             draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
@@ -437,6 +444,12 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
+        if expect_reported:
+            report.assert_called_once_with(
+                team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA
+            )
+        else:
+            report.assert_not_called()
 
     @parameterized.expand(
         [
@@ -473,7 +486,9 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**self._queued_event(login="dependabot[bot]", draft=draft))
 
         if expected_outcome == "started":
-            start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+            start.assert_called_once_with(
+                **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not draft)
+            )
         else:
             start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
