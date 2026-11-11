@@ -90,7 +90,7 @@ from products.engineering_analytics.backend.logic.merge_queue import source_pr_n
 
 # The source PR of a merge-queue gate branch, corroborated against the run's actor so a
 # contributor-named branch can't re-key someone else's runs onto their PR (see logic.merge_queue).
-_MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
+MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
 
 # An unfinished run with no update for a day. The webhook sync can miss or misorder the final event of a
 # run, most often a workflow that GitHub skips at once, and the row then stays in_progress or queued
@@ -203,7 +203,7 @@ def build_query(
                 -- SELECT is not reliably resolvable as another expression's input (see the two-layer
                 -- note above). It is the account GitHub recorded as triggering the run, which whoever
                 -- pushed the branch cannot set — that is what makes it usable as corroboration.
-                {_MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
+                {MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
                 {_MESSAGE_PR_NUMBER} AS message_pr_number,
                 -- repository is GitHub's MINIMAL repository representation: identity and URLs, never a
                 -- default_branch (the PR snapshot's base.repo carries that; see query_default_branches).
