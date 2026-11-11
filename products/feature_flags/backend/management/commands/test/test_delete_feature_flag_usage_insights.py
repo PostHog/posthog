@@ -164,8 +164,10 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
     def test_orphan_sweep_leaves_insights_on_a_soft_deleted_generated_dashboard(self) -> None:
         flag = self._flag_with_usage_dashboard("orphan")
         insights = self._usage_insights(flag)
+        dashboard_id = flag.usage_dashboard_id
+        assert dashboard_id is not None
         FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
-        Dashboard.objects_including_soft_deleted.filter(id=flag.usage_dashboard_id).update(deleted=True)
+        Dashboard.objects_including_soft_deleted.filter(id=dashboard_id).update(deleted=True)
 
         self._run("--include-orphaned")
 
