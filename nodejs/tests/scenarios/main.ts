@@ -74,7 +74,10 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
         await runner.down()
     }
     if (ran < cards.length) {
-        process.stderr.write(`Interrupted before ${cards.length - ran} of ${cards.length} cards ran.\n`)
+        const skipped = `${cards.length - ran} of ${cards.length} cards`
+        process.stderr.write(
+            interrupt.aborted ? `Interrupted before ${skipped} ran.\n` : `Skipped ${skipped} after the error.\n`
+        )
         code = Math.max(code, EXIT_CODE.invalid)
     }
     return code
