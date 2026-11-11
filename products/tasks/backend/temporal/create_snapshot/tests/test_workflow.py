@@ -101,6 +101,7 @@ class TestCreateSnapshotForRepositoryWorkflow:
 
         try:
             results = []
+            sandbox_ids: list[str] = []
             for _ in range(2):
                 result = await self._run_workflow(
                     github_integration_id=github_integration.id,
@@ -113,14 +114,15 @@ class TestCreateSnapshotForRepositoryWorkflow:
                 assert result.sandbox_id is not None
                 created_snapshots.append(await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id))
                 results.append(result)
+                sandbox_ids.append(result.sandbox_id)
 
             assert results[0].snapshot_id != results[1].snapshot_id
             for snapshot in created_snapshots:
                 assert snapshot.status == SandboxSnapshot.Status.COMPLETE
                 assert snapshot.external_id is not None
                 assert snapshot.repos == ["posthog/posthog-js"]
-            for result in results:
-                _wait_for_sandbox_shutdown(result.sandbox_id)
+            for sandbox_id in sandbox_ids:
+                _wait_for_sandbox_shutdown(sandbox_id)
 
         finally:
             for snapshot in created_snapshots:
