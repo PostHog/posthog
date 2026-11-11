@@ -173,3 +173,10 @@ class ConversationCheckpointsTool(ConsoleTool):
                 undo_hint="This cannot be undone. The deleted checkpoints are gone, and the latest state stays.",
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/posthog_ai/conversation/<uuid:pk>/compact/",
+    title="Compacting a conversation",
+    url="/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={pk}",
+)

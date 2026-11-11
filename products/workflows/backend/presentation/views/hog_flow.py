@@ -59,6 +59,7 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemViewSetMixin,
 )
+from posthog.api.utils import MAX_LISTED_IDS, parse_id_list
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -2767,6 +2768,13 @@ class SendCalendarQuerySerializer(serializers.Serializer):
             "days after start."
         )
     )
+    ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated workflow IDs, at most {MAX_LISTED_IDS}. Only these workflows are returned.",
+    )
+
+    def validate_ids(self, value: str) -> list[uuid_mod.UUID]:
+        return parse_id_list(value, name="ids", parse=uuid_mod.UUID) or []
 
     def validate(self, data: dict) -> dict:
         if data["end"] <= data["start"]:
@@ -5495,6 +5503,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             start=request.validated_query_data["start"],
             end=request.validated_query_data["end"],
+            workflow_ids=request.validated_query_data.get("ids"),
             # Service credentials are synthetic users that UserAccessControl cannot evaluate.
             user_access_control=None if is_service_auth(request) else self.user_access_control,
         )

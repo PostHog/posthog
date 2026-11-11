@@ -107,7 +107,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
 
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
-            oauth_integration.refresh_access_token()
+            integration = oauth_integration.refresh_access_token()
 
         if not integration.access_token:
             raise ValueError("Help Scout access token not found")

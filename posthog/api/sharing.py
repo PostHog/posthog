@@ -72,10 +72,10 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.facade.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.facade.api import get_dashboard
 from products.dashboards.backend.facade.contracts import DashboardSummary
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
 from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
