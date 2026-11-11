@@ -722,6 +722,18 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.expandedFolders).toContain('project://Billing')
     })
 
+    it('follows the open folder when an ancestor is renamed', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+
+        projectTreeDataLogic.actions.movedItem({ id: 'billing', path: 'Billing', type: 'folder' }, 'Billing', 'Archive')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentFolder).toBe('Archive/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
+    })
+
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing/Cards', false)

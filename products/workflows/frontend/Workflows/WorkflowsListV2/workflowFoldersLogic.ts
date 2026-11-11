@@ -841,6 +841,19 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 }
             }
             publishPlacements(cache, actions.setPlacements)
+            if (
+                item.type === 'folder' &&
+                values.value.filters.some((filter) => filter.facet === 'in' && isPathUnder(filter.value, oldPath))
+            ) {
+                actions.setValue({
+                    ...values.value,
+                    filters: values.value.filters.map((filter) =>
+                        filter.facet === 'in'
+                            ? { ...filter, value: reparentPath(filter.value, oldPath, newPath) ?? filter.value }
+                            : filter
+                    ),
+                })
+            }
         },
         [projectTreeDataLogic.actionTypes.deleteTypeAndRef]: ({ type, ref }) => {
             cache.changes = changeCount(cache) + 1
