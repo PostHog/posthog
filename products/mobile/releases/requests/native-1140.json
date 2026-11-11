@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1140",
+    "kind": "native",
+    "runtimeVersion": "1.14.0",
+    "previousRelease": "ota-1110-final-reply",
+    "notes": "This release adds session replay video, report links that open in the app, updated iOS icons, and a masked mobile replay prototype. On iOS, confirm the TestFlight build installs and launches. Verify replay playback, session handoff, report links after cold and warm starts, and light, dark, and tinted icons. Check sign-in, demo mode, chats, notifications, and home screen widgets on both platforms."
+}

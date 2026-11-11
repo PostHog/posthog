@@ -7,7 +7,7 @@
 {% endblock %}
 {% block admin_console_url %}
     {% if original.pk %}
-        {% url 'admin_console_team' team_id=original.pk %}
+        {% url 'admin_console_team' pk=original.pk %}
     {% else %}
         {{ block.super }}
     {% endif %}

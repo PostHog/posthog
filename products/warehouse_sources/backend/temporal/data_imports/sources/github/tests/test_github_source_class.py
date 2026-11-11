@@ -182,6 +182,9 @@ class TestGithubSource:
             "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
             # A read timeout on the same call.
             "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+            # An empty/non-JSON body on the same call, e.g. a GitHub-side error page or a truncated
+            # response rather than the expected token payload.
+            "Non-JSON response when refreshing installation token: ",
         ],
     )
     def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):

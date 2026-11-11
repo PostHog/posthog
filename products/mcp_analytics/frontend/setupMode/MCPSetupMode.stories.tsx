@@ -11,6 +11,7 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { mcpAnalyticsEmptyState } from '../emptyState/mcpAnalyticsEmptyState'
 import type { MCPActivityOverviewApi, MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { MCPSetupModeView, type MCPSetupModeViewProps } from './MCPSetupModeView'
+import type { MCPServerTools } from './setupMode'
 
 // Invented fixtures: an example docs server called from two clients.
 const SUCCESS_CALL: MCPActivityRecentCallApi = {
@@ -33,11 +34,19 @@ const FAILED_CALL: MCPActivityRecentCallApi = {
     client_name: 'Cursor',
 }
 
+// Invented: the tools an example docs server lists, before and after its first two calls.
+const LISTED_TOOLS = ['search_docs', 'create_issue', 'run_query', 'list_feature_flags', 'get_schema']
+const TOOLS_BEFORE_CALLS: MCPServerTools = { listed: LISTED_TOOLS, called: [] }
+const TOOLS_AFTER_CALLS: MCPServerTools = { listed: LISTED_TOOLS, called: ['search_docs', 'create_issue'] }
+
 const BASE: MCPSetupModeViewProps = {
     step: 'connect',
     connectState: { kind: 'waiting' },
     recentCalls: null,
     recentCallsFailed: false,
+    toolCallsTotal: 2,
+    serverTools: null,
+    serverToolsFailed: false,
     onExit: () => {},
     onAskPostHogAI: () => {},
     onGoToUseful: () => {},
@@ -84,25 +93,36 @@ export const Connect: Story = {
 }
 
 export const Connected: Story = {
-    args: { connectState: { kind: 'connected' } },
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    args: { connectState: { kind: 'connected' }, serverTools: TOOLS_BEFORE_CALLS },
+}
+
+export const ConnectedBeforeToolsList: Story = {
+    args: { connectState: { kind: 'connected' }, serverTools: { listed: null, called: [] } },
 }
 
 export const FirstCallSuccess: Story = {
-    args: { step: 'first-call', recentCalls: [SUCCESS_CALL] },
+    args: {
+        step: 'first-call',
+        recentCalls: [SUCCESS_CALL],
+        serverTools: { listed: LISTED_TOOLS, called: ['search_docs'] },
+    },
 }
 
 export const FirstCallWithFailure: Story = {
-    args: { step: 'first-call', recentCalls: [FAILED_CALL, SUCCESS_CALL] },
+    args: { step: 'first-call', recentCalls: [FAILED_CALL, SUCCESS_CALL], serverTools: TOOLS_AFTER_CALLS },
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium'] } },
 }
 
 export const FirstCallWithoutIntent: Story = {
-    args: { step: 'first-call', recentCalls: [{ ...SUCCESS_CALL, intent: null, client_name: null }] },
+    args: {
+        step: 'first-call',
+        recentCalls: [{ ...SUCCESS_CALL, intent: null, client_name: null }],
+        serverTools: { listed: LISTED_TOOLS, called: ['search_docs'] },
+    },
 }
 
 export const MakeItUseful: Story = {
-    args: { step: 'useful' },
+    args: { step: 'useful', recentCalls: [FAILED_CALL, SUCCESS_CALL] },
     decorators: [
         mswDecorator({
             get: {
@@ -129,7 +149,7 @@ const SETUP_SCREEN = productEmptyStateStory(mcpAnalyticsEmptyState, 'needs-setup
     },
 })
 
-// The setup screen with setup mode on: both install routes in one card, and the how-it-works sidebar above the
+// The setup screen with setup mode on: the Start setup card, and the how-it-works sidebar above the
 // demo card. At medium width the stacked sidebar is wide enough for its three-column layout.
 export const SetupScreen: StoryObj<typeof ProductEmptyState> = {
     ...SETUP_SCREEN,

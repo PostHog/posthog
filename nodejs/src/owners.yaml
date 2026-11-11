@@ -16,6 +16,8 @@ rules:
     - match: '/session-replay/recording-rasterizer/'
       owners: team-replay
     - match:
+          - '/logs/*.test.*'
+          - '/logs/framework/*.test.*'
           - '/logs/metrics-rules/*.test.*'
           - '/logs/parity/*.test.*'
           - '/logs/pipeline/*.test.*'
@@ -41,8 +43,12 @@ rules:
           - '/common/persons/*.test.*'
           - '/common/persons/repositories/*.test.*'
           - '/common/tracing/*.test.*'
+          - '/common/utils/db/*.test.*'
           - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
+    - match:
+          - '/schema-check/*.test.*'
+      owners: team-devex
     - match:
           - '/session-replay/recording-api/*.test.*'
       owners: team-replay

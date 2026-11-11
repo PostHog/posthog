@@ -1,18 +1,26 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 import { inspect } from 'util'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { classifyHogError } from '../utils/hog-error-classification'
+import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
+import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
+import { LiquidRenderBudget } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
+import { serializeInvocation } from './job-queue/job-queue-kafka'
+import { invocationToV2JobInit } from './job-queue/job-queue-postgres-v2'
+import { sanitizeInvocationForPersistence } from './job-queue/shared'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 describe('getAppIdentifierForPush', () => {
@@ -155,31 +163,68 @@ describe('Hog Inputs', () => {
             expect(inspect(thrown)).not.toContain('bogus')
         })
 
+        const exhaustedBudget = (): LiquidRenderBudget => {
+            const budget = new LiquidRenderBudget()
+            budget.useTime(Number.MAX_SAFE_INTEGER)
+            return budget
+        }
+
+        const renderFailures = async (reason: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_liquid_render_failures_total')?.get()
+            return metric?.values.find((v) => v.labels.reason === reason)?.value ?? 0
+        }
+
+        it('exports every render failure reason before the first failure', async () => {
+            const metric = await register.getSingleMetric('cdp_liquid_render_failures_total')?.get()
+            expect(metric?.values.map((v) => v.labels.reason).sort()).toEqual([
+                'contract',
+                'data',
+                'memory',
+                'output',
+                'parse_length',
+                'time',
+            ])
+        })
+
         it.each([
-            ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract'],
-            ['a syntax error', '{% if %}', 'contract'],
+            ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract', 'contract', undefined],
+            ['a syntax error', '{% if %}', 'contract', 'contract', undefined],
             // The same template renders for a well-formed URL, so this failure belongs to the event.
-            ['a malformed URL meeting url_decode', '{{ event.properties.url | url_decode }}', 'data'],
+            [
+                'a malformed URL meeting url_decode',
+                '{{ event.properties.url | url_decode }}',
+                'data',
+                'data',
+                undefined,
+            ],
             [
                 'a template over its memory budget',
                 "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
                 'limit',
+                'memory',
+                undefined,
             ],
-        ])('gives a liquid failure from %s a kind and keeps its message', (_name, template, kind) => {
-            const globals = createHogExecutionGlobals({
-                event: { event: '$pageview', properties: { url: '%' } } as any,
-                inputs: {},
-            } as any) as any
-            let thrown: any
-            try {
-                formatLiquidInput(template, globals, 'field')
-            } catch (error) {
-                thrown = error
+            ['an invocation out of render time', '{{ event.event }}', 'limit', 'time', exhaustedBudget],
+        ])(
+            'gives a liquid failure from %s a kind, keeps its message and counts it',
+            async (_name, template, kind, reason, budget) => {
+                const globals = createHogExecutionGlobals({
+                    event: { event: '$pageview', properties: { url: '%' } } as any,
+                    inputs: {},
+                } as any) as any
+                const before = await renderFailures(reason)
+                let thrown: any
+                try {
+                    formatLiquidInput(template, globals, 'field', budget?.())
+                } catch (error) {
+                    thrown = error
+                }
+                expect(thrown).toBeInstanceOf(Error)
+                expect(thrown.message).toBe(thrown.cause.message)
+                expect(thrown.cause).toMatchObject({ kind })
+                expect(await renderFailures(reason)).toBe(before + 1)
             }
-            expect(thrown).toBeInstanceOf(Error)
-            expect(thrown.message).toBe(thrown.cause.message)
-            expect(thrown.cause).toMatchObject({ kind })
-        })
+        )
 
         it('can handle deep null and undefined values', async () => {
             const globals = {
@@ -455,7 +500,10 @@ describe('Hog Inputs', () => {
 
         it.each([
             { name: 'a hog function', source: undefined },
-            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+            {
+                name: 'a workflow email step',
+                source: { appSourceId: 'flow-1', instanceId: 'action-1', workflowId: 'flow-1', invocationId: 'run-1' },
+            },
         ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {
@@ -572,6 +620,184 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.push_subscription).toBeNull()
+        })
+    })
+
+    describe('resolveIntegrationRefs', () => {
+        let hogFunction: HogFunctionType
+
+        const signedRef = (key: string, id: number, teamId: number = team.id) => ({
+            $integration_ref: id,
+            $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, key, id),
+        })
+
+        const expectNotLoaded = async (fn: HogFunctionType, inputs: Record<string, any>, key: string) => {
+            const error = await hogInputsService.resolveIntegrationRefs(fn, inputs).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toBe(
+                `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
+            )
+        }
+
+        beforeEach(() => {
+            hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs: { oauth: { value: integrationId1 }, channels: { value: [integrationId1, integrationId2] } },
+                inputs_schema: [
+                    { key: 'oauth', type: 'integration', required: true },
+                    { key: 'channels', type: 'integration_multi', required: true },
+                    { key: 'body', type: 'json', required: false },
+                ],
+            })
+        })
+
+        it('gives the function the same integration values as a fresh build', async () => {
+            const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
+            const persisted = replaceIntegrationInputsWithRefs(built, (key, id) =>
+                signIntegrationRef(hub.encryptedFields, team.id, key, id)
+            )
+            expect(JSON.stringify(persisted)).not.toContain('token')
+
+            const resolved = await hogInputsService.resolveIntegrationRefs(hogFunction, persisted)
+
+            expect(resolved).toEqual(built)
+            expect(resolved.oauth.access_token_raw).toBe('token')
+        })
+
+        it('keeps the secrets out of the persisted job when built through the real enqueue path', async () => {
+            const { invocations } = await buildHogFunctionInvocations(
+                hogInputsService,
+                [{ ...hogFunction, ...HOG_FILTERS_EXAMPLES.no_filters }],
+                createHogExecutionGlobals()
+            )
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].state.globals.inputs.oauth.access_token_raw).toBe('token')
+
+            const sanitized = sanitizeInvocationForPersistence(invocations[0], {
+                integrationRefSigner: hub.encryptedFields,
+            })
+
+            for (const serialized of [
+                invocationToV2JobInit(sanitized).state!.toString('utf-8'),
+                JSON.stringify(serializeInvocation(sanitized)),
+            ]) {
+                expect(serialized).toContain('$integration_ref_sig')
+                expect(serialized).not.toContain('token')
+            }
+        })
+
+        it('passes the resolved values of a job queued before references through unchanged', async () => {
+            const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
+
+            await expect(hogInputsService.resolveIntegrationRefs(hogFunction, built)).resolves.toBe(built)
+        })
+
+        it('does not resolve a reference in an input that is not an integration input', async () => {
+            const inputs = { body: signedRef('body', integrationId1) }
+
+            await expect(hogInputsService.resolveIntegrationRefs(hogFunction, inputs)).resolves.toBe(inputs)
+        })
+
+        describe('when one mapping selects an integration under a key that another mapping fills from the event', () => {
+            let mappedFunction: HogFunctionType
+
+            beforeEach(() => {
+                mappedFunction = createHogFunction({
+                    team_id: team.id,
+                    mappings: [
+                        {
+                            inputs_schema: [{ key: 'payload', type: 'integration', required: true }],
+                            inputs: { payload: { value: integrationId1 } },
+                        },
+                        {
+                            inputs_schema: [{ key: 'payload', type: 'json', required: true }],
+                            inputs: { payload: { value: '{event.properties.payload}', templating: 'liquid' } },
+                        },
+                    ],
+                })
+            })
+
+            it('fails and does not load an unsigned reference that the event supplies', async () => {
+                const getMany = jest.spyOn(hub.integrationManager, 'getMany')
+
+                await expectNotLoaded(mappedFunction, { payload: { $integration_ref: integrationId1 } }, 'payload')
+                expect(getMany).not.toHaveBeenCalledWith(expect.arrayContaining([integrationId1]))
+            })
+
+            it('resolves the reference that the server signed', async () => {
+                const resolved = await hogInputsService.resolveIntegrationRefs(mappedFunction, {
+                    payload: signedRef('payload', integrationId1),
+                })
+
+                expect(resolved.payload.access_token_raw).toBe('token')
+            })
+        })
+
+        it.each([
+            ['an unsigned reference', 'oauth', () => Promise.resolve({ $integration_ref: integrationId1 })],
+            [
+                'a reference with a made-up signature',
+                'oauth',
+                () => Promise.resolve({ $integration_ref: integrationId1, $integration_ref_sig: 'a'.repeat(64) }),
+            ],
+            [
+                'a reference signed for another team',
+                'oauth',
+                () => Promise.resolve(signedRef('oauth', integrationId1, team.id + 1000)),
+            ],
+            [
+                'a reference signed for another input key',
+                'oauth',
+                () => Promise.resolve(signedRef('channels', integrationId1)),
+            ],
+            [
+                'a reference signed for another integration',
+                'channels',
+                () =>
+                    Promise.resolve([
+                        {
+                            $integration_ref: integrationId1,
+                            $integration_ref_sig: signedRef('channels', integrationId2).$integration_ref_sig,
+                        },
+                    ]),
+            ],
+            ['a deleted integration', 'oauth', () => Promise.resolve(signedRef('oauth', team.id + 50))],
+            [
+                'a deleted integration_multi item',
+                'channels',
+                () => Promise.resolve([signedRef('channels', team.id + 50)]),
+            ],
+            [
+                'a team integration that the function is not configured with',
+                'oauth',
+                () => Promise.resolve(signedRef('oauth', integrationId2)),
+            ],
+            [
+                "another team's integration",
+                'oauth',
+                async () => {
+                    const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+                    const foreign = await insertIntegration(hub.postgres, otherTeam.id, {
+                        kind: 'slack',
+                        sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-foreign-token') },
+                    })
+                    return signedRef('oauth', foreign.id)
+                },
+            ],
+            [
+                'a posthog connection',
+                'oauth',
+                async () => {
+                    const connection = await insertIntegration(hub.postgres, team.id, {
+                        kind: 'posthog',
+                        sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-connection-token') },
+                    })
+                    return signedRef('oauth', connection.id)
+                },
+            ],
+        ])('fails with a clear error for %s', async (_name, key, buildRef) => {
+            await expectNotLoaded(hogFunction, { [key]: await buildRef() }, key)
         })
     })
 })

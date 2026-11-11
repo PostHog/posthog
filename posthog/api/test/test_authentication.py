@@ -30,7 +30,7 @@ from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
 from rest_framework import authentication, status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -76,6 +76,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -2852,6 +2853,28 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
         self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
 
+    @parameterized.expand([("203.0.113.7", True), ("198.51.100.7", False)])
+    def test_authenticate_checks_organization_ip_policy(self, ip: str, allowed: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = self._request_with_header(self.token)
+        request.META["REMOTE_ADDR"] = ip
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        if allowed:
+            self.assertIsNotNone(authenticator.authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                authenticator.authenticate(request)
+
+    def test_authenticate_uses_destination_policy_after_team_transfer(self) -> None:
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        self.assertIsNotNone(authenticator.authenticate(self._request_with_header(self.token)))
+        destination = Organization.objects.create(name="Destination organization")
+        OrganizationIPRestrictions.objects.create(organization=destination, ip_restrictions=["203.0.113.0/24"])
+        self.team.organization = destination
+        self.team.save(update_fields=["organization"])
+        with self.assertRaises(PermissionDenied):
+            authenticator.authenticate(self._request_with_header(self.token))
+
     def test_authenticate_tags_queries_with_psak_access_method(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
@@ -2971,6 +2994,9 @@ class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
             tags_context(is_scout_experiment=False),
             patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
             patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+            # The authenticator enforces IP restrictions after resolving the principal. This case
+            # tests query tagging on a synthetic user, so the database-backed check is stubbed out.
+            patch("posthog.auth.enforce_ip_restrictions"),
         ):
             self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
             self.assertEqual(get_query_tags().is_scout_experiment, private)
@@ -2999,6 +3025,21 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_authenticate_checks_organization_ip_policy(self, impersonated: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        if impersonated:
+            self.access_token.impersonated_by = self.user
+            self.access_token.save()
+        request = Request(
+            self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}", REMOTE_ADDR="198.51.100.7")
+        )
+        if impersonated:
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                OAuthAccessTokenAuthentication().authenticate(request)
 
     @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):

@@ -52,6 +52,8 @@ _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
 _INSTALLATION_ID = "1234"
 _REPO_ID = 5001
+_REQUESTER_ID = 4242
+_TEAM_REQUEST_QUEUE = "products.review_hog.backend.tasks.process_review_team_request.delay"
 
 
 def _dispatch_count(outcome: str) -> float:
@@ -80,6 +82,16 @@ def _payload(
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
             "base": {"repo": {"full_name": repository}},
         },
+    }
+
+
+def _review_request_payload(
+    *, team_slug: str = "posthog-review", sender: Mapping[str, object] | None = None
+) -> dict[str, object]:
+    return {
+        **_payload(action="review_requested"),
+        "requested_team": {"id": 1, "slug": team_slug},
+        "sender": sender or {"id": _REQUESTER_ID, "login": "OctoCat", "type": "User"},
     }
 
 
@@ -224,6 +236,33 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         assert self._post(json.dumps(_label_payload(label)).encode()).status_code == 202
 
         enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("review_team", _review_request_payload(), True),
+            ("another_team", _review_request_payload(team_slug="team-devex"), False),
+            ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
+        ]
+    )
+    @patch(_TEAM_REQUEST_QUEUE)
+    @patch(_QUEUE)
+    def test_a_review_team_request_queues_a_requested_review(
+        self, _name: str, payload: dict[str, object], expected: bool, enqueue: MagicMock, enqueue_request: MagicMock
+    ) -> None:
+        assert self._post(json.dumps(payload).encode()).status_code == 202
+
+        enqueue.assert_not_called()
+        if expected:
+            enqueue_request.assert_called_once_with(
+                installation_id=_INSTALLATION_ID,
+                repository="PostHog/posthog",
+                github_repo_id=_REPO_ID,
+                pr_number=42,
+                requester_github_id=_REQUESTER_ID,
+                requester_login="OctoCat",
+            )
+        else:
+            enqueue_request.assert_not_called()
 
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:

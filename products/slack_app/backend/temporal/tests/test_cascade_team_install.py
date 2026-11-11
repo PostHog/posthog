@@ -162,14 +162,26 @@ class TestCascadeTeamInstall(TestCase):
         ]
         mock_user_github_class.return_value = mock_user_github
 
-        outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id, self.user.id),
-            event_text,
-            self.user.id,
-            [SlackThreadMessage(**message) for message in thread_messages],
-            "2.000000",
-        )
+        with patch("products.slack_app.backend.analytics.ph_background_capture") as mock_capture_factory:
+            outcome = cascade_posthog_code_repository_activity(
+                _make_inputs(self.slack_integration.id, self.user.id),
+                event_text,
+                self.user.id,
+                [SlackThreadMessage(**message) for message in thread_messages],
+                "2.000000",
+            )
 
         assert outcome.mode == expected_mode
         assert outcome.repository == expected_repository
         assert outcome.reason == expected_reason
+        captured = [
+            c.kwargs["properties"]
+            for c in mock_capture_factory.return_value.call_args_list
+            if c.kwargs["event"] == "slack app repository resolved"
+        ]
+        assert len(captured) == 1
+        assert captured[0]["resolution"] == expected_reason
+        assert captured[0]["has_repository"] is (expected_repository is not None)
+        assert captured[0]["is_final"] is (expected_mode != "agent_needed")
+        assert captured[0]["connected_repo_count"] == 2
+        assert captured[0]["slack_session_id"] == "T_SLACK:C123:1234.5678"

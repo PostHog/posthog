@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     buildSearchClause,
+    type HogInvocationsFilters,
     hogInvocationsLogic,
     isRerunnableHogFunctionType,
     parentClauseFor,
@@ -159,6 +160,92 @@ describe('hogInvocationsLogic', () => {
             expect(scoped.values.filters.date_from).toBe('2026-01-01')
             scoped.unmount()
         })
+    })
+
+    describe('reading filters from the URL', () => {
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        it.each([
+            ['inv_search', '12345', { search: '12345' }],
+            ['inv_search', 'true', { search: 'true' }],
+            ['inv_person', '12345', { person_uuid: '12345' }],
+            ['inv_error_kind', '500', { error_kind: ['500'] }],
+            ['inv_date_to', '2026', { date_to: '2026' }],
+            ['inv_problems', '0', { problem_only: undefined }],
+        ])('reads %s=%s from a link as a string filter', (param, value, expected) => {
+            router.actions.push(`/?${param}=${value}`)
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            const actual = Object.fromEntries(
+                Object.keys(expected).map((key) => [key, logic.values.filters[key as keyof HogInvocationsFilters]])
+            )
+            expect(actual).toEqual(expected)
+            logic.unmount()
+        })
+
+        // The last row goes back from `00123` to `123`, which kea-router decodes to the same value.
+        it.each([[['00123']], [['9007199254740993']], [['00123', '123']]])(
+            'reads each linked search in %j as written',
+            (searches) => {
+                const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+                logic.mount()
+                const { pathname } = router.values.location
+                for (const search of searches) {
+                    const query = `?inv_search=${search}`
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname,
+                        search: query,
+                        searchParams: decodeParams(query, '?'),
+                        hash: '',
+                        hashParams: {},
+                        url: `${pathname}${query}`,
+                    })
+                    expect(logic.values.filters.search).toBe(search)
+                }
+                logic.unmount()
+            }
+        )
+
+        it.each(['push', 'replace'] as const)(
+            'follows an in-app %s from a typed search to its decoded form in the same task',
+            (method) => {
+                const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+                logic.mount()
+                logic.actions.setFilters({ search: '00123' })
+                router.actions[method](`${router.values.location.pathname}?inv_search=123`)
+                expect(logic.values.filters.search).toBe('123')
+                logic.unmount()
+            }
+        )
+
+        it('keeps the decoded value of another scene param when it writes the URL', () => {
+            router.actions.push('/', { levels: ['error'] })
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            logic.actions.setFilters({ search: 'abc' })
+            expect(router.values.searchParams.levels).toEqual(['error'])
+            logic.unmount()
+        })
+
+        it.each(['12345', '00123', '1e5', '9007199254740993'])(
+            'keeps the typed search %s unchanged through the URL',
+            (search) => {
+                const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+                logic.mount()
+                logic.actions.setFilters({ search })
+                expect(logic.values.filters.search).toBe(search)
+                expect(new URLSearchParams(router.values.location.search).get('inv_search')).toBe(search)
+                logic.unmount()
+            }
+        )
     })
 
     describe('sparkline buckets', () => {

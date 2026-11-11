@@ -28,6 +28,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
@@ -57,6 +58,7 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
 )
 from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +67,17 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:
+    """One of the alert's subscribers, for a chart render or an investigation to run as. None when nobody subscribes."""
+    return platform_subscribers.first_subscriber_id(team_id=team_id, alert_id=alert_id)
+
+
+def remove_member_subscriptions(*, user_id: int, organization_id: uuid.UUID) -> int:
+    """Unsubscribes a user who left an organization from its insight alerts, on the platform's copies
+    too, and returns how many subscriptions they had."""
+    return platform_subscribers.remove_member_subscriptions(user_id=user_id, organization_id=organization_id)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -120,11 +133,29 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     insight can never come back without its alerts. Rows go one at a time rather than through a
     queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
     ModelActivityMixin hangs its per-row activity logging off that override.
+
+    Alerts with no insight row go in a workflow started after the transaction commits, because the
+    platform resolves their open incidents first, which calls the providers, and a rollback cannot
+    take a resolve back. The workflow retries each delete.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query.
     # nosemgrep: idor-lookup-without-team
     for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
         alert.delete()
+    # nosemgrep: idor-lookup-without-team
+    insights_by_team: dict[int, list[int]] = {}
+    for team_id, insight_id in Insight.objects_including_soft_deleted.filter(id__in=insight_ids).values_list(
+        "team_id", "id"
+    ):
+        insights_by_team.setdefault(team_id, []).append(insight_id)
+    transaction.on_commit(lambda: _start_native_cleanup(insights_by_team))
+
+
+def _start_native_cleanup(insights_by_team: dict[int, list[int]]) -> None:
+    # Deferred, so the Temporal client stays off this facade's import graph.
+    from products.alerts.backend.platform_native_cleanup import start_native_cleanup  # noqa: PLC0415
+
+    start_native_cleanup(insights_by_team)
 
 
 def snooze_alert_from_slack(
@@ -247,6 +278,29 @@ def list_firing_alerts_created_by(
     viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
     return [
         contracts.FiringAlert(
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
+        )
+        for alert in islice(viewable, limit)
+    ]
+
+
+ENABLED_ALERT_CANDIDATES = 500
+
+
+def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts.EnabledAlert]:
+    """Enabled alerts on insights the user can view, newest first."""
+    access = UserAccessControl(user, team=team)
+    candidates = (
+        AlertConfiguration.objects.filter(team_id=team.id, enabled=True, insight__deleted=False)
+        .select_related("insight")
+        .order_by("-created_at")[:ENABLED_ALERT_CANDIDATES]
+    )
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
+    return [
+        contracts.EnabledAlert(
             id=alert.id,
             name=alert.name,
             insight_name=alert.insight.name or alert.insight.derived_name,

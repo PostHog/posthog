@@ -47,7 +47,16 @@ class DatasetRetentionPolicy:
     @staticmethod
     def revision_expires_at(revision: DatasetRevision) -> datetime | None:
         dataset = revision.dataset
-        if dataset.current_revision_id == revision.id:
+        current_revision_id = dataset.current_revision_id or getattr(dataset, "resolved_current_revision_id", None)
+        if current_revision_id is None:
+            current_revision_id = (
+                DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
+                .filter(dataset_id=dataset.id)
+                .order_by("-revision")
+                .values_list("id", flat=True)
+                .first()
+            )
+        if current_revision_id == revision.id:
             return DatasetRetentionPolicy.dataset_expires_at(dataset)
         if revision.last_used_at is None:
             return None
@@ -62,14 +71,14 @@ class DatasetRetentionPolicy:
 
 class DatasetUsage:
     @staticmethod
-    def record(dataset: Dataset, revision: DatasetRevision | None = None) -> None:
+    def record(dataset: Dataset, revision: DatasetRevision | None = None, *, force: bool = False) -> None:
         if dataset.expired_at is not None:
             raise Dataset.DoesNotExist
         if revision is not None and (revision.expired_at is not None or revision.dataset_id != dataset.id):
             raise DatasetRevision.DoesNotExist
         now = timezone.now()
         cutoff = now - USAGE_REFRESH_INTERVAL
-        if dataset.last_used_at is not None and dataset.last_used_at > cutoff:
+        if not force and dataset.last_used_at is not None and dataset.last_used_at > cutoff:
             if revision is None or (revision.last_used_at is not None and revision.last_used_at > cutoff):
                 return
         # Usage and cleanup serialize on the dataset, including accesses to its older revisions.
@@ -85,13 +94,14 @@ class DatasetUsage:
                 )
                 if not revisions.exists():
                     raise DatasetRevision.DoesNotExist
-                if revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff)).update(
-                    last_used_at=now
-                ):
+                stale_revisions = (
+                    revisions if force else revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff))
+                )
+                if stale_revisions.update(last_used_at=now):
                     revision.last_used_at = now
                 else:
                     revision.last_used_at = revisions.values_list("last_used_at", flat=True).get()
-            if locked.last_used_at is None or locked.last_used_at <= cutoff:
+            if force or locked.last_used_at is None or locked.last_used_at <= cutoff:
                 Dataset.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.id).update(last_used_at=now)
                 locked.last_used_at = now
             dataset.last_used_at = locked.last_used_at

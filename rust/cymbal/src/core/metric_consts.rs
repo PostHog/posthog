@@ -24,6 +24,7 @@ pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
 // Source-map ignore-list matches, labelled by `runtime` (`browser` / `node`).
 pub const SOURCEMAP_IGNORED_FRAME: &str = "cymbal_sourcemap_ignored_frame";
+pub const DART2JS_LOOKBACK: &str = "cymbal_dart2js_lookback";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
@@ -92,6 +93,7 @@ pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
 pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
     "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const INGESTION_NOTIFICATION_SKIPPED: &str = "cymbal_ingestion_notification_skipped";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
@@ -128,6 +130,7 @@ pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
+pub const SPIKE_FETCH_BUCKETS_ERRORS: &str = "cymbal_spike_fetch_buckets_errors";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";

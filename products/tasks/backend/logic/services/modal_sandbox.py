@@ -778,6 +778,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        for relative_path in (
+            "products/signals/scripts/score_assignees.py",
+            "products/tasks/backend/sandbox/images/build_assignee_evidence.py",
+        ):
+            destination = context_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(base_dir / relative_path, destination)
+        shutil.copytree(
+            base_dir / "packages/owners-yaml/owners_yaml",
+            context_dir / "packages/owners-yaml/owners_yaml",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
         filesystem_script = Path("products/tasks/backend/sandbox/images/task_filesystem.py")
         shutil.copy2(base_dir / filesystem_script, context_dir / filesystem_script)
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT

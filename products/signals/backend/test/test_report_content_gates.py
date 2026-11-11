@@ -14,6 +14,7 @@ from products.signals.backend.report_content_gates import (
     team_first_report_email_enabled,
     team_report_metrics_enabled,
     team_report_monitoring_enabled,
+    team_research_assignee_evidence_enabled,
 )
 
 _TEAM_LOOKUP = "products.signals.backend.report_content_gates.Team.objects.values_list"
@@ -27,6 +28,12 @@ class TestReportContentGates(SimpleTestCase):
             for name, gate, flag, local in [
                 ("monitoring", team_report_monitoring_enabled, "signals-report-monitoring", True),
                 ("first_report_email", team_first_report_email_enabled, "signals-first-report-email", False),
+                (
+                    "assignee_evidence",
+                    team_research_assignee_evidence_enabled,
+                    "signals-research-assignee-evidence",
+                    False,
+                ),
             ]
             for debug in [False, True]
             for enabled in [False, True]
@@ -73,7 +80,11 @@ class TestReportContentGates(SimpleTestCase):
             remote_flags.assert_called_once()
 
     @parameterized.expand(
-        [("monitoring", team_report_monitoring_enabled), ("first_report_email", team_first_report_email_enabled)]
+        [
+            ("monitoring", team_report_monitoring_enabled),
+            ("first_report_email", team_first_report_email_enabled),
+            ("assignee_evidence", team_research_assignee_evidence_enabled),
+        ]
     )
     @override_settings(DEBUG=True)
     def test_lifecycle_feature_fails_closed_when_flag_evaluation_fails(
@@ -85,7 +96,11 @@ class TestReportContentGates(SimpleTestCase):
             assert not gate(7)
 
     @parameterized.expand(
-        [("monitoring", team_report_monitoring_enabled), ("first_report_email", team_first_report_email_enabled)]
+        [
+            ("monitoring", team_report_monitoring_enabled),
+            ("first_report_email", team_first_report_email_enabled),
+            ("assignee_evidence", team_research_assignee_evidence_enabled),
+        ]
     )
     @override_settings(DEBUG=True)
     def test_lifecycle_feature_fails_closed_when_the_team_cannot_be_read(
