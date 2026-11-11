@@ -44,9 +44,8 @@ describe('ActivityQueryRequest', () => {
                 return 'last'
             })
             expect(started).toEqual(['first'])
-            const canceled = await expect(queuedResult).rejects.toMatchObject({ name: 'AbortError' })
             disposables.dispose('queued')
-            await canceled
+            await expect(queuedResult).rejects.toMatchObject({ name: 'AbortError' })
             finishFirst('first')
             expect(await firstResult).toBe('first')
             expect(await lastResult).toBe('last')
