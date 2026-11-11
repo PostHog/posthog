@@ -60,7 +60,8 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
             llm_analytics: AccessControlLevel.Editor,
         }
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS], {
-            TODAY_RAIL_NAV: todayRailNav,
+            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
         })
         const emptyPage = { results: [], count: 0, next: null, previous: null }
         jest.mocked(llmAnalyticsScoreDefinitionsList).mockResolvedValue(emptyPage)
