@@ -134,12 +134,18 @@ def apply_stored_suggestion(
     from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion  # noqa: PLC0415
 
     try:
-        compute_incremental_field_suggestion.delay(
-            team_id=team.pk, schema_id=schema_id, table=schema.name, fields=[dict(f) for f in _candidates(schema)]
+        # No publish retries: the form waits on this call, and the next open can try again.
+        compute_incremental_field_suggestion.apply_async(
+            kwargs={
+                "team_id": team.pk,
+                "schema_id": schema_id,
+                "table": schema.name,
+                "fields": [dict(f) for f in _candidates(schema)],
+            },
+            retry=False,
         )
     except Exception as error:
         capture_exception(error, {"team_id": team.pk})
-        # Nothing was queued, so the next open may try again.
         _cache_delete(queued_key)
 
 

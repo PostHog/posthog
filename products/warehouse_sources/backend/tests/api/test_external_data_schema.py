@@ -815,7 +815,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
             mock.patch(f"{recommender}.cache", LocMemCache(f"incremental-field-queue-{_name}", {})),
             mock.patch(
-                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.delay",
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async",
                 side_effect=dispatch_error,
             ) as dispatch,
             fake_decision_model(),
