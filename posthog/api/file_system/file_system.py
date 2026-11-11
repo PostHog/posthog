@@ -1300,6 +1300,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             entry.delete()
             return deleted_objects
 
+        # A workflow or template row that _ensure_can_delete never saw arrived after its editor
+        # check, so it stays in place. The folder repair in destroy() gives it a folder again.
+        if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and entry.id not in reaches_backing_object:
+            return deleted_objects
+
         if not is_file_system_type_registered(entry.type):
             raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
 
@@ -1482,7 +1487,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type == "folder":
             with transaction.atomic():
                 # Lock and authorize the exact rows this move saves, so a row filed into the folder
-                # after the check is never moved without passing it.
+                # after the check is never moved without passing it. Lock in id order, the order
+                # create_or_update_file writes rows in, so the two never wait on each other in a cycle.
                 visible = self._filter_by_access_control(
                     self._scope_by_project_and_environment(
                         FileSystem.objects.filter(path__startswith=f"{instance.path}/")
@@ -1490,10 +1496,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 children = list(
                     FileSystem.objects.select_for_update()
-                    .filter(pk__in=list(visible.values_list("pk", flat=True)))
-                    .order_by("path")
+                    .filter(team__project_id=self.team.project_id, pk__in=list(visible.values_list("pk", flat=True)))
+                    .order_by("id")
                 )
-                self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk__in=[c.pk for c in children]))
+                self._ensure_can_change_workflow_files(
+                    FileSystem.objects.filter(team__project_id=self.team.project_id, pk__in=[c.pk for c in children])
+                )
                 self._assure_parent_folders(new_path, cast(User, request.user))
                 for file in children:
                     old_child_path = file.path

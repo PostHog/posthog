@@ -13,7 +13,7 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -174,7 +174,15 @@ class TestWorkflowFolders(APIBaseTest):
             sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
         )
 
-    def test_a_folder_move_leaves_template_files_that_arrive_after_its_access_check(self) -> None:
+    @parameterized.expand(
+        [
+            ("move", "post", "move/", {"new_path": "Archive/Inbox"}, 'INSERT INTO "posthog_filesystem"', 200),
+            ("delete", "delete", "?recursive=true", None, 'FROM "posthog_filesystem"', 204),
+        ]
+    )
+    def test_a_folder_change_leaves_template_files_that_arrive_after_its_access_check(
+        self, _name: str, method: str, suffix: str, payload: dict | None, trigger: str, expected_status: int
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -184,6 +192,8 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()["id"]
         FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
         folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        dashboard_id = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        FileSystem.objects.create(team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id))
         viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         create_access_control(
@@ -195,7 +205,7 @@ class TestWorkflowFolders(APIBaseTest):
 
         def file_late_template(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
             result = execute(sql, params, many, context)
-            if not filing_started.is_set() and sql.startswith('INSERT INTO "posthog_filesystem"'):
+            if not filing_started.is_set() and trigger in sql and (method == "post" or "FOR UPDATE" in sql):
                 filing_started.set()
                 late_rows.append(
                     FileSystem.objects.create(
@@ -205,13 +215,11 @@ class TestWorkflowFolders(APIBaseTest):
             return result
 
         with connection.execute_wrapper(file_late_template):
-            moved = self.client.post(
-                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
-                {"new_path": "Archive/Inbox"},
-                format="json",
+            changed = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/{suffix}", payload, format="json"
             )
 
-        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(changed.status_code, expected_status, changed.content)
         late_rows[0].refresh_from_db()
         self.assertEqual(late_rows[0].path, "Inbox/Late email")
 
@@ -588,6 +596,100 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
                 cursor.execute("DROP FUNCTION IF EXISTS refuse_file_row()")
 
         self.addCleanup(drop)
+
+    def test_a_folder_move_and_a_file_sync_of_the_same_object_both_finish(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        rows = sorted(
+            (
+                FileSystem.objects.create(team=self.team, path="Inbox/x", depth=2, type="dashboard", ref=dashboard_id)
+                for _ in range(3)
+            ),
+            key=lambda row: row.id,
+        )
+        for row, path in zip(rows, ["Inbox/c", "Inbox/b", "Inbox/a"]):
+            FileSystem.objects.filter(pk=row.pk).update(path=path)
+        middle_locked = Event()
+        release_middle = Event()
+
+        def blocked_backends() -> int:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0"
+                )
+                return cursor.fetchone()[0]
+
+        def wait_for_blocked_backends(count: int) -> None:
+            for _ in range(200):
+                if blocked_backends() >= count:
+                    return
+                Event().wait(0.05)
+            self.fail(f"expected {count} blocked backends")
+
+        def hold_the_middle_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [rows[1].id])
+                    middle_locked.set()
+                    release_middle.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def sync_the_files() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    create_or_update_file(
+                        team=self.team,
+                        base_folder="Unfiled/Dashboards",
+                        name="Report v2",
+                        file_type="dashboard",
+                        ref=dashboard_id,
+                        href=f"/dashboard/{dashboard_id}",
+                        meta={},
+                    )
+            finally:
+                close_old_connections()
+
+        def move_the_folder() -> Any:
+            close_old_connections()
+            try:
+                return self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                    {"new_path": "Archive/Inbox"},
+                    format="json",
+                )
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_middle_row)
+            self.assertTrue(middle_locked.wait(timeout=5))
+            try:
+                sync = executor.submit(sync_the_files)
+                wait_for_blocked_backends(1)
+                move = executor.submit(move_the_folder)
+                wait_for_blocked_backends(2)
+            finally:
+                release_middle.set()
+            holder.result(timeout=15)
+            sync.result(timeout=15)
+            moved = move.result(timeout=15)
+
+        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(
+            sorted(
+                FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).values_list(
+                    "path", flat=True
+                )
+            ),
+            ["Archive/Inbox/Report v2"] * 3,
+        )
 
     def test_a_failed_file_row_keeps_the_created_template(self) -> None:
         self._refuse_file_rows()
