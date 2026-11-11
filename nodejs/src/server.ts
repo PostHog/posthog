@@ -28,6 +28,7 @@ import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -107,6 +108,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailSandbox ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCohortMembershipTriggers ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
@@ -384,6 +386,15 @@ export class PluginServer implements NodeServer {
                       })
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerEmailSandbox) {
+            serviceLoaders.push(async () => {
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmailSandbox(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
             })

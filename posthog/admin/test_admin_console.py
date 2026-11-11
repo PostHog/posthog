@@ -16,6 +16,7 @@ from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
+from django.core.cache import caches
 from django.core.management.base import CommandError
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
@@ -36,7 +37,13 @@ from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.results import (
+    CACHE_ALIAS as RESULTS_CACHE_ALIAS,
+    KEY_COOKIE,
+    KEY_PREFIX as RESULTS_KEY_PREFIX,
+    ResultCodec,
+)
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
@@ -95,6 +102,31 @@ class _Tool(ConsoleTool):
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
     group = "Data"
+
+
+class _SecretTool(_Tool):
+    key = "issue-password"
+    runs = 0
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=())
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="issue",
+                label="Issue a password",
+                handler=self.issue,
+                danger=True,
+                form_class=ReasonForm,
+                undo_hint="Rotate the password.",
+            )
+        ]
+
+    @classmethod
+    def issue(cls, request: HttpRequest, form: object) -> Page:
+        cls.runs += 1
+        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
 
 
 def _register_twice() -> None:
@@ -222,6 +254,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "not a table, notice or output",
             ),
             (
+                "secret_on_a_page_that_renders_again",
+                lambda: Page(blocks=(Secret(label="Password", value="x"),)).refuse_secrets("tool page"),
+                "only from an operation's result page",
+            ),
+            (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
@@ -337,6 +374,56 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 403
 
+    @override_settings(SESSION_COOKIE_SECURE=True)
+    def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
+        _SecretTool.runs = 0
+        with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+            cached = repr(caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}"))
+            key_cookie = response.cookies[KEY_COOKIE]
+            first = self.client.get(response["Location"])
+            reload = self.client.get(response["Location"])
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/admin/console/results/")
+        assert "example-secret-value" not in response["Location"]
+        assert "example-secret-value" not in cached and key_cookie.value not in cached
+        assert key_cookie["path"] == response["Location"] and key_cookie["httponly"] and key_cookie["secure"]
+        assert key_cookie["samesite"] == "Strict"
+        assert first.cookies[KEY_COOKIE]["max-age"] == 0
+        assert first.status_code == 200
+        assert "example-secret-value" in first.content.decode()
+        assert reload.status_code == 410
+        assert "example-secret-value" not in reload.content.decode()
+        assert _SecretTool.runs == 1
+        for page in (response, first, reload):
+            assert "no-store" in page["Cache-Control"]
+        assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
+        assert "example-secret-value" not in repr(audit_log)
+
+    @parameterized.expand(
+        [
+            ("without_its_key", None, 410, "The key for this result is missing", True),
+            ("stored_by_another_version", KeyError("RenamedBlock"), 410, "PostHog was updated", False),
+        ]
+    )
+    def test_a_result_that_cannot_be_opened_explains_why(
+        self, _name: str, decode_error: Exception | None, status: int, explanation: str, kept: bool
+    ) -> None:
+        with patch.object(console, "get_tool", return_value=_SecretTool()):
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+        result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+        if decode_error is None:
+            self.client.cookies.pop(KEY_COOKIE)
+        with patch.object(ResultCodec, "loads", side_effect=decode_error):
+            page = self.client.get(response["Location"])
+
+        assert page.status_code == status
+        assert explanation in page.content.decode()
+        assert "example-secret-value" not in page.content.decode()
+        assert (caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}") is not None) == kept
+
     def test_team_page_shows_core_and_product_panels(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -354,6 +441,7 @@ class TestAdminConsoleViews(BaseTest):
             "Experiments",
             "Project API token",
             "Project secret API keys",
+            "Trino compile check",
         ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
@@ -634,6 +722,27 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "gateway down" in content
         assert "Outage goodwill" in content
+
+    @parameterized.expand(
+        [
+            ("explain_with_limit", {"explain": "on", "limit": "5"}, 302, (True, 5)),
+            ("compile_only", {"limit": ""}, 302, (False, None)),
+            ("limit_not_positive", {"limit": "0"}, 400, None),
+        ]
+    )
+    def test_trino_compile_check_enqueues_a_run_for_the_team(
+        self, _name: str, data: dict[str, str], expected_status: int, expected_run: tuple[bool, int | None] | None
+    ) -> None:
+        with patch("products.managed_warehouse.backend.tasks.run_trino_compile_check_task.delay") as delay:
+            response = self.client.post(f"/admin/console/teams/{self.team.pk}/trino-compile-check/start/", data)
+
+        assert response.status_code == expected_status
+        if expected_run is None:
+            delay.assert_not_called()
+            return
+        kwargs = delay.call_args.kwargs
+        assert (kwargs["team_id"], kwargs["explain"], kwargs["limit"]) == (self.team.pk, *expected_run)
+        assert any(kwargs["run_id"] in str(message) for message in get_messages(response.wsgi_request))
 
     @parameterized.expand(
         [

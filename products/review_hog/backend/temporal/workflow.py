@@ -537,8 +537,10 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
             workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
             # A draft marked ready without a push gets no new turn, so the head's earlier automatic turn answers.
+            # The queue answers the event once the turn ends, also for this early exit.
             if (
-                workflow.patched(SILENT_STAMPHOG_PATCH)
+                not inputs.answered_by_queue
+                and workflow.patched(SILENT_STAMPHOG_PATCH)
                 and meta.already_completed
                 and meta.pr_open
                 and inputs.marks_ready
@@ -936,7 +938,9 @@ class ReviewPRWorkflow:
                     lens_chunks_capped=meta.lens_chunks_capped,
                     delta_review=delta_since_head_sha is not None,
                     # The event names its head, and the turn reviews the live head, which can be newer.
-                    marks_ready=inputs.marks_ready and inputs.requested_head_sha == head_sha,
+                    marks_ready=not inputs.answered_by_queue
+                    and inputs.marks_ready
+                    and inputs.requested_head_sha == head_sha,
                 )
             )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
