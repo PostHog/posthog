@@ -44,7 +44,9 @@ _BASELINE_LEDGER_LOCK_SECONDS = 15 * 60
 _BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS = (5, 15, 45)
 # A notice that sat in a backed-up queue no longer reports something that just happened.
 QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
-_COMMIT_STATUS_MAX_RETRIES = 6
+# The retry delays together outlast GitHub's one-hour rate limit window, so a status refused for a
+# rate limit is still posted after the limit resets.
+_COMMIT_STATUS_MAX_RETRIES = 8
 _COMMIT_STATUS_FIRST_RETRY_SECONDS = 30
 _COMMIT_STATUS_MAX_RETRY_SECONDS = 20 * 60
 
