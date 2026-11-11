@@ -28,6 +28,7 @@ from . import (
     ci_status,
     errors,
     gating,
+    github_api,
     quarantine_lifts,
     repos,
     run_queries,
@@ -461,6 +462,9 @@ def _enqueue_clean_quarantine_release(run: Run) -> None:
         return
     try:
         if run.repo.auto_quarantine_mode == AutoQuarantineMode.OFF:
+            return
+        # Before the hourly slot, so a full run without a pull request on another branch cannot take it.
+        if github_api.default_branch_name(run.repo) != run.branch:
             return
         if not safe_cache_add(
             f"visual_review:release_clean_quarantines:{run.repo_id}:{run.run_type}",

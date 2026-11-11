@@ -2,8 +2,12 @@
 
 Quarantines pile up, because a person has to come back and lift each one. The window starts at the
 `AUTO_LIFT_CLEAN_RUNS`th newest full default-branch run. A quarantine opened before that run, whose
-story rendered nothing but `unchanged` in every trusted run since, no longer hides anything. Every
-quarantine counts, whoever opened it.
+story rendered nothing but `unchanged` in every stored trusted run since, no longer hides anything.
+Every quarantine counts, whoever opened it.
+
+Merge queue runs are kept for a week, and the window of default-branch runs is usually longer, so a
+merge queue failure older than that is no longer visible. The evidence of this rule is the
+default-branch history, with the recent merge queue runs on top.
 
 A relapse needs nothing here: the story fails again, and automatic quarantine proves the flake again.
 
@@ -13,7 +17,9 @@ them and act on the answer.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db.models import Count, Max, Q
@@ -125,15 +131,24 @@ def _hard_rows(run: Run, run_ids: list[UUID], identifiers: list[str]) -> dict[st
         RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id__in=run_ids, team_id=run.team_id, result__in=_HARD_RESULTS, identifier__in=identifiers)
         .values("identifier")
-        .annotate(count=Count("id"))
+        .annotate(count=Count("*"))
         .values_list("identifier", "count")
     )
 
 
-def _renders(run: Run, run_id: UUID, identifiers: list[str]) -> dict[str, tuple[str, str]]:
-    """Identifier to the result and baseline hash one run rendered it with."""
+@frozen
+class _Render:
+    result: str
+    baseline_hash: str
+
+
+_NOT_RENDERED = _Render(result="", baseline_hash="")
+
+
+def _renders(run: Run, run_id: UUID, identifiers: list[str]) -> dict[str, _Render]:
+    """Identifier to how one run rendered it."""
     return {
-        identifier: (result, baseline_hash)
+        identifier: _Render(result=result, baseline_hash=baseline_hash)
         for identifier, result, baseline_hash in RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id=run_id, team_id=run.team_id, identifier__in=identifiers)
         .values_list("identifier", "result", "baseline_hash")
@@ -152,16 +167,15 @@ def _clean_streaks(
     finishing = _renders(run, run.id, identifiers)
     streaks: dict[str, CleanStreak] = {}
     for identifier, quarantined_at in quarantined.items():
-        start_result, _start_baseline = at_window_start.get(identifier, ("", ""))
-        finishing_result, finishing_baseline_hash = finishing.get(identifier, ("", ""))
+        finishing_render = finishing.get(identifier, _NOT_RENDERED)
         streaks[identifier] = CleanStreak(
             quarantined_at=quarantined_at,
             window_started_at=window.started_at,
             default_branch_runs=window.default_branch_runs,
             hard_rows=hard_rows.get(identifier, 0),
-            unchanged_at_window_start=start_result == SnapshotResult.UNCHANGED,
-            finishing_result=finishing_result,
-            finishing_baseline_hash=finishing_baseline_hash,
+            unchanged_at_window_start=at_window_start.get(identifier, _NOT_RENDERED).result == SnapshotResult.UNCHANGED,
+            finishing_result=finishing_render.result,
+            finishing_baseline_hash=finishing_render.baseline_hash,
         )
     return streaks
 
@@ -181,24 +195,31 @@ def _lift(run: Run, identifier: str, reason: str, now: datetime) -> None:
     )
 
 
-def _capture_clean(repo: Repo, run: Run, identifier: str, streak: CleanStreak, mode: str, applied: bool) -> None:
+def _capture_clean(
+    capture_ph_event: Callable[..., Any],
+    repo: Repo,
+    run: Run,
+    identifier: str,
+    streak: CleanStreak,
+    mode: str,
+    applied: bool,
+) -> None:
     """Best effort, like `runs.capture_run_processing_metrics`: instrumentation never fails the task."""
     try:
-        with ph_scoped_capture() as capture_ph_event:
-            capture_ph_event(
-                distinct_id=repo.repo_full_name or str(repo.id),
-                event="vr_quarantine_clean",
-                properties={
-                    "repo": repo.repo_full_name,
-                    "team_id": repo.team_id,
-                    "run_id": str(run.id),
-                    "run_type": run.run_type,
-                    "identifier": identifier,
-                    "clean_default_branch_runs": streak.default_branch_runs,
-                    "mode": mode,
-                    "applied": applied,
-                },
-            )
+        capture_ph_event(
+            distinct_id=repo.repo_full_name or str(repo.id),
+            event="vr_quarantine_clean",
+            properties={
+                "repo": repo.repo_full_name,
+                "team_id": repo.team_id,
+                "run_id": str(run.id),
+                "run_type": run.run_type,
+                "identifier": identifier,
+                "clean_default_branch_runs": streak.default_branch_runs,
+                "mode": mode,
+                "applied": applied,
+            },
+        )
     except Exception:
         logger.warning("visual_review.quarantine_clean_capture_failed", run_id=str(run.id), exc_info=True)
 
@@ -225,23 +246,24 @@ def release_clean_quarantines(run_id: UUID) -> None:
     if window is None:
         return
     reason = lift_reason(window.first_run_sha)
-    for identifier, streak in _clean_streaks(run, run.branch, window, quarantined).items():
-        if not is_clean(streak):
-            continue
-        applied = mode == AutoQuarantineMode.ON
-        if not applied and not auto_quarantine.first_report(
-            "quarantine_clean", repo, run.run_type, identifier, _REPORT_SECONDS
-        ):
-            continue
-        if applied:
-            _lift(run, identifier, reason, now)
-        logger.info(
-            "visual_review.quarantine_lifted_automatically",
-            repo_id=str(repo.id),
-            run_id=str(run.id),
-            identifier=identifier,
-            clean_default_branch_runs=streak.default_branch_runs,
-            mode=mode,
-            applied=applied,
-        )
-        _capture_clean(repo, run, identifier, streak, mode, applied)
+    with ph_scoped_capture() as capture_ph_event:
+        for identifier, streak in _clean_streaks(run, run.branch, window, quarantined).items():
+            if not is_clean(streak):
+                continue
+            applied = mode == AutoQuarantineMode.ON
+            if not applied and not auto_quarantine.first_report(
+                "quarantine_clean", repo, run.run_type, identifier, _REPORT_SECONDS
+            ):
+                continue
+            if applied:
+                _lift(run, identifier, reason, now)
+            logger.info(
+                "visual_review.quarantine_lifted_automatically",
+                repo_id=str(repo.id),
+                run_id=str(run.id),
+                identifier=identifier,
+                clean_default_branch_runs=streak.default_branch_runs,
+                mode=mode,
+                applied=applied,
+            )
+            _capture_clean(capture_ph_event, repo, run, identifier, streak, mode, applied)

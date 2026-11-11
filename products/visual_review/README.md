@@ -184,9 +184,10 @@ With fewer default-branch runs than that, nothing lifts.
 A quarantine lifts when all of these hold:
 
 - It was created before the window started, so a quarantine somebody just opened is never lifted under them.
-- No trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- No stored trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
 - The window's first run and the finishing run rendered the story `unchanged`, the finishing run against a baseline.
 
+Merge queue runs are stored for 7 days and the window is usually longer, so a merge queue failure older than that is no longer visible: the evidence is the default-branch history, with the recent merge queue runs on top.
 The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
 
 The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.

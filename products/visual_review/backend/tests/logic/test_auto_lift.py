@@ -197,8 +197,28 @@ class TestEnqueueCleanQuarantineRelease:
             status=RunStatus.COMPLETED,
         )
 
-        with patch("products.visual_review.backend.tasks.tasks.release_clean_quarantines.delay") as delay:
+        with (
+            patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"),
+            patch("products.visual_review.backend.tasks.tasks.release_clean_quarantines.delay") as delay,
+        ):
             runs._enqueue_clean_quarantine_release(Run.objects.get(id=first.id))
             runs._enqueue_clean_quarantine_release(second)
 
         assert delay.call_count == expected_calls
+
+    def test_a_run_on_another_branch_leaves_the_hourly_slot_free(self, repo):
+        other = Run.objects.create(
+            team_id=repo.team_id, repo=repo, run_type=RunType.STORYBOOK, branch="release", commit_sha="a" * 40
+        )
+        default = Run.objects.create(
+            team_id=repo.team_id, repo=repo, run_type=RunType.STORYBOOK, branch="master", commit_sha="b" * 40
+        )
+
+        with (
+            patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"),
+            patch("products.visual_review.backend.tasks.tasks.release_clean_quarantines.delay") as delay,
+        ):
+            runs._enqueue_clean_quarantine_release(other)
+            runs._enqueue_clean_quarantine_release(default)
+
+        assert [c.args for c in delay.call_args_list] == [(repo.team_id, str(default.id))]
