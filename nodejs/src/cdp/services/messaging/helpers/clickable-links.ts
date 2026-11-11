@@ -1,6 +1,6 @@
-import { Parser } from 'htmlparser2'
+import { DefaultTreeAdapterMap, html, parse } from 'parse5'
 
-const HIDDEN_TAGS = new Set(['head', 'title', 'style', 'script', 'template'])
+const HIDDEN_ELEMENTS = new Set(['head', 'title', 'style', 'script', 'template', 'noscript', 'noframes'])
 
 const isStrippedByUrlParser = (char: string): boolean => char <= ' '
 
@@ -36,33 +36,25 @@ export const textLinksTo = (text: string, base: string, { liquid }: { liquid: bo
         return link.startsWith(base) ? [withoutLinkEnd(link.slice(base.length), { liquid })] : []
     })
 
-const EMPTY_BOGUS_COMMENT = /<!>/g
-const COMMENT_END_AFTER_BANG = /--!>/g
+type ParentNode = DefaultTreeAdapterMap['parentNode']
 
-const withCommentsBrowsersClose = (html: string): string =>
-    html.replace(EMPTY_BOGUS_COMMENT, '<!---->').replace(COMMENT_END_AFTER_BANG, '-->')
-
-export const clickableHrefs = (html: string): string[] => {
+export const clickableHrefs = (body: string): string[] => {
     const hrefs: string[] = []
-    let hiddenDepth = 0
-    const parser = new Parser(
-        {
-            onopentag(name, attributes) {
-                if (HIDDEN_TAGS.has(name)) {
-                    hiddenDepth++
-                } else if (hiddenDepth === 0 && name === 'a' && attributes.href !== undefined) {
-                    hrefs.push(trimUrlWhitespace(attributes.href))
-                }
-            },
-            onclosetag(name) {
-                if (HIDDEN_TAGS.has(name) && hiddenDepth > 0) {
-                    hiddenDepth--
-                }
-            },
-        },
-        { decodeEntities: true, lowerCaseTags: true, lowerCaseAttributeNames: true, recognizeSelfClosing: true }
-    )
-    parser.write(withCommentsBrowsersClose(html))
-    parser.end()
+    const parents: ParentNode[] = [parse(body)]
+    for (let parent = parents.pop(); parent; parent = parents.pop()) {
+        for (const child of parent.childNodes) {
+            if (!('tagName' in child) || HIDDEN_ELEMENTS.has(child.tagName)) {
+                continue
+            }
+            const href =
+                child.tagName === 'a' && child.namespaceURI === html.NS.HTML
+                    ? child.attrs.find(({ name, prefix }) => name === 'href' && !prefix)
+                    : undefined
+            if (href) {
+                hrefs.push(trimUrlWhitespace(href.value))
+            }
+            parents.push(child)
+        }
+    }
     return hrefs
 }
