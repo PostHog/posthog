@@ -1848,6 +1848,23 @@ def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
     return {"reused": reused}
 
 
+def _route_after_moved_head(run: ReviewRun) -> None:
+    """Hand a run that a push superseded to FALLBACK routing, which decides on the live head.
+
+    In label mode a push to an unlabeled PR queues no review of the new head, so a FALLBACK head that
+    waits for this run would otherwise wait for the safety net.
+    """
+    pull_request = run.pull_request
+    queue_routing_after_verdict(
+        pull_request.repo_config,
+        pr_number=pull_request.pr_number,
+        head_sha=run.head_sha,
+        status=ReviewRunStatus.FAILED,
+        verdict=ReviewVerdict.NONE,
+        silent=run.is_silent,
+    )
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1901,9 +1918,14 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
         # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
         # states are history. The stale-approval sweep retires that approval on the next delivery.
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now())
         )
+        if superseded and kind == "head_moved":
+            _route_after_moved_head(run)
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
@@ -2143,10 +2165,10 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
-    # Routing requests reviewers and can comment on the PR, which a silent run may only do for an
-    # approval. The callbacks above still hear every outcome.
-    if not run.may_publish(finished.verdict):
-        return
+    # A silent run routes on a withheld verdict too. FALLBACK routing exists for the heads stamphog does
+    # not approve, and with the clean-review switch on the head waits for this run. The routing comment
+    # never names the verdict, so the verdict itself stays off the PR.
+    #
     # Stamphog's own follow-up, called directly rather than registered, because registering it at
     # app-ready would pull the task module onto the django.setup() path. It only queues a task.
     queue_routing_after_verdict(
@@ -2155,6 +2177,7 @@ def _notify_finished_review(
         head_sha=run.head_sha,
         status=finished.status,
         verdict=finished.verdict,
+        silent=run.is_silent,
     )
 
 
@@ -2188,9 +2211,14 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # ask the author to push again for a review that is already queued.
     if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
         now = timezone.now()
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now)
         )
+        if superseded:
+            _route_after_moved_head(run)
         _remove_own_eyes_reaction(client, run)
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return

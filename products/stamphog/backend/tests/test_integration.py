@@ -772,7 +772,9 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
 def test_a_head_that_moved_before_the_fetch_supersedes_the_run_quietly(team, stamphog_chain: StamphogChain) -> None:
     # The push that moved the head queues the review of the new head. A failure notice would ask the
     # author to push again, and a failure event would count a routine race as breakage.
-    _repo_config(team.id)
+    repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha119a"
     recorder.register_pr(REPO, 119, _pr_object(119, author, head_sha), _pr_files())
@@ -780,13 +782,18 @@ def test_a_head_that_moved_before_the_fetch_supersedes_the_run_quietly(team, sta
     stamphog_chain.sandbox_class.head_fetch_exit_code = activities._HEAD_MOVED_EXIT_CODE
 
     capture_fn = MagicMock()
-    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+    with (
+        patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm,
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
+    ):
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
         stamphog_chain.post_webhook(_opened_event(119, author, head_sha), delivery_id=str(uuid.uuid4()))
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.SUPERSEDED
+    # In label mode no review of the new head may come, so FALLBACK routing decides on the live head.
+    assert routing_delay.call_args.kwargs["outcome"] == "failed"
     assert [w for w in recorder.github_writes if w["kind"] == "comment_review"] == []
     assert "stamphog_review_failed" not in [c.kwargs.get("event") for c in capture_fn.call_args_list]
 
@@ -1934,13 +1941,30 @@ def test_retry_dismisses_orphan_when_superseded_before_the_fresh_status_recheck(
     assert run.approval_dismissed_at is not None
 
 
+@pytest.mark.parametrize(
+    "run_fields, expect_status",
+    [
+        pytest.param(
+            {"status": ReviewRunStatus.COMPLETED, "verdict": ReviewVerdict.APPROVED, "posted_review_id": 555},
+            ReviewRunStatus.COMPLETED,
+            id="terminal-retry",
+        ),
+        # A push during the review: in label mode a push to an unlabeled PR queues no review of the new
+        # head, so FALLBACK routing has to hear about it and decide on the live head.
+        pytest.param({"status": ReviewRunStatus.REVIEWING}, ReviewRunStatus.SUPERSEDED, id="in-flight"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_retry_after_head_move_never_rewrites_a_terminal_run(team, stamphog_chain: StamphogChain) -> None:
+def test_retry_after_head_move_never_rewrites_a_terminal_run(
+    team, stamphog_chain: StamphogChain, run_fields: dict, expect_status: ReviewRunStatus
+) -> None:
     # A retry can land after the terminal save committed (the trailing digest stamp crashed) AND the
     # PR head moved meanwhile. The head-moved branch must not rewrite the delivered COMPLETED run to
     # SUPERSEDED — terminal states are history; the approval itself is the sweep's job at the next
     # delivery, not this retry's.
     repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     recorder = stamphog_chain.recorder
     recorder.register_pr(REPO, 118, _pr_object(118, "devex-dev", "sha-newer"), _pr_files())
     pull_request = PullRequest.objects.for_team(team.id).create(
@@ -1950,18 +1974,17 @@ def test_retry_after_head_move_never_rewrites_a_terminal_run(team, stamphog_chai
         team_id=team.id,
         pull_request=pull_request,
         head_sha="sha-older",
-        status=ReviewRunStatus.COMPLETED,
-        verdict=ReviewVerdict.APPROVED,
-        posted_review_id=555,
         output={"reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+        **run_fields,
     )
 
-    result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+    with patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay:
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_head_moved"}
     run.refresh_from_db()
-    assert run.status == ReviewRunStatus.COMPLETED
-    assert run.verdict == ReviewVerdict.APPROVED
+    assert run.status == expect_status
+    assert routing_delay.called is (expect_status == ReviewRunStatus.SUPERSEDED)
     assert [w for w in recorder.github_writes if w["kind"] == "dismiss_review"] == []
 
 
@@ -2446,7 +2469,10 @@ def test_silent_review_posts_nothing_but_an_approval(
     assert run.verdict_withheld is not approved
     assert (run.verdict_posted_at is not None) is approved
     summarize.assert_not_called()
-    assert routing_delay.called is approved
+    # FALLBACK routing hears every outcome, withheld ones included, because the head waits for this run.
+    assert routing_delay.call_args.kwargs["outcome"] == (
+        "gated" if expect_status == ReviewRunStatus.GATED else expect_verdict.value
+    )
     # Dismissing a review also hides it as outdated, so both belong to the sweep.
     writes = [w["kind"] for w in recorder.github_writes if w["kind"] not in ("dismiss_review", "minimize_review")]
     assert writes == (["approve_review"] if approved else [])
@@ -2510,12 +2536,19 @@ def test_silent_review_is_refused_by_every_gate_but_the_review_mode(
             .id
         )
 
-    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
+    with (
+        patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start,
+        patch("products.stamphog.backend.tasks.tasks.route_reviewers_after_external_review.delay") as route,
+    ):
         silent_review_after_clean_external_review(team_id=team.id, repository=REPO, pr_number=161, head_sha="sha161a")
 
     new_runs = list(ReviewRun.objects.for_team(team.id).exclude(id__in=existing_ids))
     assert len(new_runs) == int(expect_new_run)
     assert start.called is expect_new_run
+    # A gate refusal gives no verdict, so a FALLBACK head that waits for this review must route without one.
+    # A head that has a review, a switch that is off, and a disabled repo leave routing to its usual triggers.
+    refused_by_a_gate = switch_on and enabled and not prior_run and not expect_new_run
+    assert route.called is refused_by_a_gate
     if expect_new_run:
         assert new_runs[0].output == {"review_trigger": "reviewhog_clean"}
     assert recorder.github_writes == []
