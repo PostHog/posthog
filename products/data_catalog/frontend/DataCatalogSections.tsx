@@ -38,18 +38,9 @@ import { WarehouseAccessGate } from './WarehouseAccessGate'
 const VISIBLE_SECTIONS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics']
 
 const OVERFLOW_BREAKPOINTS: { showTab: string; hideMoreButton: string }[] = [
-    {
-        showTab: 'hidden @min-[33rem]/catalog-tabs:inline-flex',
-        hideMoreButton: '@min-[33rem]/catalog-tabs:hidden',
-    },
-    {
-        showTab: 'hidden @min-[38rem]/catalog-tabs:inline-flex',
-        hideMoreButton: '@min-[38rem]/catalog-tabs:hidden',
-    },
-    {
-        showTab: 'hidden @min-[40rem]/catalog-tabs:inline-flex',
-        hideMoreButton: '@min-[40rem]/catalog-tabs:hidden',
-    },
+    { showTab: 'hidden @lg:flex', hideMoreButton: '@lg:hidden' },
+    { showTab: 'hidden @xl:flex', hideMoreButton: '@xl:hidden' },
+    { showTab: 'hidden @2xl:flex', hideMoreButton: '@2xl:hidden' },
 ]
 
 const SECTION_LABELS: Record<DataCatalogTab, string> = {
@@ -122,7 +113,7 @@ export function DataCatalogSections(): JSX.Element {
                 actions={<SceneActions />}
             />
             <Tabs value={activeTab} onValueChange={(tab: DataCatalogTab) => openSection(tab)} data-quill>
-                <div className="@container/catalog-tabs flex flex-wrap items-center gap-2 border-b border-border">
+                <div className="@container flex flex-wrap items-center gap-2 border-b border-border">
                     <TabsList variant="line" aria-label="Data catalog sections">
                         {VISIBLE_SECTIONS.map((tab) => (
                             <TabsTrigger key={tab} value={tab} data-attr={`data-catalog-section-${tab}`}>
