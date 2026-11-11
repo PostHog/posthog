@@ -3,6 +3,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { DateTime } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -171,7 +172,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     const roundTrip = (invocation: CyclotronJobInvocation): CyclotronJobInvocation =>
         parseJSON(JSON.stringify(invocation))
 
-    const deliver = async (job: CyclotronJobInvocation): Promise<CyclotronJobInvocationResult[]> => {
+    const deliver = async (
+        job: CyclotronJobInvocation,
+        prepare: (invocation: CyclotronJobInvocation) => void = () => {}
+    ): Promise<CyclotronJobInvocationResult[]> => {
         const deps = {
             ...createCdpConsumerDeps(hub),
             sandboxEmail: { service: world.service(), events: new SandboxEmailEvents(hub.teamManager) },
@@ -184,9 +188,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         const results: CyclotronJobInvocationResult[] = []
         let next: CyclotronJobInvocation | null = job
         while (next && results.length < 30) {
+            const invocation = roundTrip(next)
+            prepare(invocation)
             const batch: Awaited<ReturnType<CdpCyclotronWorkerEmail['processBatch']>> = await workers[
                 next.queue
-            ].processBatch([roundTrip(next)])
+            ].processBatch([invocation])
             await batch.backgroundTask
             const [result] = batch.invocationResults
             results.push(result)
@@ -201,6 +207,14 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             .map(({ value }) => value as { message_id: string; status: string; reason: string })
             .filter((row) => row.message_id === messageId && row.status !== 'queued')
             .map(({ status, reason }) => ({ status, reason }))
+
+    const finalStatus = (messageId: string): string | undefined =>
+        mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+            .map(({ value }) => value as { message_id: string; status: string; version: string })
+            .filter((row) => row.message_id === messageId)
+            .sort((a, b) => (BigInt(a.version) < BigInt(b.version) ? -1 : 1))
+            .at(-1)?.status
 
     const metricNames = (results: CyclotronJobInvocationResult[]): MinimalAppMetric['metric_name'][] =>
         results.flatMap((result) => result.metrics ?? []).map((metric) => metric.metric_name)
@@ -311,6 +325,23 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(runLogs(results)).toContainEqual(expect.stringContaining('not sent (skipped): sending_disabled'))
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason: 'sending_disabled' }])
+    })
+
+    it('keeps the sent status when the run is canceled after SES accepted the send', async () => {
+        const res = await sendFromCode(request(sandboxSend()))
+        expect(res.status).toEqual(202)
+        let sent = false
+
+        const results = await deliver(queued[0], (invocation) => {
+            sent ||= world.ses.delivered.length > 0
+            if (sent && invocation.queue === 'hogflow') {
+                invocation.cancelRequestedAt = DateTime.now()
+            }
+        })
+
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(results.at(-1)).toMatchObject({ canceled: true })
+        expect(finalStatus(queued[0].id)).toEqual('sent')
     })
 
     it.each<[string, () => void, number, { status: string; reason: string }]>([

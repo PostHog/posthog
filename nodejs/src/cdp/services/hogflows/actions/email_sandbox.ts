@@ -54,6 +54,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
             return onSandboxQueue ? this.handBack(result, stored) : this.finish(options, toStepResult(stored))
         }
         if (!this.config.enabled) {
+            this.recordCodeSendStatus(options, SENDING_DISABLED)
             return onSandboxQueue
                 ? this.handBack(result, SENDING_DISABLED)
                 : this.finish(options, toStepResult(SENDING_DISABLED))
@@ -94,12 +95,14 @@ export class SandboxEmailActionHandler implements ActionHandler {
 
     private async sendOnSandboxQueue(options: ActionHandlerOptions<SandboxSenderAction>): Promise<ActionHandlerResult> {
         if (!this.sendStep) {
+            this.recordCodeSendStatus(options, WORKER_UNAVAILABLE)
             return this.handBack(options.result, WORKER_UNAVAILABLE)
         }
         const decision = await this.sendStep.send(options)
         if ('retryAt' in decision) {
             return { scheduledAt: decision.retryAt }
         }
+        this.recordCodeSendStatus(options, decision)
         if (decision.outcome === 'accepted') {
             options.result.invocation.state.flowVersion = options.invocation.hogFlow.version
         }
@@ -122,7 +125,6 @@ export class SandboxEmailActionHandler implements ActionHandler {
         options: ActionHandlerOptions<SandboxSenderAction>,
         stepResult: SandboxEmailStepResult
     ): ActionHandlerResult {
-        this.recordCodeSendStatus(options, stepResult)
         if (stepResult.status === 'failed') {
             return { result: stepResult, error: new Error(failureMessage(stepResult.reason)) }
         }
@@ -137,21 +139,16 @@ export class SandboxEmailActionHandler implements ActionHandler {
 
     private recordCodeSendStatus(
         { invocation, action, hogExecutorOptions }: ActionHandlerOptions<SandboxSenderAction>,
-        stepResult: SandboxEmailStepResult
+        { outcome, reason }: SandboxEmailOutcome
     ): void {
-        if (
-            hogExecutorOptions?.isTest ||
-            action.type !== 'function_email' ||
-            stepResult.status === 'pending' ||
-            !isTransactionalEmailRun(invocation)
-        ) {
+        if (hogExecutorOptions?.isTest || action.type !== 'function_email' || !isTransactionalEmailRun(invocation)) {
             return
         }
         this.emailStatus?.queue({
             teamId: invocation.teamId,
             messageId: invocation.id,
-            status: stepResult.status === 'accepted' ? 'sent' : 'failed',
-            reason: stepResult.reason,
+            status: outcome === 'accepted' ? 'sent' : 'failed',
+            reason,
         })
     }
 
