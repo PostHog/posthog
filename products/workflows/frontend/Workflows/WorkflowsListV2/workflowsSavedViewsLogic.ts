@@ -21,6 +21,7 @@ import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLog
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -30,7 +31,7 @@ import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
 
 import * as api from '../../generated/api'
-import type { WorkflowViewApi } from '../../generated/api.schemas'
+import type { WorkflowViewApi, WorkflowViewCreateApi } from '../../generated/api.schemas'
 import {
     FacetFilter,
     FacetSearchValue,
@@ -758,7 +759,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             cache.mutationQueue = queued
             return queued
         }
-        const findCreatedView = async (name: string, signal: AbortSignal): Promise<WorkflowViewApi | undefined> => {
+        const findCreatedView = async (
+            sent: WorkflowViewCreateApi,
+            signal: AbortSignal
+        ): Promise<WorkflowViewApi | undefined> => {
             for (let offset = 0, pages = 0; pages < 40; pages++) {
                 const page = await api.workflowViewsList(
                     String(values.currentTeamId),
@@ -766,7 +770,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     { signal }
                 )
                 const created = page.results.find(
-                    (view) => view.name === name && !view.deleted && !values.views.some((known) => known.id === view.id)
+                    (view) =>
+                        objectsEqual({ name: view.name, state: view.state }, sent) &&
+                        !view.deleted &&
+                        !values.views.some((known) => known.id === view.id)
                 )
                 if (created || !page.next || !page.results.length) {
                     return created
@@ -931,13 +938,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map(pillKey))
                     actions.setAddedFilters(edited.filters.filter((filter) => !baselineKeys.has(pillKey(filter))))
-                    // Text typed while the views load is the person's search even when it equals the view's
-                    // saved search, so it is set as typed before the view applies and not compared after.
-                    // A search in the link itself that differs from the view's saved search counts as typed too.
+                    // Text typed while the views load counts even when it matches the saved search, so it is set before the
+                    // view applies. A search in the link itself counts only when it differs from the saved one.
                     const linkText =
-                        viewOnlyLink.text !== undefined && viewOnlyLink.text.trim() !== (view.state.text ?? '').trim()
-                            ? viewOnlyLink.text
-                            : undefined
+                        viewOnlyLink.text?.trim() !== (view.state.text ?? '').trim() ? viewOnlyLink.text : undefined
                     const typedText = edited.text !== viewOnlyLink.baseline.text ? edited.text : linkText
                     actions.setAddedText(typedText === undefined ? null : userText(typedText))
                     actions.applyView(view)
@@ -1024,12 +1028,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         'save-as',
                         name.trim(),
                         async (stillCurrent, signal) => {
-                            const unconfirmed: string | undefined = cache.unconfirmedSaveAs
+                            const unconfirmed: WorkflowViewCreateApi | undefined = cache.unconfirmedSaveAs
                             cache.unconfirmedSaveAs = undefined
-                            // A create past its deadline can still land on the server, so saving the same name
-                            // again first looks for that view instead of creating a second one.
+                            // A create past its deadline can still land, so a retry first looks for a new view with the
+                            // same name and state. Names are not unique, so the name alone could match a teammate's view.
                             const landed =
-                                unconfirmed === name.trim() ? await findCreatedView(unconfirmed, signal) : undefined
+                                unconfirmed?.name === name.trim()
+                                    ? await findCreatedView(unconfirmed, signal)
+                                    : undefined
                             if (!stillCurrent()) {
                                 return
                             }
@@ -1053,7 +1059,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         undefined,
                         (failure) => {
                             if (failure instanceof PromiseTimeoutError) {
-                                cache.unconfirmedSaveAs = name.trim()
+                                cache.unconfirmedSaveAs = { name: name.trim(), state }
                             }
                             onFailure?.(failure)
                         }
