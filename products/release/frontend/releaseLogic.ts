@@ -12,23 +12,26 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
 
-import {
-    earlyAccessFeatureList,
-    earlyAccessFeatureRetrieve,
-} from 'products/early_access_features/frontend/generated/api'
+import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
-import {
-    featureFlagsList,
-    featureFlagsRetrieve,
-    scheduledChangesList,
-} from 'products/feature_flags/frontend/generated/api'
+import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
-import { ReleaseRow, ReleaseStage, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
+import {
+    ReleaseRow,
+    ReleaseStage,
+    ScheduleIndex,
+    buildReleaseRow,
+    composeReleaseIndex,
+    indexEarlyAccess,
+    indexExperiments,
+    indexFlags,
+    indexSchedules,
+} from './releaseUtils'
 
 interface ReleaseLogicValues {
     currentProjectId: number | null
@@ -61,12 +64,17 @@ interface ReleaseLogicValues {
     earlyAccessFailed: boolean
     experimentsReady: boolean
     hiddenExperimentFlagIds: number[]
+    hiddenEarlyAccessFlagIds: number[]
     resolvedFlagIds: number[]
     earlyAccessReady: boolean
     schedulesFailed: boolean
     partialLoadFailed: boolean
     scheduleFlagId: number | null
     dataLoading: boolean
+    flagsById: Map<number, FeatureFlagApi>
+    experimentsByFlagKey: Map<string, ExperimentBasicApi[]>
+    earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
+    scheduleIndex: ScheduleIndex
     canEditReleases: boolean
     rows: ReleaseRow[]
     filteredRows: ReleaseRow[]
@@ -97,6 +105,7 @@ interface ReleaseLogicActions {
     loadExperimentsFailure: (error: string) => { error: string }
     loadExperimentCount: () => void
     setHiddenExperimentFlagIds: (flagIds: number[]) => { flagIds: number[] }
+    setHiddenEarlyAccessFlagIds: (flagIds: number[]) => { flagIds: number[] }
     setResolvedFlagIds: (flagIds: number[]) => { flagIds: number[] }
     loadEarlyAccessFeatures: () => void
     loadEarlyAccessCount: () => void
@@ -132,9 +141,14 @@ const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
 const FLAG_SEARCH_LIMIT = 50
 const FLAG_FETCH_CONCURRENCY = 8
-const SCHEDULE_ID_CHUNK = 100
+const ID_CHUNK = 100
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
+
+function inRequestedOrder<T, K>(items: T[], ids: K[], idOf: (item: T) => K): T[] {
+    const position = new Map(ids.map((id, index) => [id, index]))
+    return [...items].sort((a, b) => (position.get(idOf(a)) ?? 0) - (position.get(idOf(b)) ?? 0))
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -194,6 +208,7 @@ export const releaseLogic = kea<releaseLogicType>([
     actions({
         reload: (force?: boolean) => ({ force: !!force }),
         setHiddenExperimentFlagIds: (flagIds: number[]) => ({ flagIds }),
+        setHiddenEarlyAccessFlagIds: (flagIds: number[]) => ({ flagIds }),
         setResolvedFlagIds: (flagIds: number[]) => ({ flagIds }),
         setSearch: (search: string) => ({ search }),
         setStageFilter: (stage: ReleaseStage | null) => ({ stage }),
@@ -241,19 +256,22 @@ export const releaseLogic = kea<releaseLogicType>([
                 loadFlags: async (_, breakpoint) => {
                     const projectId = String(values.currentProjectId)
                     const ids = linkedFlagIds(values.releases)
-                    const results = await inBatches(ids, (id) => featureFlagsRetrieve(projectId, id), breakpoint)
-                    const flags: FeatureFlagApi[] = []
-                    for (const result of results) {
-                        if (result.status === 'fulfilled') {
-                            if (!result.value.deleted) {
-                                flags.push(result.value)
-                            }
-                        } else if ((result.reason as { status?: number })?.status !== 404) {
-                            throw result.reason
-                        }
-                    }
+                    const pages = valuesOrThrow(
+                        await inBatches(
+                            chunk(ids, ID_CHUNK),
+                            (idChunk) =>
+                                allPages((offset) =>
+                                    featureFlagsList(projectId, { ids: idChunk.join(','), limit: PAGE_SIZE, offset })
+                                ),
+                            breakpoint
+                        )
+                    )
                     actions.setResolvedFlagIds(ids)
-                    return flags
+                    return inRequestedOrder(
+                        pages.flat().filter((flag) => !flag.deleted),
+                        ids,
+                        (flag) => flag.id
+                    )
                 },
             },
         ],
@@ -284,23 +302,41 @@ export const releaseLogic = kea<releaseLogicType>([
                 loadExperiments: async (_, breakpoint) => {
                     const projectId = String(values.currentProjectId)
                     const flagsWithExperiments = values.flags.filter((flag) => flag.experiment_set?.length)
-                    const listFor = (flagId: number, archived: boolean): Promise<ExperimentBasicApi[]> =>
-                        allPages((offset) =>
-                            experimentsList(projectId, { feature_flag_id: flagId, archived, limit: PAGE_SIZE, offset })
-                        )
-                    const pages = valuesOrThrow(
-                        await inBatches(
-                            flagsWithExperiments,
-                            async (flag) => {
-                                const active = await listFor(flag.id, false)
-                                return active.length < flag.experiment_set.length
-                                    ? [...active, ...(await listFor(flag.id, true))]
-                                    : active
-                            },
-                            breakpoint
-                        )
+                    const listFor = async (flagIds: number[], archived: boolean): Promise<ExperimentBasicApi[]> =>
+                        valuesOrThrow(
+                            await inBatches(
+                                chunk(flagIds, ID_CHUNK),
+                                (idChunk) =>
+                                    allPages((offset) =>
+                                        experimentsList(projectId, {
+                                            feature_flag_ids: idChunk.join(','),
+                                            archived,
+                                            limit: PAGE_SIZE,
+                                            offset,
+                                        })
+                                    ),
+                                breakpoint
+                            )
+                        ).flat()
+                    const active = await listFor(
+                        flagsWithExperiments.map((flag) => flag.id),
+                        false
                     )
-                    const experiments = pages.flat()
+                    const activeCount = new Map<string, number>()
+                    for (const experiment of active) {
+                        const key = experiment.feature_flag_key
+                        activeCount.set(key, (activeCount.get(key) ?? 0) + 1)
+                    }
+                    const short = flagsWithExperiments.filter(
+                        (flag) => (activeCount.get(flag.key) ?? 0) < flag.experiment_set.length
+                    )
+                    const experiments = [
+                        ...active,
+                        ...(await listFor(
+                            short.map((flag) => flag.id),
+                            true
+                        )),
+                    ]
                     const loadedIds = new Set(experiments.map((experiment) => experiment.id))
                     actions.setHiddenExperimentFlagIds(
                         flagsWithExperiments
@@ -332,16 +368,32 @@ export const releaseLogic = kea<releaseLogicType>([
                             )
                         ),
                     ]
-                    const results = await inBatches(ids, (id) => earlyAccessFeatureRetrieve(projectId, id), breakpoint)
-                    const features: EarlyAccessFeatureApi[] = []
-                    for (const result of results) {
-                        if (result.status === 'fulfilled') {
-                            features.push(result.value)
-                        } else if ((result.reason as { status?: number })?.status !== 404) {
-                            throw result.reason
-                        }
-                    }
-                    return features
+                    const pages = valuesOrThrow(
+                        await inBatches(
+                            chunk(ids, ID_CHUNK),
+                            (idChunk) =>
+                                allPages((offset) =>
+                                    earlyAccessFeatureList(projectId, {
+                                        ids: idChunk.join(','),
+                                        limit: PAGE_SIZE,
+                                        offset,
+                                    })
+                                ),
+                            breakpoint
+                        )
+                    )
+                    const features = pages.flat()
+                    const loadedIds = new Set(features.map((feature) => feature.id))
+                    actions.setHiddenEarlyAccessFlagIds(
+                        values.flags
+                            .filter((flag) =>
+                                ((flag.features as unknown as { id: string }[] | undefined) ?? []).some(
+                                    (item) => !loadedIds.has(item.id)
+                                )
+                            )
+                            .map((flag) => flag.id)
+                    )
+                    return inRequestedOrder(features, ids, (feature) => feature.id)
                 },
             },
         ],
@@ -359,7 +411,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     const projectId = String(values.currentProjectId)
                     const pages = valuesOrThrow(
                         await inBatches(
-                            chunk(linkedFlagIds(values.releases), SCHEDULE_ID_CHUNK),
+                            chunk(linkedFlagIds(values.releases), ID_CHUNK),
                             (ids) =>
                                 allPages((offset) =>
                                     scheduledChangesList(projectId, {
@@ -388,6 +440,7 @@ export const releaseLogic = kea<releaseLogicType>([
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
         hiddenExperimentFlagIds: [[] as number[], { setHiddenExperimentFlagIds: (_, { flagIds }) => flagIds }],
+        hiddenEarlyAccessFlagIds: [[] as number[], { setHiddenEarlyAccessFlagIds: (_, { flagIds }) => flagIds }],
         resolvedFlagIds: [[] as number[], { setResolvedFlagIds: (_, { flagIds }) => flagIds }],
         earlyAccessReady: [false, { loadEarlyAccessFeaturesSuccess: () => true }],
         loadFailed: [
@@ -423,58 +476,89 @@ export const releaseLogic = kea<releaseLogicType>([
             (): boolean => userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
         ],
         partialLoadFailed: [
-            (s) => [s.experimentsFailed, s.hiddenExperimentFlagIds, s.earlyAccessFailed, s.schedulesFailed],
+            (s) => [
+                s.experimentsFailed,
+                s.hiddenExperimentFlagIds,
+                s.earlyAccessFailed,
+                s.hiddenEarlyAccessFlagIds,
+                s.schedulesFailed,
+            ],
             (
                 experimentsFailed: boolean,
                 hiddenExperimentFlagIds: number[],
                 earlyAccessFailed: boolean,
+                hiddenEarlyAccessFlagIds: number[],
                 schedulesFailed: boolean
-            ) => experimentsFailed || hiddenExperimentFlagIds.length > 0 || earlyAccessFailed || schedulesFailed,
+            ) =>
+                experimentsFailed ||
+                hiddenExperimentFlagIds.length > 0 ||
+                earlyAccessFailed ||
+                hiddenEarlyAccessFlagIds.length > 0 ||
+                schedulesFailed,
         ],
         dataLoading: [
             (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
             (releasesLoading: boolean, experimentsLoading: boolean, flagsReady: boolean, loadFailed: boolean) =>
                 !loadFailed && (releasesLoading || experimentsLoading || !flagsReady),
         ],
+        flagsById: [(s) => [s.flags], (flags: FeatureFlagApi[]) => indexFlags(flags)],
+        experimentsByFlagKey: [
+            (s) => [s.experiments],
+            (experiments: ExperimentBasicApi[]) => indexExperiments(experiments),
+        ],
+        earlyAccessByFlagKey: [
+            (s) => [s.earlyAccessFeatures],
+            (earlyAccessFeatures: EarlyAccessFeatureApi[]) => indexEarlyAccess(earlyAccessFeatures),
+        ],
+        scheduleIndex: [
+            (s) => [s.flags, s.scheduledChanges],
+            (flags: FeatureFlagApi[], scheduledChanges: ScheduledChangeApi[]) =>
+                indexSchedules(flags, scheduledChanges),
+        ],
         rows: [
             (s) => [
                 s.releases,
-                s.flags,
-                s.experiments,
-                s.earlyAccessFeatures,
-                s.scheduledChanges,
+                s.flagsById,
+                s.experimentsByFlagKey,
+                s.earlyAccessByFlagKey,
+                s.scheduleIndex,
                 s.flagsReady,
                 s.loadFailed,
                 s.experimentsFailed,
                 s.earlyAccessFailed,
                 s.experimentsReady,
                 s.hiddenExperimentFlagIds,
+                s.hiddenEarlyAccessFlagIds,
                 s.earlyAccessReady,
                 s.resolvedFlagIds,
             ],
             (
                 releases: ReleaseDTOApi[],
-                flags: FeatureFlagApi[],
-                experiments: ExperimentBasicApi[],
-                earlyAccessFeatures: EarlyAccessFeatureApi[],
-                scheduledChanges: ScheduledChangeApi[],
+                flagsById: Map<number, FeatureFlagApi>,
+                experimentsByFlagKey: Map<string, ExperimentBasicApi[]>,
+                earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>,
+                scheduleIndex: ScheduleIndex,
                 flagsReady: boolean,
                 loadFailed: boolean,
                 experimentsFailed: boolean,
                 earlyAccessFailed: boolean,
                 experimentsReady: boolean,
                 hiddenExperimentFlagIds: number[],
+                hiddenEarlyAccessFlagIds: number[],
                 earlyAccessReady: boolean,
                 resolvedFlagIds: number[]
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
                     return []
                 }
-                const index = buildReleaseIndex(flags, experiments, earlyAccessFeatures, scheduledChanges, {
-                    complete: experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed,
-                    resolvedFlagIds,
-                    unknownFlagIds: hiddenExperimentFlagIds,
-                })
+                const index = composeReleaseIndex(
+                    { flagsById, experimentsByFlagKey, earlyAccessByFlagKey, schedules: scheduleIndex },
+                    {
+                        complete: experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed,
+                        resolvedFlagIds,
+                        unknownFlagIds: [...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds])],
+                    }
+                )
                 return releases.map((release) => buildReleaseRow(release, index))
             },
         ],
