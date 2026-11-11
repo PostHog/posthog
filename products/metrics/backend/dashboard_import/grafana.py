@@ -523,12 +523,9 @@ class GrafanaDashboardParser:
             substituted, unresolved = substitution.text, list(substitution.unresolved)
             templated = self._variables.template(expression) if language == "promql" else None
             if language == "promql":
-                rewrite = strip_grafana_ranges(substituted)
-                substituted = drop_match_all_matchers(rewrite.expr)
+                substituted = drop_match_all_matchers(strip_grafana_ranges(substituted))
                 if templated is not None:
-                    templated = drop_match_all_matchers(strip_grafana_ranges(templated).expr)
-                if rewrite.changed_meaning:
-                    notes.append("A $__range window shows per-step values, not one total for the dashboard range.")
+                    templated = drop_match_all_matchers(strip_grafana_ranges(templated))
             notes.extend(f"The variable ${name} has no saved value." for name in unresolved)
             legend = target.get("legendFormat")
             targets.append(
