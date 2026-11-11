@@ -6,16 +6,20 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
+import { sesThrottle } from './ses'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
     probe: Pick<CyclotronProbe, 'runningJobs'>
     teams: number[]
+    edgeUrl: string
 }
+
+export type ApplyContext = ValveContext & { pollMs: number; faultObservedWithinMs: number }
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
-    apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+    apply(context: ApplyContext, target: string, dose: unknown): Promise<Actuation>
 }
 
 export type ValveTimelineEntry = {
@@ -41,13 +45,14 @@ export const roleKill: ValveDefinition = {
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill]
+export const VALVES: ValveDefinition[] = [roleKill, sesThrottle]
 
 const POLL_MS = 1000
+const FAULT_OBSERVED_WITHIN_MS = 30_000
 
 const now = (): string => new Date().toISOString()
 
-export function createValves({ pollMs = POLL_MS } = {}): Valves {
+export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_OBSERVED_WITHIN_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
@@ -96,7 +101,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         let actuation: Actuation | undefined
         try {
             record.appliedAt = now()
-            actuation = await definition.apply(context, entry.target, entry.dose)
+            actuation = await definition.apply({ ...context, pollMs, faultObservedWithinMs }, entry.target, entry.dose)
             if (!(await actuation.observed())) {
                 record.error = 'applied but not observed'
             } else if (entry.when && (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast) {

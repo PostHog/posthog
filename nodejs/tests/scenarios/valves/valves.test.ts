@@ -1,9 +1,12 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { Actuation } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
+import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
@@ -40,6 +43,7 @@ function stackOf({
 
     const context: ValveContext = {
         teams: [OUR_TEAM],
+        edgeUrl: 'http://127.0.0.1:1',
         environment: {
             actuate: (action): Promise<Actuation> => {
                 const pid = processes.get(action.role)
@@ -245,6 +249,81 @@ describe('valves', () => {
             expect.objectContaining({ error, appliedAt: expect.any(String), releasedAt: expect.any(String) }),
         ])
         expect(valves.timeline()[0].observedAt).toBeUndefined()
+    })
+
+    describe('on the provider edge', () => {
+        let edge: ProviderEdge
+        let ses: SESv2Client
+
+        beforeEach(async () => {
+            edge = await startProviderEdge({ port: 0 })
+            ses = new SESv2Client({
+                endpoint: edge.url,
+                region: 'us-east-1',
+                credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+                maxAttempts: 1,
+            })
+        })
+
+        afterEach(async () => {
+            ses.destroy()
+            await edge.close()
+        })
+
+        const send = (): Promise<string> =>
+            ses
+                .send(
+                    new SendEmailCommand({
+                        FromEmailAddress: 'flows@www.example.com',
+                        Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                        Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
+                    })
+                )
+                .then(
+                    () => 'sent',
+                    (error: Error) => error.name
+                )
+
+        const throttle = (rate: number, holdFor: string): ValveEntry => ({
+            valve: 'ses.throttle',
+            target: 'ses',
+            dose: { rate },
+            at: '0ms',
+            for: holdFor,
+        })
+
+        it('throttles SES sends until the drive ends, and lifts the throttle on release', async () => {
+            const valves = createValves({ pollMs: 5 })
+
+            await valves.start([throttle(1, '1m')], { ...stackOf().context, edgeUrl: edge.url })
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const outcomes = [await send(), await send()]
+            await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(outcomes).toEqual(['sent', 'TooManyRequestsException'])
+            expect(await send()).toBe('sent')
+            expect(valves.timeline()[0]).toEqual(expect.objectContaining({ releasedAt: expect.any(String) }))
+            expect(valves.timeline()[0].error).toBeUndefined()
+        })
+
+        it('records a throttle that no send went over as never observed', async () => {
+            const valves = createValves({ pollMs: 5, faultObservedWithinMs: 50 })
+
+            await valves.start([throttle(1, '1m')], { ...stackOf().context, edgeUrl: edge.url })
+            expect(await send()).toBe('sent')
+            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(valves.timeline()[0]).toEqual(
+                expect.objectContaining({
+                    error: 'applied but not observed',
+                    appliedAt: expect.any(String),
+                    releasedAt: expect.any(String),
+                })
+            )
+            expect(valves.timeline()[0].observedAt).toBeUndefined()
+        })
     })
 
     it('cuts an applied entry short when the drive ends before its hold does', async () => {

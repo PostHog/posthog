@@ -189,7 +189,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 sampler = await startSampler(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
-                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
+                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds, edgeUrl })
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)

@@ -136,6 +136,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case 'DELETE /_faults':
                 faults.clear()
                 return { status: 204 }
+            case 'GET /_faults/:id': {
+                const applied = faults.applied(faultId!)
+                return applied === undefined ? { status: 404 } : { status: 200, body: { id: faultId, applied } }
+            }
             case 'DELETE /_faults/:id':
                 return { status: faults.remove(faultId!) ? 204 : 404 }
             default:

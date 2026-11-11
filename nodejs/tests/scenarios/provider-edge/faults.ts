@@ -23,6 +23,15 @@ export const CardFault = z.discriminatedUnion('name', [
         .strict(),
     z
         .object({
+            name: z.literal('ses.throttle'),
+            params: z.object({ rate: z.number().int().min(1) }).strict(),
+            match: RecipientMatch.optional(),
+            dose: Dose.default({ share: 1 }),
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
             name: z.literal('dest.status'),
             params: z.object({ code: z.number().int().min(200).max(599) }).strict(),
             match: HostMatch.optional(),
@@ -47,6 +56,7 @@ export type FaultRule = {
     name: string
     answer: SesAnswer | WebhookAnswer
     match?: { recipient?: string; host?: string }
+    ratePerSecond?: number
     dose: z.infer<typeof Dose>
     for?: string
 }
@@ -54,17 +64,32 @@ export type FaultRule = {
 type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
+const THROTTLED: SesStatusAnswer = {
+    status: 429,
+    type: 'TooManyRequestsException',
+    message: 'Maximum sending rate exceeded.',
+}
+const RATE_WINDOW_MS = 1000
 
 export function ruleOf(fault: CardFault): FaultRule {
     switch (fault.name) {
         case 'ses.reject':
             return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+        case 'ses.throttle':
+            return { ...fault, ratePerSecond: fault.params.rate, answer: { kind: 'status', answer: THROTTLED } }
         case 'dest.status':
             return { ...fault, answer: { kind: 'webhook-status', status: fault.params.code } }
     }
 }
 
-type ActiveFault = { id: string; rule: FaultRule; until: number; matched: number; applied: number }
+type ActiveFault = {
+    id: string
+    rule: FaultRule
+    until: number
+    matched: number
+    applied: number
+    passedAt: number[]
+}
 
 const SHARE_TOLERANCE = 1e-9
 
@@ -76,6 +101,18 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
         answer.kind !== 'webhook-status' &&
         (match?.recipient === undefined || request.recipients.includes(match.recipient))
     )
+}
+
+function withinRate(fault: ActiveFault, now: number): boolean {
+    if (fault.rule.ratePerSecond === undefined) {
+        return false
+    }
+    fault.passedAt = fault.passedAt.filter((at) => at > now - RATE_WINDOW_MS)
+    if (fault.passedAt.length >= fault.rule.ratePerSecond) {
+        return false
+    }
+    fault.passedAt.push(now)
+    return true
 }
 
 function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
@@ -92,7 +129,7 @@ export class FaultList {
     add(rule: FaultRule): string {
         const id = randomUUID()
         const until = rule.for === undefined ? Infinity : Date.now() + durationMs(rule.for)
-        this.faults.push({ id, rule, until, matched: 0, applied: 0 })
+        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [] })
         return id
     }
 
@@ -104,6 +141,10 @@ export class FaultList {
 
     clear(): void {
         this.faults = []
+    }
+
+    applied(id: string): number | undefined {
+        return this.faults.find((fault) => fault.id === id)?.applied
     }
 
     takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {
@@ -120,7 +161,7 @@ export class FaultList {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         for (const fault of this.faults) {
-            if (!matches(fault.rule, request)) {
+            if (!matches(fault.rule, request) || withinRate(fault, now)) {
                 continue
             }
             fault.matched += 1
