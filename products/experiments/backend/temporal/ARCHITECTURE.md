@@ -73,7 +73,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
-Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
+Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts, from the team's `experiment-calculation-key-v2` flag evaluated locally; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
 
 A metrics recalculation run carries its version in the `calculation_key_version` workflow input, and the workflow passes it to the calc activity only when it is not 1. It is the seventh positional argument, after the precompute mode, so a version 2 calc sends the mode too, as `None` for AUTO. Every worker in a region must run that code before any team uses version 2: an older activity worker rejects the extra argument with a `TypeError`, and an older workflow worker drops the field and runs the run as version 1.
 
@@ -83,7 +83,7 @@ Key version 2 reads the exposure criteria as stored, with the product defaults a
 
 Rows keep the key they were written with. Readers find a config's rows under both key versions. The newest compatible row wins, and rows under the current settings win only a tie, while `has_completed` requires the active key. A version 1 row's exact analytical settings are unknown, so no conversion may assign it a version 2 key without recomputing it.
 
-Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute.
+Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute. Results carry `configuration_status` (`current`, `previous`, or `unknown`) and charts carry the same information in `configuration_by_day`. The page offers an explicit recalculation for earlier or unrecorded settings.
 
 The display key omits confidence, baseline and CUPED settings as well as project settings, so it must never authorize calculation reuse. Metric definition, start date, stats method, stored exposure criteria, maturity and excluded-variant edits change the display key too and hide incompatible history.
 
@@ -105,7 +105,7 @@ So every run of a stopped experiment uses the same `(experiment, metric_uuid, qu
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
 - **Same config, failed row:** the reload recomputes the metric and updates the row in place.
-- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included. A failure keeps the old completed row and goes to `metric_errors` only, so the run still reads the earlier result.
 
 The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
@@ -127,14 +127,14 @@ Every writer (the calc activity, the daily activities, the backfill and the time
 A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
 A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
 A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
-A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
+A failed write leaves a completed row under another fingerprint in place, because it has no result to replace it with. A failed recalculation also leaves a completed row under its own key in place, while a failed daily point replaces it, so the chart shows the latest attempt.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 Backfill requests lock the experiment while checking for an active job by metric UUID, deleting its daily results, and creating the new job in one transaction. Failed job creation preserves the existing results. The active-job unique index includes the metric UUID as well as the experiment and calculation key, so equivalent metrics can backfill independently. Keeping the key in the index allows existing jobs for one UUID under different keys to coexist during a rolling deployment; the locked UUID lookup prevents new requests from adding another job for that metric.
 
 ### Counters are derived, not stored
 
-`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows (`status=COMPLETED` for completed, `status=FAILED` plus discovery-step failures from `metric_errors` for failed). This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment. The only thing that matters is whether the result row exists.
+`completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows and `metric_errors`: a metric with a `status=FAILED` row or a `metric_errors` entry counts as failed, and any other metric with a `status=COMPLETED` row counts as completed. A failed calculation keeps the completed row that held its window, so its `metric_errors` entry is what counts it as failed. A rejected run carries the earlier run's rows, so its error counts only for a metric without a row. This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment.
 
 ### Idempotency + concurrency at the API boundary
 
@@ -169,9 +169,11 @@ Between the edit and that run, it shows no result for a metric whose fingerprint
 
 A recalc row records what caused it, in `trigger` (`Trigger` on the model).
 The set is more than a manual click.
-User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `STALE_REFRESH`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+The page sends `STALE_REFRESH` when results stop more than 12 hours before the window end, which is now for a running experiment and the end date for a stopped one.
+`_results_are_stale` in `recalculation.py` checks the same rule with server time, so a final result is never recalculated.
 Server-side triggers: `AGENT_MCP` (set by the view from the client header), `TIMESERIES_SYNC` and `SCHEDULED` (written by their workflows).
-Deprecated values stay for old rows: `STALE_REFRESH`, `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
+Deprecated values stay for old rows: `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
 `RequestTrigger` is the subset a client may send on POST; the request serializer rejects the rest.
 This lets the analytics and the UI tell a user click apart from an automatic heal.
 
@@ -309,13 +311,13 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   The workload stays set explicitly rather than left to `Workload.DEFAULT`, which follows the process default and changes with how the activity is invoked.
 
-  The ClickHouse user follows the task queue of the calc. The calc activity reads its queue from `activity.info().task_queue` and passes it to `recalculation_clickhouse_user`, which returns the dedicated `experiments` user (`ClickHouseUser.EXPERIMENTS`) for the activity queue and the precompute queue. Those queues have a fixed slot count, so the `experiments` user always runs under a cap on concurrent queries. The calc sets the user as `ch_user` in the `tags_context` around the runner. Every query in that context that names no user takes it, the precompute inserts too. The tag wins over the cache-warming fallback. Some queries keep their own user: the HogQL metadata lookups name theirs, the query kill on cancellation uses the pod's user, and the live-progress read on the GET path runs as `app`.
+  The ClickHouse user follows the task queue of the calc. The calc activity reads its queue from `activity.info().task_queue` and passes it to `recalculation_clickhouse_user`, which returns the dedicated `experiments` user (`ClickHouseUser.EXPERIMENTS`) for the activity, precompute, build and direct-heavy queues. Those queues have a fixed slot count, so the `experiments` user always runs under a cap on concurrent queries. The calc sets the user as `ch_user` in the `tags_context` around the runner. Every query in that context that names no user takes it, the precompute inserts too. The tag wins over the cache-warming fallback. Some queries keep their own user: the HogQL metadata lookups name theirs, the query kill on cancellation uses the pod's user, and the live-progress read on the GET path runs as `app`.
 
-  A calc on the main queue sets no `ch_user`. The calc tags its queries with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share. A queue that has the same name as the main queue counts as the main queue. Local development and single-queue mode collapse all three queues into one, so they run as `default`.
+  A calc on the main queue sets no `ch_user`. The calc tags its queries with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share. A queue that has the same name as the main queue counts as the main queue. Local development and single-queue mode collapse all the recalculation queues into one, so they run as `default`.
 
   Operating rules:
-  - Both the activity worker and the precompute worker need the `experiments` user, its token grant, and the token mount (`CLICKHOUSE_EXPERIMENTS_USER` and `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE`). A query sent as a user the cluster does not know fails.
-  - Verify with `query_log_archive`: group the calc queries by `lc_service_name` (the worker deployment, one per queue) and `user`. The activity and precompute workers send only `experiments`, the main worker only `default`. A worker without `CLICKHOUSE_EXPERIMENTS_USER` or `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` falls back to `default` with no error. A worker with both variables set but no file at that path still sends `experiments`, with an empty password, so its queries fail authentication and the activity retries them.
+  - The activity, precompute, build and direct-heavy workers need the `experiments` user, its token grant, and the token mount (`CLICKHOUSE_EXPERIMENTS_USER` and `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE`). A query sent as a user the cluster does not know fails.
+  - Verify with `query_log_archive`: group the calc queries by `lc_service_name` (the worker deployment, one per queue) and `user`. The activity, precompute, build and direct-heavy workers send only `experiments`, the main worker only `default`. A worker without `CLICKHOUSE_EXPERIMENTS_USER` or `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` falls back to `default` with no error. A worker with both variables set but no file at that path still sends `experiments`, with an empty password, so its queries fail authentication and the activity retries them.
   - To roll back, turn the `experiment-recalculation-activity-queue` flag off. New runs then stay on the main queue and run as `default`. A run in flight keeps its queue, and so its user, for all retries.
 
 - **No saved-metric snapshot.** Each calc activity that processes a saved/shared metric re-queries the M2M through-model to resolve the metric definition. For a 5–10 metric experiment this is fine; for larger experiments the per-call query starts to add up. Tracked as a deferred optimization (snapshot resolved metric dicts on the recalc row at discovery time).

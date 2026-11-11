@@ -233,6 +233,22 @@ def append_function_suggestions(
     )
 
 
+_SNIPPETS: dict[str, str] = {
+    "CASE WHEN": "CASE WHEN condition THEN result ELSE other END",
+}
+
+
+def append_snippet_suggestions(suggestions: list[AutocompleteCompletionItem], prefix: str = "") -> None:
+    labels = [label for label in _SNIPPETS if label.lower().startswith(prefix.lower())]
+    extend_responses(
+        labels,
+        suggestions,
+        AutocompleteCompletionItemKind.SNIPPET,
+        insert_text=lambda label: _SNIPPETS[label],
+        details=["Snippet"] * len(labels),
+    )
+
+
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
@@ -510,6 +526,7 @@ def append_table_field_to_response(
         context=context,
         expected_type=expected_type_at_position(node, parent_node, table, context),
     )
+    append_snippet_suggestions(suggestions)
 
 
 def extend_responses(
@@ -872,6 +889,7 @@ def _suggest_select_fields(
                 context=context,
                 prefix=prefix,
             )
+            append_snippet_suggestions(response.suggestions, prefix)
         return _VariantFlow.TRY_NEXT_VARIANT
 
     table_has_alias = select_from.alias is not None

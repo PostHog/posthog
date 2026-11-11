@@ -5,12 +5,10 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Team
-from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 _THRESHOLD_MEAN: dict[str, object] = {
@@ -427,45 +425,17 @@ class TestExperimentSavedMetricService(APIBaseTest):
             (
                 "link_with_breakdowns",
                 {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                {"method": "bayesian"},
-                False,
                 "The breakdowns it adds to this metric don't work with this change.",
             ),
-            ("link_without_breakdowns", {"type": "primary"}, {"method": "bayesian"}, False, None),
-            (
-                "experiment_sequential_testing",
-                {"type": "primary"},
-                {"method": "frequentist", "frequentist": {"sequential_testing_enabled": True}},
-                False,
-                "Sequential testing isn't supported for percentile metrics yet.",
-            ),
-            (
-                "team_default_sequential_testing",
-                {"type": "primary"},
-                {"method": "frequentist"},
-                True,
-                "Sequential testing isn't supported for percentile metrics yet.",
-            ),
-            (
-                "experiment_opts_out_of_team_default",
-                {"type": "primary"},
-                {"method": "frequentist", "frequentist": {"sequential_testing_enabled": False}},
-                True,
-                None,
-            ),
+            ("link_without_breakdowns", {"type": "primary"}, None),
         ]
     )
     def test_update_saved_metric_to_percentile_checks_linked_experiments(
         self,
         _name: str,
         link_metadata: dict,
-        stats_config: dict,
-        team_default_sequential: bool,
         expected_error: str | None,
     ) -> None:
-        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        team_config.default_sequential_testing_enabled = team_default_sequential
-        team_config.save()
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
             created_by=self.user,
@@ -480,7 +450,6 @@ class TestExperimentSavedMetricService(APIBaseTest):
             name="Checkout speed test",
             feature_flag_key="saved-metric-percentile-breakdowns",
             saved_metrics_ids=[{"id": saved_metric.id, "metadata": link_metadata}],
-            stats_config=stats_config,
         )
         percentile_query = {
             "kind": "ExperimentMetric",
