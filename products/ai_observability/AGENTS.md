@@ -44,8 +44,7 @@ A new backend feature in `products/ai_observability/backend/` has this shape fro
 - New code does not import from the workflow modules in `posthog/temporal/ai_observability/`.
   To reuse a helper there, move it into product logic and import it from there in both places.
 
-Code that mixes queries, ORM writes and model calls with its rules forces every test through a database.
-It also gets harder to move with every PR built on it.
+Avoid a package that mixes queries, ORM writes and model calls with its rules.
 Read [`products/architecture.md`](../architecture.md) sections 3 to 5 when you place a new module or define a facade contract.
 
 ## Product docs go under `docs/`
