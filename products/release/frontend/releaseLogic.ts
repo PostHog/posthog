@@ -64,6 +64,7 @@ interface ReleaseLogicValues {
     earlyAccessFailed: boolean
     experimentsReady: boolean
     hiddenExperimentFlagIds: number[]
+    hiddenEarlyAccessFlagIds: number[]
     resolvedFlagIds: number[]
     earlyAccessReady: boolean
     schedulesFailed: boolean
@@ -104,6 +105,7 @@ interface ReleaseLogicActions {
     loadExperimentsFailure: (error: string) => { error: string }
     loadExperimentCount: () => void
     setHiddenExperimentFlagIds: (flagIds: number[]) => { flagIds: number[] }
+    setHiddenEarlyAccessFlagIds: (flagIds: number[]) => { flagIds: number[] }
     setResolvedFlagIds: (flagIds: number[]) => { flagIds: number[] }
     loadEarlyAccessFeatures: () => void
     loadEarlyAccessCount: () => void
@@ -206,6 +208,7 @@ export const releaseLogic = kea<releaseLogicType>([
     actions({
         reload: (force?: boolean) => ({ force: !!force }),
         setHiddenExperimentFlagIds: (flagIds: number[]) => ({ flagIds }),
+        setHiddenEarlyAccessFlagIds: (flagIds: number[]) => ({ flagIds }),
         setResolvedFlagIds: (flagIds: number[]) => ({ flagIds }),
         setSearch: (search: string) => ({ search }),
         setStageFilter: (stage: ReleaseStage | null) => ({ stage }),
@@ -379,7 +382,18 @@ export const releaseLogic = kea<releaseLogicType>([
                             breakpoint
                         )
                     )
-                    return inRequestedOrder(pages.flat(), ids, (feature) => feature.id)
+                    const features = pages.flat()
+                    const loadedIds = new Set(features.map((feature) => feature.id))
+                    actions.setHiddenEarlyAccessFlagIds(
+                        values.flags
+                            .filter((flag) =>
+                                ((flag.features as unknown as { id: string }[] | undefined) ?? []).some(
+                                    (item) => !loadedIds.has(item.id)
+                                )
+                            )
+                            .map((flag) => flag.id)
+                    )
+                    return inRequestedOrder(features, ids, (feature) => feature.id)
                 },
             },
         ],
@@ -426,6 +440,7 @@ export const releaseLogic = kea<releaseLogicType>([
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
         hiddenExperimentFlagIds: [[] as number[], { setHiddenExperimentFlagIds: (_, { flagIds }) => flagIds }],
+        hiddenEarlyAccessFlagIds: [[] as number[], { setHiddenEarlyAccessFlagIds: (_, { flagIds }) => flagIds }],
         resolvedFlagIds: [[] as number[], { setResolvedFlagIds: (_, { flagIds }) => flagIds }],
         earlyAccessReady: [false, { loadEarlyAccessFeaturesSuccess: () => true }],
         loadFailed: [
@@ -461,13 +476,25 @@ export const releaseLogic = kea<releaseLogicType>([
             (): boolean => userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
         ],
         partialLoadFailed: [
-            (s) => [s.experimentsFailed, s.hiddenExperimentFlagIds, s.earlyAccessFailed, s.schedulesFailed],
+            (s) => [
+                s.experimentsFailed,
+                s.hiddenExperimentFlagIds,
+                s.earlyAccessFailed,
+                s.hiddenEarlyAccessFlagIds,
+                s.schedulesFailed,
+            ],
             (
                 experimentsFailed: boolean,
                 hiddenExperimentFlagIds: number[],
                 earlyAccessFailed: boolean,
+                hiddenEarlyAccessFlagIds: number[],
                 schedulesFailed: boolean
-            ) => experimentsFailed || hiddenExperimentFlagIds.length > 0 || earlyAccessFailed || schedulesFailed,
+            ) =>
+                experimentsFailed ||
+                hiddenExperimentFlagIds.length > 0 ||
+                earlyAccessFailed ||
+                hiddenEarlyAccessFlagIds.length > 0 ||
+                schedulesFailed,
         ],
         dataLoading: [
             (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
@@ -501,6 +528,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.earlyAccessFailed,
                 s.experimentsReady,
                 s.hiddenExperimentFlagIds,
+                s.hiddenEarlyAccessFlagIds,
                 s.earlyAccessReady,
                 s.resolvedFlagIds,
             ],
@@ -516,6 +544,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 earlyAccessFailed: boolean,
                 experimentsReady: boolean,
                 hiddenExperimentFlagIds: number[],
+                hiddenEarlyAccessFlagIds: number[],
                 earlyAccessReady: boolean,
                 resolvedFlagIds: number[]
             ): ReleaseRow[] => {
@@ -527,7 +556,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     {
                         complete: experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed,
                         resolvedFlagIds,
-                        unknownFlagIds: hiddenExperimentFlagIds,
+                        unknownFlagIds: [...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds])],
                     }
                 )
                 return releases.map((release) => buildReleaseRow(release, index))
