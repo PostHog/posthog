@@ -10,6 +10,7 @@ const PAGE_SIZE = 500
 export interface githubIntegrationLogicValues {
     currentOffset: number
     repositories: GitHubRepoApi[]
+    repositoriesFailed: boolean
     repositoriesLoading: boolean
 }
 
@@ -66,6 +67,13 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
     }),
 
     reducers({
+        repositoriesFailed: [
+            false,
+            {
+                loadRepositories: () => false,
+                loadRepositoriesPageFailure: () => true,
+            },
+        ],
         repositories: [
             [] as GitHubRepoApi[],
             {
