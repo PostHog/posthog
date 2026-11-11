@@ -10,7 +10,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
     Method, Url,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 use tracing::debug;
 
@@ -53,6 +53,7 @@ mod tests {
     fn error_diagnostics_exclude_response_data_and_url_credentials() {
         for body in [
             r#"{"type":"validation_error","code":"invalid","detail":"BODY_SECRET","attr":"FIELD_SECRET","extra":{"key":"EXTRA_SECRET"}}"#,
+            r#"{"type":"TYPE_SECRET","code":"CODE_SECRET"}"#,
             "BODY_SECRET FIELD_SECRET EXTRA_SECRET",
         ] {
             let error = ClientError::ApiError(
@@ -70,6 +71,8 @@ mod tests {
                     "BODY_SECRET",
                     "FIELD_SECRET",
                     "EXTRA_SECRET",
+                    "TYPE_SECRET",
+                    "CODE_SECRET",
                 ] {
                     assert!(!output.contains(secret), "{output}");
                 }
@@ -111,12 +114,8 @@ impl Display for ClientError {
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }
-            ClientError::ApiError(status, url, body) => {
-                write!(f, "API error: status='{status}' url='{}'", redact_url(url))?;
-                if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(body) {
-                    write!(f, " {api_error}")?;
-                }
-                Ok(())
+            ClientError::ApiError(status, url, _) => {
+                write!(f, "API error: status='{status}' url='{}'", redact_url(url))
             }
         }
     }
@@ -161,18 +160,6 @@ fn api_error_code(body: &str) -> Option<String> {
     serde_json::from_str::<ApiErrorCodeResponse>(body)
         .ok()
         .and_then(|api_error| api_error.code)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ApiErrorResponse {
-    r#type: String,
-    code: String,
-}
-
-impl Display for ApiErrorResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error='{}' code='{}'", self.r#type, self.code)
-    }
 }
 
 pub trait SendRequestFn: FnOnce(RequestBuilder) -> RequestBuilder {}
