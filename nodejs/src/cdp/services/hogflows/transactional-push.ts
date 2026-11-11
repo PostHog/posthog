@@ -5,18 +5,15 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { IdempotencyKeys } from './idempotency-keys'
 
-// The trigger event of every transactional push run.
 export const TRANSACTIONAL_PUSH_EVENT = '$transactional_push'
 
 // Django mints the transactional email token with this claim for a push send, so a push token can't run an email.
 export const TRANSACTIONAL_PUSH_TOKEN_CLAIMS = { kind: 'push' }
 
 export const TransactionalPushRequestSchema = z.object({
-    // The person the push goes to. The push step sends to every device this person registered.
     distinct_id: z.string().min(1).max(400),
     // The caller's `message_data`, available to the template as `variables`.
     variables: z.record(z.string(), z.any()).default({}),
-    // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
 })
 
