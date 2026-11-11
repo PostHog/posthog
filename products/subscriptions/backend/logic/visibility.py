@@ -56,10 +56,13 @@ class _Filterable(Protocol):
 class _TargetLookups:
     insight: str
     dashboard: str
+    dashboard_is_null: str
+    dashboard_in: str
     context_dashboard: str
     subscription: str
     live_context_insight_lookup: str
     context_refs: str | None
+    context_ref_overlap: str | None
     rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
@@ -70,10 +73,13 @@ class _TargetLookups:
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id",
+    dashboard_is_null="dashboard_id__isnull",
+    dashboard_in="dashboard_id__in",
     context_dashboard="contexts__dashboard_id",
     subscription="pk",
     live_context_insight_lookup="contexts__insight_id__in",
     context_refs=None,
+    context_ref_overlap=None,
     rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
@@ -85,10 +91,13 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id",
+    dashboard_is_null="subscription__dashboard_id__isnull",
+    dashboard_in="subscription__dashboard_id__in",
     context_dashboard="subscription__contexts__dashboard_id",
     subscription="subscription_id",
     live_context_insight_lookup="subscription__contexts__insight_id__in",
     context_refs="context_refs",
+    context_ref_overlap="context_refs__overlap",
     rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
@@ -271,7 +280,7 @@ def _target_filter(
     viewable_context_dashboards = candidate.ids - restricted.hidden - restricted.with_hidden_insights
 
     points_at_viewable_dashboards = Q(
-        Q(**{f"{targets.dashboard}__isnull": True}) | Q(**{f"{targets.dashboard}__in": viewable_dashboards}),
+        Q(**{targets.dashboard_is_null: True}) | Q(**{targets.dashboard_in: viewable_dashboards}),
         ~Exists(
             # Unscoped: the subquery is correlated to a row of this team and must see every context of that row.
             SubscriptionContext.objects.unscoped()
@@ -306,12 +315,12 @@ def _target_filter(
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(
-        **{f"{targets.dashboard}__in": sorted(restricted.with_hidden_insights)}
+        **{targets.dashboard_in: sorted(restricted.with_hidden_insights)}
     )
     references_a_blocked_insight = Q(**{targets.live_context_insight_lookup: blocked_insights})
-    if targets.context_refs is not None:
+    if targets.context_ref_overlap is not None:
         references_a_blocked_insight |= Q(
-            **{f"{targets.context_refs}__overlap": _context_ref_subquery("insight", blocked_insights)}
+            **{targets.context_ref_overlap: _context_ref_subquery("insight", blocked_insights)}
         )
     rendered_a_blocked_insight = Q()
     if targets.rendered_snapshot is not None:
