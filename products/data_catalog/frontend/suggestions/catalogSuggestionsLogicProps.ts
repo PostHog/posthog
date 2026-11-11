@@ -12,6 +12,13 @@ import type {
 
 import { TABLES_SEARCH_PARAM } from '../catalogTableRows'
 import { certificationsLogic } from '../certificationsLogic'
+import type { DataCatalogTab } from '../dataCatalogSceneLogic'
+
+const PLACEMENT_FOR_TAB: Partial<Record<DataCatalogTab, SuggestionPlacement>> = {
+    overview: 'overview',
+    tables: 'tables_tab',
+    suggestions: 'suggestions_section',
+}
 
 function reloadCatalogRows(): void {
     databaseTableListLogic.findMounted()?.actions.loadDatabase({ force: true })
@@ -26,6 +33,10 @@ function openAcceptedSubject(suggestion: WarehouseSuggestionApi): void {
     )
 }
 
-export function catalogSuggestionsLogicProps(placement: SuggestionPlacement): WarehouseSuggestionsLogicProps {
-    return { placement, onAccepted: reloadCatalogRows, onViewAccepted: openAcceptedSubject }
+export function catalogSuggestionsLogicProps(activeTab: DataCatalogTab): WarehouseSuggestionsLogicProps {
+    return {
+        placement: PLACEMENT_FOR_TAB[activeTab],
+        onAccepted: reloadCatalogRows,
+        onViewAccepted: openAcceptedSubject,
+    }
 }

@@ -128,3 +128,9 @@ export const AllCaughtUpWithMoreWaiting: Story = {
         msw: { mocks: suggestionsMocks([], { ...ACTIVE_STATUS, waiting: 4, can_show_more: true }) },
     },
 }
+
+export const AllCaughtUp: Story = {
+    parameters: {
+        msw: { mocks: suggestionsMocks([], ACTIVE_STATUS) },
+    },
+}

@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useRef } from 'react'
 
 import { Skeleton, Text } from '@posthog/quill'
@@ -6,7 +6,6 @@ import { Skeleton, Text } from '@posthog/quill'
 import { QuillDeprecateSuggestionModal } from 'products/warehouse_suggestions/frontend/components/QuillDeprecateSuggestionModal'
 import { QuillMaterializeSuggestionModal } from 'products/warehouse_suggestions/frontend/components/QuillMaterializeSuggestionModal'
 import { QuillSuggestedModelsGroups } from 'products/warehouse_suggestions/frontend/components/QuillSuggestedModelsGroups'
-import { QuillSuggestionsCaughtUp } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsCaughtUp'
 import { QuillSuggestionsReadsNote } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsReadsNote'
 import { QuillSuggestionsStatusNotice } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsStatusNotice'
 import { QuillSuggestionsSummary } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsSummary'
@@ -14,7 +13,7 @@ import { QuillUnmaterializeSuggestionModal } from 'products/warehouse_suggestion
 import { useFocusFollowsRemovedRow } from 'products/warehouse_suggestions/frontend/components/useFocusFollowsRemovedRow'
 import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
-import { catalogSuggestionsLogicProps } from './catalogSuggestionsLogicProps'
+import { CatalogSuggestionsEmptyState } from './CatalogSuggestionsEmptyState'
 
 const NOTICE_STATES = ['error', 'warming_up', 'not_eligible']
 
@@ -28,11 +27,13 @@ function SuggestionsList(): JSX.Element {
     )
 
     return (
-        <div ref={listRef} className="@container/suggestions rounded border border-border">
-            <div className="divide-y divide-border">
-                <QuillSuggestedModelsGroups groups={suggestionGroups} windowDays={status?.window_days ?? 0} />
-            </div>
-            {stripState !== 'active' && <QuillSuggestionsCaughtUp placement="section" />}
+        <div ref={listRef} className="flex flex-col gap-3">
+            {listedSuggestions.length > 0 && (
+                <div className="@container/suggestions divide-y divide-border rounded border border-border">
+                    <QuillSuggestedModelsGroups groups={suggestionGroups} windowDays={status?.window_days ?? 0} />
+                </div>
+            )}
+            {stripState !== 'active' && <CatalogSuggestionsEmptyState />}
         </div>
     )
 }
@@ -65,9 +66,7 @@ function SuggestionsContent(): JSX.Element {
 export function CatalogSuggestionsSection(): JSX.Element {
     return (
         <section aria-label="Suggestions" className="flex flex-col gap-3" data-attr="data-catalog-suggestions">
-            <BindLogic logic={warehouseSuggestionsLogic} props={catalogSuggestionsLogicProps('suggestions_section')}>
-                <SuggestionsContent />
-            </BindLogic>
+            <SuggestionsContent />
         </section>
     )
 }

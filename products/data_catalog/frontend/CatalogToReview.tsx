@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,7 +9,6 @@ import { suggestionCountsText } from 'products/warehouse_suggestions/frontend/su
 import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
 import { CatalogToReviewList } from './CatalogToReviewList'
-import { catalogSuggestionsLogicProps } from './suggestions/catalogSuggestionsLogicProps'
 
 function CatalogToReviewWithSuggestions(): JSX.Element {
     const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
@@ -35,9 +34,5 @@ export function CatalogToReview(): JSX.Element | null {
         return <CatalogToReviewList />
     }
 
-    return (
-        <BindLogic logic={warehouseSuggestionsLogic} props={catalogSuggestionsLogicProps('overview')}>
-            <CatalogToReviewWithSuggestions />
-        </BindLogic>
-    )
+    return <CatalogToReviewWithSuggestions />
 }
