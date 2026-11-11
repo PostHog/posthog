@@ -174,7 +174,6 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
-        // null means the person has not chosen yet, so allProductsVisible picks the default.
         allProductsOpen: [
             (inStorybook() ? true : null) as boolean | null,
             { persist: true },
