@@ -484,7 +484,7 @@ It connects to KMS directly and ignores `HTTP_PROXY` and `HTTPS_PROXY`, unless `
 KMS traffic uses the AWS KMS VPC endpoint (`CREDENTIALS_SERVICE_KMS_ENDPOINT`) and does not use the HTTP proxy.
 This is the only direct egress of the service, besides the internal capture host.
 The `local` provider wraps data keys with AES-256-GCM under keys from config, for dev, CI and hobby.
-Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` is `prod-us` or `prod-eu`, and when it starts with `prod`.
+Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` contains `prod`, in any case.
 
 | Variable                             | Default | Notes                                                                      |
 | ------------------------------------ | ------- | -------------------------------------------------------------------------- |
