@@ -51,8 +51,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let locks: Lock[]
     let proxies: StallableProxy[]
 
-    // Other suites and runs share this database and consume the literal email queue, so every test gets the
-    // Cyclotron tables in a schema of its own.
     const dbUrl = (host: string, port: number): string => {
         const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
         url.searchParams.set('options', `-c search_path=${schema},public`)
@@ -182,14 +180,19 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     const lockJobRow = (id: string): Promise<Lock> =>
         lock('SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
 
-    // A move into the email queue first takes the team's next email sequence number, so
-    // locking that row holds the move without touching the job row itself.
     async function lockEmailSequence(): Promise<Lock> {
         await db.query(
             'INSERT INTO cyclotron_email_team_seq (team_id, counter) VALUES ($1, 1) ON CONFLICT (team_id) DO NOTHING',
             [teamId]
         )
         return lock('SELECT 1 FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [teamId])
+    }
+
+    const releaseStaleClaimAsTheJanitorDoes = async (id: string): Promise<void> => {
+        await db.query(
+            `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1`,
+            [id]
+        )
     }
 
     const unlock = async (held: Lock): Promise<void> => {
@@ -214,8 +217,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await db.query('SELECT pg_terminate_backend($1)', [await writeWaitingOn(held)])
     }
 
-    // Proves a promise pending only for this window, which is long enough for a write
-    // nobody waits on to finish against a local database.
     const PENDING_WINDOW_MS = 250
     const stillPending = (promise: Promise<unknown>): Promise<boolean> =>
         Promise.race([
@@ -268,7 +269,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         return { returned: () => returned, stopped }
     }
 
-    // Each bounded step left after the deadline still waits one timer turn, which runs 1 ms later.
     const TIMER_SLACK_MS = 5
 
     const useFakeClock = (): void => {
@@ -456,11 +456,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         const emailSequence = await lockEmailSequence()
         const written = queue.queueInvocationResults([movedToEmail(earlier)])
         await writeWaitingOn(emailSequence)
-        // What the janitor does to a job whose claim stopped heartbeating.
-        await db.query(
-            `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1`,
-            [id]
-        )
+        await releaseStaleClaimAsTheJanitorDoes(id)
         const [, later] = await consumer.claimed(2)
         await unlock(emailSequence)
         await written
