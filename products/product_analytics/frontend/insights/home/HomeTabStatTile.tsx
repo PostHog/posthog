@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
@@ -145,6 +146,10 @@ export function HomeTabStatTile({ stat, compare }: HomeTabStatTileProps): JSX.El
         />
     )
 
+    // The sparkline takes the change pill's color, so a falling metric reads as red at a glance.
+    const sparklineColor =
+        compare && changeFromPreviousPct ? getColorVar(changeFromPreviousPct > 0 ? 'success' : 'danger') : undefined
+
     const subtitle = !compare
         ? 'For selected period'
         : previousValue == null
@@ -170,11 +175,11 @@ export function HomeTabStatTile({ stat, compare }: HomeTabStatTileProps): JSX.El
             value={value ?? undefined}
             showChange={compare}
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
-            changeBesideSubtitle
             hoverChangeFromPreviousPoint
             data={trend?.data}
             labels={trend?.days}
             theme={theme}
+            color={sparklineColor}
             sparklineHeight={50}
             sparklineDashedFromIndex={incompleteTail ? (trend?.data.length ?? 0) - 1 : undefined}
             formatLabel={(bucket) => formatBucketLabel(bucket, interval)}
