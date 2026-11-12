@@ -1,7 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import fs, { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { AddressInfo, Socket, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
@@ -177,6 +177,34 @@ describe('runner', () => {
             ...result,
             recorded: true,
         })
+    })
+
+    it('keeps the saved verdict and event whole when the disk fills while they are replaced after publication', async () => {
+        const write = fs.writeFileSync
+        let published = false
+        api.onCapture = () => {
+            published = true
+        }
+        jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+            if (!published || !String(file).startsWith(cacheHome)) {
+                return write(file, data, options)
+            }
+            write(file, String(data).slice(0, 8))
+            throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+        })
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        jest.restoreAllMocks()
+        expect(result.scorecardError).toMatch(/^the scorecard files could not be written: ENOSPC/)
+        expect(
+            ['scorecard-event.json', 'scorecard.json'].map((file) =>
+                parseJSON(readFileSync(path.join(result.evidenceDir, file), 'utf8'))
+            )
+        ).toEqual([
+            api.captured[0].properties,
+            expect.objectContaining({ runId: result.runId, statusReason: result.statusReason, recorded: false }),
+        ])
     })
 
     it.each<[string, boolean, AbortSignal, RegExp]>([

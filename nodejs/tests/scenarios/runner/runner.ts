@@ -1,5 +1,14 @@
 import { randomUUID } from 'crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import {
+    createReadStream,
+    createWriteStream,
+    existsSync,
+    mkdirSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
 import { pipeline } from 'stream/promises'
@@ -112,7 +121,15 @@ function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> 
 }
 
 function writeJson(evidenceDir: string, name: string, value: unknown): void {
-    writeFileSync(path.join(evidenceDir, name), JSON.stringify(value, null, 2))
+    const file = path.join(evidenceDir, name)
+    const partial = `${file}.partial`
+    try {
+        writeFileSync(partial, JSON.stringify(value, null, 2))
+        renameSync(partial, file)
+    } catch (error) {
+        rmSync(partial, { force: true })
+        throw error
+    }
 }
 
 async function errorOf(write: () => Promise<void> | void): Promise<string | undefined> {
@@ -261,14 +278,14 @@ export function createRunner(
             })
             const judged = withEvidenceError(base, evidenceError)
             const event = scorecardOf(judged, loaded, provenanceOf())
-            const writeScorecards = (scorecard: RunResult): Promise<string | undefined> =>
+            const writeScorecards = (files: [string, unknown][]): Promise<string | undefined> =>
                 evidenceError === undefined
-                    ? errorOf(() => {
-                          writeJson(evidenceDir, 'scorecard-event.json', event)
-                          writeJson(evidenceDir, 'scorecard.json', scorecard)
-                      })
+                    ? errorOf(() => files.forEach(([name, value]) => writeJson(evidenceDir, name, value)))
                     : Promise.resolve(undefined)
-            await writeScorecards(judged)
+            await writeScorecards([
+                ['scorecard-event.json', event],
+                ['scorecard.json', judged],
+            ])
             const written = await publish(event, env, signal)
             const result: RunResult = {
                 ...judged,
@@ -276,7 +293,7 @@ export function createRunner(
                 captured: written.captured,
                 scorecardError: written.problem,
             }
-            const filesError = await writeScorecards(result)
+            const filesError = await writeScorecards([['scorecard.json', result]])
             if (filesError === undefined) {
                 return result
             }
