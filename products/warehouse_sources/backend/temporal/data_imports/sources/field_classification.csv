@@ -157,7 +157,7 @@ Beamer,api_key,,,,,beamer
 Beehiiv,api_key publication_id,,,,,beehiiv
 BetterStack,api_token,,,,,better-stack
 Bettermode,region client_id client_secret network_id,,,,,bettermode
-Bexio,,,,,,bexio
+Bexio,api_token,,,,,bexio
 BigCommerce,store_hash access_token,,,,,big-commerce
 BigMailer,api_key,,,,,big-mailer
 BigQuery,auth_type use_custom_region dataset_project,auth_type=service_account,,dataset_id temporary-dataset,,google-cloud-service-account
