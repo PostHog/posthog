@@ -445,6 +445,8 @@ export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
 export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
 
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -705,13 +707,27 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .string()
                 .optional()
                 .describe(
-                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo."
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo."
                 ),
             dateTo: zod
                 .string()
                 .optional()
                 .describe(
                     'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
                 ),
         })
         .describe('The metric query to execute.'),
@@ -728,21 +744,41 @@ export const MetricsValuesRetrieveParams = () => zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryFirstSeenDefault = false
+export const metricsValuesRetrieveQueryFoldHistogramsDefault = false
 export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
+export const metricsValuesRetrieveQueryMatchDefault = `substring`
 export const metricsValuesRetrieveQueryServiceMax = 1024
 
+export const metricsValuesRetrieveQuerySparklinesDefault = true
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
 export const MetricsValuesRetrieveQueryParams = () => zod.object({
+    first_seen: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFirstSeenDefault)
+        .describe('Add `first_seen`: the earliest hour each name arrived in, within retention.'),
+    fold_histograms: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFoldHistogramsDefault)
+        .describe(
+            "Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page."
+        ),
     limit: zod
         .number()
         .min(1)
         .max(metricsValuesRetrieveQueryLimitMax)
         .default(metricsValuesRetrieveQueryLimitDefault)
         .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    match: zod
+        .enum(['substring', 'prefix', 'regex'])
+        .default(metricsValuesRetrieveQueryMatchDefault)
+        .describe(
+            'How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.\n\n\* `substring` - substring\n\* `prefix` - prefix\n\* `regex` - regex'
+        ),
     service: zod
         .string()
         .max(metricsValuesRetrieveQueryServiceMax)
@@ -750,9 +786,17 @@ export const MetricsValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
         ),
+    sparklines: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySparklinesDefault)
+        .describe(
+            'Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.'
+        ),
     value: zod
         .string()
         .max(metricsValuesRetrieveQueryValueMax)
         .default(metricsValuesRetrieveQueryValueDefault)
-        .describe('Substring filter (case-insensitive) applied to metric names.'),
+        .describe(
+            'Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.'
+        ),
 })

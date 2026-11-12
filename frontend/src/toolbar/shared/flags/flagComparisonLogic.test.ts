@@ -53,6 +53,14 @@ describe('flagComparisonLogic', () => {
     let flagWrites: unknown[]
     let logic: ReturnType<typeof flagComparisonLogic.build>
     let unmountMenu: () => void
+    let posthog: PostHog
+
+    function mountLogics(source?: 'extension'): void {
+        initKeaTests()
+        toolbarConfigLogic.build({ apiURL: 'http://localhost', posthog, source }).mount()
+        logic = flagComparisonLogic()
+        unmountMenu = logic.mount()
+    }
 
     beforeEach(() => {
         persisted = {
@@ -60,7 +68,7 @@ describe('flagComparisonLogic', () => {
             $override_feature_flag_payloads: userPayloads,
         }
         flagWrites = []
-        const posthog = {
+        posthog = {
             get_property: (key: string) => persisted[key],
             featureFlags: {
                 overrideFeatureFlags: (options: { flags?: unknown; payloads?: unknown }) => {
@@ -79,10 +87,7 @@ describe('flagComparisonLogic', () => {
         URL.createObjectURL = jest.fn(() => `blob:capture-${urlCount++}`)
         URL.revokeObjectURL = jest.fn()
 
-        initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost', posthog }).mount()
-        logic = flagComparisonLogic()
-        unmountMenu = logic.mount()
+        mountLogics()
     })
 
     test.each([
@@ -200,14 +205,22 @@ describe('flagComparisonLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    test('shows the comparison when the flags menu closes during the capture', async () => {
-        jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
+    test.each([
+        { form: 'floating toolbar', source: undefined, expectedMenu: 'flags' },
+        // The extension's panel shows the comparison, and a menu in its content script would turn off its heatmap.
+        { form: 'extension', source: 'extension' as const, expectedMenu: 'none' },
+    ])(
+        'shows the comparison when the flags menu closes during the capture, in the $form',
+        async ({ source, expectedMenu }) => {
+            mountLogics(source)
+            jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
 
-        logic.actions.compareFlag(flag)
-        unmountMenu()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.compareFlag(flag)
+            unmountMenu()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.comparison).toMatchObject({ flagKey: flag.key, identical: true })
-        expect(toolbarLogic.values.visibleMenu).toEqual('flags')
-    })
+            expect(logic.values.comparison).toMatchObject({ flagKey: flag.key, identical: true })
+            expect(toolbarLogic.values.visibleMenu).toEqual(expectedMenu)
+        }
+    )
 })

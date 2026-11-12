@@ -4,24 +4,29 @@ Separate from `platform_lifecycle`, which serves the source adapters. These serv
 outside the product, so they return views rather than rows and never change one.
 """
 
-from collections.abc import Collection, Sequence
+import operator
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from functools import reduce
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
+    EnabledNativeConfiguration,
     Grouping,
     InstanceCheckState,
     NativeConfigurationMatch,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertEvents,
     PlatformAlertHistory,
+    PlatformAlertListHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
     PlatformCheckEntry,
@@ -31,7 +36,11 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlHistory,
     PlatformLastCheck,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    PlatformAlertCheckStatus,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.logic import platform_alert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -117,9 +126,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    created_by_uuid: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `created_by_uuid`, only the ones that user created.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -130,6 +141,8 @@ def list_configurations(
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
         readable = readable.filter(id__in=list(configuration_ids))
+    if created_by_uuid is not None:
+        readable = readable.filter(created_by__uuid=created_by_uuid)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -182,19 +195,133 @@ def native_configuration_matches(
     )
 
 
-def native_configuration_ids(
-    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
-) -> tuple[UUID, ...]:
-    """Ids of the team's configurations of a kind with no source row whose `source_config[key]` is one of `values`."""
+def enabled_native_configurations(
+    *,
+    team_ids: Collection[int],
+    source_kind: str,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
+    firing_at: datetime | None = None,
+) -> tuple[EnabledNativeConfiguration, ...]:
+    """The enabled configurations of a kind with no source row in these teams, newest first. With
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
+    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds."""
+    if not team_ids or (source_config_key is not None and not values):
+        return ()
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    rows = PlatformAlertConfiguration.objects.unscoped().filter(
+        team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True, enabled=True
+    )
+    if created_by_id is not None:
+        rows = rows.filter(created_by_id=created_by_id)
+    if source_config_key is not None:
+        rows = rows.filter(_source_config_in(source_config_key, values))
+    if firing_at is not None:
+        # The composition `runtime_by_public_id` shows: a failed check status replaces the state.
+        firing = PlatformAlert.objects.unscoped().filter(configuration=OuterRef("pk"), state=PlatformAlertState.FIRING)
+        rows = rows.filter(
+            Exists(firing),
+            Q(snooze_until__isnull=True) | Q(snooze_until__lte=firing_at),
+            check_status=PlatformAlertCheckStatus.OK,
+        )
+    ordered = rows.order_by("-created_at", "-id").values_list(
+        "id", "team_id", "name", "created_at", "created_by_id", "source_config"
+    )
     return tuple(
+        EnabledNativeConfiguration(
+            id=row_id,
+            team_id=team_id,
+            name=name,
+            created_at=created_at,
+            created_by_id=row_created_by_id,
+            source_config=source_config,
+        )
+        for row_id, team_id, name, created_at, row_created_by_id, source_config in (
+            ordered if limit is None else ordered[:limit]
+        )
+    )
+
+
+def native_source_config_values(
+    *, team_ids: Collection[int], source_kind: str, source_config_key: str, values: Collection[Any]
+) -> set[Any]:
+    """Which of `values` a configuration of a kind with no source row in these teams holds as
+    `source_config[key]`, enabled or not."""
+    if not team_ids or not values:
+        return set()
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    configs = (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .filter(_source_config_in(source_config_key, values))
+        .values_list("source_config", flat=True)
+    )
+    wanted = set(values)
+    return {value for config in configs if (value := config.get(source_config_key)) in wanted}
+
+
+def native_configuration_ids_by_source_config(
+    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+) -> dict[Any, list[UUID]]:
+    """The configurations of a kind with no source row in the team, by which of `values` each holds as
+    `source_config[key]`, enabled or not. A value no configuration holds is left out."""
+    if not values:
+        return {}
+    # The caller names the team, as `native_source_config_values` takes its teams.
+    configs = (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(team_id=team_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .filter(_source_config_in(source_config_key, values))
+        .order_by("created_at", "id")
+        .values_list("id", "source_config")
+    )
+    wanted = set(values)
+    by_value: dict[Any, list[UUID]] = {}
+    for configuration_id, config in configs:
+        if (value := config.get(source_config_key)) in wanted:
+            by_value.setdefault(value, []).append(configuration_id)
+    return by_value
+
+
+def _source_config_in(key: str, values: Collection[Any]) -> Q:
+    return reduce(operator.or_, (Q(source_config__contains={key: value}) for value in values))
+
+
+def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) -> int | None:
+    """The team of a configuration of a kind with no source row, or None when there is none. For a
+    caller with no team yet, such as a click on a button in a message, which then checks access
+    against the team this returns."""
+    unscoped = PlatformAlertConfiguration.objects.unscoped()
+    # nosemgrep: idor-lookup-without-team — resolves the team only; the caller authorizes against it
+    rows = unscoped.filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+    return rows.values_list("team_id", flat=True).first()
+
+
+def owned_configuration_ids_without_source_rows(
+    *,
+    team_id: int,
+    source_kind: str,
+    source_config_key: str,
+    values: Collection[Any],
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+) -> tuple[UUID, ...]:
+    """Ids of the team's configurations of a kind the platform owns whose `source_config[key]` is one
+    of `values` and that have no source row: the ones that never had one, and copies whose row
+    `existing_source_ids` does not return."""
+    found = list(
         PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
         .filter(
             source_kind=source_kind,
-            legacy_configuration_id__isnull=True,
+            owner=PlatformAlertOwner.PLATFORM,
             **{f"source_config__{source_config_key}__in": list(values)},
         )
-        .values_list("id", flat=True)
+        .values_list("id", "legacy_configuration_id")
     )
+    existing = set(existing_source_ids([legacy_id for _, legacy_id in found if legacy_id is not None]))
+    return tuple(configuration_id for configuration_id, legacy_id in found if legacy_id not in existing)
 
 
 def count_configurations(
@@ -204,12 +331,19 @@ def count_configurations(
     native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
+    exclude_id: UUID | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row."""
+    the ones with no source row. With `exclude_id`, the alert an edit is checked for is left out. With
+    `source_config_contains`, only the ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
+    if exclude_id is not None:
+        configurations = configurations.exclude(id=exclude_id)
+    if source_config_contains:
+        configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:
         configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if enabled_only:
@@ -369,6 +503,31 @@ def control_changes_by_public_id(
     if platform_id is None:
         return None
     return platform_alert_events.control_changes(team_id, platform_id, kinds=kinds, limit=limit)
+
+
+def alert_list_history(
+    *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id: its newest
+    check, its state changes in `[since, until)` across every group, and its control-plane changes."""
+    return PlatformAlertListHistory(
+        last_checks=platform_alert_events.last_checks(team_id, configuration_ids, all_groups=True),
+        histories=platform_alert_events.history(team_id, configuration_ids, since=since, until=until, all_groups=True),
+        controls=platform_alert_events.control_history(team_id, configuration_ids, since=since, until=until),
+    )
+
+
+def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit: int) -> PlatformAlertEvents:
+    """A configuration's checks across every group that moved its state or failed since `since`, and
+    its control-plane changes since then, each newest first."""
+    return PlatformAlertEvents(
+        checks=platform_alert_events.notable_checks(
+            team_id, configuration_id, since=since, limit=limit, all_groups=True
+        ),
+        changes=platform_alert_events.control_changes(
+            team_id, configuration_id, kinds=tuple(ControlChangeKind), limit=limit, since=since
+        ),
+    )
 
 
 def control_history_by_public_id(

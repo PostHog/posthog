@@ -49,3 +49,17 @@ def push_all_warehouse_member_teams() -> None:
 
     if member_teams.is_enabled():
         member_teams.push_all()
+
+
+# Long-running: an explain run plans every model of a team on Trino, one after another.
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def run_trino_compile_check_task(
+    team_id: int,
+    run_id: str,
+    explain: bool,
+    limit: int | None = None,
+    saved_query_ids: list[str] | None = None,
+) -> None:
+    from products.managed_warehouse.backend.trino_compile_check_run import run_trino_compile_check  # noqa: PLC0415
+
+    run_trino_compile_check(team_id, run_id=run_id, explain=explain, limit=limit, saved_query_ids=saved_query_ids)

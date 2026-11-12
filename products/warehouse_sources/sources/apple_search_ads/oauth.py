@@ -21,7 +21,7 @@ def apple_ads_access_token(integration: IntegrationRecord) -> str:
     """Current bearer token for an Apple Ads grant, refreshing it when it has expired."""
     oauth_integration = OauthIntegration(integration)
     if oauth_integration.access_token_expired():
-        oauth_integration.refresh_access_token()
+        integration = oauth_integration.refresh_access_token()
         # `refresh_terminal`, not `integration.errors`, because a failed refresh also sets
         # `errors` for a transient provider hiccup (network error, 429, 5xx) that a later
         # attempt clears on its own. `refresh_terminal` only latches once the grant itself is

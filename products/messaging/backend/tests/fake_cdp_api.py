@@ -110,9 +110,21 @@ def _clicks_need_opens(tracking: dict[str, Any], path: list[Any]) -> Issues:
     return [_issue("custom", path)] if tracking.get("opens") is False and tracking.get("clicks") is True else []
 
 
-def _accepted_send(tracking: Check, *, takes_sensitive: bool) -> Check:
+_ATTACHMENT = _object(
+    {
+        "sha256": _Key(_string(min_length=64, max_length=64)),
+        "filename": _Key(_string(min_length=1, max_length=255)),
+        "content_type": _Key(_string(min_length=1, max_length=78), optional=True),
+        "content_id": _Key(_string(min_length=1, max_length=78), optional=True),
+    },
+    strict=True,
+)
+
+
+def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments: bool) -> Check:
     copies = _Key(_array(_email, max_items=10), optional=True)
     sensitive = {"sensitive": _Key(_boolean, optional=True)} if takes_sensitive else {}
+    attachments = {"attachments": _Key(_array(_ATTACHMENT, max_items=10), optional=True)} if takes_attachments else {}
     return _object(
         {
             "content": _Key(
@@ -142,6 +154,7 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool) -> Check:
             "cc": copies,
             "bcc": copies,
             **sensitive,
+            **attachments,
             "tracking": _Key(tracking),
         },
         strict=True,
@@ -177,6 +190,7 @@ def _is_recipient_format_issue(issue: dict[str, Any]) -> bool:
 @frozen
 class FakeCdpApi:
     before_the_contract: bool = False
+    takes_attachments: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
 
@@ -191,6 +205,7 @@ class FakeCdpApi:
         send = _accepted_send(
             TRACKING_BEFORE_THE_CONTRACT if self.before_the_contract else TRACKING,
             takes_sensitive=not self.before_the_contract,
+            takes_attachments=self.takes_attachments,
         )
         keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(send)} if is_code_send else {})}
         issues = _object(keys, strict=False)(request, [])
@@ -211,7 +226,7 @@ class FakeCdpApi:
             {
                 **send["content"],
                 "captureEngagement": send["tracking"]["captureEngagement"],
-                **{name: send[name] for name in ("from", "replyTo", "cc", "bcc") if name in send},
+                **{name: send[name] for name in ("from", "replyTo", "cc", "bcc", "attachments") if name in send},
             }
             for send in self.queued_sends
         ]
