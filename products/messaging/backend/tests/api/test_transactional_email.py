@@ -2426,15 +2426,19 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_category", True, {}, status.HTTP_202_ACCEPTED),
-            ("category_object", True, MARKETING_SEND, status.HTTP_403_FORBIDDEN),
-            ("category_object_with_categories_off", False, MARKETING_SEND, status.HTTP_400_BAD_REQUEST),
+            ("no_category", [True], {}, status.HTTP_202_ACCEPTED),
+            ("category_object", [True], MARKETING_SEND, status.HTTP_403_FORBIDDEN),
+            ("category_object_with_categories_off", [False], MARKETING_SEND, status.HTTP_400_BAD_REQUEST),
+            ("category_object_while_categories_turn_on", [False, True], MARKETING_SEND, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_editor_access_to_a_keys_workflow_cannot_create_categories(
-        self, cdp_post, flag, _name, categories_on, fields, expected_status
+        self, cdp_post, flag, _name, categories_answers, fields, expected_status
     ):
-        flag.side_effect = lambda key, *_args, **_kwargs: categories_on or key != CODE_SEND_CATEGORIES_FLAG
+        flag.side_effect = lambda key, *_args, **_kwargs: (
+            key != CODE_SEND_CATEGORIES_FLAG
+            or (categories_answers.pop(0) if len(categories_answers) > 1 else categories_answers[0])
+        )
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         hog_flow_id = transactional_email._key_workflow_id(self.team.id, "weekly")
         self._login_member("viewer@example.com", {None: "viewer", str(hog_flow_id): "editor"})
