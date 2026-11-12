@@ -96,6 +96,7 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
@@ -159,6 +160,7 @@ from products.tasks.backend.facade.tasks import (
 )
 from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
+    reconcile_visual_review_baseline_ledgers,
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
     sweep_visual_review_runs,
@@ -173,6 +175,7 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
+    recheck_pending_email_senders,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -859,6 +862,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recover stuck canvas builds",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        backfill_metric_embeddings_task.s(),
+        name="backfill catalog metric embeddings",
+    )
+
     sender.add_periodic_task(
         crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
@@ -1005,6 +1015,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        reconcile_visual_review_baseline_ledgers.s(),
+        name="advance visual review baseline ledgers",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="17"),
+        reconcile_visual_review_baseline_ledgers.s(reconcile_approvals=True),
+        name="reconcile visual review baseline approvals",
+    )
+
     sender.add_periodic_task(
         TEST_CENSUS_CRONTAB,
         emit_test_ownership_census.s(),
@@ -1076,6 +1100,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="7", minute="0"),
+        recheck_pending_email_senders.s(),
+        name="workflows pending email sender recheck",
     )
 
     add_periodic_task_with_expiry(
