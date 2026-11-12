@@ -33129,6 +33129,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -33295,6 +33300,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -69614,6 +69624,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft: boolean;
     }
 
     export interface MessagingError {
@@ -84998,6 +85010,11 @@ export namespace Schemas {
       readonly status?: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted?: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason?: string | null;
       /** @nullable */
       readonly approved_at?: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -88636,6 +88653,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id?: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft?: boolean;
     }
 
     /**
@@ -131133,7 +131152,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -138157,6 +138176,10 @@ export namespace Schemas {
 
     export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -138164,6 +138187,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null;
     };
 
     export type MetricsAttributeValuesRetrieveParams = {
