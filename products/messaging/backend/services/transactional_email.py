@@ -274,6 +274,8 @@ def check_sendable(team_id: int, *, template_type: str, content: dict, message_c
 
 def check_unsubscribe_link_kept(template_id: UUID, team_id: int, content: dict) -> None:
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
+    if not template.transactional_hog_flow_id or not _workflow_exists(team_id, template.transactional_hog_flow_id):
+        return
     category = template_category(team_id, template.message_category_id)
     if _is_marketing(category) and code_send_categories_enabled(team_id):
         _require_unsubscribe_link_in_template((content or {}).get("email") or {})

@@ -2172,22 +2172,36 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("link_kept", True, '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a> any time</p>', None),
-            ("link_removed", True, "<p>See you next week</p>", "unsubscribe_link_required"),
-            ("placeholder_kept_outside_a_link", True, "<p>{{ unsubscribe_url }}</p>", "unsubscribe_link_required"),
-            ("link_removed_with_categories_off", False, "<p>See you next week</p>", None),
+            ("link_kept", True, '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a> any time</p>', None, False),
+            ("link_removed", True, "<p>See you next week</p>", "unsubscribe_link_required", False),
+            (
+                "placeholder_kept_outside_a_link",
+                True,
+                "<p>{{ unsubscribe_url }}</p>",
+                "unsubscribe_link_required",
+                False,
+            ),
+            ("link_removed_with_categories_off", False, "<p>See you next week</p>", None, False),
+            ("link_removed_after_its_workflow_was_deleted", True, "<p>See you next week</p>", None, True),
         ]
     )
     def test_a_design_edit_of_a_marketing_template_keeps_its_unsubscribe_link(
-        self, _cdp_post, flag, _capture, _name, flag_on, new_text, expected_code
+        self, _cdp_post, flag, _capture, _name, flag_on, new_text, expected_code, workflow_deleted
     ):
         content = {"email": {"subject": "Weekly news", "design": self._design(), "html": self.UNSUBSCRIBE_HTML}}
         self._save_template({"message_category": str(self._category().id), "content": content})
         flag.side_effect = lambda key, *_args, **_kwargs: flag_on or key != CODE_SEND_CATEGORIES_FLAG
+        if workflow_deleted:
+            HogFlow.objects.filter(team=self.team, id=self.hog_flow_id).delete()
 
         response = self._edit_design(new_text)
 
         self.template.refresh_from_db()
+        if workflow_deleted:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert self.template.content["email"]["html"] == unlayer_document(new_text)
+            assert self.template.transactional_hog_flow_id is None
+            return
         step = self._email_step(self.hog_flow_id)
         workflow_html = step["inputs"]["email"]["value"]["html"]
         if expected_code:
