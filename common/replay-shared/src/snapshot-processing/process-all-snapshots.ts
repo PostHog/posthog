@@ -63,7 +63,7 @@ function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
     return extractImgNodeFromMobileIncremental(snapshot) !== undefined
 }
 
-function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
+function createMinimalFullSnapshot(windowId: number, timestamp: number, imgNode?: any): RecordingSnapshot {
     return {
         type: EventType.FullSnapshot,
         timestamp,
@@ -72,7 +72,7 @@ function createMinimalFullSnapshot(windowId: number | undefined, timestamp: numb
             node: makeScreenshotDocumentNode(imgNode, timestamp),
             initialOffset: { top: 0, left: 0 },
         },
-    } as unknown as RecordingSnapshot
+    }
 }
 
 export async function processAllSnapshots(
