@@ -1,8 +1,13 @@
 import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 
 describe('config', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     test('overrideWithEnv 1', () => {
         const defaultConfig = getDefaultConfig()
         const env = {
@@ -28,6 +33,29 @@ describe('config', () => {
 
         expect(config.INSTRUMENT_THREAD_PERFORMANCE).toEqual(true)
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
+    })
+
+    test.each([
+        ['"3008"', 3008],
+        ["'3008'", 3008],
+        ['" 3008.12 "', 3008.12],
+        ['.5', 0.5],
+    ])('reads a number from the env value %s', (value, expected) => {
+        const config = overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value })
+
+        expect(config.TASK_TIMEOUT).toEqual(expected)
+    })
+
+    test.each(['"3008', 'abc', '', 'Infinity'])('keeps the default and logs an error for the env value %p', (value) => {
+        const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+
+        const config = overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value })
+
+        expect(config.TASK_TIMEOUT).toEqual(getDefaultConfig().TASK_TIMEOUT)
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('TASK_TIMEOUT'), {
+            value,
+            default: getDefaultConfig().TASK_TIMEOUT,
+        })
     })
 
     test.each([
