@@ -64,6 +64,11 @@ describe('SupportEditor serialization and preview schema', () => {
             },
             '- item\n\n![cat](https://example.com/cat.png)',
         ],
+        [
+            'prose punctuation left unescaped, inline formatting characters escaped',
+            { type: 'doc', content: [paragraph('Thanks! See v1.2-rc (#81525): distinct_id _emph_ *c* [d] `e`')] },
+            'Thanks! See v1.2-rc (#81525): distinct_id \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`',
+        ],
     ])('serializeToMarkdown handles %s', (_name, doc, expected) => {
         expect(serializeToMarkdown(doc)).toBe(expected)
     })

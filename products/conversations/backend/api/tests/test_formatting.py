@@ -600,6 +600,14 @@ class TestRichContentBlockNodes(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "prose_punctuation_unescaped_inline_formatting_escaped",
+                {
+                    "type": "doc",
+                    "content": [_paragraph("Thanks! See v1.2-rc (#81525): distinct_id _emph_ *c* [d] `e`")],
+                },
+                "Thanks! See v1.2-rc (#81525): distinct_id \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`",
+            ),
+            (
                 "bullet_list",
                 {
                     "type": "doc",

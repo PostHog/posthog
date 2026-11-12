@@ -56,6 +56,9 @@ class TestTicketMacroAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["body"] == "Bye {{customer.name}}"
 
+        data = self._create(body="Hi {{customer.first\\_name}}", shortcut="hi2")
+        assert data["body"] == "Hi {{customer.first_name}}"
+
     def test_list_orders_by_usage(self):
         quiet = self._create(name="Quiet", shortcut="quiet")
         popular = self._create(name="Popular", shortcut="popular")

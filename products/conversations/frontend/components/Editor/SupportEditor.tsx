@@ -313,12 +313,22 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
     },
 }
 
+const INLINE_FORMATTING_CHAR = /([\\`*[\]])/g
+const WORD_CHAR = /[^\W_]/
+
 /**
- * Escape special markdown characters in plain text to prevent unintended formatting.
- * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ * Escape only the characters that format mid-sentence: \ ` * _ [ ]. Punctuation such as
+ * "!" or "." is inert in markdown, and the serialized text is quoted as prose in places that
+ * never render markdown (ticket previews, workflow emails), where a backslash would show.
+ * An underscore with a letter or digit on both sides cannot open or close emphasis in
+ * CommonMark, so identifiers like distinct_id stay readable as prose too.
  */
 function escapeMarkdown(text: string): string {
-    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
+    return text
+        .replace(INLINE_FORMATTING_CHAR, '\\$1')
+        .replace(/_/g, (underscore, offset: number, whole: string) =>
+            WORD_CHAR.test(whole[offset - 1] ?? '') && WORD_CHAR.test(whole[offset + 1] ?? '') ? underscore : '\\_'
+        )
 }
 
 /**

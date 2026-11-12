@@ -18,8 +18,9 @@ from products.conversations.backend.models import TicketMacro
 
 SHORTCUT_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_BODY_LENGTH = 10_000
-# The composer escapes markdown punctuation, so {{customer.first_name}} arrives as \{\{customer\.first\_name\}\}.
-_ESCAPED_MACRO_TOKEN = re.compile(r"\\{\\\{\s*((?:[a-z0-9]|\\[._])+)\s*\\}\\}", re.IGNORECASE)
+# A stored body can carry the composer's markdown escapes on "{", "}", "." and "_", so
+# {{customer.first_name}} can arrive as {{customer.first\_name}} or \{\{customer\.first\_name\}\}.
+_ESCAPED_MACRO_TOKEN = re.compile(r"\\?\{\\?\{\s*((?:[a-z0-9]|\\?[._])+)\s*\\?\}\\?\}", re.IGNORECASE)
 
 
 def unescape_macro_tokens(body: str) -> str:
