@@ -764,6 +764,8 @@ export namespace Schemas {
       previous: AEOPromptSetCounts;
       /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
       engines: AEOPromptSetEngineCounts[];
+      /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+      daily: AEOPromptDailyEngineStats[];
       /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
