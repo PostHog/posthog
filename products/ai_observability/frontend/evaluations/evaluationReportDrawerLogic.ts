@@ -10,6 +10,7 @@ import type { EvaluationReport } from './types'
 
 // pinned: URL search param. Email and Slack links carry it, so renaming it breaks links already sent.
 export const REPORT_RUN_PARAM = 'report_run'
+const LINK_SEARCH_MAX_RUNS = 100
 const CLOSE_ON_ESCAPE = 'closeOnEscape'
 
 export interface EvaluationReportDrawerLogicProps {
@@ -43,6 +44,7 @@ export interface evaluationReportDrawerLogicValues {
     reportRunsLoadFailed: boolean // evaluationReportLogic
     reportRunsLoading: boolean // evaluationReportLogic
     reportsLoading: boolean // evaluationReportLogic
+    canSearchOlder: boolean
     isSearchingForRun: boolean
     nextRun: EvaluationReportRun | null
     openIndex: number
@@ -116,16 +118,20 @@ export interface evaluationReportDrawerLogicMeta {
         ) => ReportDrawerPosition | null
         runLoadFailed: (
             openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
-            reportRunsLoadFailed: any,
-            olderReportRunsLoadFailed: any
+            reportRunsLoadFailed: boolean,
+            olderReportRunsLoadFailed: boolean
+        ) => boolean
+        canSearchOlder: (
+            hasOlderReportRuns: boolean,
+            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[]
         ) => boolean
         isSearchingForRun: (
             openRunId: string | null,
             openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
             reportsLoading: boolean,
             reportRunsLoading: boolean,
-            hasOlderReportRuns: boolean,
-            runLoadFailed: any
+            canSearchOlder: any,
+            runLoadFailed: boolean
         ) => boolean
     }
 }
@@ -208,28 +214,24 @@ export const evaluationReportDrawerLogic = kea<evaluationReportDrawerLogicType>(
                 olderReportRunsLoadFailed: boolean
             ): boolean => !openRun && (reportRunsLoadFailed || olderReportRunsLoadFailed),
         ],
-        // A link can name a report past the loaded pages, so the drawer pages back until it finds it or runs out.
+        // A link can name a report past the loaded pages, so the drawer pages back until it finds it. The cap stops
+        // a link to a deleted report from loading the whole history.
+        canSearchOlder: [
+            (s) => [s.hasOlderReportRuns, s.reportRuns],
+            (hasOlderReportRuns: boolean, reportRuns: EvaluationReportRun[]): boolean =>
+                hasOlderReportRuns && reportRuns.length < LINK_SEARCH_MAX_RUNS,
+        ],
         isSearchingForRun: [
-            (s) => [
-                s.openRunId,
-                s.openRun,
-                s.reportsLoading,
-                s.reportRunsLoading,
-                s.hasOlderReportRuns,
-                s.runLoadFailed,
-            ],
+            (s) => [s.openRunId, s.openRun, s.reportsLoading, s.reportRunsLoading, s.canSearchOlder, s.runLoadFailed],
             (
                 openRunId: string | null,
                 openRun: EvaluationReportRun | null,
                 reportsLoading: boolean,
                 reportRunsLoading: boolean,
-                hasOlderReportRuns: boolean,
+                canSearchOlder: boolean,
                 runLoadFailed: boolean
             ): boolean =>
-                !!openRunId &&
-                !openRun &&
-                !runLoadFailed &&
-                (reportsLoading || reportRunsLoading || hasOlderReportRuns),
+                !!openRunId && !openRun && !runLoadFailed && (reportsLoading || reportRunsLoading || canSearchOlder),
         ],
     }),
     listeners(({ actions, cache, values }) => ({
@@ -258,12 +260,12 @@ export const evaluationReportDrawerLogic = kea<evaluationReportDrawerLogicType>(
             }
         },
         loadReportRunsSuccess: () => {
-            if (values.openRunId && !values.openRun && values.hasOlderReportRuns) {
+            if (values.openRunId && !values.openRun && values.canSearchOlder) {
                 actions.loadOlderReportRuns()
             }
         },
         loadOlderReportRunsSuccess: () => {
-            if (values.openRunId && !values.openRun && values.hasOlderReportRuns) {
+            if (values.openRunId && !values.openRun && values.canSearchOlder) {
                 actions.loadOlderReportRuns()
             }
         },
@@ -297,7 +299,7 @@ export const evaluationReportDrawerLogic = kea<evaluationReportDrawerLogicType>(
                     return () => document.removeEventListener('keydown', closeOnEscape)
                 }, CLOSE_ON_ESCAPE)
             }
-            if (!values.openRun && values.hasOlderReportRuns && !values.reportRunsLoading) {
+            if (!values.openRun && values.canSearchOlder && !values.reportRunsLoading) {
                 actions.loadOlderReportRuns()
             }
         },

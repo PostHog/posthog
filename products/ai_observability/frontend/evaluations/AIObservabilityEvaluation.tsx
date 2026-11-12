@@ -41,7 +41,7 @@ import {
     evaluationSupportsRunOutcomes,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
-import { evaluationReportDrawerLogic } from './evaluationReportDrawerLogic'
+import { REPORT_RUN_PARAM } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
@@ -76,7 +76,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     )
     // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
     const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
-    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep, setRunsDates } = useActions(llmEvaluationLogic)
+    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
         ...withoutTraceDrawerParams(searchParams),
@@ -423,11 +423,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             step: eventId ?? undefined,
                         })
                     }
-                    onShowResults={(periodStart, periodEnd) => {
-                        evaluationReportDrawerLogic({ evaluationId: evaluation.id }).actions.close()
-                        setActiveTab('runs')
-                        setRunsDates(periodStart, periodEnd)
-                    }}
+                    onShowResults={(periodStart, periodEnd) =>
+                        // One URL change, read back by the logic. A backfill filter would hide the date range.
+                        router.actions.push(router.values.location.pathname, {
+                            ...withoutTraceDrawerParams(router.values.searchParams),
+                            [REPORT_RUN_PARAM]: undefined,
+                            backfill_id: undefined,
+                            evaluation_tab: undefined,
+                            date_from: periodStart,
+                            date_to: periodEnd,
+                        })
+                    }
                 />
             )}
             {/* Opens a report's cited trace above the report from any tab. Configuration mounts its own host for the

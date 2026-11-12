@@ -154,7 +154,7 @@ describe('evaluationReportDrawerLogic', () => {
         expect(logic.values.openRun?.id).toBe('run-1')
     })
 
-    it('waits for the new report after "Generate now" and keeps older pages once it arrives', async () => {
+    it('waits for the new report to be delivered after "Generate now" and keeps older pages', async () => {
         await mountWithRuns()
         const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
         reportLogic.actions.loadOlderReportRuns()
@@ -165,14 +165,21 @@ describe('evaluationReportDrawerLogic', () => {
             await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
             expect(reportLogic.values.waitingForNewReportSince).not.toBeNull()
 
-            runsPages['0'] = { results: [run('run-4', '2026-11-11T00:01:00Z'), ...FIRST_PAGE], next: 'more' }
+            const newRun = run('run-4', '2026-11-11T00:01:00Z')
+            runsPages['0'] = { results: [{ ...newRun, delivery_status: 'pending' }, ...FIRST_PAGE], next: 'more' }
             jest.advanceTimersByTime(15_000)
             // The poll has fired. The mocked response resolves on real timers.
             jest.useRealTimers()
+            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRunsSuccess'])
+            expect(reportLogic.values.waitingForNewReportSince).not.toBeNull()
+
+            // The next poll, run by hand because the interval lives on the fake clock released above.
+            runsPages['0'] = { results: [newRun, ...FIRST_PAGE], next: 'more' }
+            reportLogic.actions.loadNewestReportRuns(REPORT.id)
             await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
 
-            expect(reportLogic.values.waitingForNewReportSince).toBeNull()
             expect(reportLogic.values.reportRuns.map((run) => run.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
+            expect(reportLogic.values.reportRuns[0].delivery_status).toBe('delivered')
         } finally {
             jest.useRealTimers()
         }

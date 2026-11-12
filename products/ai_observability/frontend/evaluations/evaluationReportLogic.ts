@@ -843,14 +843,20 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
                     return [...values.reportRuns, ...(response?.results ?? []).filter((run) => !loadedIds.has(run.id))]
                 },
-                // Puts new reports in front of the loaded ones, so polling keeps older pages and the open report.
+                // Puts new reports in front of the loaded ones and refreshes the ones it sees again, so polling keeps
+                // older pages and the open report while a new report moves from pending to delivered.
                 loadNewestReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
                     const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId, {
                         limit: REPORT_RUNS_PAGE_SIZE,
                     })
+                    const fresh = response?.results ?? []
+                    const freshById = new Map(fresh.map((run) => [run.id, run]))
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
-                    return [...(response?.results ?? []).filter((run) => !loadedIds.has(run.id)), ...values.reportRuns]
+                    return [
+                        ...fresh.filter((run) => !loadedIds.has(run.id)),
+                        ...values.reportRuns.map((run) => freshById.get(run.id) ?? run),
+                    ]
                 },
             },
         ],
@@ -954,7 +960,11 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         },
         loadNewestReportRunsSuccess: ({ reportRuns }) => {
             const since = values.waitingForNewReportSince
-            if (since !== null && reportRuns.some((run) => run.created_at > since)) {
+            // A new run is stored as pending before delivery, so the wait lasts until it shows where it went.
+            if (
+                since !== null &&
+                reportRuns.some((run) => run.created_at > since && run.delivery_status !== 'pending')
+            ) {
                 actions.stopWaitingForNewReport()
             }
         },
