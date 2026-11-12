@@ -209,3 +209,31 @@ export interface RecordingBlock {
     start_timestamp: string
     end_timestamp: string
 }
+
+export interface PublicBlockLimits {
+    maxBlockBytes: number
+    bytesInFlight: number
+    readTimeoutMs: number
+}
+
+// An empty or mistyped env value parses to NaN, which every comparison treats as no limit, so it must stop startup.
+export function parsePublicBlockLimits(config: Partial<RecordingApiBlocksConfig>): PublicBlockLimits {
+    const defaults = getDefaultRecordingApiBlocksConfig()
+    const read = (
+        name:
+            | 'RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'
+            | 'RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'
+            | 'RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'
+    ): number => {
+        const value = config[name] ?? defaults[name]
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error(`${name} must be a positive number`)
+        }
+        return value
+    }
+    return {
+        maxBlockBytes: read('RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'),
+        bytesInFlight: read('RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'),
+        readTimeoutMs: read('RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'),
+    }
+}

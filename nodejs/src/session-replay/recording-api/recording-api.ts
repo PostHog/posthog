@@ -34,6 +34,7 @@ import { SingleFlightKeyStore } from './single-flight-keystore'
 import { TimedKeyStore } from './timed-keystore'
 import {
     KeyStore,
+    PublicBlockLimits,
     REPLAY_BLOCK_TIERS,
     RecordingApiConfig,
     RecordingApiRole,
@@ -43,6 +44,7 @@ import {
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
+    parsePublicBlockLimits,
     parseRecordingApiRole,
     parseReplayBlockRateLimits,
 } from './types'
@@ -74,6 +76,7 @@ export class RecordingApi {
     private readonly role: RecordingApiRole
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
     private publicBlockBytesInFlight = 0
+    private readonly publicBlockLimits: PublicBlockLimits | null
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -89,6 +92,7 @@ export class RecordingApi {
                       getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
               )
             : null
+        this.publicBlockLimits = this.servesPublicRoutes ? parsePublicBlockLimits(config) : null
     }
 
     private get servesInternalRoutes(): boolean {
@@ -496,10 +500,10 @@ export class RecordingApi {
 
     // Each block is read and decrypted whole in memory, so the process caps the bytes it holds at once.
     private admitPublicBlock(bytes: number): BlockAdmission {
-        if (bytes > this.config.RECORDING_API_MAX_PUBLIC_BLOCK_BYTES) {
+        if (bytes > this.publicBlockLimits!.maxBlockBytes) {
             return 'too_large'
         }
-        if (this.publicBlockBytesInFlight + bytes > this.config.RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT) {
+        if (this.publicBlockBytesInFlight + bytes > this.publicBlockLimits!.bytesInFlight) {
             return 'busy'
         }
         this.publicBlockBytesInFlight += bytes
@@ -510,6 +514,8 @@ export class RecordingApi {
     // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
     private releaseWhenWritten(res: express.Response, bytes: number): void {
         let released = false
+        let finishEmitted = false
+        res.once('finish', () => (finishEmitted = true))
         const release = (): void => {
             if (!released) {
                 released = true
@@ -519,7 +525,15 @@ export class RecordingApi {
         }
         const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
         timer.unref()
-        res.socket?.once('close', release)
+        res.socket?.once('close', () => {
+            release()
+            // A write that hit backpressure completes without 'finish', which the HTTP metrics wait for.
+            setImmediate(() => {
+                if (!finishEmitted) {
+                    res.emit('finish')
+                }
+            })
+        })
         res.once('close', release)
     }
 
@@ -566,7 +580,7 @@ export class RecordingApi {
                     }
                     return admission
                 },
-                this.config.RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS
+                this.publicBlockLimits!.readTimeoutMs
             )
             if (!result.ok) {
                 RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
@@ -599,6 +613,10 @@ export class RecordingApi {
             }
             if (req.fresh) {
                 res.status(304).end()
+                return
+            }
+            if (req.method === 'HEAD') {
+                res.end()
                 return
             }
             // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
