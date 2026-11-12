@@ -3399,6 +3399,7 @@ describe('Workflows E2E (email queue)', () => {
         }
         let clickhouse: Clickhouse
         let api: CdpApi
+        let scheduledSends: CyclotronV2Manager
         let app: express.Application
         let server: ReturnType<express.Application['listen']>
 
@@ -3509,6 +3510,21 @@ describe('Workflows E2E (email queue)', () => {
                 [team.id, to, JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
                 'test-insert-opt-out'
             )
+        }
+
+        const tomorrow = (): string => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+        const sendNow = async (messageId: string): Promise<void> => {
+            const token = jsonwebtoken.sign(
+                { team_id: team.id, message_id: messageId, action: 'reschedule' },
+                hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                { audience: 'posthog:workflows:manage_transactional_email', expiresIn: '2m' }
+            )
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/transactional_emails/${messageId}/reschedule`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send({ scheduled_at: new Date(Date.now() - 60_000).toISOString() })
+            expect(res.status).toEqual(200)
         }
 
         const complain = async (to: string): Promise<void> => {
@@ -3670,13 +3686,15 @@ describe('Workflows E2E (email queue)', () => {
                     { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
                 ],
             })
+            scheduledSends = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 } })
             api = new CdpApi(
                 hub,
                 { ...deps, idempotencyValkey: createIdempotencyValkeyPool(hub) },
                 {
                     hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
                     hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
-                }
+                },
+                scheduledSends
             )
             await api.start()
             app = setupExpressApp()
@@ -3687,6 +3705,7 @@ describe('Workflows E2E (email queue)', () => {
         afterEach(async () => {
             server.close()
             await api.stop()
+            await scheduledSends.disconnect()
         })
 
         it("fills a code send's unsubscribe link with the recipient's preferences link", async () => {
@@ -3860,6 +3879,23 @@ describe('Workflows E2E (email queue)', () => {
                 error: 'recipient_suppressed',
             },
             {
+                name: 'a scheduled code send in a marketing category with no unsubscribe link',
+                kind: 'code',
+                payload: {
+                    ...codeSendIn(newsletter, { content: { subject: 'News', html: '<p>News</p>', text: 'News' } }),
+                    scheduled_at: tomorrow(),
+                },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a scheduled code send in a marketing category with a cc',
+                kind: 'code',
+                payload: { ...codeSendIn(newsletter, { cc: ['copy@example.com'] }), scheduled_at: tomorrow() },
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+            {
                 name: 'a code send whose category is a key, not an id',
                 kind: 'code',
                 payload: { send: codeSend(), message_category: { id: 'newsletter', type: 'marketing' } },
@@ -3938,6 +3974,7 @@ describe('Workflows E2E (email queue)', () => {
                 step: 'transactional',
                 category: newsletter,
                 optedOutOf: newsletterId,
+                scheduled: false,
                 sent: false,
             },
             {
@@ -3945,6 +3982,7 @@ describe('Workflows E2E (email queue)', () => {
                 step: 'transactional',
                 category: newsletter,
                 optedOutOf: '$all',
+                scheduled: false,
                 sent: false,
             },
             {
@@ -3952,21 +3990,64 @@ describe('Workflows E2E (email queue)', () => {
                 step: 'marketing',
                 category: receipts,
                 optedOutOf: '$all',
+                scheduled: false,
                 sent: true,
             },
-        ] as const)('$name after the API accepted it', async ({ step, category, optedOutOf, sent }) => {
+            {
+                name: 'skips a scheduled code send, moved to now, to a recipient who opted out of its marketing category',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: newsletterId,
+                scheduled: true,
+                sent: false,
+            },
+            {
+                name: 'sends a scheduled code send in a marketing category, moved to now, as not transactional to a recipient who opted out of another one',
+                step: 'transactional',
+                category: newsletter,
+                optedOutOf: otherCategoryId,
+                scheduled: true,
+                sent: true,
+            },
+        ] as const)('$name after the API accepted it', async ({ step, category, optedOutOf, scheduled, sent }) => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                 VALUES ($1, true, 'off', '', '', 0)`,
+                [team.id],
+                'set-team-engagement-capture'
+            )
             const flow = await insertHogFlow(hub.postgres, sendFlow('code', step))
             const to = `reader-${new UUIDT().toString()}@example.com`
 
-            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(category) })
+            const res = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                ...codeSendIn(category, { tracking: { captureEngagement: true } }),
+                ...(scheduled && { scheduled_at: tomorrow() }),
+            })
             expect(res.status).toEqual(202)
             await optOut(to, optedOutOf)
-            await deliver()
+            if (scheduled) {
+                await sendNow(res.body.invocation_id)
+            }
+            await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
             expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
             if (!sent) {
                 await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
+                return
             }
+            await waitForExpect(() => {
+                expect(
+                    mockInternalFetch.mock.calls
+                        .map(([, options]) => parseJSON((options as { body: string }).body))
+                        .filter(({ event }) => event === '$workflows_email_sent')
+                        .map(({ properties }) => [properties.$email_to, properties.$email_transactional])
+                ).toEqual([[to, category.type !== 'marketing']])
+            }, 15000)
         })
 
         it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
@@ -4060,22 +4141,38 @@ describe('Workflows E2E (email queue)', () => {
         })
 
         it.each([
-            { name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
+            { send: 'send', name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
             {
+                send: 'send',
+                name: 'no unsubscribe link',
+                stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
+                skipped: 'unsubscribe_link_required',
+            },
+            {
+                send: 'scheduled send',
                 name: 'no unsubscribe link',
                 stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
                 skipped: 'unsubscribe_link_required',
             },
         ])(
-            'skips a marketing template send whose email step gains $name between the API accepting it and the email worker sending it',
-            async ({ stepEmail, skipped }) => {
+            'skips a marketing template $send whose email step gains $name between the API accepting it and the email worker sending it',
+            async ({ send, stepEmail, skipped }) => {
                 const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
                 const to = `reader-${new UUIDT().toString()}@example.com`
                 const copy = `manager-${new UUIDT().toString()}@example.com`
+                const scheduled = send === 'scheduled send'
 
-                const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+                const res = await post('template', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    message_category: newsletter,
+                    ...(scheduled && { scheduled_at: tomorrow() }),
+                })
                 expect(res.status).toEqual(202)
                 await changeWorkflowEmail(flow, stepEmail(copy))
+                if (scheduled) {
+                    await sendNow(res.body.invocation_id)
+                }
                 await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
                 expect(await emailsTo(to)).toEqual([])
