@@ -38,7 +38,6 @@ export interface RankedToolMetric {
     label: string
     color: string
     value: (row: ToolRow) => number
-    /** Formats the axis ticks and the value labels at the end of each bar. */
     formatValue: (value: number) => string
     /** Value axis range for the highest value. Leave room past it for the top bar's value label. */
     valueDomain: (maxValue: number) => ValueDomain

@@ -355,8 +355,7 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
-// A tool with a handful of calls swings to 100% on one failure, and its p95 is one slow call,
-// so ranking needs a minimum sample.
+// With a handful of calls, one failure or one slow call decides the rank, so ranking needs a minimum sample.
 export const MIN_CALLS_TO_RANK_TOOLS = 20
 
 export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {

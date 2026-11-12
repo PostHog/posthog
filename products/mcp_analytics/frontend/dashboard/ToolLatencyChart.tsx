@@ -6,8 +6,7 @@ import { RankedToolBarChart, type RankedToolBarChartProps } from './RankedToolBa
 
 const p95 = (row: ToolRow): number => row.p95_duration_ms
 
-// The axis rounds the domain to clean ticks after it takes in this value, which keeps the slowest
-// tool's bar short of the track's end so its value label fits.
+// Headroom past the slowest tool, which the axis then rounds up, so that tool's value label fits.
 const latencyDomain = (maxMs: number): ValueDomain => ({ min: 0, include: [maxMs * 1.2] })
 
 const latencyTooltipRows = (row: ToolRow): [string, string][] => [

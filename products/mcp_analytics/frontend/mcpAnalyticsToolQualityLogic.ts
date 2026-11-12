@@ -100,8 +100,7 @@ export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?
     return combineUrl(urls.mcpAnalyticsTool(tool), mcpToolNavigationParams(dateFilter, interval)).url
 }
 
-// Link to the Tool quality tab that restores the date filter and interval, and optionally opens the
-// table on a sort other than the default.
+// Link to the Tool quality tab that restores the date filter, the interval and, optionally, a table sort.
 export function mcpToolQualityUrlWithDates(
     dateFilter: DateFilter,
     interval?: IntervalType | null,

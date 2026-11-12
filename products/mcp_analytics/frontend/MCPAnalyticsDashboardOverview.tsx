@@ -241,8 +241,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             />
                         )}
                     </CardRow>
-                    {/* A block wrapper, because the card sets self-start for when it shares a grid row, and in
-                        this flex column self-start would shrink it to its content width. */}
+                    {/* The card's self-start would shrink it to its content width in this flex column. */}
                     {showNotableSessions && (
                         <div className="min-w-0">
                             <NotableSessionsTable
