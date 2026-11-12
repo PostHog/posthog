@@ -22,7 +22,15 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailDeliveryStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailDeliveryStatus =
+    | 'scheduled'
+    | 'queued'
+    | 'canceled'
+    | 'failed'
+    | 'sent'
+    | 'delivered'
+    | 'bounced'
+    | 'complained'
 
 // Only email_status_events keeps these, so they never replace a delivery status.
 export type EmailEngagementStatus = 'opened' | 'clicked'
@@ -64,7 +72,9 @@ export type EmailSkipReason =
 // successful rerun of the same invocation replaces the failed attempt. The gaps let a failure take the
 // rank between two statuses. Never renumber a rank, because rows already written keep their versions.
 const STATUS_RANK: Record<EmailStatus, bigint> = {
+    scheduled: 0n,
     queued: 0n,
+    canceled: 1n,
     failed: 2n,
     sent: 3n,
     delivered: 5n,
@@ -102,6 +112,7 @@ export interface EmailStatusRow {
     recipient: string
     function_id: string
     sending_domain: string
+    scheduled_at?: string
 }
 
 export interface EmailStatusUpdate {
@@ -117,6 +128,7 @@ export interface EmailStatusUpdate {
     recipient?: string
     functionId?: string
     sendingDomain?: string
+    scheduledAt?: Date
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -125,7 +137,7 @@ const isoMicroseconds = (date: Date): string => {
 }
 
 // A UUIDT starts with its creation time as 48 bits of Unix milliseconds.
-const uuidtCreatedAt = (messageId: string): Date => {
+export const uuidtCreatedAt = (messageId: string): Date => {
     if (!UUID_REGEX.test(messageId)) {
         throw new Error('message id is not a UUID')
     }
@@ -156,6 +168,7 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         recipient: update.recipient ?? '',
         function_id: update.functionId ?? '',
         sending_domain: update.sendingDomain ?? '',
+        ...(update.scheduledAt && { scheduled_at: isoMicroseconds(update.scheduledAt) }),
     }
 }
 

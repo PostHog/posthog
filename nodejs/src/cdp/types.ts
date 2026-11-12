@@ -443,6 +443,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     messageCategory?: SendCategory
+    scheduledAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
@@ -607,6 +608,8 @@ export type HogFlowInvocationContext = {
     variables?: Record<string, any>
     send?: QueuedSend
     messageCategory?: SendCategory
+    scheduledAt?: string
+    statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

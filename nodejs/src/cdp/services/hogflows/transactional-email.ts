@@ -296,6 +296,10 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
+const ScheduledAtSchema = z.string().datetime({ offset: true })
+
+export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
@@ -306,6 +310,7 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
     message_category: SendCategorySchema.optional(),
+    scheduled_at: ScheduledAtSchema.optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
@@ -326,19 +331,11 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
     issue.code === 'invalid_format' &&
     (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
-export type TransactionalEmailOutcome =
-    | 'queued'
-    | 'replayed'
+export type TransactionalSendRefusal =
     | 'idempotency_key_in_flight'
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
-    | 'not_configured'
-    | 'unauthorized'
-    | 'invalid_request'
-    | 'not_found'
     | 'not_sendable'
-    | 'workflow_can_wait'
-    | 'workflow_shape_not_supported'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'
@@ -346,7 +343,19 @@ export type TransactionalEmailOutcome =
     | 'recipient_opted_out'
     | MarketingSendRefusal
     | 'recipient_unreachable'
+    | 'invalid_scheduled_at'
+
+export type TransactionalEmailOutcome =
+    | 'queued'
+    | 'replayed'
+    | TransactionalSendRefusal
+    | 'not_configured'
+    | 'unauthorized'
+    | 'invalid_request'
+    | 'not_found'
     | 'field_not_accepted'
+    | 'workflow_can_wait'
+    | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
     | 'email_render_limit_exceeded'
