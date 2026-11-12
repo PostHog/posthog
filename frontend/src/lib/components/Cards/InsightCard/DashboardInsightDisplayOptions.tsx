@@ -4,9 +4,9 @@ import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { InsightDisplayOptionsPanel } from 'products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel'
+import { DashboardInsightDisplayOptionsContent } from './DashboardInsightDisplayOptionsContent'
 
 // Items are computed in InsightMeta (always mounted) and passed down to avoid mounting
 // useDisplayOptions(insightDisplayOptions) lazily inside the More popover overlay, which triggers kea logic
@@ -26,13 +26,7 @@ export function DashboardInsightDisplayOptions({
         <>
             <LemonDivider />
             <LemonDropdown
-                overlay={
-                    <>
-                        {visualizationItems.length > 0 && <LemonMenuOverlay items={visualizationItems} />}
-                        {visualizationItems.length > 0 && tabs.length > 0 && <LemonDivider />}
-                        <InsightDisplayOptionsPanel tabs={tabs} />
-                    </>
-                }
+                overlay={<DashboardInsightDisplayOptionsContent visualizationItems={visualizationItems} tabs={tabs} />}
                 closeOnClickInside={false}
                 placement="right-start"
                 fallbackPlacements={['left-start']}
