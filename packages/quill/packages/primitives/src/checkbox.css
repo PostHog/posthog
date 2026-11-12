@@ -18,8 +18,13 @@
         content: '';
     }
 
+    /*
+     * Mixed from --foreground, like the fill tokens, so the box keeps its contrast on any surface.
+     * A fixed --input gray vanished on muted, hovered and selected rows.
+     */
     :is(.dark, [theme='dark']) .quill-checkbox {
-        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+        background-color: color-mix(in oklab, var(--foreground) 4%, transparent);
+        border-color: color-mix(in oklab, var(--foreground) 28%, transparent);
     }
 
     .quill-checkbox:not(:disabled, [data-disabled]) {
