@@ -190,7 +190,8 @@ export const MarketingAnalyticsTable = ({
         () => [
             <WebTileHeader
                 key="title"
-                className="min-h-0 p-0"
+                // A size container has no intrinsic width, so in this flex row the title collapses instead of wrapping.
+                className="min-h-0 p-0 [container-type:normal]!"
                 tileId={TileId.MARKETING_CAMPAIGN_BREAKDOWN}
                 titlePrefix="Performance metrics by"
                 titleDropdown={{

@@ -6,17 +6,22 @@ Auth: `Authorization: bearer <access_token>` (private-app static token or OAuth2
 All list endpoints page with `page` / `per_page` and return
 `{data: [...], page, per_page, total, links: {self, next, ...}}`. We follow `links.next`.
 
-| Schema                    | Path                                                     | Grain             | Primary key                  | Pagination    | Incremental cursor                    | Partition (stable) |
-| ------------------------- | -------------------------------------------------------- | ----------------- | ---------------------------- | ------------- | ------------------------------------- | ------------------ |
-| `surveys`                 | `/surveys`                                               | account           | `id`                         | `links.next`  | `date_modified` (`start_modified_at`) | `date_created`     |
-| `survey_responses`        | `/surveys/{survey_id}/responses/bulk`                    | fan-out/survey    | `id`                         | `links.next`  | `date_modified` / `date_created`      | `date_created`     |
-| `survey_pages`            | `/surveys/{survey_id}/pages`                             | fan-out/survey    | `id`                         | `links.next`  | full refresh                          | —                  |
-| `survey_questions`        | `/surveys/{survey_id}/details` (extracted)               | fan-out/survey    | `id`                         | none (1 call) | full refresh                          | —                  |
-| `collectors`              | `/surveys/{survey_id}/collectors`                        | fan-out/survey    | `id`                         | `links.next`  | full refresh                          | —                  |
-| `survey_trends`           | `/surveys/{survey_id}/trends?trend_by=day`               | fan-out/survey    | `survey_id`, `id`            | `links.next`  | full refresh                          | —                  |
-| `collector_messages`      | `/collectors/{collector_id}/messages`                    | fan-out/collector | `collector_id`, `id`         | `links.next`  | full refresh                          | —                  |
-| `collector_recipients`    | `/collectors/{collector_id}/recipients`                  | fan-out/collector | `collector_id`, `id`         | `links.next`  | full refresh                          | —                  |
-| `collector_message_stats` | `/collectors/{collector_id}/messages/{message_id}/stats` | fan-out/message   | `collector_id`, `message_id` | none (1 call) | full refresh                          | —                  |
+| Schema                    | Path                                                             | Grain                 | Primary key                  | Pagination    | Incremental cursor                    | Partition (stable) |
+| ------------------------- | ---------------------------------------------------------------- | --------------------- | ---------------------------- | ------------- | ------------------------------------- | ------------------ |
+| `surveys`                 | `/surveys`                                                       | account               | `id`                         | `links.next`  | `date_modified` (`start_modified_at`) | `date_created`     |
+| `survey_responses`        | `/surveys/{survey_id}/responses/bulk`                            | fan-out/survey        | `id`                         | `links.next`  | `date_modified` / `date_created`      | `date_created`     |
+| `survey_pages`            | `/surveys/{survey_id}/pages`                                     | fan-out/survey        | `id`                         | `links.next`  | full refresh                          | —                  |
+| `survey_questions`        | `/surveys/{survey_id}/details` (extracted)                       | fan-out/survey        | `id`                         | none (1 call) | full refresh                          | —                  |
+| `collectors`              | `/surveys/{survey_id}/collectors`                                | fan-out/survey        | `id`                         | `links.next`  | full refresh                          | —                  |
+| `survey_trends`           | `/surveys/{survey_id}/trends?trend_by=day`                       | fan-out/survey        | `survey_id`, `id`            | `links.next`  | full refresh                          | —                  |
+| `collector_messages`      | `/collectors/{collector_id}/messages`                            | fan-out/collector     | `collector_id`, `id`         | `links.next`  | full refresh                          | —                  |
+| `collector_recipients`    | `/collectors/{collector_id}/recipients`                          | fan-out/collector     | `collector_id`, `id`         | `links.next`  | full refresh                          | —                  |
+| `collector_message_stats` | `/collectors/{collector_id}/messages/{message_id}/stats`         | fan-out/message       | `collector_id`, `message_id` | none (1 call) | full refresh                          | —                  |
+| `survey_rollups`          | `/surveys/{survey_id}/rollups`                                   | fan-out/survey        | `survey_id`, `id`            | `links.next`  | full refresh                          | —                  |
+| `collector_stats`         | `/collectors/{collector_id}/stats`                               | fan-out/collector     | `collector_id`               | none (1 call) | full refresh                          | —                  |
+| `contacts`                | `/contacts/bulk?status={status}`                                 | account × status      | `id`                         | `links.next`  | full refresh                          | —                  |
+| `contact_lists`           | `/contact_lists`                                                 | account               | `id`                         | `links.next`  | full refresh                          | —                  |
+| `contact_list_contacts`   | `/contact_lists/{contact_list_id}/contacts/bulk?status={status}` | fan-out/list × status | `contact_list_id`, `id`      | `links.next`  | full refresh                          | —                  |
 
 Fan-out endpoints first enumerate every survey id via `/surveys`, then page the child
 resource per survey. `survey_questions` is flattened from the nested `pages[].questions[]`
@@ -27,7 +32,13 @@ of `/surveys/{id}/details` to avoid a 2-level (`/pages/{page_id}/questions`) fan
 Collector-scoped tables walk surveys -> collectors (`include=type`) -> child. Only `email`
 and `sms` collectors send messages, so other collectors are dropped before the child fetch.
 `collector_message_stats` adds one more hop through the messages of each collector. These
-chains carry no resume state, so a retry reads them again from the start.
+chains carry no resume state, so a retry reads them again from the start. `collector_stats`
+uses the same chain: it counts over all messages of the collector.
+
+The contact listings filter on one `status` per request (`active` by default, also `optout` and
+`bounced`), so `contacts` and `contact_list_contacts` send one request series per status and stamp
+it on each row as `contact_status`. The `/bulk` variants are used because they return every
+contact field, including `custom_fields`. None of the contact endpoints has a date filter.
 
 Not built:
 
@@ -35,6 +46,8 @@ Not built:
   of the survey-level `survey_trends` rows.
 - `/collectors/{id}/messages/{id}/recipients` is a subset of `collector_recipients` that needs
   one more fan-out hop.
+- Page- and question-level rollups (`/pages/{id}/rollups`, `/questions/{id}/rollups`) are subsets
+  of the survey-level `survey_rollups` rows.
 
 ## Incremental sync
 
@@ -61,5 +74,7 @@ account (no credentials available at implementation time). In particular:
   rely on `links.next` for pagination.
 - `collectors` is left full-refresh / unpartitioned because the list returns only
   `id`/`name`/`href` by default (no stable date field confirmed).
+- `/surveys/{id}/rollups` documents no `per_page`, so none is sent; `links.next` is followed if
+  present. The contact listings are assumed to keep the `status` filter in `links.next`.
 
 Revisit these once a live token is available; tighten incremental/sort behavior accordingly.

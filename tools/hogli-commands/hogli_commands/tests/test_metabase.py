@@ -301,12 +301,21 @@ def test_enumerate_cookie_files_globs_chromium_profiles(monkeypatch: pytest.Monk
     (chrome_root / "Default" / "Cookies").touch()
     (chrome_root / "Profile 1").mkdir()
     (chrome_root / "Profile 1" / "Cookies").touch()
+    (chrome_root / "Profile 2" / "Network").mkdir(parents=True)
+    (chrome_root / "Profile 2" / "Network" / "Cookies").touch()
+    (chrome_root / "Profile 3" / "Network").mkdir(parents=True)
+    (chrome_root / "Profile 3" / "Network" / "Cookies").touch()
+    (chrome_root / "Profile 3" / "Cookies").touch()
     monkeypatch.setattr(metabase, "_CHROMIUM_PROFILE_ROOTS", {"chrome": [chrome_root]})
 
     targets = metabase._enumerate_cookie_files("chrome")
-    cookie_files = [str(p) for _, p in targets]
-    assert any("Default/Cookies" in p for p in cookie_files)
-    assert any("Profile 1/Cookies" in p for p in cookie_files)
+    assert [p.relative_to(chrome_root).as_posix() for _, p in targets] == [
+        "Default/Cookies",
+        "Profile 1/Cookies",
+        "Profile 2/Network/Cookies",
+        "Profile 3/Network/Cookies",
+        "Profile 3/Cookies",
+    ]
 
 
 def test_ordered_browsers_puts_default_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,7 +382,7 @@ def test_load_cookies_unsupported_browser_raises(monkeypatch: pytest.MonkeyPatch
 
 
 def test_load_cookies_warning_printed_once_across_repeated_calls(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     class FakeBC3:
         @staticmethod
@@ -382,15 +391,19 @@ def test_load_cookies_warning_printed_once_across_repeated_calls(
 
     import sys
 
+    chrome_root = tmp_path / "Chrome"
+    (chrome_root / "Default").mkdir(parents=True)
     monkeypatch.setitem(sys.modules, "browser_cookie3", FakeBC3)
+    monkeypatch.setattr(metabase, "_CHROMIUM_PROFILE_ROOTS", {"chrome": [chrome_root]})
     monkeypatch.setattr(metabase, "_enumerate_cookie_files", lambda browser: [("firefox", Path())])
 
     seen_warnings: set[str] = set()
-    list(metabase._iter_cookie_candidates("metabase.prod-us.posthog.dev", "firefox", seen_warnings))
-    list(metabase._iter_cookie_candidates("metabase.prod-us.posthog.dev", "firefox", seen_warnings))
+    list(metabase._iter_cookie_candidates("metabase.prod-us.posthog.dev", None, seen_warnings))
+    list(metabase._iter_cookie_candidates("metabase.prod-us.posthog.dev", None, seen_warnings))
 
     captured = capsys.readouterr()
     assert captured.err.count("Failed to find Firefox cookie file") == 1
+    assert captured.err.count(f"chrome: no cookie database under {chrome_root}") == 1
 
 
 def test_is_directory_blocked_false_for_missing_directory(tmp_path: Path) -> None:

@@ -168,6 +168,8 @@ class MergedDistribution(NamedTuple):
     # The edges the quantile estimate is accurate to; see `_resolution_edges`.
     resolution_bounds: list[float]
     fingerprints: set[int]
+    # Distinct explicit bucket layouts merged. Exponential layouts shift between emissions, so they don't count.
+    layout_count: int
 
 
 @frozen
@@ -792,6 +794,7 @@ class MetricQueryRunner:
                     "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
                     "series_fingerprints": sorted(merged.fingerprints),
                     "histogram_bounds": merged.resolution_bounds,
+                    "histogram_layout_count": merged.layout_count,
                 }
             )
         return rows
@@ -808,10 +811,13 @@ class MetricQueryRunner:
         group_count = len(self.group_by)
         layouts: dict[tuple[Any, ...], list[_Histogram]] = {}
         fingerprints: dict[tuple[Any, ...], set[int]] = {}
+        explicit_layouts: dict[tuple[Any, ...], set[tuple[float, ...]]] = {}
         for row in results:
             key = tuple(row[: 1 + group_count])
             layouts.setdefault(key, []).append(_row_distribution(row, group_count))
             fingerprints.setdefault(key, set()).update(row[3 + group_count])
+            if row[4 + group_count] != MetricType.EXPONENTIAL_HISTOGRAM.value:
+                explicit_layouts.setdefault(key, set()).add(tuple(row[1 + group_count]))
         extra = [_Histogram(bounds=list(edges), counts=[0.0] * (len(edges) + 1))] if edges else []
         merged: dict[tuple[Any, ...], MergedDistribution] = {}
         for key, distributions in layouts.items():
@@ -821,6 +827,7 @@ class MetricQueryRunner:
                 counts=histogram.counts,
                 resolution_bounds=_resolution_edges(distributions, histogram.bounds),
                 fingerprints=fingerprints[key],
+                layout_count=len(explicit_layouts.get(key, ())),
             )
         return merged
 

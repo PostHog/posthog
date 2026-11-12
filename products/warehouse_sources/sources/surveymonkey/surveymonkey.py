@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     rest_api_resources,
 )
 from products.warehouse_sources.sources.surveymonkey.settings import (
+    CONTACT_STATUSES,
     DEFAULT_PAGE_SIZE,
     MESSAGING_COLLECTOR_TYPES,
     SURVEYMONKEY_ENDPOINTS,
@@ -36,6 +37,7 @@ _SURVEYS_INCLUDE = "date_created,date_modified,response_count,question_count"
 _IGNORE_NOT_FOUND: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 _COLLECTOR_ID_RENAMES = {"id": "collector_id", "survey_id": "survey_id"}
 _MESSAGE_ID_RENAMES = {"id": "message_id", "collector_id": "collector_id", "survey_id": "survey_id"}
+_CONTACT_STATUSES_PARENT = "contact_statuses"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -45,9 +47,9 @@ class SurveyMonkeyResumeConfig:
     # loaded state carrying only these starts fresh (a full re-read, deduped on the primary key).
     next_url: Optional[str] = None
     remaining_survey_ids: Optional[list[str]] = None
-    # Simple-resource (``surveys``) paginator snapshot: ``{"next_url": <next page to fetch>}``.
+    # Simple-resource (``surveys``, ``contact_lists``) paginator snapshot: ``{"next_url": <next page to fetch>}``.
     paginator_state: Optional[dict[str, Any]] = None
-    # Single-hop fan-out snapshot for a survey-scoped endpoint:
+    # Single-hop fan-out snapshot for a survey- or contact-status-scoped endpoint:
     # ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
     fanout_state: Optional[dict[str, Any]] = None
 
@@ -213,6 +215,72 @@ def _questions_resource() -> EndpointResource:
     }
 
 
+def _contact_lists_resource() -> EndpointResource:
+    config = SURVEYMONKEY_ENDPOINTS["contact_lists"]
+    return {
+        "name": "contact_lists",
+        "endpoint": {"path": config.path, "params": _list_params(config), "data_selector": "data"},
+    }
+
+
+def _with_each_contact_status(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{**row, "status": status} for status in CONTACT_STATUSES]
+
+
+def _promote_contact_parent_fields(row: dict[str, Any]) -> dict[str, Any]:
+    # `contact_status` is the status filter of the request that returned the row. It does not
+    # overwrite a `status` field that the contact itself carries.
+    for parent in (_CONTACT_STATUSES_PARENT, "contact_lists"):
+        if f"_{parent}_status" in row:
+            row["contact_status"] = row.pop(f"_{parent}_status")
+    if "_contact_lists_id" in row:
+        row["contact_list_id"] = row.pop("_contact_lists_id")
+    return row
+
+
+def _contact_status_fanout_resources(endpoint: str) -> list[str | EndpointResource]:
+    config = SURVEYMONKEY_ENDPOINTS[endpoint]
+    parent: EndpointResource
+    if endpoint == "contact_list_contacts":
+        parent = _contact_lists_resource()
+        parent["data_map"] = _with_each_contact_status
+        path_ids: dict[str, Any] = {
+            "contact_list_id": {"type": "resolve", "resource": "contact_lists", "field": "id"},
+        }
+        include_from_parent = ["id", "status"]
+    else:
+        parent = {
+            "name": _CONTACT_STATUSES_PARENT,
+            # The iterator supplies the rows; the path is never requested.
+            "endpoint": {"path": "/contacts"},
+            "data_iterator": lambda: iter([[{"status": status} for status in CONTACT_STATUSES]]),
+        }
+        path_ids = {}
+        include_from_parent = ["status"]
+
+    child_endpoint: Endpoint = {
+        # A resolved param binds only a path placeholder, so the status filter sits in the path.
+        "path": f"{config.path}?status={{status}}",
+        "params": {
+            **path_ids,
+            "status": {"type": "resolve", "resource": parent["name"], "field": "status"},
+            **_list_params(config),
+        },
+        "data_selector": "data",
+        # A path that ends in a placeholder defaults to a single page, so the paginator is explicit.
+        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+    }
+    if endpoint == "contact_list_contacts":
+        child_endpoint["response_actions"] = _IGNORE_NOT_FOUND
+    child: EndpointResource = {
+        "name": endpoint,
+        "include_from_parent": include_from_parent,
+        "endpoint": child_endpoint,
+        "data_map": _promote_contact_parent_fields,
+    }
+    return [parent, child]
+
+
 def _messaging_collectors(row: dict[str, Any]) -> list[dict[str, Any]]:
     # Weblink, popup and other collectors have no messages or recipients, so they are dropped
     # before the child fetch rather than spending a call each.
@@ -256,6 +324,18 @@ def _collector_child_resource(config: SurveyMonkeyEndpointConfig) -> EndpointRes
     return {"name": config.name, "include_from_parent": ["id", "survey_id"], "endpoint": endpoint}
 
 
+def _collector_stats_resource(config: SurveyMonkeyEndpointConfig) -> EndpointResource:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"collector_id": {"type": "resolve", "resource": "collectors", "field": "id"}},
+        # The stats body is one object of counts for all messages of the collector.
+        "data_selector": None,
+        "paginator": "single_page",
+        "response_actions": _IGNORE_NOT_FOUND,
+    }
+    return {"name": config.name, "include_from_parent": ["id", "survey_id"], "endpoint": endpoint}
+
+
 def _message_stats_resource(config: SurveyMonkeyEndpointConfig) -> EndpointResource:
     endpoint: Endpoint = {
         "path": config.path,
@@ -280,6 +360,9 @@ def _collector_chain_resource(endpoint: str, client_config: ClientConfig, team_i
         messages_resource["data_map"] = rename_parent_fields("collectors", _COLLECTOR_ID_RENAMES)
         resources += [messages_resource, _message_stats_resource(config)]
         parent_name, renames = "collector_messages", _MESSAGE_ID_RENAMES
+    elif endpoint == "collector_stats":
+        resources.append(_collector_stats_resource(config))
+        parent_name, renames = "collectors", _COLLECTOR_ID_RENAMES
     else:
         resources.append(_collector_child_resource(config))
         parent_name, renames = "collectors", _COLLECTOR_ID_RENAMES
@@ -316,11 +399,11 @@ def surveymonkey_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     resource: Resource
-    if endpoint == "surveys":
+    if endpoint in ("surveys", "contact_lists"):
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": [_surveys_resource(incremental)],
+            "resources": [_surveys_resource(incremental) if endpoint == "surveys" else _contact_lists_resource()],
         }
 
         def save_simple(state: Optional[dict[str, Any]]) -> None:
@@ -340,13 +423,17 @@ def surveymonkey_source(
     elif config.is_collector_fanout:
         resource = _collector_chain_resource(endpoint, client_config, team_id, job_id)
     else:
-        child_resource = (
-            _questions_resource() if endpoint == "survey_questions" else _fanout_child_resource(endpoint, incremental)
-        )
+        fanout_resources: list[str | EndpointResource]
+        if config.is_contact_status_fanout:
+            fanout_resources = _contact_status_fanout_resources(endpoint)
+        elif endpoint == "survey_questions":
+            fanout_resources = [_parent_surveys_resource(), _questions_resource()]
+        else:
+            fanout_resources = [_parent_surveys_resource(), _fanout_child_resource(endpoint, incremental)]
         fanout_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": [_parent_surveys_resource(), child_resource],
+            "resources": fanout_resources,
         }
 
         def save_fanout(state: Optional[dict[str, Any]]) -> None:

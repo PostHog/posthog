@@ -2,8 +2,7 @@ import { ReactNode } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { NodeProperties } from '../types'
+import type { TraceApi, TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
 import { formatCacheTokens, formatCostUsd, formatLatencyMs, formatTokenCounts } from './formatStats'
 
 const UNKNOWN_VALUE = <span className="text-secondary">Unknown</span>
@@ -12,11 +11,48 @@ type PropertyRow = [label: string, value: ReactNode]
 
 export interface NodePropertyListProps {
     node: TraceNodeApi
-    properties: NodeProperties
+    /** The step's read, null while it loads. The root's properties come from the trace. */
+    detail: TraceNodeDetailApi | null
+    trace: Pick<TraceApi, 'createdAt' | 'sessionId' | 'person'>
 }
 
-export function NodePropertyList({ node, properties }: NodePropertyListProps): JSX.Element {
+interface ShownProperties {
+    timestamp: string | null
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+function shownProperties(
+    node: TraceNodeApi,
+    detail: TraceNodeDetailApi | null,
+    trace: NodePropertyListProps['trace']
+): ShownProperties {
+    if (node.kind === 'trace') {
+        return {
+            timestamp: trace.createdAt,
+            provider: null,
+            temperature: null,
+            sessionId: trace.sessionId,
+            promptName: null,
+            promptVersion: null,
+        }
+    }
+    return {
+        timestamp: detail?.event?.timestamp ?? null,
+        provider: detail?.metadata.provider ?? null,
+        temperature: detail?.metadata.temperature ?? null,
+        sessionId: detail?.metadata.sessionId ?? null,
+        promptName: detail?.metadata.promptName ?? null,
+        promptVersion: detail?.metadata.promptVersion ?? null,
+    }
+}
+
+export function NodePropertyList({ node, detail, trace }: NodePropertyListProps): JSX.Element {
     const { stats } = node
+    const properties = shownProperties(node, detail, trace)
     const time = properties.timestamp ? (
         <TZLabel
             time={properties.timestamp}
@@ -54,7 +90,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
                   ['Name', node.name],
                   ['Kind', node.kind],
                   ['Time', time],
-                  ['Person', properties.person],
+                  ['Person', trace.person?.label ?? null],
                   ['Latency', latency],
                   ['Tokens', tokens],
                   ['Cache', cache],

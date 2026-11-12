@@ -1,9 +1,3 @@
-"""Temporal schedule for the GitHub job-logs coordinator (~2 min, SKIP overlap).
-
-Registered in ``posthog/temporal/schedule.py`` via the product facade. The coordinator no-ops until
-``OTLP_LOGS_INGEST_ENDPOINT`` is set, so registering the schedule is inert until the Logs sink exists.
-"""
-
 from datetime import timedelta
 
 from django.conf import settings
@@ -39,7 +33,7 @@ async def create_github_job_logs_coordinator_schedule(client: Client) -> None:
                 )
             ]
         ),
-        # SKIP so a slow tick doesn't stack; the egress limiter (not cron frequency) caps spend.
+        # SKIP so that a slow tick does not stack. The egress limiter caps spend, not the interval.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):

@@ -24,9 +24,7 @@ from posthog.session.models import Session
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
-    DEFERRED_APP_CONTEXT_FLAG,
     app_flag_keys,
-    deferred_app_context_variant,
     feature_flag_bootstrap,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
@@ -184,36 +182,6 @@ class TestSignedOutSessionReason(SimpleTestCase):
         request.session = session
 
         assert signed_out_session_reason(request) == expected
-
-
-class TestShouldDeferAppContext(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("test variant reports", "", "test", "test", True),
-            ("control variant reports", "", "control", "control", True),
-            ("outside the experiment is silent", "", None, None, False),
-            ("param on beats control", "?deferred_app_context=1", "control", "test", False),
-            ("param off beats test", "?deferred_app_context=0", "test", "control", False),
-        ]
-    )
-    def test_picks_the_variant(self, _name, query, variant, expected_variant, expect_exposure):
-        request = RequestFactory().get(f"/{query}")
-        user = User(distinct_id="user-1", email="someone@example.com")
-
-        with (
-            mock.patch("posthog.utils.posthoganalytics.get_feature_flag", return_value=variant),
-            mock.patch("posthog.utils.posthoganalytics.capture") as capture,
-        ):
-            assert deferred_app_context_variant(request, user) == expected_variant
-
-        if expect_exposure:
-            capture.assert_called_once_with(
-                "$feature_flag_called",
-                distinct_id="user-1",
-                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
-            )
-        else:
-            capture.assert_not_called()
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -478,15 +446,13 @@ class TestGetContextForTemplate(APIBaseTest):
         self.user.shortcut_position = "below"
         self.user.save()
         inline = get_context_for_template("index.html", user_request("/?deferred_app_context=0"))
-        deferred = get_context_for_template("index.html", user_request("/?deferred_app_context=1"))
+        deferred = get_context_for_template("index.html", user_request("/"))
         fetched = json.loads(app_context(user_request("/_app_context")).content)
         fetched_full = json.loads(app_context(user_request("/_app_context?stage=full")).content)
 
         assert deferred["posthog_app_context"]["deferred"] is True
         assert deferred["posthog_app_context"]["current_user"] is None
         assert "featureFlags" not in deferred["posthog_bootstrap"]
-        assert deferred["posthog_app_context"].pop("deferred_app_context_variant") == "test"
-        assert inline["posthog_app_context"].pop("deferred_app_context_variant") == "control"
         assert "product_intents" not in fetched["app_context"]["current_team"]
         assert "product_intents" not in fetched["app_context"]["current_project"]
         page_with_fetched = {**deferred["posthog_app_context"], **fetched["app_context"]}

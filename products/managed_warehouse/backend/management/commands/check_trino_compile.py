@@ -24,6 +24,7 @@ from products.managed_warehouse.backend.trino_compile_check import (
     TrinoCompileCheckStage,
     check_trino_compile,
 )
+from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable
 
 
 class Command(BaseCommand):
@@ -62,9 +63,11 @@ class Command(BaseCommand):
             ):
                 rows.append(row)
                 if sink is not None:
-                    sink.write(json.dumps(_row_json(row)) + "\n")
+                    sink.write(json.dumps(row.to_json()) + "\n")
                     sink.flush()
                 self._write_row(row, options["format"])
+        except TrinoTargetUnavailable as error:
+            raise CommandError(f"No Trino target for team {team.pk}, nothing was checked: {error}") from error
         finally:
             if sink is not None:
                 sink.close()
@@ -75,7 +78,7 @@ class Command(BaseCommand):
 
     def _write_row(self, row: TrinoCompileCheckRow, output_format: str) -> None:
         if output_format == "json":
-            self.stdout.write(json.dumps(_row_json(row)))
+            self.stdout.write(json.dumps(row.to_json()))
         else:
             line = f"{'ok' if row.ok else 'failed':<6} {row.stage:<7} {row.saved_query_id}  {row.name}"
             if not row.ok:
@@ -92,17 +95,6 @@ class Command(BaseCommand):
         for code, count in report.error_counts.items():
             self.stdout.write(f"{count:>5}  {code}")
         self.stdout.write(f"{report.ok_count}/{len(report.rows)} ok")
-
-
-def _row_json(row: TrinoCompileCheckRow) -> dict[str, Any]:
-    return {
-        "saved_query_id": row.saved_query_id,
-        "name": row.name,
-        "stage": row.stage.value,
-        "status": "ok" if row.ok else "failed",
-        "error_code": row.error_code,
-        "message": row.message,
-    }
 
 
 def _read_rows(path: Path) -> list[TrinoCompileCheckRow]:
@@ -129,6 +121,7 @@ def _read_rows(path: Path) -> list[TrinoCompileCheckRow]:
                 stage=TrinoCompileCheckStage(record["stage"]),
                 error_code=record["error_code"],
                 message=record["message"],
+                upstream_saved_query_id=record.get("upstream_saved_query_id"),
             )
         offset = end
     if data and not data.endswith(b"\n"):
