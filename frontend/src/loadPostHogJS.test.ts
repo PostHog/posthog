@@ -1,10 +1,128 @@
-import posthog, { CaptureResult, PostHogConfig } from 'posthog-js'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { AppContext } from '~/types'
+import posthog, { CaptureResult, PostHog, PostHogConfig } from 'posthog-js'
+
+import { AppContext, UserType } from '~/types'
 
 import { LastSeenFeatureFlags, loadPostHogJS, withLastSeenFeatureFlags } from './loadPostHogJS'
 
 describe('loadPostHogJS', () => {
+    describe('user identity groups', () => {
+        let sdk: PostHog
+        let events: CaptureResult[]
+        let identifyUser: typeof import('./lib/utils/posthogIdentity').identifyUserInPostHog
+
+        const user: UserType = {
+            ...MOCK_DEFAULT_USER,
+            distinct_id: 'new-user',
+            email: 'new-user@example.com',
+            team: { ...MOCK_DEFAULT_TEAM, id: 2, uuid: 'new-project', name: 'New project' },
+            organization: {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                id: 'new-org',
+                name: 'New organization',
+                teams: [],
+                customer_id: 'new-customer',
+            },
+        }
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.isolateModules(() => {
+                identifyUser = require('./lib/utils/posthogIdentity').identifyUserInPostHog
+            })
+            events = []
+            sdk = new PostHog()
+            sdk.init('phc_example_identity', {
+                persistence: 'memory',
+                bootstrap: { distinctID: 'previous-user', isIdentifiedID: true },
+                advanced_disable_flags: true,
+                autocapture: false,
+                capture_pageview: false,
+                capture_pageleave: false,
+                disable_session_recording: true,
+                disable_surveys: true,
+                disable_external_dependency_loading: true,
+                before_send: (event) => {
+                    if (event) {
+                        events.push(event)
+                    }
+                    return null
+                },
+            })
+            sdk.identify('previous-user')
+            sdk.group('instance', 'current-instance', { site_url: 'current-instance' })
+            sdk.group('project', 'old-project', { previous_project_property: true })
+            sdk.group('organization', 'old-org', { previous_org_property: true })
+            sdk.group('customer', 'old-customer', { previous_customer_property: true })
+            events.length = 0
+        })
+
+        afterEach(() => {
+            jest.clearAllTimers()
+            jest.useRealTimers()
+        })
+
+        it.each([
+            [
+                'with a customer',
+                user,
+                { project: 'new-project', organization: 'new-org', customer: 'new-customer' },
+                false,
+            ],
+            [
+                'without a customer',
+                { ...user, organization: { ...user.organization!, customer_id: null } },
+                { project: 'new-project', organization: 'new-org' },
+                false,
+            ],
+            ['without an organization', { ...user, team: null, organization: null }, {}, false],
+            [
+                'from anonymous signup',
+                user,
+                { project: 'new-project', organization: 'new-org', customer: 'new-customer' },
+                true,
+            ],
+        ] as const)('captures only the new groups %s', (_, nextUser, expectedGroups, anonymous) => {
+            if (anonymous) {
+                sdk.reset()
+                sdk.group('instance', 'current-instance', { site_url: 'current-instance' })
+                events.length = 0
+            }
+            expect(identifyUser(sdk, nextUser)).toBe(true)
+
+            expect(events.length).toBeGreaterThan(0)
+            for (const event of events) {
+                expect(event.properties.distinct_id).toBe('new-user')
+                expect(event.properties.$groups).toEqual({ instance: 'current-instance', ...expectedGroups })
+            }
+            const customerGroupKeys = events
+                .filter((event) => event.event === '$groupidentify' && event.properties.$group_type === 'customer')
+                .map((event) => event.properties.$group_key)
+            expect(customerGroupKeys).toEqual('customer' in expectedGroups ? [expectedGroups.customer] : [])
+            expect(sdk.getGroups()).toEqual({ instance: 'current-instance', ...expectedGroups })
+            const flagProperties = sdk.get_property('$stored_group_properties')
+            expect(flagProperties.instance).toEqual({ site_url: 'current-instance' })
+            expect(flagProperties.project ?? {}).not.toHaveProperty('previous_project_property')
+            expect(flagProperties.organization ?? {}).not.toHaveProperty('previous_org_property')
+            expect(flagProperties.customer ?? {}).not.toHaveProperty('previous_customer_property')
+        })
+
+        it('preserves flag properties for unchanged groups and skips duplicate identities', () => {
+            identifyUser(sdk, user)
+            sdk.setGroupPropertiesForFlags({ organization: { retained_property: true } }, false)
+            events.length = 0
+
+            expect(identifyUser(sdk, { ...user, email: 'updated@example.com' })).toBe(true)
+            expect(sdk.get_property('$stored_group_properties').organization.retained_property).toBe(true)
+            expect(events.length).toBeGreaterThan(0)
+            events.length = 0
+
+            expect(identifyUser(sdk, { ...user, email: 'updated@example.com' })).toBe(false)
+            expect(events).toEqual([])
+        })
+    })
+
     describe('withLastSeenFeatureFlags', () => {
         const serverFlags = { 'server-decided': false, variant: 'control' }
 
