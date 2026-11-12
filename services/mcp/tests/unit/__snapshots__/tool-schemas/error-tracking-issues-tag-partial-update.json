@@ -21,6 +21,6 @@
             "description": "The answer to set: true for yes, false for no, null for unknown."
         }
     },
-    "required": ["id"],
+    "required": ["id", "key", "value"],
     "type": "object"
 }

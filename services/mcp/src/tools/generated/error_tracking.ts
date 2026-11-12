@@ -414,9 +414,12 @@ const errorTrackingIssuesTagDefinitionsRetrieve = (): ToolBase<
 const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
     const ErrorTrackingIssuesTagPartialUpdateBody = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateBody()
     const ErrorTrackingIssuesTagPartialUpdateParams = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateParams()
-    return ErrorTrackingIssuesTagPartialUpdateParams.omit({ project_id: true }).extend(
-        ErrorTrackingIssuesTagPartialUpdateBody.shape
-    )
+    return ErrorTrackingIssuesTagPartialUpdateParams.omit({ project_id: true })
+        .extend(ErrorTrackingIssuesTagPartialUpdateBody.shape)
+        .extend({
+            key: ErrorTrackingIssuesTagPartialUpdateBody.shape['key'].nonoptional(),
+            value: ErrorTrackingIssuesTagPartialUpdateBody.shape['value'].nonoptional(),
+        })
 }
 
 const errorTrackingIssuesTagPartialUpdate = (): ToolBase<

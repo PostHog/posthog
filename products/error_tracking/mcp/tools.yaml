@@ -281,6 +281,11 @@ tools:
             `error-tracking-issues-tag-definitions-retrieve`. A correction ranks above AI answers, so a later AI answer
             does not replace it. The call fails with "Issue tags are off for this project." when the project does not
             have issue tags.
+        param_overrides:
+            key:
+                required: true
+            value:
+                required: true
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
