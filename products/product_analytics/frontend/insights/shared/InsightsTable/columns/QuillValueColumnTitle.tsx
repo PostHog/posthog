@@ -1,4 +1,4 @@
-import { dateDisplayParts } from 'lib/components/DateDisplay/dateDisplayParts'
+import { formatDateDisplay } from 'lib/components/DateDisplay/formatDateDisplay'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
@@ -25,7 +25,7 @@ export function QuillValueColumnTitle({
     weekStartDay,
 }: QuillValueColumnTitleProps): JSX.Element {
     const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
-    const { highlight, date, secondaryDate } = dateDisplayParts({
+    const { highlight, primary, secondary } = formatDateDisplay({
         date: (indexedResults[0].dates || indexedResults[0].days)[index],
         secondaryDate: previousResult ? (previousResult.dates || previousResult.days)[index] : undefined,
         interval: interval || 'day',
@@ -37,8 +37,8 @@ export function QuillValueColumnTitle({
     return (
         <span className="inline-flex items-baseline gap-1" translate="no">
             {highlight && <span className="text-subtle-foreground">{highlight}</span>}
-            <span>{date}</span>
-            {secondaryDate && <span>({secondaryDate})</span>}
+            <span>{primary}</span>
+            {secondary !== null && <span>({secondary})</span>}
         </span>
     )
 }
