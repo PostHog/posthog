@@ -64,6 +64,7 @@ export interface ReleaseEvent {
     detail?: string
     href?: string
     upcoming?: boolean
+    flagId?: number
 }
 
 export interface ReleaseSuggestion {
@@ -149,6 +150,18 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     early_access: 'warning',
     released: 'success',
     ended: 'default',
+}
+
+export const STAGE_COLOR_VARS =
+    '[--release-flag:#1d4aff] [--release-experiment:#c0339a] [--release-early-access:#a87400] [--release-released:#1f7a4a] dark:[--release-flag:#6b8bff] dark:[--release-experiment:#e45bb8] dark:[--release-early-access:#e8ac10] dark:[--release-released:#3fb878]'
+
+export const STAGE_COLOR: Record<ReleaseStage, string> = {
+    planned: 'var(--muted-foreground)',
+    flag: 'var(--release-flag)',
+    experiment: 'var(--release-experiment)',
+    early_access: 'var(--release-early-access)',
+    released: 'var(--release-released)',
+    ended: 'var(--muted-foreground)',
 }
 
 export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
@@ -337,7 +350,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const denied = hasDeniedApprovalRequest(change as never)
     const expired = !!change.end_date && dayjs(change.end_date).isBefore(dayjs())
     const live = !isSchedulePaused(change as never) && !denied && !expired
-    const base = { kind: 'schedule' as const, href }
+    const base = { kind: 'schedule' as const, href, flagId: Number(change.record_id) }
 
     if (change.is_recurring) {
         const events: ReleaseEvent[] = []
@@ -447,7 +460,7 @@ function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): Releas
                 key: `send-schedule-${schedule.id}-${time.valueOf()}`,
                 date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
+                title: `Broadcast scheduled: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
                 href: urls.broadcast(flow.id),
                 upcoming: true,
@@ -694,7 +707,9 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         audiences,
         audienceSummary:
             new Set(audiences.map((audience) => audience.summary)).size > 1
-                ? `Differs across ${audiences.length} flags`
+                ? audiences.every((audience) => audience.percent !== null)
+                    ? `${audiences.filter((audience) => isFullyRolledOut(audience.flag)).length} of ${audiences.length} flags reach everyone`
+                    : `Differs across ${audiences.length} flags`
                 : audiences[0]?.summary,
         firstFlagCreated: flags.map((flag) => flag.created_at).sort()[0] ?? null,
     }
@@ -781,8 +796,10 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
     if (flags.length) {
         return {
             status: 'Behind a flag',
-            headline: 'Behind a flag',
-            detail: audienceSummary ? `${audienceSummary}.` : '',
+            headline: audienceSummary
+                ? `${audienceSummary.charAt(0).toUpperCase()}${audienceSummary.slice(1)}`
+                : 'Behind a flag',
+            detail: '',
         }
     }
     if (facts.pendingFlags) {

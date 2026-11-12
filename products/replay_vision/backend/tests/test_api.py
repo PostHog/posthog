@@ -37,7 +37,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -4110,10 +4110,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ObservationMatch(observation_id=str(visible.id), distance=0.2, matched_content=""),
         ]
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(f"{self.search_url}?q=anything")
 
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4130,10 +4127,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         mock_embed.return_value = MagicMock(embedding=[0.1])
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
             cross = self.client.get(f"{self.search_url}?q=anything")
 
@@ -5462,10 +5456,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
         # The restricted rows are the newest, so the access gate has to run before the filler's limit.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url)
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
@@ -5484,10 +5475,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         restricted.save()
 
         # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url, {"limit": 2})
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-8", "open-9"]
@@ -5505,10 +5493,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         first = self.client.get(self.feed_url, {"limit": 1}).json()
         self.assertEqual(len(first["results"]), 1)
         # The second page reads the same build as the first, so access has to be checked again on the page itself.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
         self.assertEqual(second["results"], [])
 
