@@ -589,6 +589,7 @@ interface ReleaseFacts {
     unloadedFlagIds: number[]
     missingFlagIds: number[]
     hasHiddenFlags: boolean
+    pendingFlags: boolean
     complete: boolean
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
@@ -657,6 +658,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         unloadedFlagIds,
         missingFlagIds,
         hasHiddenFlags: release.has_hidden_flags,
+        pendingFlags: unloadedFlagIds.some((id) => !index.resolvedFlagIds.has(id)),
         complete,
         experiments,
         earlyAccess,
@@ -705,7 +707,7 @@ function releaseStage(facts: ReleaseFacts): ReleaseStage {
     if (openEarlyAccess) {
         return 'early_access'
     }
-    return flags.length || facts.hasHiddenFlags ? 'flag' : 'planned'
+    return flags.length || facts.hasHiddenFlags || facts.pendingFlags ? 'flag' : 'planned'
 }
 
 function lastDoneCopy(lastDone: ExperimentBasicApi): { headline: string; detail: string } {
@@ -773,6 +775,9 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
             headline: 'Behind a flag',
             detail: audienceSummary ? `${audienceSummary}.` : '',
         }
+    }
+    if (facts.pendingFlags) {
+        return { status: 'Loading flags…', headline: 'Loading flags…', detail: '' }
     }
     if (facts.hasHiddenFlags) {
         return {
@@ -881,6 +886,9 @@ function rolloutNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
 }
 
 function releaseNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
+    if (facts.pendingFlags && !facts.flags.length) {
+        return null
+    }
     if (!facts.flags.length && !facts.hasHiddenFlags) {
         return {
             title: 'Link a feature flag',
