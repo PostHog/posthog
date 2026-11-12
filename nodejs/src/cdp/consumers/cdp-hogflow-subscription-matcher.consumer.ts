@@ -382,18 +382,33 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // an empty person, so a negative filter such as "is not set" would match. Such a change is judged
         // only by event entries that do not read the person.
         const eventsOnly = source === 'cohort_membership'
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
 
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove.
-        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor, eventsOnly)
-        counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        //
+        // Only a run of a goal flow writes a watcher, so a team with no goal flow that had no live
+        // watcher at the last refresh has nothing here to find, and its pairs stay out of the query.
+        const watcherTeams = new Set(
+            teamIds.filter(
+                (teamId) =>
+                    this.teamsWithLiveWatchers.has(teamId) || (hogFlowsByTeam[teamId] ?? []).some(hasConversionGoal)
+            )
+        )
+        if (watcherTeams.size > 0) {
+            const conversionsCounted = await this.claimConversionWatchers(
+                restrictToTeams(indexed, watcherTeams),
+                filterGlobalsFor,
+                eventsOnly
+            )
+            counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
+        }
 
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
         // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
         // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
         // small and skips cyclotron entirely when a batch has none.
-        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
         const hogflows: Record<string, HogFlow> = {}
         for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
@@ -1411,17 +1426,42 @@ function exitsOnConversion(hogflow: HogFlow): boolean {
 // the `conversion` metric is tracked even for flows that don't exit on conversion — only the *wake*
 // decision (in wakeMatchingWorkflows) still depends on exitsOnConversion.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
-    if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
-        return true
-    }
-    // Property goals count as actionable: their watchers are evaluated against person-property
-    // changes, and gating on `events` alone would skip the team before those watchers were ever read,
-    // leaving every property-only goal permanently at zero conversions.
+    return hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition') || hasConversionGoal(hogflow)
+}
+
+function hasConversionGoal(hogflow: HogFlow): boolean {
+    // Property goals count: their watchers are evaluated against person-property changes, and gating
+    // on `events` alone would skip the team before those watchers were ever read, leaving every
+    // property-only goal permanently at zero conversions.
     if (hogflow.conversion?.filters?.length) {
         return true
     }
     const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+function restrictToTeams(indexed: IndexedBatch, teams: Set<number>): IndexedBatch {
+    const keep = (teamIds: number[], ids: string[]): [number[], string[]] => {
+        const keptTeamIds: number[] = []
+        const keptIds: string[] = []
+        teamIds.forEach((teamId, i) => {
+            if (teams.has(teamId)) {
+                keptTeamIds.push(teamId)
+                keptIds.push(ids[i])
+            }
+        })
+        return [keptTeamIds, keptIds]
+    }
+    const [distinctTeamIds, distinctIds] = keep(indexed.distinctTeamIds, indexed.distinctIds)
+    const [personTeamIds, personIds] = keep(indexed.personTeamIds, indexed.personIds)
+    return {
+        ...indexed,
+        teamIds: indexed.teamIds.filter((teamId) => teams.has(teamId)),
+        distinctTeamIds,
+        distinctIds,
+        personTeamIds,
+        personIds,
+    }
 }
 
 // Compiled filters read `person.properties.<key>` by pushing the string 'person' as the root of the field

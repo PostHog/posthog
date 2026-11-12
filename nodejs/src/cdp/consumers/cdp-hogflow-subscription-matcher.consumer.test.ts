@@ -1767,6 +1767,57 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         const cancelledEvent = (): HogFunctionInvocationGlobals =>
             makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })
 
+        beforeEach(() => {
+            ;(matcher as any).teamsWithLiveWatchers = new Set([1])
+        })
+
+        const goalFlow = (teamId: number): HogFlow =>
+            makeHogFlow({
+                id: `goal-flow-${teamId}`,
+                team_id: teamId,
+                waitUntil: false,
+                conversion: { events: [{ filters: { bytecode: eventBytecode('wuc_cancelled'), events: [] } }] } as any,
+            })
+
+        it.each([
+            {
+                // A run of a goal flow enrolled after the last refresh has a watcher the set does not know of yet.
+                name: 'a goal-flow team the last refresh has not seen',
+                liveWatcherTeams: [],
+                flows: [goalFlow(1)],
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'only the teams that can have a watcher',
+                liveWatcherTeams: [1],
+                flows: [makeHogFlow({ id: 'wait-flow-2', team_id: 2 })],
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'nothing when no team can have a watcher',
+                liveWatcherTeams: [],
+                flows: [makeHogFlow({ id: 'wait-flow-1' }), makeHogFlow({ id: 'wait-flow-2', team_id: 2 })],
+                expectedPairs: null,
+            },
+        ])('looks up watchers for $name', async ({ liveWatcherTeams, flows, expectedPairs }) => {
+            ;(matcher as any).teamsWithLiveWatchers = new Set(liveWatcherTeams)
+            matcher.setHogFlows(Object.fromEntries(flows.map((flow) => [flow.id, flow])))
+
+            await matcher.runWake([
+                cancelledEvent(),
+                makeGlobals({
+                    project: { id: 2, name: 'Other', url: '' },
+                    event: { ...makeGlobals({}).event, event: 'wuc_cancelled', distinct_id: 'user-2' },
+                    person: { id: 'person-uuid-2', properties: {}, name: 'User 2', url: '' },
+                }),
+            ])
+
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM conversion_watchers') && !c.sql.startsWith('DELETE')
+            )
+            expect(lookup?.params ?? null).toEqual(expectedPairs)
+        })
+
         it('counts a claimed watcher and emits the conversion event with its run id', async () => {
             matcher.watcherRows = [watcher()]
 
