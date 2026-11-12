@@ -113,7 +113,7 @@ export interface SyncLogsResult {
     /** Entries that match the filters, read or not. */
     total_matching: number
     entries_read: number
-    /** True when more entries match than were read. Narrow with since/until, level or job_id. */
+    /** True when more entries match than were read or returned. Narrow with since/until, level or job_id. */
     has_more: boolean
     groups?: SyncLogGroup[]
     entries?: SyncLogEntry[]
@@ -131,6 +131,14 @@ export function normalizeLogMessage(message: string): string {
 }
 
 type TaggedEntry = LogEntry & { table?: string }
+
+/** ISO strings with and without fractional seconds do not sort as text, so compare the parsed times. */
+function timeOf(timestamp: string): number {
+    const time = Date.parse(timestamp)
+    return Number.isNaN(time) ? 0 : time
+}
+
+const newestFirst = (a: string, b: string): number => timeOf(b) - timeOf(a)
 
 /** Entries arrive newest first, so the first entry of a group is its newest. */
 export function dedupeLogEntries(entries: TaggedEntry[]): SyncLogGroup[] {
@@ -151,10 +159,10 @@ export function dedupeLogEntries(entries: TaggedEntry[]): SyncLogGroup[] {
             continue
         }
         group.count += 1
-        if (entry.timestamp < group.first_seen) {
+        if (timeOf(entry.timestamp) < timeOf(group.first_seen)) {
             group.first_seen = entry.timestamp
         }
-        if (entry.timestamp > group.last_seen) {
+        if (timeOf(entry.timestamp) > timeOf(group.last_seen)) {
             group.last_seen = entry.timestamp
         }
         if (
@@ -165,7 +173,7 @@ export function dedupeLogEntries(entries: TaggedEntry[]): SyncLogGroup[] {
             group.job_ids.push(entry.instance_id)
         }
     }
-    return [...groups.values()].sort((a, b) => (a.last_seen < b.last_seen ? 1 : a.last_seen > b.last_seen ? -1 : 0))
+    return [...groups.values()].sort((a, b) => newestFirst(a.last_seen, b.last_seen))
 }
 
 function projectPath(projectId: string | number): string {
@@ -271,7 +279,7 @@ const tool = (): ToolBase<typeof schema, SyncLogsResult> => ({
             .flatMap((page, index) =>
                 (page.results ?? []).map((entry) => (tagTables ? { ...entry, table: tables[index]!.name } : entry))
             )
-            .sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0))
+            .sort((a, b) => newestFirst(a.timestamp, b.timestamp))
         const totalMatching = pages.reduce((sum, page) => sum + (page.count ?? page.results?.length ?? 0), 0)
 
         const result: SyncLogsResult = {
@@ -281,6 +289,7 @@ const tool = (): ToolBase<typeof schema, SyncLogsResult> => ({
             has_more: totalMatching > entries.length,
         }
         if (params.dedupe === false) {
+            result.has_more ||= entries.length > limit
             result.entries = entries.slice(0, limit).map((entry) => ({
                 timestamp: entry.timestamp,
                 level: entry.level,
@@ -289,7 +298,9 @@ const tool = (): ToolBase<typeof schema, SyncLogsResult> => ({
                 ...(entry.table ? { table: entry.table } : {}),
             }))
         } else {
-            result.groups = dedupeLogEntries(entries).slice(0, limit)
+            const groups = dedupeLogEntries(entries)
+            result.has_more ||= groups.length > limit
+            result.groups = groups.slice(0, limit)
         }
         if (note) {
             result.note = note

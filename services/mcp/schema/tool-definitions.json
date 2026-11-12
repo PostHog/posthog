@@ -779,7 +779,7 @@
         "feature": "data_warehouse",
         "summary": "Get de-duplicated sync logs for a data warehouse table or source.",
         "title": "Get sync job logs",
-        "required_scopes": ["query:read"],
+        "required_scopes": ["external_data_source:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

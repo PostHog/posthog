@@ -363,6 +363,58 @@ describe('externalDataSyncLogs', () => {
         ])
     })
 
+    it('orders fractional and whole-second timestamps by time', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValue(
+                page([
+                    entry('2025-01-01T12:00:00Z', 'boom'),
+                    entry('2025-01-01T12:00:00.500000Z', 'boom'),
+                    entry('2025-01-01T11:59:59.900000Z', 'boom'),
+                ])
+            )
+        const context = createMockContext(requestMock)
+        const tool = externalDataSyncLogs()
+
+        const raw = await tool.handler(context, tool.schema.parse({ schema_id: SCHEMA_ID, dedupe: false }))
+        const grouped = await tool.handler(context, tool.schema.parse({ schema_id: SCHEMA_ID }))
+
+        expect(raw.entries!.map((e) => e.timestamp)).toEqual([
+            '2025-01-01T12:00:00.500000Z',
+            '2025-01-01T12:00:00Z',
+            '2025-01-01T11:59:59.900000Z',
+        ])
+        expect(grouped.groups).toMatchObject([
+            { count: 3, first_seen: '2025-01-01T11:59:59.900000Z', last_seen: '2025-01-01T12:00:00.500000Z' },
+        ])
+    })
+
+    it.each([
+        ['raw entries', false],
+        ['groups', true],
+    ])('sets has_more when the limit cuts the merged %s', async (_name, dedupe) => {
+        const requestMock = vi.fn().mockImplementation(({ path }: { path: string }) => {
+            if (path.startsWith(`/api/projects/42/external_data_sources/${SOURCE_ID}/`)) {
+                return Promise.resolve({
+                    schemas: [
+                        { id: SCHEMA_ID, name: 'users', should_sync: true, latest_error: 'boom' },
+                        { id: OTHER_SCHEMA_ID, name: 'orders', should_sync: true, latest_error: 'boom' },
+                    ],
+                })
+            }
+            return Promise.resolve(page([entry('2025-01-02T00:00:00Z', `boom ${path}`)]))
+        })
+        const context = createMockContext(requestMock)
+        const tool = externalDataSyncLogs()
+
+        const result = await tool.handler(context, tool.schema.parse({ source_id: SOURCE_ID, limit: 1, dedupe }))
+
+        expect(result.total_matching).toBe(2)
+        expect(result.entries_read).toBe(2)
+        expect((dedupe ? result.groups : result.entries)!).toHaveLength(1)
+        expect(result.has_more).toBe(true)
+    })
+
     it('returns raw truncated entries when dedupe is false', async () => {
         const requestMock = vi
             .fn()
