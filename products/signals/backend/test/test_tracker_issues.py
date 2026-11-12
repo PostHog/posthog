@@ -6,6 +6,7 @@ import pytest
 import time_machine
 from unittest.mock import ANY, MagicMock, patch
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -167,6 +168,53 @@ def test_create_tracker_issue_surfaces_an_abandoned_claim_without_opening_a_dupl
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("stale_status", "expected_provider_calls"),
+    [(SignalReportTrackerIssue.Status.FAILED, 1), (SignalReportTrackerIssue.Status.PENDING, 0)],
+)
+def test_claim_that_read_a_stale_row_opens_no_second_issue(team, stale_status, expected_provider_calls):
+    # Two evaluations read the row before either writes. Another writer then settles it first: a
+    # concurrent retry of the FAILED row, or the slow owner of the timed-out PENDING row. The
+    # evaluation holding the stale read must neither call the provider again nor overwrite CREATED.
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=stale_status,
+        failure_reason="token expired" if stale_status == SignalReportTrackerIssue.Status.FAILED else None,
+    )
+    SignalReportTrackerIssue.all_teams.filter(id=tracker.id).update(updated_at=timezone.now() - timedelta(hours=1))
+
+    real_get_or_create = QuerySet.get_or_create
+    interleaved = False
+
+    def read_then_let_the_other_writer_finish(queryset: QuerySet, *args: Any, **kwargs: Any) -> Any:
+        nonlocal interleaved
+        result = real_get_or_create(queryset, *args, **kwargs)
+        if queryset.model is SignalReportTrackerIssue and not interleaved:
+            interleaved = True
+            if stale_status == SignalReportTrackerIssue.Status.FAILED:
+                create_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), repository="acme/web")
+            else:
+                SignalReportTrackerIssue.all_teams.filter(id=tracker.id).update(
+                    status=SignalReportTrackerIssue.Status.CREATED, external_context=CREATED_CONTEXTS["github"]
+                )
+        return result
+
+    with (
+        patch.object(QuerySet, "get_or_create", autospec=True, side_effect=read_then_let_the_other_writer_finish),
+        patch.object(GitHubIntegration, "create_issue", return_value=CREATED_CONTEXTS["github"]) as create_issue,
+    ):
+        create_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), repository="acme/web")
+
+    assert create_issue.call_count == expected_provider_calls
+    tracker.refresh_from_db()
+    assert tracker.status == SignalReportTrackerIssue.Status.CREATED
+
+
+@pytest.mark.django_db
 def test_create_tracker_issue_is_off_without_a_configured_integration(team):
     report = _make_report(team)
 
@@ -276,6 +324,38 @@ def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team)
 
     assert linked is False
     update.assert_not_called()
+    tracker.refresh_from_db()
+    assert tracker.pr_linked_at is None
+
+
+@pytest.mark.django_db
+def test_link_pull_request_skips_an_issue_closed_before_the_report_was_restored(team):
+    # Restoring a report keeps its tracker row, and the issue in the provider stays closed. The
+    # restored report's new pull request must not say it closes or tracks that finished work item.
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "acme/web", "number": 12},
+        issue_url="https://github.com/acme/web/issues/12",
+        closed_at=timezone.now(),
+    )
+
+    with (
+        patch.object(
+            GitHubIntegration, "first_for_team_repository", return_value=GitHubIntegration.__new__(GitHubIntegration)
+        ),
+        patch.object(GitHubIntegration, "api_request") as api_request,
+    ):
+        linked = link_pull_request_to_tracker_issue(
+            team_id=team.id, report_id=str(report.id), pr_url="https://github.com/acme/web/pull/51"
+        )
+
+    assert linked is False
+    api_request.assert_not_called()
     tracker.refresh_from_db()
     assert tracker.pr_linked_at is None
 
