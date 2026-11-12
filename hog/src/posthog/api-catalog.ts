@@ -276,7 +276,7 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
     if (options.refresh) {
         throw new HogError(
             'catalog_unreachable',
-            `hog couldn't download the API tool catalog: ${failure}.`,
+            `hog couldn't download the API tool catalog: ${failure}${/[.?!]$/.test(failure) ? '' : '.'}`,
             saved
                 ? 'hog keeps using the catalog it has. Check your network connection, then run `hog api refresh` again.'
                 : 'hog keeps using the tools built into it. Check your network connection, then run `hog api refresh` again.'
