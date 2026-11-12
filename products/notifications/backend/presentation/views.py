@@ -22,11 +22,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CHECKABLE_RESOURCES,
+    UserAccessControl,
+    visible_teams_for_user,
+)
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
-from products.notifications.backend.resolvers import ACCESS_CHECKED_RESOURCE_TYPES
 
 _BULK_NOTIFICATION_IDS_MAX = 500
 
@@ -115,7 +118,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .distinct()
         )
 
-        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CHECKED_RESOURCE_TYPES)
+        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CHECKABLE_RESOURCES)
         if not ac_types_to_check:
             return queryset
 

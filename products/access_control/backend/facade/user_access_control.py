@@ -141,6 +141,10 @@ RULE_RESOURCE_CHOICES: list[str] = sorted(
     {"project", "property_definition", *ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP}
 )
 
+# Every resource type whose resource-level access `check_access_level_for_resource` decides. An
+# inherited type such as `inbox` has no rules of its own, and the check resolves it to its parent.
+ACCESS_CHECKABLE_RESOURCES: frozenset[str] = frozenset({*ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP})
+
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
 # parent's, this checks the child's own access first and falls back to the parent.
 # For example:
