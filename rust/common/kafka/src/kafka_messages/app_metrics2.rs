@@ -24,6 +24,8 @@ pub enum Kind {
     AdaptiveIngestion,
     #[serde(rename = "adaptive_ingestion_project")]
     AdaptiveIngestionProject,
+    #[serde(rename = "adaptive_ingestion_loop")]
+    AdaptiveIngestionLoop,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]

@@ -152,6 +152,8 @@ pub const ADAPTIVE_INGESTION_DECISIONS: &str = "cymbal_adaptive_ingestion_decisi
 pub const ADAPTIVE_INGESTION_REDIS_ERRORS: &str = "cymbal_adaptive_ingestion_redis_errors_total";
 pub const ADAPTIVE_INGESTION_PROJECT_CAP_REACHED: &str =
     "cymbal_adaptive_ingestion_project_cap_reached_total";
+pub const ADAPTIVE_INGESTION_CLIENT_CAP_REACHED: &str =
+    "cymbal_adaptive_ingestion_client_cap_reached_total";
 pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
 pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";

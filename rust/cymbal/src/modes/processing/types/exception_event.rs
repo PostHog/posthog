@@ -181,6 +181,7 @@ pub struct ExceptionEvent<S> {
     pub(crate) uuid: Uuid,
     pub(crate) team_id: i32,
     pub(crate) timestamp: String,
+    pub(crate) distinct_id: Option<String>,
     pub(crate) exception_list: ExceptionList,
     pub(crate) debug_images: Vec<DebugImage>,
     pub(crate) props: HashMap<String, Value>,
@@ -196,6 +197,7 @@ impl<S> ExceptionEvent<S> {
             uuid: self.uuid,
             team_id: self.team_id,
             timestamp: self.timestamp,
+            distinct_id: self.distinct_id,
             exception_list: self.exception_list,
             debug_images: self.debug_images,
             props: self.props,
@@ -249,6 +251,20 @@ impl<S> ExceptionEvent<S> {
 
     pub fn timestamp(&self) -> &str {
         &self.timestamp
+    }
+
+    /// The sender of the event: the distinct id, or the session id when the
+    /// event has no distinct id.
+    pub fn client_id(&self) -> Option<&str> {
+        self.distinct_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.props
+                    .get("$session_id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+            })
     }
 
     pub fn exception_list(&self) -> &ExceptionList {
@@ -714,6 +730,11 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             uuid: event.uuid,
             team_id: event.team_id,
             timestamp: event.timestamp,
+            distinct_id: event
+                .others
+                .get("distinct_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             exception_list: raw.exception_list,
             debug_images: raw.debug_images,
             props: raw.other,
@@ -756,6 +777,7 @@ mod tests {
             uuid: Uuid::now_v7(),
             team_id: 42,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
+            distinct_id: None,
             exception_list: ExceptionList(vec![crate::types::Exception {
                 exception_id: Some("exception-id".to_string()),
                 exception_type: "Error".to_string(),

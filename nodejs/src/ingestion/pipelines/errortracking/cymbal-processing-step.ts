@@ -92,13 +92,14 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
         // Build requests paired with estimated sizes for proactive chunking.
         // Kafka message sizes overestimate the CymbalRequest size (they include
-        // headers, distinct_id, and other fields stripped from the request),
+        // headers and other fields stripped from the request),
         // which is conservative — we split slightly earlier than needed, never too late.
         const items = validatedInputs.map(({ input, timestamp }) => ({
             request: {
                 uuid: input.event.uuid,
                 event: input.event.event,
                 team_id: input.team.id,
+                distinct_id: input.event.distinct_id,
                 timestamp,
                 properties: input.event.properties ?? {},
             },

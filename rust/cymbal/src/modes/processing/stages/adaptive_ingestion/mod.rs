@@ -1,3 +1,5 @@
+mod ledger;
+mod loops;
 mod project;
 
 use std::{
@@ -11,8 +13,9 @@ use common_kafka::{
     kafka_producer::send_iter_to_kafka,
     APP_METRICS2_TOPIC,
 };
-use common_redis::{CompressionConfig, RedisClient, RedisValueFormat, ScriptRunner};
-use common_types::format::parse_datetime_assuming_utc;
+use common_redis::{
+    CompressionConfig, CustomRedisError, RedisClient, RedisValueFormat, ScriptRunner,
+};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use serde_json::Value;
@@ -24,8 +27,9 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::{
-        ADAPTIVE_INGESTION_DECISIONS, ADAPTIVE_INGESTION_PROJECT_CAP_REACHED,
-        ADAPTIVE_INGESTION_REDIS_ERRORS, ADAPTIVE_INGESTION_STAGE,
+        ADAPTIVE_INGESTION_CLIENT_CAP_REACHED, ADAPTIVE_INGESTION_DECISIONS,
+        ADAPTIVE_INGESTION_PROJECT_CAP_REACHED, ADAPTIVE_INGESTION_REDIS_ERRORS,
+        ADAPTIVE_INGESTION_STAGE,
     },
     modes::processing::{
         config::ProcessingConfig,
@@ -40,15 +44,17 @@ use crate::{
     },
 };
 
-use project::ProjectRule;
+use ledger::{group_clients, Ledger, TeamSnapshot};
+use loops::{LoopDecision, LoopRule};
+use project::{ProjectDecision, ProjectRule};
 
-const VERSION: u32 = 1;
-const DAY_WINDOW_SECONDS: i64 = 86_400;
+const VERSION: u32 = 2;
 const MAX_CONCURRENT_GROUPS: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Decision {
     Keep,
+    Collapse,
     SampleProject,
     Error,
 }
@@ -57,8 +63,17 @@ impl Decision {
     fn label(self) -> &'static str {
         match self {
             Self::Keep => "keep",
+            Self::Collapse => "collapse",
             Self::SampleProject => "sample_project",
             Self::Error => "error",
+        }
+    }
+
+    fn rule(self) -> &'static str {
+        match self {
+            Self::Keep | Self::Error => "none",
+            Self::Collapse => "loop",
+            Self::SampleProject => "project",
         }
     }
 }
@@ -67,6 +82,8 @@ pub struct AdaptiveIngestionRuntime {
     redis: Arc<dyn ScriptRunner>,
     teams: HashSet<i32>,
     team_percent: u8,
+    ledger: Ledger,
+    loops: LoopRule,
     project: ProjectRule,
     heal_gate: HealGate,
 }
@@ -89,9 +106,12 @@ impl AdaptiveIngestionRuntime {
             || !config.adaptive_ingestion_project_multiplier.is_finite()
             || config.adaptive_ingestion_project_multiplier <= 0.0
             || config.adaptive_ingestion_project_keep_percent > 100
+            || config.adaptive_ingestion_loop_short_limit == 0
+            || config.adaptive_ingestion_loop_day_limit == 0
+            || config.adaptive_ingestion_loop_client_cap == 0
         {
             return Err(UnhandledError::Other(
-                "invalid adaptive ingestion rollout or project cap".into(),
+                "invalid adaptive ingestion rollout or limits".into(),
             ));
         }
         let teams = config
@@ -122,6 +142,13 @@ impl AdaptiveIngestionRuntime {
             redis: Arc::new(redis),
             teams,
             team_percent: config.adaptive_ingestion_team_percent,
+            ledger: Ledger {
+                client_cap: config.adaptive_ingestion_loop_client_cap,
+            },
+            loops: LoopRule {
+                short_limit: config.adaptive_ingestion_loop_short_limit,
+                day_limit: config.adaptive_ingestion_loop_day_limit,
+            },
             project: ProjectRule {
                 multiplier: config.adaptive_ingestion_project_multiplier,
                 floor: config.adaptive_ingestion_project_floor,
@@ -187,44 +214,52 @@ impl Stage for AdaptiveIngestionStage {
             .team_manager
             .get_rate_limit_settings(&self.ctx.posthog_pool, team_ids)
             .await;
-        let metrics = apply_shadow(runtime, &settings, &mut items).await;
+        let metrics = apply_shadow(runtime, &settings, Utc::now().timestamp(), &mut items).await;
         self.emit_metrics(metrics);
         Ok(Batch::from(items))
     }
 }
 
+struct TeamEvent {
+    idx: usize,
+    uuid: Uuid,
+    issue_id: Uuid,
+    client: Option<String>,
+}
+
+struct EventOutcome {
+    idx: usize,
+    decision: Decision,
+    looped: Option<LoopDecision>,
+    project: Option<ProjectDecision>,
+}
+
+/// Count every enabled team's events of the batch, then attach the decision
+/// each rule would take. The stage fails open: it never removes an event.
 async fn apply_shadow(
     runtime: &Arc<AdaptiveIngestionRuntime>,
     settings: &HashMap<i32, RateLimitSettings>,
+    now: i64,
     items: &mut [RateCheckedPipelineItem],
 ) -> HashMap<(i32, Decision), u32> {
-    let mut groups: HashMap<(i32, i64), Vec<(usize, Uuid)>> = HashMap::new();
-    let mut invalid_timestamps = Vec::new();
+    let mut teams: HashMap<i32, Vec<TeamEvent>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let Ok(event) = item else { continue };
         if !runtime.enabled_for(event.team_id(), settings) {
             continue;
         }
-        let Ok(timestamp) = parse_datetime_assuming_utc(event.timestamp()) else {
-            invalid_timestamps.push((idx, event.team_id()));
-            continue;
-        };
-        let timestamp = timestamp.timestamp();
-        let day = timestamp - timestamp.rem_euclid(DAY_WINDOW_SECONDS);
-        groups
-            .entry((event.team_id(), day))
-            .or_default()
-            .push((idx, event.uuid()));
+        teams.entry(event.team_id()).or_default().push(TeamEvent {
+            idx,
+            uuid: event.uuid(),
+            issue_id: event.issue().id,
+            client: event.client_id().map(str::to_owned),
+        });
     }
 
-    let outcomes: Vec<_> = stream::iter(groups.into_iter().map(|((team_id, day), events)| {
-        let redis = Arc::clone(&runtime.redis);
-        let rule = runtime.project;
+    let outcomes: Vec<_> = stream::iter(teams.into_iter().map(|(team_id, events)| {
+        let runtime = Arc::clone(runtime);
         async move {
-            let uuids: Vec<Uuid> = events.iter().map(|(_, uuid)| *uuid).collect();
-            let result = rule
-                .evaluate_batch(redis.as_ref(), team_id, day, &uuids)
-                .await;
+            let result = decide_team(&runtime, team_id, now, &events).await;
             (team_id, events, result)
         }
     }))
@@ -233,66 +268,38 @@ async fn apply_shadow(
     .await;
 
     let mut metrics = HashMap::new();
-    for (idx, team_id) in invalid_timestamps {
-        if let Ok(event) = &mut items[idx] {
-            set_decision(event, Decision::Keep);
-            event
-                .props
-                .insert("$adaptive_ingestion_error".into(), Value::Bool(true));
-        }
-        counter!(ADAPTIVE_INGESTION_DECISIONS, "rule" => "project", "decision" => "error")
-            .increment(1);
-        *metrics.entry((team_id, Decision::Error)).or_insert(0) += 1;
-    }
     for (team_id, events, result) in outcomes {
         match result {
-            Ok(decisions) => {
-                for ((idx, _), project) in events.into_iter().zip(decisions) {
-                    let decision = if project.sampled {
-                        Decision::SampleProject
-                    } else {
-                        Decision::Keep
-                    };
-                    counter!(ADAPTIVE_INGESTION_DECISIONS, "rule" => "project", "decision" => decision.label())
+            Ok(event_outcomes) => {
+                for outcome in event_outcomes {
+                    let decision = outcome.decision;
+                    counter!(ADAPTIVE_INGESTION_DECISIONS, "rule" => decision.rule(), "decision" => decision.label())
                         .increment(1);
-                    if project.cap_started {
+                    if outcome
+                        .looped
+                        .is_some_and(|looped| looped.client_cap_reached)
+                    {
+                        counter!(ADAPTIVE_INGESTION_CLIENT_CAP_REACHED).increment(1);
+                    }
+                    if outcome.project.is_some_and(|project| project.cap_started) {
                         counter!(ADAPTIVE_INGESTION_PROJECT_CAP_REACHED).increment(1);
                     }
                     *metrics.entry((team_id, decision)).or_insert(0) += 1;
-                    if let Ok(event) = &mut items[idx] {
-                        set_decision(event, decision);
-                        event.props.insert(
-                            "$adaptive_ingestion_allowance".into(),
-                            Value::from(project.allowance),
-                        );
-                        event.props.insert(
-                            "$adaptive_ingestion_baseline".into(),
-                            Value::from(project.baseline),
-                        );
-                        event.props.insert(
-                            "$adaptive_ingestion_count".into(),
-                            Value::from(project.count),
-                        );
+                    if let Ok(event) = &mut items[outcome.idx] {
+                        set_decision(event, decision, now);
+                        set_rule_properties(event, &outcome);
                     }
                 }
             }
             Err(err) => {
-                warn!(
-                    team_id,
-                    "adaptive ingestion project counter failed open: {err}"
-                );
+                warn!(team_id, "adaptive ingestion ledger failed open: {err}");
                 counter!(ADAPTIVE_INGESTION_REDIS_ERRORS).increment(events.len() as u64);
-                counter!(ADAPTIVE_INGESTION_DECISIONS, "rule" => "project", "decision" => "error")
+                counter!(ADAPTIVE_INGESTION_DECISIONS, "rule" => "none", "decision" => "error")
                     .increment(events.len() as u64);
-                if redis_heal::is_connection_error(&err) {
-                    let redis = Arc::clone(&runtime.redis);
-                    runtime
-                        .heal_gate
-                        .spawn_heal(async move { redis.heal().await });
-                }
-                for (idx, _) in events {
-                    if let Ok(event) = &mut items[idx] {
-                        set_decision(event, Decision::Keep);
+                heal_on_connection_error(runtime, &err);
+                for team_event in events {
+                    if let Ok(event) = &mut items[team_event.idx] {
+                        set_decision(event, Decision::Keep, now);
                         event
                             .props
                             .insert("$adaptive_ingestion_error".into(), Value::Bool(true));
@@ -305,9 +312,108 @@ async fn apply_shadow(
     metrics
 }
 
+async fn decide_team(
+    runtime: &AdaptiveIngestionRuntime,
+    team_id: i32,
+    now: i64,
+    events: &[TeamEvent],
+) -> Result<Vec<EventOutcome>, CustomRedisError> {
+    let clients: Vec<_> = events
+        .iter()
+        .map(|event| (event.issue_id, event.client.as_deref()))
+        .collect();
+    let (groups, membership) = group_clients(&clients);
+    let total = events.len() as u32;
+    let snapshot = runtime
+        .ledger
+        .record(runtime.redis.as_ref(), team_id, now, total, &groups)
+        .await?;
+
+    let outcomes = decide_events(runtime, team_id, &snapshot, events, &membership);
+    let removed = outcomes
+        .iter()
+        .filter(|outcome| outcome.decision == Decision::Collapse)
+        .count() as u32;
+    if removed > 0 {
+        // The decisions of this batch are already final. A lost write only makes
+        // later project counts of the day too high, so it does not fail the batch.
+        if let Err(err) = runtime
+            .ledger
+            .record_removed(runtime.redis.as_ref(), team_id, now, removed)
+            .await
+        {
+            warn!(
+                team_id,
+                "adaptive ingestion failed to record removed events: {err}"
+            );
+            counter!(ADAPTIVE_INGESTION_REDIS_ERRORS).increment(u64::from(removed));
+        }
+    }
+    Ok(outcomes)
+}
+
+fn decide_events(
+    runtime: &AdaptiveIngestionRuntime,
+    team_id: i32,
+    snapshot: &TeamSnapshot,
+    events: &[TeamEvent],
+    membership: &[Option<usize>],
+) -> Vec<EventOutcome> {
+    let mut positions = vec![0u64; snapshot.clients.len()];
+    let mut outcomes: Vec<EventOutcome> = events
+        .iter()
+        .zip(membership)
+        .map(|(event, group)| {
+            let looped = group.map(|group| {
+                positions[group] += 1;
+                runtime
+                    .loops
+                    .evaluate(snapshot.clients[group], positions[group])
+            });
+            EventOutcome {
+                idx: event.idx,
+                decision: if looped.is_some_and(|looped| looped.collapsed) {
+                    Decision::Collapse
+                } else {
+                    Decision::Keep
+                },
+                looped,
+                project: None,
+            }
+        })
+        .collect();
+
+    // The project cap counts only what the loop rule kept.
+    let kept: Vec<usize> = (0..outcomes.len())
+        .filter(|position| outcomes[*position].decision == Decision::Keep)
+        .collect();
+    let kept_uuids: Vec<Uuid> = kept.iter().map(|position| events[*position].uuid).collect();
+    let kept_before = snapshot.today.kept().saturating_sub(events.len() as u64);
+    let decisions = runtime
+        .project
+        .evaluate(team_id, kept_before, &snapshot.history, &kept_uuids);
+    for (position, project) in kept.into_iter().zip(decisions) {
+        if project.sampled {
+            outcomes[position].decision = Decision::SampleProject;
+        }
+        outcomes[position].project = Some(project);
+    }
+    outcomes
+}
+
+fn heal_on_connection_error(runtime: &Arc<AdaptiveIngestionRuntime>, err: &CustomRedisError) {
+    if redis_heal::is_connection_error(err) {
+        let redis = Arc::clone(&runtime.redis);
+        runtime
+            .heal_gate
+            .spawn_heal(async move { redis.heal().await });
+    }
+}
+
 fn set_decision(
     event: &mut ExceptionEvent<crate::types::exception_event::RateChecked>,
     decision: Decision,
+    now: i64,
 ) {
     event.props.insert(
         "$adaptive_ingestion_decision".into(),
@@ -315,11 +421,50 @@ fn set_decision(
     );
     event.props.insert(
         "$adaptive_ingestion_rule".into(),
-        Value::String("project".into()),
+        Value::String(decision.rule().into()),
     );
+    // The rules bucket by processing time, which can differ from the event timestamp.
+    event
+        .props
+        .insert("$adaptive_ingestion_timestamp".into(), Value::from(now));
     event
         .props
         .insert("$adaptive_ingestion_version".into(), Value::from(VERSION));
+}
+
+fn set_rule_properties(
+    event: &mut ExceptionEvent<crate::types::exception_event::RateChecked>,
+    outcome: &EventOutcome,
+) {
+    let client = match outcome.looped {
+        None => "no_client",
+        Some(looped) if looped.client_cap_reached => "client_cap_reached",
+        Some(_) => "counted",
+    };
+    event.props.insert(
+        "$adaptive_ingestion_client".into(),
+        Value::String(client.into()),
+    );
+    if let Some(count) = outcome.looped.and_then(|looped| looped.short_count) {
+        event.props.insert(
+            "$adaptive_ingestion_client_count".into(),
+            Value::from(count),
+        );
+    }
+    if let Some(project) = outcome.project {
+        event.props.insert(
+            "$adaptive_ingestion_allowance".into(),
+            Value::from(project.allowance),
+        );
+        event.props.insert(
+            "$adaptive_ingestion_baseline".into(),
+            Value::from(project.baseline),
+        );
+        event.props.insert(
+            "$adaptive_ingestion_count".into(),
+            Value::from(project.count),
+        );
+    }
 }
 
 impl AdaptiveIngestionStage {
@@ -338,6 +483,7 @@ impl AdaptiveIngestionStage {
                 instance_id: None,
                 metric_kind: match decision {
                     Decision::Keep | Decision::Error => Kind::AdaptiveIngestion,
+                    Decision::Collapse => Kind::AdaptiveIngestionLoop,
                     Decision::SampleProject => Kind::AdaptiveIngestionProject,
                 },
                 metric_name: decision.label().to_string(),
@@ -372,6 +518,7 @@ mod tests {
             uuid: Uuid::now_v7(),
             team_id,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
+            distinct_id: None,
             exception_list: ExceptionList(vec![]),
             debug_images: vec![],
             props: HashMap::new(),
@@ -402,71 +549,90 @@ mod tests {
         .into_rate_checked())
     }
 
-    #[tokio::test]
-    async fn project_shadow_marks_overflow_without_removing_events() {
-        let redis = FakeRunner::returning(
-            std::iter::once(5)
-                .chain(std::iter::repeat_n(0, 14))
-                .collect(),
-        );
-        let runtime = Arc::new(AdaptiveIngestionRuntime {
+    fn runtime(
+        redis: Arc<FakeRunner>,
+        loops: LoopRule,
+        project: ProjectRule,
+    ) -> Arc<AdaptiveIngestionRuntime> {
+        Arc::new(AdaptiveIngestionRuntime {
             redis,
             teams: HashSet::from([7]),
             team_percent: 0,
-            project: ProjectRule {
-                multiplier: 3.0,
-                floor: 1,
-                keep_percent: 0,
-            },
+            ledger: Ledger { client_cap: 50_000 },
+            loops,
+            project,
             heal_gate: HealGate::new(),
-        });
-        let issue = Uuid::now_v7();
-        let mut clickhouse_timestamp = rate_checked_event(7, issue);
-        clickhouse_timestamp.as_mut().unwrap().timestamp = "2026-01-01 00:00:00.000".into();
-        let mut invalid = rate_checked_event(7, issue);
-        invalid.as_mut().unwrap().timestamp = "invalid".into();
-        let mut items = vec![
-            rate_checked_event(7, issue),
-            clickhouse_timestamp,
-            rate_checked_event(7, issue),
-            rate_checked_event(8, issue),
-            invalid,
-            Err(crate::error::EventError::RateLimitedProject(7)),
-        ];
-        let settings = HashMap::from([
-            (
-                7,
-                RateLimitSettings {
-                    adaptive_ingestion_enabled: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                8,
-                RateLimitSettings {
-                    adaptive_ingestion_enabled: true,
-                    ..Default::default()
-                },
-            ),
-        ]);
-        let metrics = apply_shadow(&runtime, &settings, &mut items).await;
-        assert!(items[..5].iter().all(Result::is_ok));
-        assert!(matches!(
-            items[5],
-            Err(crate::error::EventError::RateLimitedProject(7))
-        ));
-        assert_eq!(metrics.get(&(7, Decision::Keep)), Some(&1));
-        assert_eq!(metrics.get(&(7, Decision::SampleProject)), Some(&2));
-        assert_eq!(metrics.get(&(7, Decision::Error)), Some(&1));
-        let decisions: Vec<_> = items[..3]
+        })
+    }
+
+    fn enabled(team_ids: &[i32]) -> HashMap<i32, RateLimitSettings> {
+        team_ids
+            .iter()
+            .map(|team_id| {
+                (
+                    *team_id,
+                    RateLimitSettings {
+                        adaptive_ingestion_enabled: true,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn ledger_reply(today: i64, clients: &[(i64, i64)]) -> Vec<i64> {
+        std::iter::once(today)
+            .chain(std::iter::repeat_n(0, 29))
+            .chain(clients.iter().flat_map(|(day, short)| [*day, *short]))
+            .collect()
+    }
+
+    fn decisions(items: &[RateCheckedPipelineItem]) -> Vec<&str> {
+        items
             .iter()
             .map(|item| {
                 item.as_ref().unwrap().properties()["$adaptive_ingestion_decision"]
                     .as_str()
                     .unwrap()
             })
-            .collect();
-        assert_eq!(decisions, ["keep", "sample_project", "sample_project"]);
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn project_shadow_marks_overflow_without_removing_events() {
+        let runtime = runtime(
+            FakeRunner::returning(ledger_reply(5, &[])),
+            LoopRule::default(),
+            ProjectRule {
+                multiplier: 3.0,
+                floor: 1,
+                keep_percent: 0,
+            },
+        );
+        let issue = Uuid::now_v7();
+        let mut items = vec![
+            rate_checked_event(7, issue),
+            rate_checked_event(7, issue),
+            rate_checked_event(7, issue),
+            rate_checked_event(8, issue),
+            Err(crate::error::EventError::RateLimitedProject(7)),
+        ];
+        let metrics = apply_shadow(&runtime, &enabled(&[7, 8]), 600, &mut items).await;
+        assert!(items[..4].iter().all(Result::is_ok));
+        assert!(matches!(
+            items[4],
+            Err(crate::error::EventError::RateLimitedProject(7))
+        ));
+        assert_eq!(metrics.get(&(7, Decision::Keep)), Some(&1));
+        assert_eq!(metrics.get(&(7, Decision::SampleProject)), Some(&2));
+        assert_eq!(
+            decisions(&items[..3]),
+            ["keep", "sample_project", "sample_project"]
+        );
+        assert_eq!(
+            items[0].as_ref().unwrap().properties()["$adaptive_ingestion_rule"],
+            "none"
+        );
         let stored = items[1]
             .as_ref()
             .unwrap()
@@ -477,27 +643,20 @@ mod tests {
         assert_eq!(stored["$adaptive_ingestion_rule"], "project");
         assert_eq!(stored["$adaptive_ingestion_allowance"], 3);
         assert_eq!(stored["$adaptive_ingestion_count"], 4);
+        assert_eq!(stored["$adaptive_ingestion_client"], "no_client");
+        assert_eq!(stored["$adaptive_ingestion_timestamp"], 600);
         assert!(items[3]
             .as_ref()
             .unwrap()
             .properties()
             .get("$adaptive_ingestion_version")
             .is_none());
-        assert_eq!(
-            items[4].as_ref().unwrap().properties()["$adaptive_ingestion_error"],
-            true
-        );
-        assert!(items[4]
-            .as_ref()
-            .unwrap()
-            .properties()
-            .get("$adaptive_ingestion_count")
-            .is_none());
 
         let mut opted_out = vec![rate_checked_event(7, issue)];
         assert!(apply_shadow(
             &runtime,
             &HashMap::from([(7, RateLimitSettings::default())]),
+            600,
             &mut opted_out
         )
         .await
@@ -511,23 +670,59 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn project_counter_failure_keeps_events_and_marks_error() {
-        let runtime = Arc::new(AdaptiveIngestionRuntime {
-            redis: FakeRunner::failing(),
-            teams: HashSet::from([7]),
-            team_percent: 0,
-            project: ProjectRule::default(),
-            heal_gate: HealGate::new(),
-        });
-        let mut items = vec![rate_checked_event(7, Uuid::now_v7())];
-        let settings = HashMap::from([(
-            7,
-            RateLimitSettings {
-                adaptive_ingestion_enabled: true,
-                ..Default::default()
+    async fn loop_shadow_collapses_repeats_and_keeps_them_out_of_the_project_count() {
+        let runtime = runtime(
+            FakeRunner::returning(ledger_reply(4, &[(0, 0), (0, 0)])),
+            LoopRule {
+                short_limit: 2,
+                day_limit: 100,
             },
-        )]);
-        let metrics = apply_shadow(&runtime, &settings, &mut items).await;
+            ProjectRule {
+                multiplier: 1.0,
+                floor: 2,
+                keep_percent: 0,
+            },
+        );
+        let issue = Uuid::now_v7();
+        let from = |client: &str| {
+            let mut item = rate_checked_event(7, issue);
+            item.as_mut().unwrap().distinct_id = Some(client.into());
+            item
+        };
+        let mut items = vec![
+            from("looping"),
+            from("looping"),
+            from("looping"),
+            from("other"),
+        ];
+        let metrics = apply_shadow(&runtime, &enabled(&[7]), 600, &mut items).await;
+
+        assert!(items.iter().all(Result::is_ok));
+        assert_eq!(
+            decisions(&items),
+            ["keep", "keep", "collapse", "sample_project"]
+        );
+        assert_eq!(metrics.get(&(7, Decision::Collapse)), Some(&1));
+        let collapsed = items[2].as_ref().unwrap().properties();
+        assert_eq!(collapsed["$adaptive_ingestion_rule"], "loop");
+        assert_eq!(collapsed["$adaptive_ingestion_client"], "counted");
+        assert_eq!(collapsed["$adaptive_ingestion_client_count"], 3);
+        assert!(collapsed.get("$adaptive_ingestion_count").is_none());
+        assert_eq!(
+            items[3].as_ref().unwrap().properties()["$adaptive_ingestion_count"],
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn ledger_failure_keeps_events_and_marks_error() {
+        let runtime = runtime(
+            FakeRunner::failing(),
+            LoopRule::default(),
+            ProjectRule::default(),
+        );
+        let mut items = vec![rate_checked_event(7, Uuid::now_v7())];
+        let metrics = apply_shadow(&runtime, &enabled(&[7]), 600, &mut items).await;
         assert!(items[0].is_ok());
         assert_eq!(metrics.get(&(7, Decision::Error)), Some(&1));
         let props = items[0].as_ref().unwrap().properties();
@@ -537,30 +732,13 @@ mod tests {
 
     #[test]
     fn rollout_requires_preference_and_team_selection() {
-        let runtime = AdaptiveIngestionRuntime {
-            redis: FakeRunner::failing(),
-            teams: HashSet::from([7]),
-            team_percent: 0,
-            project: ProjectRule::default(),
-            heal_gate: HealGate::new(),
-        };
-        let settings = HashMap::from([
-            (
-                7,
-                RateLimitSettings {
-                    adaptive_ingestion_enabled: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                8,
-                RateLimitSettings {
-                    adaptive_ingestion_enabled: true,
-                    ..Default::default()
-                },
-            ),
-            (9, RateLimitSettings::default()),
-        ]);
+        let runtime = runtime(
+            FakeRunner::failing(),
+            LoopRule::default(),
+            ProjectRule::default(),
+        );
+        let mut settings = enabled(&[7, 8]);
+        settings.insert(9, RateLimitSettings::default());
         assert!(runtime.selected_for_rollout(7));
         assert!(!runtime.selected_for_rollout(8));
         assert!(runtime.enabled_for(7, &settings));

@@ -213,6 +213,15 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_KEEP_PERCENT", default = "10")]
     pub adaptive_ingestion_project_keep_percent: u8,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_LOOP_SHORT_LIMIT", default = "20")]
+    pub adaptive_ingestion_loop_short_limit: u64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_LOOP_DAY_LIMIT", default = "100")]
+    pub adaptive_ingestion_loop_day_limit: u64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_LOOP_CLIENT_CAP", default = "50000")]
+    pub adaptive_ingestion_loop_client_cap: u32,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
