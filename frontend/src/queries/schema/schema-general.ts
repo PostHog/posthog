@@ -9881,7 +9881,18 @@ export interface AnalyticsListDisplayConfiguration {
     hide_insights?: boolean
     /** The sort a list opens with. A column header click still changes the sort for that visit. */
     default_sort?: '-last_viewed_at' | '-created_at' | '-view_count' | '-viewer_count'
+    /** The optional columns the list shows, beside the title. The sorted column always shows. */
+    columns?: AnalyticsListColumnKey[]
 }
+
+export type AnalyticsListColumnKey =
+    | 'space'
+    | 'tags'
+    | 'owner'
+    | 'last_viewed_at'
+    | 'created_at'
+    | 'view_count'
+    | 'viewer_count'
 
 export interface TicketSidebarConfiguration {
     /** Widget keys in display order. Typed as strings so a layout naming a removed widget still validates. */

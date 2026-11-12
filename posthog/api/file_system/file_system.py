@@ -140,6 +140,10 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.content_type for notebooks and insights on this page, without their contents.",
     )
+    include_view_counts = serializers.BooleanField(
+        default=False,
+        help_text="Include view_count and viewer_count, over the last 30 days, on a list of one type.",
+    )
     include_tags = serializers.BooleanField(
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
@@ -170,7 +174,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         default=None,
         help_text=(
             "Views in the last 30 days, counting each day a person viewed the file once. "
-            "Null unless a typed list is ordered by view_count or viewer_count."
+            "Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count."
         ),
     )
     viewer_count = serializers.IntegerField(
@@ -179,7 +183,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         default=None,
         help_text=(
             "People who viewed the file in the last 30 days. "
-            "Null unless a typed list is ordered by view_count or viewer_count."
+            "Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count."
         ),
     )
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
@@ -716,6 +720,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ref=OuterRef("ref"),
             )
             queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
+            if order_by_param in VIEW_COUNT_ORDER_BYS or str_to_bool(
+                self.request.query_params.get("include_view_counts", "false")
+            ):
+                # Counting every person's views costs one index scan per row, so only a list of one type gets it.
+                queryset = annotate_view_counts(queryset, self.team.timezone)
 
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
@@ -724,10 +733,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param, "id")
             elif order_by_param in VIEW_COUNT_ORDER_BYS and (type_param or type__startswith_param):
-                # Counting every person's views costs one index scan per row, so only a list of one type gets it.
-                queryset = annotate_view_counts(queryset, self.team.timezone).order_by(
-                    order_by_param, "-created_at", "id"
-                )
+                queryset = queryset.order_by(order_by_param, "-created_at", "id")
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.

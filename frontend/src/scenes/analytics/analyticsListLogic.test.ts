@@ -114,6 +114,22 @@ describe('analyticsListLogic', () => {
         expect(router.values.searchParams.orderBy).toBeUndefined()
     })
 
+    it('asks for counts when a count column is picked, and always shows the sorted column', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        expect(logic.values.feedQuery.includeViewCounts).toBe(false)
+
+        await expectLogic(logic, () => logic.actions.setPickedColumns(['tags', 'viewer_count'])).toFinishAllListeners()
+        expect(logic.values.feedQuery.includeViewCounts).toBe(true)
+        expect(logic.values.visibleColumns).toEqual(['tags', 'last_viewed_at', 'viewer_count'])
+        expect(userLogic.values.user?.ui_configuration?.analytics_list?.columns).toEqual(['tags', 'viewer_count'])
+
+        await expectLogic(logic, () => router.actions.push(urls.analyticsMine())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setPickedColumns(['owner', 'created_at'])).toFinishAllListeners()
+        expect(logic.values.visibleColumns).toEqual(['last_viewed_at', 'created_at'])
+    })
+
     it('opens each list on the Display default sort, and a header click sorts only that visit', async () => {
         userLogic.actions.loadUserSuccess({
             ...userLogic.values.user!,

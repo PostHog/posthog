@@ -31,6 +31,7 @@ from posthog.schema_enums import (
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
     AmazonAdsDefaultSources as AmazonAdsDefaultSources,
+    AnalyticsListColumnKey as AnalyticsListColumnKey,
     AnnotationScope as AnnotationScope,
     AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
@@ -542,6 +543,10 @@ class AlertScheduleRestrictionWindow(BaseModel):
 class AnalyticsListDisplayConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    columns: list[AnalyticsListColumnKey] | None = Field(
+        default=None,
+        description=("The optional columns the list shows, beside the title. The sorted column always shows."),
     )
     default_sort: DefaultSort | None = Field(
         default=None,

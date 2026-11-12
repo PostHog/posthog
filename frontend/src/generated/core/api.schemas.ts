@@ -5169,12 +5169,12 @@ export interface FileSystemApi {
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
-     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a typed list is ordered by view_count or viewer_count.
+     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count.
      * @nullable
      */
     readonly view_count: number | null
     /**
-     * People who viewed the file in the last 30 days. Null unless a typed list is ordered by view_count or viewer_count.
+     * People who viewed the file in the last 30 days. Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count.
      * @nullable
      */
     readonly viewer_count: number | null
@@ -5216,12 +5216,12 @@ export interface PatchedFileSystemApi {
     /** @nullable */
     readonly last_viewed_at?: string | null
     /**
-     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a typed list is ordered by view_count or viewer_count.
+     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count.
      * @nullable
      */
     readonly view_count?: number | null
     /**
-     * People who viewed the file in the last 30 days. Null unless a typed list is ordered by view_count or viewer_count.
+     * People who viewed the file in the last 30 days. Null unless a list of one type asks for include_view_counts or is ordered by view_count or viewer_count.
      * @nullable
      */
     readonly viewer_count?: number | null
@@ -7581,6 +7581,10 @@ export type FileSystemListParams = {
      * Include meta.tags, the tag names, for dashboards and insights on this page.
      */
     include_tags?: boolean
+    /**
+     * Include view_count and viewer_count, over the last 30 days, on a list of one type.
+     */
+    include_view_counts?: boolean
     /**
      * Number of results to return per page.
      * @maximum 1000

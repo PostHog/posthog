@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { AnalyticsListDisplayConfiguration, FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { ANALYTICS_TYPES, AnalyticsItem, AnalyticsType, fileSystemEntryToAnalytics } from './analyticsUtils'
 
@@ -20,6 +20,13 @@ export type AnalyticsOrderBy = (typeof ANALYTICS_ORDER_BYS)[number]
 
 export function isAnalyticsOrderBy(value: unknown): value is AnalyticsOrderBy {
     return ANALYTICS_ORDER_BYS.includes(value as AnalyticsOrderBy)
+}
+
+/** The orders saved as the person's default: newest or most first. Oldest first only lasts for the visit. */
+export function isAnalyticsDefaultSort(
+    orderBy: AnalyticsOrderBy
+): orderBy is NonNullable<AnalyticsListDisplayConfiguration['default_sort']> {
+    return orderBy.startsWith('-')
 }
 
 /** Orders on a count over the last 30 days rather than on a time. */
@@ -50,6 +57,8 @@ export interface AnalyticsFeedQuery {
     tags: string[]
     /** Leaves insights out of the list of every type. Picking the insight type still shows them. */
     hideInsights?: boolean
+    /** Asks for each row's views and viewers, which a shown count column needs whatever the order. */
+    includeViewCounts?: boolean
 }
 
 export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
@@ -108,6 +117,7 @@ export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery,
         [...query.tags].sort(),
         type,
         query.orderBy ?? '-created_at',
+        !!query.includeViewCounts,
     ])
 }
 
@@ -139,6 +149,7 @@ export async function fetchAnalyticsSourcePage(
         search: search || undefined,
         orderBy: query.orderBy ?? '-created_at',
         includeTags: true,
+        includeViewCounts: query.includeViewCounts || undefined,
         limit,
         offset,
     })
@@ -150,7 +161,7 @@ export async function fetchAnalyticsSourcePage(
         if (query.orderBy && parseAnalyticsOrderBy(query.orderBy).id === 'last_viewed_at') {
             item.timestamp = entry.last_viewed_at ?? null
         }
-        if (isAnalyticsCountOrderBy(query.orderBy)) {
+        if (isAnalyticsCountOrderBy(query.orderBy) || query.includeViewCounts) {
             item.viewCount = entry.view_count ?? 0
             item.viewerCount = entry.viewer_count ?? 0
         }

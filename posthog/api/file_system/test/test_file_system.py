@@ -1294,6 +1294,12 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(rows[:2], expected)
             self.assertCountEqual(rows[2:], [("stale", 0, 0), ("unseen", 0, 0)])
 
+        for ordering in ("-created_at", "-last_viewed_at"):
+            response = self.client.get(f"{base}{ordering}&include_view_counts=true")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            counts = {row["ref"]: (row["view_count"], row["viewer_count"]) for row in response.json()["results"]}
+            self.assertEqual(counts, {"busy": (4, 1), "popular": (3, 3), "stale": (0, 0), "unseen": (0, 0)})
+
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/viewers/?type=dashboard&ref=busy")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["since"], "2026-09-01")

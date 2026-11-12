@@ -184,6 +184,16 @@ class AmazonAdsDefaultSources(StrEnum):
     AMAZON_ADS = "amazon_ads"
 
 
+class AnalyticsListColumnKey(StrEnum):
+    SPACE = "space"
+    TAGS = "tags"
+    OWNER = "owner"
+    LAST_VIEWED_AT = "last_viewed_at"
+    CREATED_AT = "created_at"
+    VIEW_COUNT = "view_count"
+    VIEWER_COUNT = "viewer_count"
+
+
 class DefaultSort(StrEnum):
     FIELD_LAST_VIEWED_AT = "-last_viewed_at"
     FIELD_CREATED_AT = "-created_at"

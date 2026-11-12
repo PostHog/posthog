@@ -211,6 +211,11 @@ const fileSystemHandler = ({ request }: { request: Request }): [number, unknown]
             (parent !== null || depth !== null || type !== null || typePrefix !== null || entry.type !== 'folder')
     )
     const orderBy = params.get('order_by')
+    if (params.get('include_view_counts') === 'true' && orderBy !== '-view_count' && orderBy !== '-viewer_count') {
+        results.forEach((entry, index) => {
+            results[index] = { ...entry, ...(VIEW_COUNTS[entry.id] ?? { view_count: 0, viewer_count: 0 }) }
+        })
+    }
     if (orderBy === '-view_count' || orderBy === '-viewer_count') {
         const counted = results
             .map((entry) => ({ ...entry, ...(VIEW_COUNTS[entry.id] ?? { view_count: 0, viewer_count: 0 }) }))
@@ -435,5 +440,31 @@ export const ListViewersDialog: Story = {
     play: async () => {
         await clickWhenRendered('analytics-list-row-viewers')
         await within(document.body).findByText('Last viewed', {}, { timeout: 15000 })
+    },
+}
+
+export const ListWithCountColumns: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me/': {
+                    ...MOCK_DEFAULT_USER,
+                    ...ADA,
+                    ui_configuration: {
+                        version: 1,
+                        analytics_list: { columns: ['space', 'owner', 'last_viewed_at', 'view_count', 'viewer_count'] },
+                    },
+                },
+            },
+        }),
+    ],
+    parameters: { pageUrl: urls.analyticsList() },
+}
+
+export const ListColumnPicker: Story = {
+    parameters: { pageUrl: urls.analyticsList() },
+    play: async () => {
+        await clickWhenRendered('analytics-list-columns')
+        await within(document.body).findByText('Show columns', {}, { timeout: 15000 })
     },
 }

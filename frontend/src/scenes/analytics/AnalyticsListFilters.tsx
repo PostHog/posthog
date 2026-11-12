@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { AnalyticsColumnPicker } from './AnalyticsColumnPicker'
 import { AnalyticsFilterMenu } from './AnalyticsFilterMenu'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
-import { AnalyticsSortSelect } from './AnalyticsSortSelect'
 
-/** Search and the menu of the list's filters, with the order across from them. A folder lists by name, so it has no order. */
+/** Search and the menu of the list's filters, with the column picker across from them. A folder keeps its own columns. */
 export function AnalyticsListFilters(): JSX.Element {
     const { searchInput, mode } = useValues(analyticsListLogic)
     const { setSearchInput } = useActions(analyticsListLogic)
@@ -22,7 +22,7 @@ export function AnalyticsListFilters(): JSX.Element {
             <AnalyticsFilterMenu />
             {mode === 'feed' && (
                 <div className="ml-auto">
-                    <AnalyticsSortSelect />
+                    <AnalyticsColumnPicker />
                 </div>
             )}
         </div>

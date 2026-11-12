@@ -81,9 +81,9 @@ export interface AnalyticsItem {
     createdAt: string | null
     createdBy: Pick<UserBasicType, 'uuid' | 'first_name' | 'last_name' | 'email'> | null
     tags: string[]
-    /** Views in the last 30 days, counting each day a person viewed it once. Known only when the list sorts on views or viewers. */
+    /** Views in the last 30 days, counting each day a person viewed it once. Known only when the list shows or sorts on a count. */
     viewCount?: number
-    /** People who viewed it in the last 30 days. Known only when the list sorts on views or viewers. */
+    /** People who viewed it in the last 30 days. Known only when the list shows or sorts on a count. */
     viewerCount?: number
     spaceId: string | null
     spaceName: string | null

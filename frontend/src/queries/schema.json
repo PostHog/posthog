@@ -1762,10 +1762,21 @@
             "enum": ["amazon", "amazon_ads"],
             "type": "string"
         },
+        "AnalyticsListColumnKey": {
+            "enum": ["space", "tags", "owner", "last_viewed_at", "created_at", "view_count", "viewer_count"],
+            "type": "string"
+        },
         "AnalyticsListDisplayConfiguration": {
             "additionalProperties": false,
             "description": "One person's display choices for the Analytics lists.",
             "properties": {
+                "columns": {
+                    "description": "The optional columns the list shows, beside the title. The sorted column always shows.",
+                    "items": {
+                        "$ref": "#/definitions/AnalyticsListColumnKey"
+                    },
+                    "type": "array"
+                },
                 "default_sort": {
                     "description": "The sort a list opens with. A column header click still changes the sort for that visit.",
                     "enum": ["-last_viewed_at", "-created_at", "-view_count", "-viewer_count"],

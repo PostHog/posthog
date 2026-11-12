@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { AnalyticsListColumnKey } from '~/queries/schema/schema-general'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
@@ -54,9 +55,6 @@ import { analyticsViewersLogic } from './analyticsViewersLogic'
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
-
-/** The column the list is sorted on, the only one of the sortable columns it shows. */
-export type AnalyticsSortColumn = 'last_viewed_at' | 'created_at' | 'view_count' | 'viewer_count'
 
 function EmptyCell(): JSX.Element {
     return (
@@ -373,12 +371,53 @@ function ItemTitle({
     )
 }
 
-function sortColumn(id: AnalyticsSortColumn, sortable: boolean): AnalyticsListColumns[number] {
-    switch (id) {
+export const ANALYTICS_LIST_COLUMN_LABELS: Record<AnalyticsListColumnKey, string> = {
+    space: 'Collection',
+    tags: 'Tags',
+    owner: 'Owner',
+    last_viewed_at: 'Last viewed by me',
+    created_at: 'Created',
+    view_count: 'Views',
+    viewer_count: 'Viewers',
+}
+
+function optionalColumn(key: AnalyticsListColumnKey, sortable: boolean): AnalyticsListColumns[number] {
+    switch (key) {
+        case 'space':
+            return {
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
+                enableSorting: false,
+                cell: ({ row }) =>
+                    row.original.kind === 'item' ? <SpaceCell item={row.original.item} /> : <EmptyCell />,
+            }
+        case 'tags':
+            return {
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
+                enableSorting: false,
+                cell: ({ row }) =>
+                    row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />,
+            }
+        case 'owner':
+            return {
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <AnalyticsOwner
+                        owner={
+                            row.original.kind === 'item'
+                                ? row.original.item.createdBy
+                                : (row.original.folder.createdBy ?? null)
+                        }
+                    />
+                ),
+            }
         case 'last_viewed_at':
             return {
-                id,
-                header: 'Last viewed by me',
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
                 accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
                 enableSorting: sortable,
                 sortDescFirst: true,
@@ -388,8 +427,8 @@ function sortColumn(id: AnalyticsSortColumn, sortable: boolean): AnalyticsListCo
             }
         case 'created_at':
             return {
-                id,
-                header: 'Created',
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
                 accessorFn: (row) => (row.kind === 'item' ? row.item.createdAt : (row.folder.createdAt ?? null)),
                 enableSorting: sortable,
                 sortDescFirst: true,
@@ -400,18 +439,26 @@ function sortColumn(id: AnalyticsSortColumn, sortable: boolean): AnalyticsListCo
         case 'view_count':
         case 'viewer_count':
             return {
-                id,
-                header: id === 'view_count' ? 'Views' : 'Viewers',
-                // The counts only sort most first, which the sort menu picks, so the header does not toggle them.
-                enableSorting: false,
+                id: key,
+                header: ANALYTICS_LIST_COLUMN_LABELS[key],
+                accessorFn: (row) =>
+                    row.kind === 'item' ? (key === 'view_count' ? row.item.viewCount : row.item.viewerCount) : null,
+                enableSorting: sortable,
+                // The counts only sort most first, so a second header click keeps that order.
+                sortDescFirst: true,
+                enableMultiSort: false,
+                meta: {
+                    sortDataAttr: key === 'view_count' ? 'analytics-list-sort-views' : 'analytics-list-sort-viewers',
+                },
                 cell: ({ row }) =>
                     row.original.kind === 'item' ? (
                         <CountCell
                             item={row.original.item}
                             count={
-                                (id === 'view_count' ? row.original.item.viewCount : row.original.item.viewerCount) ?? 0
+                                (key === 'view_count' ? row.original.item.viewCount : row.original.item.viewerCount) ??
+                                0
                             }
-                            source={id === 'view_count' ? 'views' : 'viewers'}
+                            source={key === 'view_count' ? 'views' : 'viewers'}
                         />
                     ) : (
                         <EmptyCell />
@@ -420,20 +467,19 @@ function sortColumn(id: AnalyticsSortColumn, sortable: boolean): AnalyticsListCo
     }
 }
 
-/** The list's columns. The type shows as the title's icon. Of the sortable columns, only the sorted one shows. */
+/** The list's columns: the title, with the type as its icon, then the optional columns asked for, then the row menu. */
 export function analyticsListColumns({
     backUrl,
-    showSpace,
-    showOwner,
-    sortedColumn,
+    columns,
+    sortable,
+    draggable,
 }: {
     backUrl: string
-    showSpace: boolean
-    showOwner: boolean
-    /** Null for a folder, which lists by name and shows when each row was created. */
-    sortedColumn: AnalyticsSortColumn | null
+    columns: AnalyticsListColumnKey[]
+    /** A folder lists by name, so its column headers do not sort. */
+    sortable: boolean
+    draggable: boolean
 }): AnalyticsListColumns {
-    const draggable = !showSpace
     return [
         {
             id: 'name',
@@ -448,43 +494,7 @@ export function analyticsListColumns({
                     <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} position={row.index} />
                 ),
         },
-        ...(showSpace
-            ? ([
-                  {
-                      id: 'space',
-                      header: 'Collection',
-                      enableSorting: false,
-                      cell: ({ row }) =>
-                          row.original.kind === 'item' ? <SpaceCell item={row.original.item} /> : <EmptyCell />,
-                  },
-              ] satisfies AnalyticsListColumns)
-            : []),
-        {
-            id: 'tags',
-            header: 'Tags',
-            enableSorting: false,
-            cell: ({ row }) =>
-                row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />,
-        },
-        ...(showOwner
-            ? ([
-                  {
-                      id: 'owner',
-                      header: 'Owner',
-                      enableSorting: false,
-                      cell: ({ row }) => (
-                          <AnalyticsOwner
-                              owner={
-                                  row.original.kind === 'item'
-                                      ? row.original.item.createdBy
-                                      : (row.original.folder.createdBy ?? null)
-                              }
-                          />
-                      ),
-                  },
-              ] satisfies AnalyticsListColumns)
-            : []),
-        sortedColumn ? sortColumn(sortedColumn, true) : sortColumn('created_at', false),
+        ...columns.map((key) => optionalColumn(key, sortable)),
         {
             id: 'actions',
             enableResizing: false,

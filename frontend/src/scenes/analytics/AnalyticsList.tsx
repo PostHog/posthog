@@ -39,15 +39,15 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { AnalyticsListColumnKey, FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
-import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
+import { analyticsOrderByOfColumn, isAnalyticsDefaultSort, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import { AnalyticsListRow, AnalyticsSortColumn, analyticsListColumns } from './AnalyticsListColumns'
+import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
@@ -87,8 +87,9 @@ function AnalyticsListContent(): JSX.Element {
         scope,
         loadedCount,
         feedQuery,
+        visibleColumns,
     } = useValues(analyticsListLogic)
-    const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
+    const { clearFilters, loadList, loadMore, setFilters, setDefaultSort } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
@@ -104,15 +105,25 @@ function AnalyticsListContent(): JSX.Element {
         scope === 'mine'
             ? urls.analyticsMine(analyticsListUrlParams(filters))
             : urls.analyticsList(analyticsListUrlParams(filters))
-    const showSpace = mode === 'feed'
-    const showOwner = scope !== 'mine'
-    const sortedColumn =
-        mode === 'feed' && feedQuery.orderBy
-            ? (parseAnalyticsOrderBy(feedQuery.orderBy).id as AnalyticsSortColumn)
-            : null
+    // A folder's rows all share the collection and carry no view times, so it keeps its own columns.
+    const shownColumns = useMemo<AnalyticsListColumnKey[]>(
+        () =>
+            mode === 'feed'
+                ? visibleColumns
+                : scope === 'mine'
+                  ? ['tags', 'created_at']
+                  : ['tags', 'owner', 'created_at'],
+        [mode, visibleColumns, scope]
+    )
     const columns = useMemo(
-        () => analyticsListColumns({ backUrl, showSpace, showOwner, sortedColumn }),
-        [backUrl, showSpace, showOwner, sortedColumn]
+        () =>
+            analyticsListColumns({
+                backUrl,
+                columns: shownColumns,
+                sortable: mode === 'feed',
+                draggable: mode === 'folder',
+            }),
+        [backUrl, shownColumns, mode]
     )
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
@@ -252,7 +263,10 @@ function AnalyticsListContent(): JSX.Element {
                             }
                             onSortingChange={([sort]) => {
                                 const orderBy = sort && analyticsOrderByOfColumn(sort)
-                                if (orderBy) {
+                                if (orderBy && isAnalyticsDefaultSort(orderBy)) {
+                                    // With no sort menu, the header is where the person picks the order, so it is saved.
+                                    setDefaultSort(orderBy)
+                                } else if (orderBy) {
                                     setFilters({ orderBy })
                                 }
                             }}
