@@ -23,7 +23,7 @@ const isAccepted = (status: number): boolean => status >= 200 && status < 300
 const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
     status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
 
-const isNotRetriedByFetch = (status: number): boolean => status >= 400 && !RETRIABLE_STATUS_CODES.includes(status)
+const isNotRetriedByFetch = (status: number): boolean => !RETRIABLE_STATUS_CODES.includes(status)
 
 function endedByTerminalFault(records: TruthRecord[]): boolean {
     const last = records.at(-1)
