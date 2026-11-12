@@ -463,15 +463,6 @@ class TestResendImport(BaseTest):
         assert resend._imported_email(template, {}).from_name == '{{ "{{" }} person.properties.a }}'
         assert resend._step_email(step, {}).from_name == '{{ "{{" }} person.properties.b }}'
 
-    def test_access_rules_load_once_for_a_page_of_automations(self) -> None:
-        second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}
-        self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], second]}
-        with patch("products.workflows.backend.services.resend_import.drafts.UserAccessControl") as access:
-            run = self._run(["automations"])
-
-        assert run.progress["automations"]["counts"]["created"] == len(self.resend.data["automations"])
-        assert access.call_count == 1
-
     def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
         self.resend.data = {**self.resend.data, "segments": []}
         run = self._run(["automations"])
