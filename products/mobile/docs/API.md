@@ -207,19 +207,20 @@ The app never sends `set_repository_as_team_default` (needs `project:write` and 
 A 403 for a missing `experiment:*` scope goes to `reportScopeError(error, 'experiments')`.
 A missing `task:write` shows as an error in the sheet.
 
-The Ship preset uses the same ranking as its variant picker, so an improvement is preferred over a significant regression.
-Rule-linked experiments can end on mobile, but shipping, pausing, resuming, and rollout changes stay on the feature flag's web page.
-If shipping needs approval, approve the request on the web, then return to **Finish shipping** in the sheet or tap the waiting banner.
-The retry keeps the variant, release mode, conclusion, comment, and cleanup choices from the original request.
+The Ship preset ranks variants like the variant picker, so it prefers an improvement over a significant regression.
+A rule-linked experiment can end on the phone. Ship, pause, resume and rollout changes stay on the flag's web page.
+When a ship needs approval, the sheet and the waiting banner offer Finish shipping.
+After approval on the web, Finish shipping resends the saved request with all its choices.
 
 ### Experiment screen
 
 `src/features/experiments/ExperimentScreen.tsx` uses the reads above through `hooks.ts` and `detailHooks.ts`.
 It needs no scope that the list does not need.
-Experiment web links retain their project and host.
-A link to another project reads that project without changing the session's selected project; a link to another host asks the person to sign in there before loading data.
-An uncached list or detail opened offline shows a connection state and resumes when the connection returns.
-If the final results reload fails, the screen keeps the previous results and asks the person to pull to refresh.
+A web link keeps its project and host.
+A link to another project reads that project and does not change the selected project.
+A link to another host asks the person to sign in there first.
+Offline, an uncached list or detail shows a connection state and loads when the connection returns.
+If the final results reload fails, the screen keeps the old results and asks for a pull to refresh.
 The detail clock stops while the screen is unfocused.
 
 | Moment                        | Calls                                                                                                                    | Cadence                                                                  |

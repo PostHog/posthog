@@ -351,79 +351,49 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
   With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
   Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.
-- **Experiments list** (`features/experiments/ExperimentsListScreen.tsx`): one body in two chromes, like the Errors
-  list. Pushed from the "Experiments" row in Views › Browse (a flask icon), Back and More over a 28pt "Experiments"
-  title and a status line; as a pinned tab, the tabs header draws both. The status line names the oldest stored result
-  on screen on Running ("Results from 02:00 · updated 5 h ago"), "Final results · ended experiments" on Done and "Not
-  launched yet" on Drafts. Then the shared search field ("Search experiments"; it shows once a segment has rows) and
-  a Running, Done and Drafts pill. Rows (`ExperimentListRow.tsx`) are whole tap targets with three lines: the name,
-  bold with a blue dot when the headline changed since the last look, and a badge (New, Paused, Frozen, Ready to ship
-  in green, Losing in red); the result ("Significant · start-trial +12.4%" with a green check, "Significant ·
-  comparison −14.0% · p = 0.009" with a red arrow, "checklist-v2 leading · 93% chance to win", "Needs more data · ~3
-  days to target", "No results yet · exposures arriving" with a blue dot; on Done the conclusion's colored dot, "Won ·
-  shipped compact-sidebar"); then the meta ("Running 12 d · 3 variants · 6.8k exposed · 5 h old", "Ran 18 d · ended
-  Oct 28 · 14.2k exposed", "Created Nov 2 by you · flag annual-plan-toggle"). A result line that is still loading is a
-  gray bar. A draft row has a Launch pill on the right that opens the launch sheet. 20 rows per page with a Load more
-  footer; pull to refresh re-reads the page and the visible rows' stored results. Loading (three-line row blocks),
-  "Couldn't load your experiments" with Try again, the sign-in state, an empty state per segment ("No running
-  experiments" with See drafts, "Nothing finished yet", "No drafts"), and "No experiments match "…"" with Clear search
-  are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the Views toast and
-  Undo, and Open on web.
-- **Experiment** (`features/experiments/ExperimentScreen.tsx`): Back and More on the floating chrome, the name as the
-  scroll title. "Experiment · project" eyebrow with a status chip (green Running, orange Paused, blue Exposure frozen,
-  gray Draft, purple Complete), the name, then two quiet byline lines: clock ("Running 12 days · started Oct 23",
-  "Launched 38 min ago · today 06:26", "Paused · started Oct 23, 6 days ago", "Ran 18 days · Oct 10 to Oct 28",
-  "Draft · created Nov 2 by you") and flag
-  ("Flag `checkout-cta-copy` · Bayesian, 95%"). The hypothesis card (`HypothesisCard.tsx`) clamps the description to
-  two lines with More and Less; text that fits is static, and no description draws no card. The results status card
-  (`ResultsStatusCard.tsx`) has a colored dot and one line: "Results from 02:00 · 5 h ago · daily run", "Updating…"
-  while a pull is in flight, a spinner with "Recalculating · 2 of 3 metrics done" and a blue progress bar, "Updated
-  just now · refresh again in 4:12", "Still working · pull again to check" with "The results from 02:00 stay until it
-  is done.", "Final results · from the Oct 28, 02:00 run" with a purple dot, and "No results yet · pull down to
-  calculate them" with a blue one. Progress (`ProgressCard.tsx`): "6,800 of 6,000 exposures" over a bar, with
-  "Target reached" in green, "~3 days to go" or "Too early to tell". Primary metric cards (`MetricCard.tsx`): the name
-  and "Higher is better" or "Lower is better", dotted column labels (Value, Change, Chance to win or p-value), then
-  the baseline block ("control baseline", its value cell and "Baseline for the other variants") and one block per
-  variant with three filled cells: the value over "318 / 2,265" or "2,265 people", the change over its interval bar
-  (`IntervalBar.tsx`: one axis per card, green or red only when the whole range is on one side of 0, gray otherwise),
-  and "99.1%" over "to win" or "0.0090" over "p-value". A significant variant has a green check or red arrow and
-  "Significant". A card without results says why (calculating, failed, not enough data, no results yet). Every cell
-  and column label opens "About this number" (`AboutNumberSheet.tsx`): the variant chip, "vs control" and the
-  metric, the number as a large title (green or red when significant), one plain sentence, the interval with 0 and
-  both ends labeled, rows of exact values, a gray note and "From the Nov 4, 02:00 run." Progress opens the same sheet
-  for the target. Secondary metrics sit behind a "Secondary metrics (2)" row with a chevron. Exposures
-  (`ExposuresCard.tsx`, "2,534 total" beside the eyebrow): a variant-colored share bar and a row per variant with the
-  count and share; an orange-bordered "Uneven split." warning when the sample ratio test fails; "38 people saw more
-  than one variant." under the rows. Health (`HealthCard.tsx`): one row per finding with an orange warning or blue
-  info icon, only when there are findings. Feature flag (`RolloutRow.tsx`): the flag key in mono over "Rollout 100% ·
-  split 50 / 50" with "Open flag ↗", then "Open on the web" (variants, recordings and daily charts). A launch under
-  2 h old adds the blue Watching card (`WatchingCard.tsx`) above the status card: a live dot, "Updated 12 s ago", the
-  exposure total and bars of this visit's reads. Complete: the conclusion card (`ConclusionCard.tsx`: colored dot,
-  "Won", "Ended Oct 28", "Shipped compact-sidebar to all users." and the note) above the status card, then the
-  metrics, exposures and the flag. Draft (`DraftSections.tsx`): What it measures, Variants with notes and split,
-  Audience, the flag, and "Edit on the web". Loading is `ExperimentSkeleton.tsx`; "Couldn't load this experiment"
-  with Try again, "Couldn't find this experiment" with Go back, and the sign-in state are separate screens. Pull to
-  refresh as on the issue screen.
-- **Experiment action bar** (`features/experiments/ExperimentActionBar.tsx`): the issue's layout, a pill of one-word
-  verbs and the round ink Chat button. Running or frozen: Ship (rocket) and End (stop). Paused: Resume (play) and End.
-  Draft: Launch. Complete: no verbs; the bar states the outcome ("Won" over "start-trial shipped Nov 4" or "Ended
-  Nov 4, nothing shipped"). Every verb opens a sheet; More adds Pause or Resume while live and Edit conclusion and
-  Archive once complete (`experimentMenu.ts`). `PendingApprovalBanner` is the blue "Waiting for approval." card the
-  detail shows under the hypothesis after a 409.
-- **Finish sheet** (`features/experiments/FinishSheet.tsx`): "Ship a variant" or "End experiment" with one line that
-  says what happens. Full-width radio cards (2pt ink border when picked) for Variant to keep (mono keys, a green
-  "Leading" tag, "99.1% chance to win · +12.4%" or "p = 0.009 · −14.0%", control "Keep the current experience", then
-  "None, end without rolling out a variant"), How to release this variant (only with a variant), and Conclusion
-  (colored dot, the label, a quiet "Suggested by the results" tag, the description). Then the comment field, Code
-  cleanup (a checkbox card with the flag key in mono; under it "The PR will be opened in …", a spinner with "Checking
-  which repository to use…", repository radio cards, or, disabled, "Connect GitHub in your project settings to open
-  cleanup PRs"), blue info banners for a frozen flag or a variant already at 100%, and the sunken flag line with Open
-  flag. The footer stays put under the scrolling body: the disabled reason with an info glyph, then Cancel and the
-  primary button (orange "Ship start-trial", ink "End experiment", "Shipping start-trial…" with a spinner while in
-  flight). A server error shows in orange above the footer. After a 409 the sheet becomes "Needs approval": a blue
-  clock circle, the explanation, a "Request sent · 07:06" chip, Done and "Open request on the web".
-- **Launch, Pause, Resume, Archive and Edit conclusion sheets** (`LaunchSheet.tsx`, `PauseResumeSheet.tsx`,
-  `EditConclusionSheet.tsx`): the web's modals with their wording. Launch says what goes live ("The flag … goes live
-  for 100% of its audience, split 50 / 50.") with an orange Launch and Cancel. Pause has an orange primary and is
-  disabled with "No feature flag linked" when there is none. Edit conclusion holds the five conclusion cards and the
-  comment, and Save waits for a conclusion.
+- **Experiments list** (`features/experiments/ExperimentsListScreen.tsx`): one body in two chromes, like the Errors list.
+  The pushed screen opens from the Experiments row in Views › Browse (flask icon). It has Back, More, a 28 pt title and a status line.
+  As a pinned tab, the tabs header draws the title and the status line.
+  The status line gives the age of the oldest result on screen (Running), "Final results" (Done) or "Not launched yet" (Drafts).
+  Below it are the search field, when a segment has rows, and the Running, Done and Drafts pill.
+  A row (`ExperimentListRow.tsx`) is one tap target with three lines: the name with a badge, the result and the meta.
+  A blue dot and a bold name mark a changed result.
+  The badges are New, Paused, Frozen, Ready to ship (green) and Losing (red).
+  A result that is still loading is a gray bar. A draft row has a Launch pill.
+  A page holds 20 rows, with a Load more footer.
+  Loading, the error, sign-in, the empty state of each segment and "no matches" with Clear search are separate screens.
+  More (pushed screen only) holds Pin or Unpin and Open on web.
+- **Experiment** (`features/experiments/ExperimentScreen.tsx`): floating Back and More, and the name as the scroll title.
+  The header has a status chip, the name, a clock byline and a flag byline with the method.
+  The chip colors are green (Running), orange (Paused), blue (Exposure frozen), gray (Draft) and purple (Complete).
+  The cards follow in this order:
+  - The hypothesis card, clamped to two lines with More.
+  - The results status card: one line, with a dot whose color gives the age of the results, and the recalculation progress.
+  - Progress toward the sample target.
+  - The primary metric cards, then Secondary metrics, collapsed.
+  - Exposures, then Health (only with findings), then the feature flag row and Open on the web.
+
+  A metric card has Value, Change and Chance to win (or p-value) columns, a baseline block, and one block per variant.
+  The Change cell has an interval bar (`IntervalBar.tsx`) on one axis per card.
+  A significant variant shows a green check or a red arrow.
+  Each cell and column label opens "About this number" (`AboutNumberSheet.tsx`).
+  The sheet shows the number as a title, one plain sentence, the interval with labeled ends, the exact values and a note.
+  A launch less than 2 hours old adds the blue Watching card. A complete experiment adds the conclusion card at the top.
+  A draft shows what it measures, the variants, the audience and the flag.
+  Loading is `ExperimentSkeleton.tsx`. The load error, a missing experiment and sign-in are separate screens.
+
+- **Experiment action bar** (`ExperimentActionBar.tsx`): the issue's layout, a pill of one-word verbs and the round ink Chat button.
+  Running or frozen shows Ship and End. Paused shows Resume and End. Draft shows Launch.
+  Complete shows no verbs, and the bar states the outcome. A rule-linked experiment hides Ship, Pause and Resume.
+  Each verb opens a sheet. More adds Pause or Resume, Edit conclusion and Archive (`experimentMenu.ts`).
+  After a 409, the detail shows the blue "Waiting for approval." card (`PendingApprovalBanner`) under the hypothesis.
+  A tap on the card finishes the ship with the saved choices.
+- **Finish sheet** (`FinishSheet.tsx`): "Ship a variant" or "End experiment", and one line that says what happens.
+  Full-width radio cards, with a 2 pt ink border when picked, hold the variant, the release and the conclusion.
+  A variant card shows its result and a green "Leading" tag. A conclusion card can show a "Suggested by the results" tag.
+  Then come the comment, the cleanup PR checkbox with its repository, info banners and the flag line.
+  The footer does not scroll. It holds the disabled reason, Cancel and the primary button.
+  The primary button is orange for Ship and ink for End, with a spinner while the request runs.
+  After a 409, the sheet shows "Needs approval" and Finish shipping, which resends the saved request after approval on the web.
+- **Launch, Pause, Resume, Archive and Edit conclusion sheets** (`LaunchSheet.tsx`, `PauseResumeSheet.tsx`, `EditConclusionSheet.tsx`) use the web's modals and words.
+  Launch says what goes live. Pause is disabled when no flag is linked. Save in Edit conclusion waits for a conclusion.

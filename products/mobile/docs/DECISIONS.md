@@ -428,85 +428,49 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 
 ### Experiments list
 
-- **Browse row first, pin to make it a tab.** A quiet 52 pt "Experiments" row in Views › Browse, like Errors and
-  Sessions; long press offers "Pin to navigation", which replaces the one pin slot with a toast and Undo. Behind the
-  `mobile-experiments` flag (on for local development). Unlike Errors and Sessions it works in the demo.
-- **Three segments, no filters.** Running (the default), Done and Drafts. No tags, created-by or sort controls. The
-  shared search field filters the loaded rows by name and flag key at once, and asks the server with `search=` only
-  when the loaded pages do not hold the whole segment.
-- **Running includes paused and frozen.** The server's `running` excludes them, so the segment reads `running`,
-  `paused` and `exposure_frozen` at the same offset and merges them. A paused row says Paused.
-- **Rows read their results lazily.** Names and meta show at once from the list call; each visible row then reads the
-  detail and the stored results, two at a time, behind a row-shaped placeholder. The list never starts a
-  recalculation.
-- **Running order: a decision first.** A significant primary result or a reached sample target sorts to the top, then
-  a headline that changed since the last look on this phone, then the newest launch. Done sorts by end date, Drafts by
-  creation date. Rows sort when the visible lines settle, not on each line that lands, so a row moves at most once.
-- **"Changed" is device-local.** The first headline seen on this phone is the baseline; opening the experiment marks
-  the current one seen. The memory goes with the session.
-- **"Days to target" uses the saved estimate.** The row projects the pace so far onto the list's
-  `recommended_sample_size`; the detail reads `running_time_target/` for the exact number. A third read per row was not
-  worth it.
-- **Drafts carry their own Launch button**, which opens the same confirmation sheet as the draft screen.
+- **A Browse row first, a tab after a pin.** Experiments is a row in Views › Browse, like Errors and Sessions, and a long press pins it.
+  The `mobile-experiments` flag controls it. Unlike Errors and Sessions, it works in the demo.
+- **Three segments and search, no filters.** Running, Done and Drafts. No tags, created-by or sort controls.
+  Search filters the loaded rows by name and flag key, and asks the server only when the segment has more pages.
+- **Running includes paused and frozen experiments.** A paused row says Paused.
+- **Rows read their results lazily**, two at a time. The list never starts a recalculation.
+- **Running puts a decision first:** a significant result or a reached target, then a changed result, then the newest launch.
+  Rows sort again only when the visible results settle, so a row moves at most once.
+- **"Changed" is local to the phone.** The first result the phone sees is the baseline, and opening the experiment marks it seen.
+  The phone keeps up to 500 seen results and clears them at sign-out.
+- **"Days to target" uses the saved estimate** (`recommended_sample_size`), because a third read for each row costs too much.
+- **A draft row has a Launch button** that opens the same sheet as the draft screen.
 
 ### Experiment screen
 
-- **Pull is the only refresh.** As on the issue screen: no refresh button and no menu item. On a live experiment the
-  pull starts a recalculation and the status card counts the metrics as they finish, polling every 5 s while focused
-  for up to 2 min, the Summarize cadence. After that it says "Still working · pull again to check" and keeps the old
-  results. A 429 inside the server's five-minute window re-reads the stored results and counts down `Retry-After`.
-  Complete, draft and too-old experiments only re-read. A run someone else started shows its progress too.
-- **The status card names the run, not the action.** "Results from 02:00 · 5 h ago · daily run", with a green, amber
-  (6 h) or red (12 h) dot. "Your refresh" only for a run this phone started; the API returns no trigger, so a stored
-  recalculation run from elsewhere has no source label.
-- **Every number explains itself.** Each cell and each column label opens "About this number"; a column label explains
-  the leader. The copy follows the method: chance to win and a credible interval for Bayesian, a p-value and a
-  confidence interval for Frequentist, with the configured level and cut-off rather than a fixed 95%.
-- **Significance is explained by the rule the server applies.** A Bayesian variant is significant when its chance to
-  win passes the level either way (`is_decisive`), which can happen while the credible interval still crosses 0. The
-  prototype's "the whole range is above 0" was true only for Frequentist results, so the Bayesian row says "chance to
-  win is above 95%" instead.
-- **The change is the web's midpoint.** "The best estimate is that start-trial's conversion rate is 12.4% higher",
-  not "is 12.4% higher", because the number is the middle of the interval, not an observed ratio.
-- **One axis per card.** The interval bars of a card share the widest end, rounded up to 5%, so bars compare at a
-  glance. Green and red only when the whole interval sits on one side of 0.
-- **Secondary metrics start collapsed.** They come in the same read, so opening them costs nothing.
-- **Watching replaces the web row on a launch under 2 h old.** Stored results and the exposure query re-read every
-  60 s while focused; the bars are the totals of this visit's reads. The "Notify me" toggle waits for a backend push.
-- **The conclusion card has no author.** The API stores `conclusion_comment` without who wrote it, so the card shows
-  the note alone. What shipped reads from the flag: a variant at 100% of the split, to all users when the first release
-  condition is 100% without filters.
-- **Drafts are read-only.** What it measures, the variants with their notes and split, and the audience as a count of
-  release conditions. Property names stay on the web.
+- **Pull is the only refresh**, as on the issue screen. On a live experiment it starts a recalculation ([cadence](API.md#experiment-screen)).
+  After 2 minutes the status card says "Still working" and keeps the old results.
+- **The status card names the run, not the action.** The dot is green, amber after 6 hours and red after 12 hours.
+  "Your refresh" shows only for a run this phone started, because the API does not return the trigger.
+- **Every number opens "About this number".** The copy follows the method and its configured level.
+- **Significance uses the server's rule.** A Bayesian variant can be significant while its interval crosses 0 (`is_decisive`).
+  So the Bayesian copy talks about the chance to win, not the interval.
+- **The change is a best estimate**, the midpoint of the interval, and the copy says so.
+- **One axis per card**, at the widest end rounded up to 5%. A bar is green or red only when the whole interval is on one side of 0.
+- **Secondary metrics start collapsed.** The same read loads them, so opening them costs nothing.
+- **A launch less than 2 hours old shows the Watching card**, which reads results and exposures every 60 seconds.
+- **The conclusion card shows no author**, because the API stores none.
+  What shipped comes from the flag: the variant at 100% of the split, to all users when the first release condition is 100% without filters.
+- **Drafts are read-only.**
 
 ### Experiment actions
 
-- **One finish sheet, two presets.** The web has one End experiment modal, so Ship and End open the same sheet. Ship
-  picks the leader, the experiment population and Won; End picks no variant and the conclusion the results suggest.
-  The title follows the preset; the variant can change either way, and the button says what happens ("Ship
-  start-trial" or "End experiment"). With no variant the app calls `end/`, otherwise `ship_variant/`.
-- **The web's modal in full, with its words.** Variant to keep with None, the two release options, all five
-  conclusions with a "Suggested by the results" tag, the comment, the cleanup PR, the frozen and already-at-100%
-  banners and the flag line. The button stays disabled with the web's reasons in the web's order. "Roll out to all
-  users" gets no second confirmation, as on the web.
-- **"Leading" only for a variant ahead in the good direction.** The prototype tagged a significantly worse variant
-  too; the tag would read as a recommendation.
-- **No optimistic change for launch, ship and end.** The sheet shows the wait, and a 409 means nothing changed, so
-  there is nothing to roll back. Pause, resume, archive and the conclusion edit change the screen at once and roll
-  back when the server refuses. No Undo after a ship or end: the flag was rewritten.
-- **A 409 on ship turns the sheet into "Needs approval".** The screen remembers the request for the session and the
-  detail shows "Waiting for approval" (`PendingApprovalBanner`), because no read within the app's scopes lists a
-  flag's open change requests. A `change_request_pending` 409 says a request is already waiting instead of sent.
-  Launch turns the flag on through the same gate: its 409 turns the launch sheet, on the detail and on the list, into
-  "Needs approval", and the experiment stays a draft until someone approves and it is launched again. A 409 on pause
-  or resume shows a "Change request sent" or "Change request already waiting" toast.
-- **The cleanup target loads when the sheet opens**, not with the screen, like the web. Ticked before it arrives, the
-  button waits. The row hides when the OAuth grant lacks `task:write`. With several repositories the sheet asks for
-  one; the web's "Use this repository for all experiments in this project" is left out because it needs
-  `project:write`.
-- **Rare verbs live in More and confirm in a sheet.** Pause and Resume while live (Resume is also in the bar while
-  paused), Edit conclusion and Archive once complete. Archive keeps the flag as it is.
-- **A group-aggregated flag says "groups".** The web names the group type; the app does not read group types.
-- **Toasts fit one line**: "Shipped start-trial", "Experiment ended", "Experiment launched", "Experiment paused",
-  "Conclusion saved", "Experiment archived", "Change request sent". A cleanup PR adds "· cleanup PR started" only when
-  the response carries `flag_cleanup_task_id`.
+- **One finish sheet with two presets**, because the web has one End experiment modal.
+  Ship picks the leader, the experiment population and Won. End picks no variant and the suggested conclusion.
+  With a variant the app calls `ship_variant/`, and without one it calls `end/`.
+- **The sheet copies the web's modal**: the same words and the same disabled reasons in the same order.
+  "Roll out to all users" has no second confirmation, as on the web.
+- **"Leading" marks only a variant that is ahead in the good direction**, so the tag never recommends a worse variant.
+- **Launch, ship and end wait for the server**, and a 409 means nothing changed.
+  Pause, resume, archive and the conclusion edit change the screen at once and roll back on an error.
+  A ship or an end has no Undo, because the flag changed.
+- **A 409 on ship or launch shows "Needs approval".** The detail shows "Waiting for approval" for the rest of the session, because no read in the app's scopes lists change requests.
+  A 409 on pause or resume shows a toast.
+- **The cleanup target loads when the sheet opens**, as on the web. The cleanup row hides without `task:write`.
+- **Rare actions are in More and confirm in a sheet:** Pause and Resume while live, and Edit conclusion and Archive after the end.
+- **Toasts fit one line.** "· cleanup PR started" shows only when the response has `flag_cleanup_task_id`.

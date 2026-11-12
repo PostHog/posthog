@@ -257,40 +257,31 @@ by the mobile footer change:
 
 ### Experiments list
 
-- **No "daily run" or "your refresh" label from the server.** The run's `trigger` is not serialized, so the app can
-  tell only the daily placeholder (`result_source: timeseries_fallback`) from a recalculation. Backend ask: `trigger`
-  on the latest and run serializers.
-- **A row costs two reads.** The list endpoint has no headline result. Backend ask: a compact `latest_headline` (leader,
-  change, significance, exposures, `query_to`) on `ExperimentBasicSerializer`, so the list is one call.
-- **Running is three requests a page.** `status=` takes one value. Backend ask: accept a comma-separated list.
-- **"Days to target" in a row is an estimate** from the saved running-time calculation, not `running_time_target/`.
-- **No create, tags, created-by filter, sort or archived list** on the phone.
-- **Experiments is not a start page.** Like Errors and Sessions, it can be pinned but not chosen in Settings.
+- **The app cannot tell who started a run.** The server does not serialize `trigger`.
+  The app tells only the daily run (`result_source: timeseries_fallback`) from a recalculation.
+  Backend ask: `trigger` on the latest and run serializers.
+- **A row costs two reads.** Backend ask: a compact `latest_headline` (leader, change, significance, exposures, `query_to`) on `ExperimentBasicSerializer`.
+- **Running costs three requests a page.** Backend ask: a comma-separated `status=`.
+- **"Days to target" in a row is an estimate** from the saved running-time calculation.
+- **A row leaves out an absolute change**, because the row does not know the metric kind.
+- **Experiments cannot be the start page.** As with Errors and Sessions, a person can pin it but not choose it in Settings.
+- **Not on the phone:** create, tags, the created-by filter, sort and the archived list.
 
 ### Experiment screen
 
-- **No "Notify me when significant".** The Watching card has no toggle: `$experiment_metric_significant` reaches Slack
-  and webhooks only. Backend ask: a mobile push for it with `{ type: 'experiment', experiment_id, project_id }`.
-- **The conclusion note has no author or date.** `conclusion_comment` is stored alone. Backend ask: who wrote it and
-  when, on the experiment serializer.
-- **How a variant shipped is read from the flag.** The experiment does not store "experiment population" or "all
-  users", so the card infers it from the first release condition.
-- **Recalculation progress is per metric only.** `rows_read` and `estimated_rows_total` arrive on the run but the card
-  counts metrics, which reads better on a phone and never moves backwards.
-- **Not on the phone:** timeseries charts, breakdowns, recordings, variant screenshots, the health drill-down and
-  `checks`, holdouts, shared metric editing, the running time calculator, and editing the hypothesis or metrics.
-- **A Bayesian "ABSOLUTE" difference type reads as a relative change**, as on the web, which formats every interval as
-  a percentage.
+- **No "Notify me when significant".** `$experiment_metric_significant` goes only to Slack and webhooks.
+  Backend ask: a mobile push with `{ type: 'experiment', experiment_id, project_id }`.
+- **The conclusion note has no author or date.** Backend ask: both on the experiment serializer.
+- **How a variant shipped comes from the flag**, because the experiment does not store "experiment population" or "all users".
+- **Recalculation progress counts metrics, not rows.** The run has `rows_read` and `estimated_rows_total`, but a metric count never moves backwards.
+- **Not on the phone:** timeseries charts, breakdowns, recordings and variant screenshots.
+  Also missing: the health drill-down and `checks`, holdouts, shared metric editing, the running time calculator, and hypothesis or metric editing.
 
 ### Experiment actions
 
-- **A pending approval is remembered for the session only.** After a restart, or on another device, the detail no
-  longer says "Waiting for approval". Backend ask: a `pending_change_request` (id, action, created at) on the
-  experiment serializer, or change requests readable with `experiment:read`.
-- **No project default for the cleanup repository.** `set_repository_as_team_default` needs `project:write` and
-  project admin, so the phone saves the pick on the experiment only.
-- **Archive never disables the flag.** The web's "Also disable and archive the linked feature flag" needs
-  `feature_flag:write`. No Unarchive, Reset or Freeze exposure on the phone.
-- **No cleanup PR progress.** A cleanup PR started from the phone shows a toast; the PR link arrives the usual way.
-  `flag_cleanup_task/` could show it later.
-- **Group-aggregated flags say "groups"** instead of the group type's name.
+- **A pending approval lasts only for the session.** After a restart, or on another device, the detail does not show "Waiting for approval".
+  Backend ask: `pending_change_request` (id, action, created at) on the experiment serializer, or change requests readable with `experiment:read`.
+- **No project default for the cleanup repository.** `set_repository_as_team_default` needs `project:write` and project admin.
+- **Archive never disables the flag**, because that needs `feature_flag:write`. Unarchive, Reset and Freeze exposure are not on the phone.
+- **No cleanup PR progress.** The phone shows a toast, and the PR link arrives the usual way. `flag_cleanup_task/` could show progress later.
+- **A group-aggregated flag says "groups"**, because the app does not read group type names.
