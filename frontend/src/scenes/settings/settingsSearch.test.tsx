@@ -150,6 +150,7 @@ describe('settingsSearch', () => {
         ['self-driving', 'task-agent-other-settings'],
     ])('finds a setting by its PostHog Desktop name "%s" with today-rail-nav on', (term, expectedSettingId) => {
         const flags = {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
             [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: true,
         }
