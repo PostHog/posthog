@@ -1,13 +1,11 @@
 import { ProviderEdge, TruthRecord, startProviderEdge } from '.'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { execFile } from 'child_process'
+import { mkdtempSync, rmSync } from 'fs'
 import http from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
-// eslint-disable-next-line no-restricted-imports
-import { ProxyAgent, request } from 'undici'
 
-import { SesWebhookHandler } from '~/cdp/services/messaging/helpers/ses'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -15,6 +13,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const BOUNCED = 'run-1-1@www.example.com'
+const NODEJS = path.join(__dirname, '..', '..', '..')
 
 type Received = { contentType: string | undefined; body: string }
 
@@ -24,7 +23,6 @@ describe('provider edge SES feedback', () => {
     let received: Received[]
     let answer: number
     let edge: ProviderEdge
-    let client: ProxyAgent
     const signer = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com')
 
     beforeEach(async () => {
@@ -46,16 +44,11 @@ describe('provider edge SES feedback', () => {
             caDir,
             trackingKeys: TRACKING_KEYS,
             feedbackUrl: `http://127.0.0.1:${port}/public/m/ses_webhook`,
-        })
-        client = new ProxyAgent({
-            uri: edge.url,
-            proxyTunnel: true,
-            requestTls: { ca: readFileSync(edge.caCertPath!) },
+            configurationSets: { 'scenario-tracking': { tracking: true }, 'scenario-untracked': { tracking: false } },
         })
     })
 
     afterEach(async () => {
-        await client.close()
         await edge.close()
         receiver.closeAllConnections()
         await new Promise<void>((resolve) => receiver.close(() => resolve()))
@@ -74,11 +67,14 @@ describe('provider edge SES feedback', () => {
 
     const truth = async (): Promise<TruthRecord[]> => (await control('GET', '/_truth')).json.records
 
-    const sendTracked = async (): Promise<number> =>
+    const sendTracked = async ({
+        destination = { ToAddresses: [BOUNCED] },
+        configurationSet = 'scenario-tracking',
+    }: { destination?: object; configurationSet?: string } = {}): Promise<number> =>
         (
             await control('POST', '/v2/email/outbound-emails', {
                 FromEmailAddress: 'flows@www.example.com',
-                Destination: { ToAddresses: [BOUNCED] },
+                Destination: destination,
                 Content: {
                     Simple: {
                         Subject: { Data: 'Hello' },
@@ -97,7 +93,7 @@ describe('provider edge SES feedback', () => {
                     },
                 },
                 EmailTags: [{ Name: 'ph_team', Value: '7' }],
-                ConfigurationSetName: 'scenario-tracking',
+                ConfigurationSetName: configurationSet,
             })
         ).status
 
@@ -110,25 +106,91 @@ describe('provider edge SES feedback', () => {
         expect(added.status).toBe(201)
     }
 
-    it('answers a bounced send, then posts a signed hard bounce that the SES webhook handler verifies and suppresses', async () => {
+    const handleInCdpApiProcess = (envelope: string): Promise<{ code: number | string; stdout: string }> => {
+        const script = `
+            const { SesWebhookHandler } = require(${JSON.stringify(path.join(NODEJS, 'src/cdp/services/messaging/helpers/ses'))})
+            const { EmailTrackingCodeSigner } = require(${JSON.stringify(path.join(NODEJS, 'src/cdp/services/messaging/helpers/tracking-code'))})
+            const handler = new SesWebhookHandler(new EmailTrackingCodeSigner(${JSON.stringify(TRACKING_KEYS)}, 'https://track.example.com'))
+            handler.handleWebhook({ body: JSON.parse(process.env.SNS_ENVELOPE), verifySignature: true }).then(
+                (result) => process.stdout.write(JSON.stringify(result.hardBounceRecipients ?? null)),
+                (error) => process.stdout.write('error: ' + error.message)
+            ).finally(() => process.exit(0))
+        `
+        const { EXTERNAL_REQUEST_PROXY_TEAMS: _rollout, ...inherited } = process.env
+        return new Promise((resolve) =>
+            execFile(
+                path.join(NODEJS, 'node_modules', '.bin', 'tsx'),
+                ['-e', script],
+                {
+                    timeout: 30_000,
+                    env: {
+                        ...inherited,
+                        SNS_ENVELOPE: envelope,
+                        HTTPS_PROXY: edge.url,
+                        NODE_EXTRA_CA_CERTS: edge.caCertPath,
+                    },
+                },
+                (error, stdout) => resolve({ code: error ? (error.code ?? String(error.signal)) : 0, stdout })
+            )
+        )
+    }
+
+    it('posts a signed hard bounce that the SES webhook handler verifies through its own certificate fetch and suppresses', async () => {
         await bounceEverySend()
 
         expect(await sendTracked()).toBe(200)
         await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
+        const handled = await handleInCdpApiProcess(received[0].body)
 
-        const envelope = parseJSON(received[0].body) as { SigningCertURL: string }
-        const certificate = await request(envelope.SigningCertURL, { dispatcher: client })
-        expect(certificate.statusCode).toBe(200)
-        const handler = new SesWebhookHandler(signer)
-        handler.certCache[envelope.SigningCertURL] = certificate.body.text()
-
-        expect(await handler.verifyDelivery(envelope)).toEqual({
-            envelope: expect.objectContaining({ Type: 'Notification' }),
+        expect({ contentType: received[0].contentType, code: handled.code }).toEqual({
+            contentType: expect.stringMatching(/^text\/plain/),
+            code: 0,
         })
-        expect((await handler.handleWebhook({ body: envelope, verifySignature: true })).hardBounceRecipients).toEqual([
-            expect.objectContaining({ teamId: '7', emailAddresses: [BOUNCED] }),
-        ])
-        expect(received[0].contentType).toMatch(/^text\/plain/)
+        expect(parseJSON(handled.stdout)).toEqual([expect.objectContaining({ teamId: '7', emailAddresses: [BOUNCED] })])
+    }, 60_000)
+
+    it('bounces every recipient of a send, Cc and Bcc included', async () => {
+        const [cc, bcc] = ['run-1-2@www.example.com', 'run-1-3@www.example.com']
+        await bounceEverySend()
+
+        await sendTracked({ destination: { ToAddresses: [BOUNCED], CcAddresses: [cc], BccAddresses: [bcc] } })
+        await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
+
+        const record = parseJSON((parseJSON(received[0].body) as { Message: string }).Message) as {
+            bounce: { bouncedRecipients: { emailAddress: string }[] }
+        }
+        expect(record.bounce.bouncedRecipients.map(({ emailAddress }) => emailAddress)).toEqual([BOUNCED, cc, bcc])
+    })
+
+    it('posts no feedback for a send whose configuration set publishes no events, and records why', async () => {
+        await bounceEverySend()
+
+        expect(await sendTracked({ configurationSet: 'scenario-untracked' })).toBe(200)
+
+        await waitForExpect(
+            async () =>
+                expect((await truth()).filter(({ kind }) => kind === 'ses.feedback')).toEqual([
+                    expect.objectContaining({
+                        status: 0,
+                        detail: { error: 'The configuration set scenario-untracked publishes no events.' },
+                    }),
+                ]),
+            5000,
+            10
+        )
+        expect(received).toEqual([])
+    })
+
+    it('counts a bounced send against the throttle rate, because it goes out', async () => {
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+        try {
+            await control('POST', '/_faults', { name: 'ses.throttle', params: { rate: 1 } })
+            await control('POST', '/_faults', { name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } })
+
+            expect([await sendTracked(), await sendTracked()]).toEqual([200, 429])
+        } finally {
+            clock.mockRestore()
+        }
     })
 
     it.each([200, 403])(
