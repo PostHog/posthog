@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react-native'
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 
-import { useLiveFeed, useLiveUsersOnline } from './hooks'
+import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -61,6 +61,24 @@ describe('useLiveFeed', () => {
         expect(result.current.status).toBe('live')
         expect(result.current.updatedAt).not.toBe(updatedAt)
         unmount()
+    })
+
+    test("Visitors by country paints Live's countries, waits while Live is paused, then reads the geo job alone", async () => {
+        const live = renderHook(() => useLiveFeed(() => undefined))
+        await advance(5000)
+        act(() => live.result.current.pause())
+        const respond = jest.spyOn(LiveDemo.prototype, 'respond')
+        const countries = renderHook(() => useLiveWorld())
+        expect(countries.result.current).toMatchObject({ status: 'paused', world: live.result.current.snapshot.world })
+        await advance(65_000)
+        expect(respond).not.toHaveBeenCalled()
+
+        live.unmount()
+        await advance(65_000)
+        expect(respond.mock.calls.map(([key]) => key)).toEqual(['geo', 'geo', 'geo'])
+        expect(countries.result.current.status).toBe('live')
+        expect(countries.result.current.world?.countries.length).toBeGreaterThan(0)
+        countries.unmount()
     })
 
     test('the Live chip counts users online alone, once every 30 seconds', async () => {

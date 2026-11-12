@@ -45,7 +45,30 @@ const BROWSER_WEIGHTS: Record<string, Weights> = {
     Mobile: { 'Mobile Safari': 48, 'Chrome Mobile': 38, 'Samsung Internet': 7, 'Firefox Mobile': 3 },
     Tablet: { 'Mobile Safari': 70, 'Chrome Mobile': 30 },
 }
-const COUNTRY_WEIGHTS: Weights = { US: 38, GB: 14, DE: 11, CA: 8, BR: 7, IN: 6, FR: 5, NL: 4, AU: 4, ES: 3 }
+// A long tail, so the Live map shows visitors on every continent.
+const COUNTRY_WEIGHTS: Weights = {
+    US: 38,
+    GB: 14,
+    DE: 11,
+    CA: 8,
+    BR: 7,
+    IN: 6,
+    FR: 5,
+    NL: 4,
+    AU: 4,
+    ES: 3,
+    JP: 3,
+    MX: 3,
+    SE: 3,
+    IT: 3,
+    PL: 2,
+    KR: 2,
+    ZA: 2,
+    SG: 2,
+    NG: 2,
+    AR: 2,
+    NZ: 2,
+}
 const EVENT_WEIGHTS: Weights = {
     $pageview: 66,
     $screen: 11,

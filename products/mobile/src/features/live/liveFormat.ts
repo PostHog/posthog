@@ -1,3 +1,6 @@
+import { plural } from '@/model/adapters/text'
+import type { LiveWorld } from '@/model/live'
+
 import type { LiveStatus } from './liveController'
 
 /** "just now", "12 s ago", "3 min ago": live data is never older than a few minutes on screen. */
@@ -24,4 +27,21 @@ export function statusText(status: LiveStatus, updatedAt: number | null, now: nu
         case 'live':
             return updatedAt === null ? 'Live' : `Live · updated ${agoText(updatedAt, now)}`
     }
+}
+
+/** A country as the map captions name it: "🇺🇸 United States", or the name alone when the code has no flag. */
+export function countryText(country: { label: string; flag: string | null }): string {
+    return country.flag ? `${country.flag} ${country.label}` : country.label
+}
+
+/** The countries screen's status line: "73 visitors in 18 countries · last 30 minutes", led by "Paused" when paused. */
+export function countriesStatusText(status: LiveStatus, world: LiveWorld | null): string {
+    if (!world || status === 'loading') {
+        return 'Loading…'
+    }
+    if (status === 'reconnecting') {
+        return 'Reconnecting…'
+    }
+    const summary = `${plural(world.total, 'visitor')} in ${plural(world.countries.length, 'country', 'countries')} · last 30 minutes`
+    return status === 'paused' ? `Paused · ${summary}` : summary
 }

@@ -9,8 +9,9 @@ import {
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
+    liveWorld,
 } from '@/model/adapters/live'
-import type { LiveRankedRow, LiveSnapshot } from '@/model/live'
+import type { LiveRankedRow, LiveSnapshot, LiveWorld } from '@/model/live'
 
 import type { LiveReadResult } from './liveController'
 
@@ -123,9 +124,25 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
             devices: part('device', (answer) => liveBreakdown(answer, 'devices'), previous.devices),
             browsers: part('browser', (answer) => liveBreakdown(answer, 'browsers'), previous.browsers),
             countries: part('geo', (answer) => liveBreakdown(answer, 'countries'), previous.countries),
+            world: part('geo', liveWorld, previous.world),
             events: part('recentEvents', liveEvents, previous.events),
             usersOnline: part('usersOnline', liveUsersOnlineFromQuery, previous.usersOnline),
         },
         complete: answers.size === keys.length,
     }
+}
+
+export interface LiveWorldReadInput {
+    run: LiveQueryRunner
+    now: number
+    signal: AbortSignal
+}
+
+/** The countries screen's read: the `geo` job alone, so the screen never runs Live's full read. */
+export async function readLiveWorld({ run, now, signal }: LiveWorldReadInput): Promise<LiveReadResult<LiveWorld>> {
+    const answer = await run('geo', liveQuery('geo', { window: liveWindow(now), pathCleaning: false }), signal, now)
+    if (!answered(answer)) {
+        throw new Error('The geo query did not finish.')
+    }
+    return { data: liveWorld(answer), complete: true }
 }

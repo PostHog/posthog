@@ -43,6 +43,7 @@ import { LiveActivityCard } from './LiveActivityCard'
 import { LiveBreakdownCard } from './LiveBreakdownCard'
 import { LiveEventSheet } from './LiveEventSheet'
 import { LiveEventsCard } from './LiveEventsCard'
+import { LiveMapCard } from './LiveMapCard'
 import { LiveRankedTable } from './LiveRankedTable'
 import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
@@ -205,6 +206,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     pageviews={activity?.pageviews ?? null}
                     onAbout={(text) => toasts.show(text)}
                 />
+                <LiveMapCard world={snapshot.world} />
                 <LiveActivityCard activity={activity} />
                 <LiveRankedTable
                     title="Top pages (last 30 minutes)"

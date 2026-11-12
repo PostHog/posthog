@@ -9,6 +9,7 @@ import {
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
     liveUsersOnlineFromStats,
+    liveWorld,
 } from './live'
 
 const NOW = Date.parse('2026-11-05T21:14:30Z')
@@ -117,7 +118,7 @@ describe('live adapters', () => {
         }
     )
 
-    test('country rows show a flag and a name, and an unknown code stays a code', () => {
+    test('country rows show a flag and a name, an unknown code stays a code, and the map keeps every country', () => {
         const breakdown = liveBreakdown(
             {
                 results: [
@@ -137,6 +138,15 @@ describe('live adapters', () => {
             ['United Kingdom', '🇬🇧', 20],
             ['XX', '🇽🇽', 20],
         ])
+
+        const eight = {
+            results: [[['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'].map((code, index) => [code, 9 - index])]],
+        }
+        expect(liveBreakdown(eight, 'countries').rows.at(-1)).toMatchObject({ key: 'Other', count: 5 })
+        const world = liveWorld(eight)
+        expect(world.total).toBe(44)
+        expect(world.countries.map((row) => row.key)).toEqual(['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'])
+        expect(world.countries.at(-1)).toMatchObject({ label: 'Sweden', flag: '🇸🇪', count: 2 })
     })
 
     test('events come newest first with a readable name and the most specific place', () => {
