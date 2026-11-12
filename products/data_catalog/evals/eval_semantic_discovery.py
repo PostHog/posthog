@@ -26,6 +26,10 @@ from products.data_catalog.evals.constants import (
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
     INJECTION_SENTINEL,
+    LATE_VIEW_NAME,
+    LATE_VIEW_REFRESHED_DAYS_AGO,
+    LATE_VIEW_SOURCE_TABLE_NAME,
+    LATE_VIEW_YESTERDAY_SIGNUPS,
     RELATIONSHIP_DECOY_TARGET_NAME,
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
@@ -53,6 +57,7 @@ from products.data_catalog.evals.seeders import (
     seed_deprecation_candidate_sources,
     seed_instruction_like_column_annotation,
     seed_instruction_like_relationship_context,
+    seed_late_certified_view,
     seed_subscription_snapshot_tables,
     seed_synced_invoices_table,
     seed_synced_time_off_table,
@@ -94,6 +99,23 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_certification_trust_sources,
+        ),
+        SandboxedEvalCase(
+            name="late_certified_view_is_flagged",
+            prompt="We have a certified view of daily trial signups. How many trial signups did we get yesterday?",
+            expected={
+                "semantic_trust_decision_correctness": {
+                    "expected_behavior": (
+                        f"Tell the user that the certified view {LATE_VIEW_NAME} is behind its refresh schedule and "
+                        f"last refreshed about {LATE_VIEW_REFRESHED_DAYS_AGO} days ago, so it holds no data for "
+                        f"yesterday. Then answer from its source table {LATE_VIEW_SOURCE_TABLE_NAME}: "
+                        f"{LATE_VIEW_YESTERDAY_SIGNUPS} signups yesterday. Fail an answer that reports 0, or any "
+                        "other number read from the view, as yesterday's count. Fail an answer that gives no number "
+                        "for yesterday, and an answer that does not mention the late refresh."
+                    )
+                },
+            },
+            setup=seed_late_certified_view,
         ),
         SandboxedEvalCase(
             name="propose_table_deprecation",

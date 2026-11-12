@@ -322,7 +322,7 @@ Coupa,instance_url client_id client_secret,,,,,coupa
 Courier,api_key,,,,,courier
 Coveralls,service repositories api_token,,,,,coveralls
 CratesIO,,,,crates,,crates-io
-Creem,,,,,,creem
+Creem,api_key environment,,,,,creem
 Crisp,website_id token_identifier token_key,,,,,crisp
 Criteo,client_id client_secret,,,start_date currency,,criteo
 Cronitor,api_key,,,,,cronitor
@@ -772,7 +772,7 @@ Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
 Meltwater,,,,,,meltwater
 Mem0,api_key org_id project_id,,,,,mem0
-Memberful,,,,,,memberful
+Memberful,subdomain api_key,,,,,memberful
 Membrain,api_key subdomain,,,,,membrain
 Mendeley,,,,,,mendeley
 Mention,access_token,,,,,mention
@@ -812,7 +812,7 @@ Mindbody,,,,,,mindbody
 Mintlify,api_key project_id,,,,,mintlify
 Mirakl,,,,,,mirakl
 Miro,,,,,,miro
-Missive,,,,,,missive
+Missive,api_token,,,,,missive
 MistralAI,api_key,,,,,mistral-ai
 MixMax,api_key,,,,,mix-max
 Mixpanel,region project_id service_account_username service_account_secret,,,,,mixpanel
@@ -1274,7 +1274,7 @@ Tipalti,,,,,,tipalti
 Toast,,,,,,toast
 Todoist,api_token,,,,,todoist
 TogetherAI,api_key,,,,,together-ai
-Toggl,,,,,,toggl
+Toggl,api_token,,,,,toggl
 Torii,api_key,,,,,torii
 TrackPMS,,,,,,track-pms
 Tracklution,,,,,,tracklution

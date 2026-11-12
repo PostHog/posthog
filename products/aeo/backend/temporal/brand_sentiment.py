@@ -1,7 +1,7 @@
 """Scores brand sentiment for one citation run.
 
-The ONNX sentiment model and its dependencies are only in the image that serves
-the evals Temporal queue, so the runner cannot classify inline: it starts this
+The ONNX sentiment model and its dependencies are only in the LLM analytics image,
+which the AEO Temporal queue's worker runs, so the runner cannot classify inline: it starts this
 workflow, and the activity reads the run's answers back from Postgres, scores the
 sentences that name the brand, and writes the label and score to the check rows.
 """
@@ -187,7 +187,7 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
                 WORKFLOW_NAME,
                 inputs,
                 id=f"{WORKFLOW_NAME}-{team_id}-{run_id}",
-                task_queue=settings.LLMA_EVALS_TASK_QUEUE,
+                task_queue=settings.AEO_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             )
         )

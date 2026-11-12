@@ -221,12 +221,27 @@ describe('Hono MCP analytics contexts', () => {
         ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png' }, false, false],
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
+        ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
         [
             'an email send through exec',
             'exec',
             { command: 'call workflows-send-email-prepare {"to":"ada@example.com"}' },
             false,
             false,
+        ],
+        [
+            'a suppression list import',
+            'suppressions-add',
+            { suppressions: [{ identifier: 'ada@example.com' }] },
+            false,
+            true,
+        ],
+        [
+            'an opt-out list import through exec',
+            'exec',
+            { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            false,
+            true,
         ],
     ])(
         'gates captured arguments and result for %s',
@@ -740,6 +755,37 @@ describe('Hono MCP analytics contexts', () => {
             expect(spanCalls).toHaveLength(captured ? 1 : 0)
         })
 
+        it.each([
+            [
+                'a suppression list import',
+                'suppressions-add',
+                { suppressions: [{ identifier: 'ada@example.com', reason: 'bounce' }] },
+            ],
+            [
+                'an opt-out list import through exec',
+                'exec',
+                { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            ],
+        ])('keeps the counts but not the addresses for %s', async (_case, toolName, input) => {
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: false,
+                input,
+                output: '{"total":1,"created":1}',
+            })
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: true,
+                errorMessage: 'Invalid command: ada@example.com',
+                input,
+            })
+
+            const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
+            expect(spanCalls).toHaveLength(1)
+            expect(spanCalls[0]![0].properties).toMatchObject({ $ai_output_state: '{"total":1,"created":1}' })
+            expect(spanCalls[0]![0].properties).not.toHaveProperty('$ai_input_state')
+        })
+
         it('joins the MCP session trace and truncates oversized results', async () => {
             await trackToolSpan('data-catalog-metric-run', makeState(), {
                 durationMs: 1500,
@@ -812,6 +858,8 @@ describe('Hono MCP analytics contexts', () => {
             ['token', true],
             ['client_secret', true],
             ['connection_string', true],
+            ['webhook_url', true],
+            ['pagerduty_routing_key', true],
             ['client_certificate', true],
             ['app_id', true],
             ['api_id', true],

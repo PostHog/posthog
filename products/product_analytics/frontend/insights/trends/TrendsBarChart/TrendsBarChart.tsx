@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -529,6 +530,11 @@ export function TrendsBarChart({
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
+            <RetentionDeletionOverlay
+                isStickiness={isStickiness}
+                querySource={querySource}
+                compareFilter={compareFilter}
+            />
             {insight.id && (
                 <TrendsAlertOverlays
                     insightId={insight.id}
