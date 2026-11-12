@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from products.cohorts.backend.backfill.finalize import FLAGS_CACHE_TASK
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.runs import create_team_backfill_run
 from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate, PersonSeedEstimate
@@ -43,6 +45,7 @@ PAGEVIEW_LEAF = {
     "time_value": 7,
     "time_interval": "day",
 }
+STAMPED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @override_settings(
@@ -99,6 +102,17 @@ class TestEnableRealtimeCohorts(BaseTest):
     def _team_runs(self, kind: CohortBackfillKind) -> list[CohortBackfillRun]:
         return list(CohortBackfillRun.objects.for_team(self.team.id).filter(backfill_kind=kind))
 
+    def _old_team_run(self, status: CohortBackfillRunStatus) -> CohortBackfillRun:
+        return CohortBackfillRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
+            scope=CohortBackfillScope.TEAM,
+            status=status,
+            timezone="UTC",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
     def _enable(self) -> TeamEnablement:
         enablement = enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
         assert isinstance(enablement, TeamEnablement)
@@ -109,17 +123,17 @@ class TestEnableRealtimeCohorts(BaseTest):
         person_only = self._cohort(PERSON_LEAF)
         # The API accepts a behavioral leaf with no time window, and the catalog drops it.
         windowless = self._cohort({key: value for key, value in PAGEVIEW_LEAF.items() if not key.startswith("time_")})
-        CohortBackfillRun.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
-            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
-            scope=CohortBackfillScope.TEAM,
-            status=CohortBackfillRunStatus.COMPLETED,
-            timezone="UTC",
-            created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        )
+        deleted = self._cohort(PAGEVIEW_LEAF)
+        Cohort.objects.filter(id=mixed.id).update(last_backfill_person_properties_at=STAMPED_AT)
+        Cohort.objects.filter(id=person_only.id).update(last_realtime_cohort_calculation_at=STAMPED_AT)
+        Cohort.objects.filter(id=deleted.id).update(deleted=True, last_backfill_events_at=STAMPED_AT)
+        self._old_team_run(CohortBackfillRunStatus.COMPLETED)
 
-        enablement = self._enable()
+        with (
+            mock.patch("products.cohorts.backend.backfill.finalize.current_app") as celery,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            enablement = self._enable()
 
         access = RealtimeCohortTeamAccess.objects.get(team=self.team)
         assert (access.level, access.purpose, access.save_triggers_backfill) == (
@@ -127,7 +141,13 @@ class TestEnableRealtimeCohorts(BaseTest):
             RealtimeCohortAccessPurpose.BETA,
             True,
         )
-        cohorts = list(Cohort.objects.filter(team=self.team).order_by("id"))
+        assert enablement.cleared_stamps == 3
+        stamps = Cohort.objects.filter(team=self.team).values_list(
+            "last_backfill_events_at", "last_backfill_person_properties_at", "last_realtime_cohort_calculation_at"
+        )
+        assert list(stamps) == [(None, None, None)] * 4
+        celery.send_task.assert_called_once_with(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
+        cohorts = list(Cohort.objects.filter(team=self.team, deleted=False).order_by("id"))
         assert [cohort.condition_type and cohort.condition_type["behavioral"] for cohort in cohorts] == [
             True,
             False,
@@ -162,11 +182,17 @@ class TestEnableRealtimeCohorts(BaseTest):
         )
 
     def test_a_refused_run_keeps_the_team_processing_until_a_rerun_has_both_runs(self) -> None:
-        self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
+        cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         self.peak_day_events = 2_000
 
-        first = self._enable()
+        with (
+            mock.patch("products.cohorts.backend.backfill.finalize.current_app") as celery,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            first = self._enable()
 
+        assert first.cleared_stamps == 0
+        celery.send_task.assert_called_once_with(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
         assert isinstance(first.behavioral, RunRefused)
         assert "2000 events on its busiest day (2026-11-01), above the limit of 1000" in first.behavioral.reason
         [person_run] = self._team_runs(CohortBackfillKind.PERSON_PROPERTY)
@@ -175,48 +201,57 @@ class TestEnableRealtimeCohorts(BaseTest):
         assert self._level() == RealtimeCohortLevel.PROCESSING
 
         # The operator accepts the scan volume through `create_cohort_backfill_run
-        # --max-scan-events-per-day 0`. That run finishes, and the person run fails.
+        # --max-scan-events-per-day 0`. The person run fails while that run is still reconciling. A stamp
+        # written since the grant must survive the rerun.
         behavioral_run = create_team_backfill_run(self.team.id, CohortBackfillTrigger.TEAM_ENABLEMENT)
         runs = CohortBackfillRun.objects.for_team(self.team.id)
-        runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.COMPLETED)
+        runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.RECONCILING)
         runs.filter(id=person_run.id).update(status=CohortBackfillRunStatus.FAILED)
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=STAMPED_AT)
         second = self._enable()
 
         assert second.behavioral == RunAlreadyCreated(run_id=behavioral_run.id)
         assert isinstance(second.person, RunCreated)
         assert self._level() == RealtimeCohortLevel.SERVING
+        assert (second.cleared_stamps, Cohort.objects.get(id=cohort.id).last_backfill_events_at) == (0, STAMPED_AT)
 
     @parameterized.expand(
         [
             (
                 "missing_attestation",
-                {"BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": False},
-                {},
+                lambda _team_id: {"BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": False},
+                None,
                 "Missing operator attestations: processor durability",
             ),
             (
-                "stamped_before_the_grant",
-                {},
-                {"last_backfill_events_at": datetime(2026, 1, 1, tzinfo=UTC)},
-                "Cohorts stamped ready before the grant",
+                "env_listed",
+                lambda team_id: {"REALTIME_COHORT_TEAM_ALLOWLIST": str(team_id)},
+                None,
+                "On REALTIME_COHORT_TEAM_ALLOWLIST",
             ),
             (
-                "calculated_before_the_grant",
-                {},
-                {"last_realtime_cohort_calculation_at": datetime(2026, 1, 1, tzinfo=UTC)},
-                "Cohorts stamped ready before the grant",
+                "active_run_from_before_the_grant",
+                lambda _team_id: {},
+                CohortBackfillRunStatus.SEEDING,
+                "Active backfill runs from before the grant",
             ),
         ]
     )
     def test_refuses_the_team_before_any_write(
-        self, _name: str, overrides: dict[str, Any], stamps: dict[str, datetime], message: str
+        self,
+        _name: str,
+        overrides: Callable[[int], dict[str, Any]],
+        old_run_status: CohortBackfillRunStatus | None,
+        message: str,
     ) -> None:
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
-        Cohort.objects.filter(id=cohort.id).update(**stamps)
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=STAMPED_AT)
+        old_runs = [] if old_run_status is None else [self._old_team_run(old_run_status).id]
 
-        with override_settings(**overrides), self.assertRaisesMessage(ValueError, message):
+        with override_settings(**overrides(self.team.id)), self.assertRaisesMessage(ValueError, message):
             enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
 
         assert not RealtimeCohortTeamAccess.objects.filter(team=self.team).exists()
-        assert not CohortBackfillRun.objects.for_team(self.team.id).exists()
-        assert Cohort.objects.get(id=cohort.id).condition_type is None
+        assert list(CohortBackfillRun.objects.for_team(self.team.id).values_list("id", flat=True)) == old_runs
+        cohort.refresh_from_db()
+        assert (cohort.condition_type, cohort.last_backfill_events_at) == (None, STAMPED_AT)

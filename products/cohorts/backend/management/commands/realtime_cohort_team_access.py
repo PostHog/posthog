@@ -138,6 +138,8 @@ class Command(BaseCommand):
     def _write_enablement(self, team_id: int, enablement: TeamEnablement) -> None:
         level = RealtimeCohortLevel.SERVING if enablement.promoted else RealtimeCohortLevel.PROCESSING
         self.stdout.write(f"Team {team_id}: {level}")
+        if enablement.cleared_stamps:
+            self.stdout.write(f"  Cleared old readiness stamps: {enablement.cleared_stamps} cohorts")
         resave = enablement.resave
         resave_line = (
             f"  Resave: {resave.total} cohorts, {resave.changed} changed, {resave.errors} errors, "
