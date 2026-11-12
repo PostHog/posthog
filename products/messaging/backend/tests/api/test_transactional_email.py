@@ -1,6 +1,5 @@
 import re
 import json
-import base64
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -56,7 +55,8 @@ from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 TEXT_LINK_INTO_LIQUID_MARKUP = "{% if person.properties.email %}Unsubscribe: {{ unsubscribe_url }}{% endif %}"
-TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
+CSV, NOTES = "c" * 64, "d" * 64
+TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename": "notes.txt"}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
 
@@ -93,7 +93,9 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "cc": None,
     "bcc": None,
     "tracking": {"captureEngagement"},
+    "attachments": None,
 }
+ACCEPTED_ATTACHMENT_KEYS = {"sha256", "filename", "content_type", "content_id"}
 WELCOME_DELIVERED = {
     "subject": "Welcome, Jane",
     "html": "<p>Hi Jane</p>",
@@ -116,10 +118,13 @@ class CapturedEvents:
 
 
 class FakeCdpApi:
-    def __init__(self, refusal: tuple[int, str] | None = None) -> None:
+    def __init__(self, refusal: tuple[int, str] | None = None, *, takes_attachments: bool = True) -> None:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
         self._refusal = refusal
+        self._accepted = {
+            field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if takes_attachments or field != "attachments"
+        }
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -133,7 +138,7 @@ class FakeCdpApi:
         self.received.append(payload)
         issues = _unrecognized_keys(payload, ACCEPTED_REQUEST_KEYS, [])
         if "send" in payload:
-            issues += _unrecognized_keys(payload["send"], ACCEPTED_SEND_KEYS, ["send"])
+            issues += self._unrecognized_send_keys(payload["send"])
             if not isinstance(payload["send"].get("tracking", {}).get("captureEngagement"), bool):
                 issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
         if issues:
@@ -153,7 +158,7 @@ class FakeCdpApi:
     @staticmethod
     def _email(send: dict[str, Any]) -> dict[str, Any]:
         email = {**send["content"], "captureEngagement": send["tracking"]["captureEngagement"]}
-        email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc") if field in send})
+        email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc", "attachments") if field in send})
         return email
 
     def deliver(self) -> list[tuple[str, str]]:
@@ -163,6 +168,20 @@ class FakeCdpApi:
             for payload in delivered
             if payload["send"]["tracking"]["captureEngagement"] is not False
         ]
+
+    def _unrecognized_send_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
+        issues = _unrecognized_keys(send, self._accepted, ["send"])
+        if "attachments" in self._accepted:
+            for index, file in enumerate(send.get("attachments") or []):
+                if file.keys() - ACCEPTED_ATTACHMENT_KEYS:
+                    issues.append(
+                        {
+                            "code": "unrecognized_keys",
+                            "keys": sorted(file.keys() - ACCEPTED_ATTACHMENT_KEYS),
+                            "path": ["send", "attachments", index],
+                        }
+                    )
+        return issues
 
     @staticmethod
     def _opt_out_refusal(url: str, payload: dict[str, Any]) -> tuple[int, str] | None:
@@ -582,6 +601,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("connection_error", requests.ConnectionError(), "connection_error", None),
             ("cdp_api_error", MagicMock(status_code=500, json=dict), "5xx", None),
             (
+                "intake_unavailable",
+                MagicMock(status_code=503, json=lambda: {"error": "intake_unavailable"}),
+                "5xx",
+                "intake_unavailable",
+            ),
+            (
                 "workflow_not_found",
                 MagicMock(status_code=404, json=lambda: {"error": "Workflow not found"}),
                 "4xx",
@@ -673,6 +698,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("invalid_request", 400, 400, "invalid_request"),
             ("a 400 without a known code", 400, 400, "invalid_request"),
             ("Request entity too large", 413, 400, "content_too_large"),
+            ("message_too_large", 413, 400, "content_too_large"),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
@@ -860,6 +886,22 @@ class TestTransactionalEmail(APIBaseTest):
                 "cc_and_bcc",
                 {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
                 {**WELCOME_DELIVERED, "cc": ["copy@example.com"], "bcc": ["audit@example.com", "archive@example.com"]},
+            ),
+            (
+                "uploaded_attachments",
+                {
+                    "attachments": [
+                        {"sha256": CSV, "filename": "a.csv", "content_type": "text/csv", "content_id": "a"},
+                        {"sha256": NOTES, "filename": "notes.txt"},
+                    ]
+                },
+                {
+                    **WELCOME_DELIVERED,
+                    "attachments": [
+                        {"sha256": CSV, "filename": "a.csv", "content_type": "text/csv", "content_id": "a"},
+                        {"sha256": NOTES, "filename": "notes.txt"},
+                    ],
+                },
             ),
         ]
     )
@@ -1345,7 +1387,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("subject", "Hi", "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
-            ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),
+            ("attachments", TWO_FILES[:1], "invalid_request"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
@@ -1369,9 +1411,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         mock_post.assert_called_once()
 
-    def test_a_refused_attachment_explains_itself_without_repeating_its_content(self, mock_post, _flag, _capture):
-        content = "c2VjcmV0LWludm9pY2UtYnl0ZXM=" + "!"
-        attachments = [{"filename": "invoice.pdf", "content": content}]
+    def test_a_file_sent_inline_is_refused_without_repeating_its_content(self, mock_post, _flag, _capture):
+        attachments = [{"sha256": CSV, "filename": "invoice.pdf", "content": "c2VjcmV0LWludm9pY2UtYnl0ZXM="}]
 
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
@@ -1385,8 +1426,8 @@ class TestTransactionalEmail(APIBaseTest):
             "invalid_request",
             "attachments__0__content",
         )
-        assert "base64 text" in body["why"]
-        assert "Encode the file as standard base64" in body["fix"]
+        assert "uploaded files" in body["why"]
+        assert "messaging/attachments/uploads/" in body["fix"]
         assert "c2VjcmV0" not in response.content.decode()
         assert cdp.emails() == []
 
@@ -1394,7 +1435,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             (
                 "a_header_too_long",
-                {"attachments": [{"filename": "logo.png", "content": "aGk=", "content_id": "x" * 79}]},
+                {"attachments": [{"sha256": CSV, "filename": "logo.png", "content_id": "x" * 79}]},
                 "attachments__0__content_id",
                 "Shorten `content_id` to 78 characters",
             ),
@@ -1403,7 +1444,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "an_attachment_that_is_not_an_object",
                 {"attachments": ["logo.png"]},
                 "attachments__0",
-                "`{filename, content}`",
+                "`{sha256, filename}`",
             ),
         ]
     )
@@ -1474,15 +1515,30 @@ class TestTransactionalEmail(APIBaseTest):
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
         mock_post.assert_not_called()
 
-    def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(self, mock_post, _flag, _capture):
-        mock_post.side_effect = requests.ReadTimeout()
+    @parameterized.expand(
+        [
+            ("timeout", {}, {"side_effect": requests.ReadTimeout()}),
+            (
+                "file_storage_down",
+                {"attachments": TWO_FILES},
+                {"return_value": MagicMock(status_code=503, json=lambda: {"error": "delivery_unavailable"})},
+            ),
+        ]
+    )
+    def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(
+        self, mock_post, _flag, _capture, _name, fields, pipeline
+    ):
+        mock_post.configure_mock(**pipeline)
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
         assert "within 24 hours with the same Idempotency-Key" in response.json()["detail"]
+        assert "same `Idempotency-Key`" in response.json()["fix"]
 
     def test_the_send_schema_gives_a_template_send_no_code_only_field(self, _mock_post, _flag, _capture):
         schema = self.client.get("/api/schema/").data
@@ -1508,54 +1564,189 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)
 
-        files = [
-            {
-                "filename": "receipt.pdf",
-                "content": "JVBERg==",
-                "content_type": "application/pdf",
-                "content_id": "receipt",
-            },
-            {"filename": "notes.txt", "content": "aGk="},
-        ]
-
-        with FakeCdpApi().serving(mock_post) as cdp:
+        with FakeCdpApi(takes_attachments=False).serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url, self._code_send(attachments=files), format="json"
+                self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
-        assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
+        assert (body["code"], body["attr"]) == ("field_not_accepted", "attachments")
         assert "doesn't take the field yet" in body["why"]
         assert "Send the email without this field" in body["fix"]
         assert cdp.emails() == []
-        assert [payload["send"]["attachments"] for payload in cdp.received] == [
-            [
-                {
-                    "filename": "receipt.pdf",
-                    "content": "JVBERg==",
-                    "contentType": "application/pdf",
-                    "contentId": "receipt",
-                },
-                {"filename": "notes.txt", "content": "aGk="},
-            ]
-        ]
+        assert [payload["send"]["attachments"] for payload in cdp.received] == [TWO_FILES]
         assert [
             (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
             for sent in events.properties("transactional email api send")
-        ] == [("rejected", "field_not_accepted", 2, 6)]
+        ] == [("rejected", "field_not_accepted", 2, None)]
 
     @parameterized.expand(
         [
-            ("queued", "code", {"attachments": TWO_FILES}, CDP_ACCEPTS, 202, ("queued", None, 2, 5)),
+            (
+                "not_uploaded",
+                400,
+                {"error": "attachment_not_uploaded", "sha256": NOTES},
+                "attachment_not_uploaded",
+                "attachments__1__sha256",
+                "messaging/attachments/uploads/",
+            ),
+            (
+                "too_large",
+                400,
+                {"error": "message_too_large", "sha256": CSV, "attachment_bytes": 30_000_000},
+                "message_too_large",
+                "attachments__0__sha256",
+                "40 MB after Base64 encoding, about 29 MB of files",
+            ),
+            (
+                "too_large_answered_as_a_payload_too_large",
+                413,
+                {"error": "message_too_large", "sha256": CSV},
+                "message_too_large",
+                "attachments__0__sha256",
+                "40 MB after Base64 encoding, about 29 MB of files",
+            ),
+            (
+                "too_large_naming_no_file_it_was_sent",
+                400,
+                {"error": "message_too_large"},
+                "message_too_large",
+                "attachments",
+                "40 MB after Base64 encoding, about 29 MB of files",
+            ),
+            (
+                "files_off_for_this_project",
+                400,
+                {"error": "field_not_accepted"},
+                "field_not_accepted",
+                "attachments",
+                "without this field",
+            ),
+            (
+                "a_workflow_that_can_wait",
+                400,
+                {"error": "workflow_can_wait", "reason": "A step can hold the send.", "fix": "Drop the delay."},
+                "workflow_can_wait",
+                "attachments",
+                "Drop the delay.",
+            ),
+            (
+                "a_workflow_that_can_wait_explained_by_posthog",
+                400,
+                {"error": "workflow_can_wait"},
+                "workflow_can_wait",
+                "attachments",
+                "without files",
+            ),
+            (
+                "a_workflow_shape_that_cannot_send_files",
+                400,
+                {"error": "workflow_shape_not_supported", "reason": "It branches.", "fix": "Use one email step."},
+                "workflow_shape_not_supported",
+                "attachments",
+                "Use one email step.",
+            ),
+            (
+                "a_template_too_heavy_to_measure",
+                400,
+                {"error": "email_render_limit_exceeded", "reason": "It ran too long.", "fix": "Simplify it."},
+                "email_render_limit_exceeded",
+                "attachments",
+                "Simplify it.",
+            ),
+            (
+                "a_utm_value_too_long_to_measure",
+                400,
+                {"error": "utm_value_too_long", "reason": "The campaign value is long.", "fix": "Shorten it."},
+                "utm_value_too_long",
+                "attachments",
+                "Shorten it.",
+            ),
+            (
+                "a_template_with_too_many_tags_explained_by_posthog",
+                400,
+                {"error": "email_body_too_many_tags"},
+                "email_body_too_many_tags",
+                "attachments",
+                "10,000 Liquid tags or fewer",
+            ),
+        ]
+    )
+    def test_a_file_the_pipeline_refuses_is_named_with_a_reason_and_a_fix(
+        self, mock_post, _flag, _capture, _name, pipeline_status, pipeline_body, code, attr, fix
+    ):
+        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: pipeline_body)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["type"], body["code"], body["attr"]) == ("invalid_request", code, attr)
+        assert body["why"] == pipeline_body.get("reason", body["why"]) and body["why"]
+        assert fix in body["fix"]
+
+    @parameterized.expand(
+        [
+            (
+                "queued",
+                "code",
+                {"attachments": TWO_FILES},
+                {
+                    "return_value": MagicMock(
+                        status_code=202, json=lambda: {"invocation_id": "i", "attachment_bytes": 5}
+                    )
+                },
+                202,
+                ("queued", None, 2, 5),
+            ),
+            (
+                "queued_without_the_size_of_its_files",
+                "code",
+                {"attachments": TWO_FILES},
+                CDP_ACCEPTS,
+                202,
+                ("queued", None, 2, None),
+            ),
             ("replayed", "code", {}, {"return_value": CDP_REPLAYS}, 202, ("replayed", None, 0, 0)),
             (
                 "refused_by_the_pipeline",
                 "code",
                 {"attachments": TWO_FILES},
-                {"return_value": MagicMock(status_code=422, json=lambda: {"error": "recipient_suppressed"})},
+                {
+                    "return_value": MagicMock(
+                        status_code=422, json=lambda: {"error": "recipient_suppressed", "attachment_bytes": 5}
+                    )
+                },
                 422,
                 ("rejected", "recipient_suppressed", 2, 5),
+            ),
+            (
+                "a_file_not_uploaded",
+                "code",
+                {"attachments": TWO_FILES},
+                {
+                    "return_value": MagicMock(
+                        status_code=400, json=lambda: {"error": "attachment_not_uploaded", "sha256": NOTES}
+                    )
+                },
+                400,
+                ("rejected", "attachment_not_uploaded", 2, None),
+            ),
+            (
+                "files_too_large_for_one_email",
+                "code",
+                {"attachments": TWO_FILES},
+                {
+                    "return_value": MagicMock(
+                        status_code=400,
+                        json=lambda: {"error": "message_too_large", "sha256": CSV, "attachment_bytes": 30_000_000},
+                    )
+                },
+                400,
+                ("rejected", "message_too_large", 2, 30_000_000),
             ),
             (
                 "pipeline_unavailable",
@@ -1563,31 +1754,23 @@ class TestTransactionalEmail(APIBaseTest):
                 {"attachments": TWO_FILES},
                 {"side_effect": requests.ReadTimeout()},
                 503,
-                ("unavailable", None, 2, 5),
-            ),
-            (
-                "attachments_over_the_size_limit",
-                "code",
-                {"attachments": [{"filename": "a.pdf", "content": base64.b64encode(b"x" * 600_000).decode()}]},
-                CDP_ACCEPTS,
-                400,
-                ("rejected", "attachments_too_large", 1, 600_000),
+                ("unavailable", None, 2, None),
             ),
             (
                 "too_many_attachments",
                 "code",
-                {"attachments": [{"filename": "notes.txt", "content": "aGk="}] * 11},
+                {"attachments": TWO_FILES[:1] * 11},
                 CDP_ACCEPTS,
                 400,
-                ("rejected", "max_length", 11, 22),
+                ("rejected", "max_length", 11, None),
             ),
             (
-                "an_attachment_that_is_not_base64",
+                "a_blocked_file_type",
                 "code",
-                {"attachments": [{"filename": "a.pdf", "content": "not base64!"}]},
+                {"attachments": [{"sha256": CSV, "filename": "setup.exe"}]},
                 CDP_ACCEPTS,
                 400,
-                ("rejected", "not_base64", 1, None),
+                ("rejected", "blocked_file_type", 1, None),
             ),
             ("template_send", "template", {}, CDP_ACCEPTS, 202, ("queued", None, 0, 0)),
             (
@@ -1640,7 +1823,7 @@ class TestTransactionalEmail(APIBaseTest):
         if route == "code":
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url,
-                self._code_send(attachments=[{"filename": "a.pdf", "content": over_the_cap}]),
+                self._code_send(html=over_the_cap),
                 format="json",
             )
         else:
@@ -1676,7 +1859,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         response = self._psak_client(["hog_flow:write"], team=other_team).post(
             self.send_email_url,
-            self._code_send(attachments=[{"filename": "a.pdf", "content": over_the_cap}]),
+            self._code_send(html=over_the_cap),
             format="json",
         )
 
@@ -1690,7 +1873,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("accepted_without_files", {}, 202, (0, 0)),
             (
                 "refused_with_files",
-                {"attachments[0]filename": "notes.txt", "attachments[0]content": "aGk="},
+                {"attachments[0]filename": "notes.txt", "attachments[0]sha256": NOTES},
                 400,
                 (None, None),
             ),

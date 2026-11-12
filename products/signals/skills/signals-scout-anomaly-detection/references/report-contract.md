@@ -122,7 +122,7 @@ the durable artifact the human opens.
   `priority_explanation`) when the move is concrete enough to justify urgency.
 - **Repository.** Most metric anomalies have no single code fix — pass the `NO_REPO` sentinel.
   Pass `owner/repo` only when the anomaly is a tracking/instrumentation regression you can point
-  at a repo. Don't leave it to free-form selection unless you genuinely don't know.
+  at a repo. Omit the field only when you genuinely don't know; nothing selects a repository for you.
 
 ### Suggested reviewers
 

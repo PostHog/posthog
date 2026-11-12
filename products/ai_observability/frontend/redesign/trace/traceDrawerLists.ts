@@ -8,6 +8,7 @@ export type TraceDrawerListId =
     | 'reviews'
     | 'review-queue'
     | 'evaluation-runs'
+    | 'evaluation-preview'
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
@@ -22,6 +23,8 @@ export interface TraceDrawerListConfig {
     detailTab?: NodeDetailTab
     rowClick: boolean
     showNavigation?: boolean
+    /** For a list on a form: the full page opens in a new tab, so leaving does not drop unsaved edits. */
+    fullPageInNewTab?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -63,6 +66,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to evaluation',
         detailTab: 'evals',
         rowClick: true,
+    },
+    // Shares its path with evaluation runs: the preview shows while setting the evaluation up, the runs list after.
+    'evaluation-preview': {
+        pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
+        backTo: 'evaluation',
+        backLabel: 'Back to evaluation',
+        rowClick: true,
+        fullPageInNewTab: true,
     },
     'dataset-items': {
         pathMatcher: /^\/ai-evals\/evaluations\/offline\/datasets\/[^/]+$/,

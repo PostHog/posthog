@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import DocsChangeKind, DocsRequestSource
+from .enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 
 RawEvent = TypeVar("RawEvent", contravariant=True)
 
@@ -36,6 +36,7 @@ class AdapterVerdict:
     needs_docs: bool
     reason: str
     request: DocsRequest | None
+    failure_reason: MergeCheckFailure | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):

@@ -91,9 +91,8 @@ tools:
             idempotent: true
         title: Read project limits
         description: >
-            Read the project's autoresearch limits and current usage: training runs in the last 24 hours against the
-            daily limit and when the next can start, the most experiments per run, and live pipelines against the live
-            pipeline limit.
+            Read the project's autoresearch limits and current usage: training runs against the daily limit and when the
+            next can start, the most experiments per run, and live pipelines against the live pipeline limit.
         feature_flag: autoresearch
     autoresearch-list:
         operation: autoresearch_list
@@ -516,10 +515,10 @@ tools:
             sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population
             and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. The run
             uses the pipeline's iterations_per_run unless you override iteration_budget for this run, and the project's
-            iteration limit per run can lower either. Returns 429 when the project has started its limit of training
-            runs in the last 24 hours, across all its pipelines: do not retry before next_slot_at in the response, and
-            tell the user when the next run can start. A manual run resets the clock for the next scheduled research
-            run. A pipeline with an action target also needs the action:read scope.
+            iteration limit per run can lower either. Returns 429 when the project has used its daily limit of training
+            runs, across all its pipelines: do not retry before next_slot_at in the response, and tell the user when the
+            next run can start. A manual run resets the clock for the next scheduled research run. A pipeline with an
+            action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
