@@ -863,7 +863,6 @@ describe('scenario environment', () => {
         const realSpawn = childProcess.spawn
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
-        let rolesSpawnedWhileHeld = 0
         const stubRole =
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
@@ -1004,7 +1003,8 @@ describe('scenario environment', () => {
                 process.exit(0)
             }
             if (members > 0) {
-                fs.writeFileSync(path.join(__dirname, 'held-member-seen'), '')
+                const seen = path.join(__dirname, 'held-member-seen')
+                fs.writeFileSync(fs.existsSync(seen) ? path.join(__dirname, 'held-member-read-again') : seen, '')
             }
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
@@ -1079,10 +1079,24 @@ describe('scenario environment', () => {
         }
         const holdDeadMember = (): void => {
             rmSync(path.join(fakes, 'held-member-seen'), { force: true })
+            rmSync(path.join(fakes, 'held-member-read-again'), { force: true })
             writeFileSync(path.join(fakes, 'dead-member-held'), '')
         }
         const releaseDeadMember = (): void => writeFileSync(path.join(fakes, 'dead-member-leaving'), '')
-        const heldMemberSeen = (): boolean => existsSync(path.join(fakes, 'held-member-seen'))
+        const whileMemberHeld = (settled: Promise<string>): Promise<string> =>
+            Promise.race([
+                waitForExpect(
+                    () => expect(existsSync(path.join(fakes, 'held-member-read-again'))).toBe(true),
+                    20_000,
+                    50
+                ).then(() => 'still waiting'),
+                settled.then((outcome) => `settled while the member was held: ${outcome}`),
+            ])
+        const rolesListening = async (): Promise<Role[]> => {
+            const roles = Object.keys(ROLE_PORTS) as Role[]
+            const free = await Promise.all(roles.map((role) => isPortFree(ROLE_PORTS[role])))
+            return roles.filter((_role, index) => !free[index])
+        }
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -1112,7 +1126,6 @@ describe('scenario environment', () => {
             writeStack({ running: true, ready: true })
             process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
             await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
-            rolesSpawnedWhileHeld = 0
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -1145,9 +1158,6 @@ describe('scenario environment', () => {
                         : mode === exitsAfterHealth
                           ? stubRoleExitingAfterHealth
                           : stubRole
-                if (existsSync(path.join(fakes, 'dead-member-held'))) {
-                    rolesSpawnedWhileHeld += 1
-                }
                 const role = realSpawn(process.execPath, ['-e', script], options)
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
@@ -1229,18 +1239,13 @@ describe('scenario environment', () => {
                 () => 'up',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(heldMemberSeen()).toBe(true), 20_000, 50)
+            const held = { up: await whileMemberHeld(up), rolesListening: await rolesListening() }
             releaseDeadMember()
-            const outcome = await up
 
-            expect({
-                rolesSpawnedWhileHeld,
-                up: outcome,
-                apiHealth: await healthOf('cdp-api'),
-            }).toEqual({
-                rolesSpawnedWhileHeld: 0,
+            expect({ held, up: await up, rolesListening: await rolesListening() }).toEqual({
+                held: { up: 'still waiting', rolesListening: [] },
                 up: 'up',
-                apiHealth: 200,
+                rolesListening: Object.keys(ROLE_PORTS),
             })
         }, 45_000)
 
@@ -1462,12 +1467,18 @@ describe('scenario environment', () => {
                 () => 'reset',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(heldMemberSeen()).toBe(true), 20_000, 50)
+            const held = {
+                reset: await whileMemberHeld(reset),
+                offsets: offsetsOf(),
+                rolesListening: await rolesListening(),
+            }
             releaseDeadMember()
 
-            expect({ reset: await reset, offsets: offsetsOf() }).toEqual({
+            expect({ held, reset: await reset, offsets: offsetsOf(), rolesListening: await rolesListening() }).toEqual({
+                held: { reset: 'still waiting', offsets: {}, rolesListening: [] },
                 reset: 'reset',
                 offsets: { [group]: { [topic]: 'end' } },
+                rolesListening: Object.keys(ROLE_PORTS),
             })
         }, 45_000)
 
