@@ -109,6 +109,11 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [(r["time"], r["severity"], r["count"]) for r in from_logs],
         )
 
+    @time_machine.travel("2026-03-20T00:10:00Z", tick=False)
+    def test_range_older_than_the_team_retention_reads_the_logs_table(self):
+        # Only logs table rows carry bytes, and the test logs table has no TTL.
+        self.assertIn("bytes_uncompressed", self._service_sparkline()[0])
+
     @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_body_search_reads_the_logs_table_not_the_rollup(self):
         response = self._service_sparkline(search_term="text-that-no-fixture-log-contains")
