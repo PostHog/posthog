@@ -114,6 +114,13 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Default is false. Requires SDK version 3.58.1 or higher.
                                             config.sessionReplayConfig.screenshotModeBackgroundCapture = false
 
+                                            // Experimental. Screenshot resolution as a fraction of the screen's native
+                                            // resolution, from 0.1 to 1.0. With no value, captures one pixel per point,
+                                            // which is a third of native resolution on a 3x device. Higher values give
+                                            // sharper replays at the cost of capture time and upload size.
+                                            // Default is nil. Requires SDK version 3.93.0 or higher.
+                                            config.sessionReplayConfig.screenshotScale = nil
+
                                             // Minimum time (in seconds) between snapshots. Default is 1.0s.
                                             // Snapshots are taken when views lay out, so this caps how often one
                                             // can be captured rather than setting a fixed frame rate.
