@@ -18,15 +18,14 @@ import { getRowShape } from 'scenes/cohorts/CohortFilters/constants'
 import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
-import { FEATURE_FLAG_CALLED_EVENT, storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
+import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 import {
-    cohortSkipsFlagCallCheck,
+    criterionFlagCallProblem,
     flagCallProblemText,
-    moveNoticeProblem,
 } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
@@ -54,10 +53,7 @@ export function CohortCriteriaRowBuilder({
     const { currentTeam } = useValues(teamLogic)
     const moveNoticesEnabled = useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const flagCallProblem =
-        moveNoticesEnabled && !cohortSkipsFlagCallCheck(cohort)
-            ? moveNoticeProblem(criteria, [FEATURE_FLAG_CALLED_EVENT])
-            : null
+    const flagCallProblem = moveNoticesEnabled ? criterionFlagCallProblem(cohort, criteria) : null
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.

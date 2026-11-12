@@ -81,10 +81,10 @@ describe('flagCallCriterionProblem', () => {
 })
 
 describe('moveNoticeProblem', () => {
-    it.each<[string, Partial<CohortCriteriaType>, string[], FlagCallCriterionProblem | null]>([
-        ['a criterion that keeps counting every call', {}, ['$feature_flag_called'], null],
-        ['a range past the limit', { time_value: 180 }, ['$feature_flag_called'], 'window'],
-        ['a range past the limit once nothing is moving', { time_value: 180 }, [], null],
+    it.each<[string, Partial<CohortCriteriaType>, FlagCallCriterionProblem | null]>([
+        ['a criterion that keeps counting every call', {}, null],
+        ['a range past the limit', { time_value: 180 }, 'window'],
+        ['a range past the limit on another event', { time_value: 180, key: '$pageview' }, null],
         [
             'a sequence step on the moving event',
             {
@@ -93,11 +93,10 @@ describe('moveNoticeProblem', () => {
                 seq_event: '$feature_flag_called',
                 seq_event_type: TaxonomicFilterGroupType.Events,
             },
-            ['$feature_flag_called'],
             'type',
         ],
-    ])('%s', (_, overrides, movingEvents, expected) => {
-        expect(moveNoticeProblem(flagCallCriterion(overrides), movingEvents)).toBe(expected)
+    ])('%s', (_, overrides, expected) => {
+        expect(moveNoticeProblem(flagCallCriterion(overrides))).toBe(expected)
     })
 })
 

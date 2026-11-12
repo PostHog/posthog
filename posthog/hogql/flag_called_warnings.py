@@ -207,6 +207,9 @@ class _ScanLiteralFinder(TraversingVisitor):
         self.root = root
         self.scan = scan
         self.literals: list[LiteralSpan] = []
+        # Whether a comparison outside `NOT (...)` selects flag calls. A negated one excludes them.
+        self.selects_flag_calls = False
+        self._negations = 0
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # A subquery has its own scans.
@@ -221,18 +224,20 @@ class _ScanLiteralFinder(TraversingVisitor):
 
     def visit_call(self, node: ast.Call) -> None:
         # The parser turns `NOT (x)` into a call.
-        # A negated comparison excludes flag calls, so the scan does not read them.
-        if node.name.lower() == "not":
-            return
+        negates = node.name.lower() == "not"
+        self._negations += negates
         super().visit_call(node)
+        self._negations -= negates
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
                 if self.scan.column(field_side) == ["event"]:
+                    constants = _flag_called_constants(value_side)
+                    self.selects_flag_calls |= bool(constants) and not self._negations
                     self.literals.extend(
                         LiteralSpan(start=constant.start, end=constant.end)
-                        for constant in _flag_called_constants(value_side)
+                        for constant in constants
                         if constant.start is not None and constant.end is not None
                     )
         super().visit_compare_operation(node)
@@ -289,12 +294,13 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     return None
 
 
-def _mode_2_check(node: ast.SelectQuery, found: _FoundScan, literals: list[LiteralSpan], union_on: bool) -> _ScanCheck:
-    """How the scan of `found` reads flag calls once they are only in flag_evaluations.
+def _mode_2_warning(node: ast.SelectQuery, found: _FoundScan, selects_flag_calls: bool, union_on: bool) -> str | None:
+    """The warning for the scan of `found` once flag calls are only in flag_evaluations, or None.
 
     It follows the rules of `_EventsScanSwapper` and `_UnionRenamer`. The swap moves a scan whose filters pin `event` to
     flag calls. It moves a joined scan only when the query names it `events`. The union reads a sampled first scan and
-    every scan the swap leaves, when `union_on`. A scan that neither reads stays on events and misses new flag calls.
+    every scan the swap leaves, when `union_on`. A scan that neither reads stays on events, and misses new flag calls
+    when `selects_flag_calls`.
     """
     scan, position = found.scan, found.position
     sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
@@ -305,9 +311,8 @@ def _mode_2_check(node: ast.SelectQuery, found: _FoundScan, literals: list[Liter
     elif union_on:
         refusal = _union_refusal(node, scan, position)
     else:
-        return _ScanCheck(scan=scan, literals=literals, warning=FLAG_CALLED_STAYS_ON_EVENTS_WARNING)
-    warning = flag_called_fails_after_move_warning(refusal) if refusal is not None else None
-    return _ScanCheck(scan=scan, literals=literals, warning=warning)
+        return FLAG_CALLED_STAYS_ON_EVENTS_WARNING if selects_flag_calls else None
+    return flag_called_fails_after_move_warning(refusal) if refusal is not None else None
 
 
 class _MoveWarningFinder(ScanVisitor):
@@ -331,7 +336,8 @@ class _MoveWarningFinder(ScanVisitor):
             finder.visit(node)
             if not finder.literals:
                 continue
-            self.frames[-1].append(_mode_2_check(node, found, finder.literals, self.union_on))
+            warning = _mode_2_warning(node, found, finder.selects_flag_calls, self.union_on)
+            self.frames[-1].append(_ScanCheck(scan=found.scan, literals=finder.literals, warning=warning))
 
     def visit_field(self, node: ast.Field) -> None:
         for check in self.frames[-1] if self.frames else []:
@@ -350,8 +356,8 @@ def flag_called_move_warnings(node: ast.SelectQuery | ast.SelectSetQuery, *, uni
     `event IN ('$pageview', '$feature_flag_called')` or a sampled flag-call scan.
 
     It reads only the text of the unresolved query. It finds the shapes that the swap and the union refuse, the scans
-    that neither reads, and the sub-table fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a refusal that only
-    resolution shows, such as a name that binds to another column in flag_evaluations.
+    that neither reads, and the sub-table fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a
+    refusal that only resolution shows, such as a name that binds to another column in flag_evaluations.
     """
     finder = _MoveWarningFinder(union_on)
     finder.visit(node)
