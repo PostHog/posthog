@@ -1151,7 +1151,8 @@ class UserAccessControl:
             return AccessSource.EXPLICIT_MEMBER
 
         # Check for explicit role access
-        if any(ac.role_id in self._user_role_ids for ac in cached_controls if ac.role_id):
+        user_role_ids = {str(role_id) for role_id in self._user_role_ids}  # seeded as str, read from the DB as UUID
+        if any(str(ac.role_id) in user_role_ids for ac in cached_controls if ac.role_id):
             return AccessSource.EXPLICIT_ROLE
 
         # Check for project-level access

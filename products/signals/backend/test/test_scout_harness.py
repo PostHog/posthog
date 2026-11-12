@@ -1257,6 +1257,12 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout's notes look like its owner's, so the note grant has to say they are tagged and how to read them.
+        assert "Account notes carry your name" not in granted
+        note_granted = _prompt(write_scopes=["account_note:write"])
+        assert "notes on Customer analytics accounts" in note_granted
+        assert "Account notes carry your name" in note_granted
+        assert "context-core" in note_granted
         assert "Ticket messages: private notes only" not in granted
         assert "Ticket messages: private notes only" in _prompt(write_scopes=["ticket:write"])
         # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.

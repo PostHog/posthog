@@ -34,7 +34,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.mixins import ResponseDeclaration, validated_request
+from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
@@ -60,6 +60,7 @@ from products.messaging.backend.facade.api import (
 )
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
+    MessageTemplateBasicRow,
     MessageTemplateMissing,
     MessageTemplatePlacement,
     MessageTemplateRow,
@@ -67,6 +68,7 @@ from products.messaging.backend.facade.templates import (
     edit_template_content,
     get_template,
     get_template_placement,
+    list_basic_templates,
     list_templates,
     save_template_draft,
     team_category_id,
@@ -374,6 +376,9 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="Unpublished edits to a transactional template's content. Sends keep using `content`. Saving "
         "`content` publishes it and clears the draft. Set null to discard the draft.",
     )
+    has_draft = serializers.BooleanField(
+        read_only=True, help_text="Whether the template has unpublished edits in `draft_content`."
+    )
 
     def validate__create_in_folder(self, value: str) -> str:
         return validate_file_system_path(value) if value else value
@@ -431,6 +436,27 @@ class MessageTemplatePlacementSerializer(serializers.Serializer):
     path = serializers.CharField(
         allow_null=True,
         help_text="Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.",
+    )
+
+
+class MessageTemplateBasicSerializer(MessageTemplateSerializer):
+    content = None  # type: ignore[assignment]
+    draft_content = None  # type: ignore[assignment]
+
+
+class MessageTemplateListQuerySerializer(serializers.Serializer):
+    transactional = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="With true, list only templates sent over the transactional email API. With false, only the "
+        "others. Leave out to list all templates.",
+    )
+    basic = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="With true, leave out `content` and `draft_content` from each template, for lists that show "
+        "names and metadata only. `has_draft` still says whether a draft exists.",
     )
 
 
@@ -509,6 +535,7 @@ CODE_SEND_FIELDS = (
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
+SES_TAG_VALUE_MAX_LENGTH = 256
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -519,11 +546,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     template_key = serializers.RegexField(
         r"^[a-zA-Z0-9_-]+$",
-        max_length=400,
+        max_length=SES_TAG_VALUE_MAX_LENGTH,
         required=False,
         help_text="Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs "
-        "and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` "
-        "and `html` or `text`. PostHog sends the content as is and never stores it as a template.",
+        "and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most "
+        f"{SES_TAG_VALUE_MAX_LENGTH} characters. Send it with `subject` and `html` or `text`. PostHog sends the "
+        "content as is and never stores it as a template.",
     )
     distinct_id = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
@@ -1117,14 +1145,19 @@ class MessageTemplatesViewSet(
         except MessageTemplateMissing:
             return None
 
-    def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
+    def _with_creators(
+        self, templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow]
+    ) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
         creators = {user.id: user for user in User.objects.filter(id__in=creator_ids)} if creator_ids else {}
         return [
             SimpleNamespace(
-                **{field.name: getattr(template, field.name) for field in dataclass_fields(template)},
-                created_by=creators.get(template.created_by_id) if template.created_by_id else None,
-                message_category=template.message_category_id,
+                **{field.name: getattr(template, field.name) for field in dataclass_fields(template)}
+                | {
+                    "has_draft": template.has_draft,
+                    "created_by": creators.get(template.created_by_id) if template.created_by_id else None,
+                    "message_category": template.message_category_id,
+                }
             )
             for template in templates
         ]
@@ -1132,12 +1165,26 @@ class MessageTemplatesViewSet(
     def _serialize(self, template: MessageTemplateRow) -> Any:
         return self.get_serializer(self._with_creators([template])[0]).data
 
+    @validated_request(
+        query_serializer=MessageTemplateListQuerySerializer,
+        responses={200: OpenApiResponse(response=MessageTemplateSerializer)},
+    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        templates = list_templates(self.team_id)
+        query = cast(ValidatedRequest, request).validated_query_data
+        basic, transactional = query["basic"], query["transactional"]
+        templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow] = (
+            list_basic_templates(self.team_id, transactional=transactional)
+            if basic
+            else list_templates(self.team_id, transactional=transactional)
+        )
+        serializer_class = MessageTemplateBasicSerializer if basic else MessageTemplateSerializer
+        context = self.get_serializer_context()
         page = self.paginate_queryset(templates)
         if page is not None:
-            return self.get_paginated_response(self.get_serializer(self._with_creators(page), many=True).data)
-        return Response(self.get_serializer(self._with_creators(list(templates)), many=True).data)
+            return self.get_paginated_response(
+                serializer_class(self._with_creators(page), many=True, context=context).data
+            )
+        return Response(serializer_class(self._with_creators(templates), many=True, context=context).data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self._serialize(self.get_object()))

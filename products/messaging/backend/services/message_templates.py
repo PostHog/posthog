@@ -14,6 +14,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.refs import file_refs_q
 from posthog.models.tag import tagify
+from posthog.models.utils import strict_fetch
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
@@ -84,9 +85,20 @@ def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[Me
     )
 
 
-def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
+def team_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
+    queryset = MessageTemplate.objects.filter(team_id=team_id, deleted=False)
+    if transactional is not None:
+        queryset = queryset.filter(transactional_hog_flow_id__isnull=not transactional)
     # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
-    return _with_tags(MessageTemplate.objects.filter(team_id=team_id, deleted=False)).order_by("-created_at", "-pk")
+    return _with_tags(queryset).order_by("-created_at", "-pk")
+
+
+def team_basic_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
+    return strict_fetch(
+        team_templates(team_id, transactional=transactional)
+        .defer("content", "draft_content")
+        .annotate(has_draft=models.ExpressionWrapper(models.Q(draft_content__isnull=False), models.BooleanField()))
+    )
 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:

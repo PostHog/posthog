@@ -41,6 +41,29 @@ class MessageTemplateRow:
     # Tag names, sorted. Keeps its default last, so every field without one stays above it.
     tags: tuple[str, ...] = ()
 
+    @property
+    def has_draft(self) -> bool:
+        return self.draft_content is not None
+
+
+@frozen
+class MessageTemplateBasicRow:
+    """A template without its content or draft, for lists that show names and metadata only."""
+
+    id: UUID
+    name: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: int | None
+    type: str
+    message_category_id: UUID | None
+    deleted: bool
+    transactional_hog_flow_id: UUID | None
+    sensitive: bool
+    has_draft: bool
+    tags: tuple[str, ...]
+
 
 def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemplateRow:
     return MessageTemplateRow(
@@ -61,9 +84,35 @@ def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemp
     )
 
 
-def list_templates(team_id: int) -> Sequence[MessageTemplateRow]:
-    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page."""
-    return LazyList(templates_service.team_templates(team_id), _to_contract)
+def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
+    return MessageTemplateBasicRow(
+        id=row.id,
+        name=row.name,
+        description=row.description,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        created_by_id=row.created_by_id,
+        type=row.type,
+        message_category_id=row.message_category_id,
+        deleted=row.deleted,
+        transactional_hog_flow_id=row.transactional_hog_flow_id,
+        sensitive=row.sensitive,
+        has_draft=row.has_draft,  # type: ignore[attr-defined]
+        tags=tuple(sorted(current_tag_names(row))),
+    )
+
+
+def list_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateRow]:
+    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page.
+
+    `transactional` keeps only the templates that have a transactional workflow (True) or only those without (False).
+    """
+    return LazyList(templates_service.team_templates(team_id, transactional=transactional), _to_contract)
+
+
+def list_basic_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateBasicRow]:
+    """Like `list_templates`, but the content and the draft never leave the database."""
+    return LazyList(templates_service.team_basic_templates(team_id, transactional=transactional), _to_basic_contract)
 
 
 def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
