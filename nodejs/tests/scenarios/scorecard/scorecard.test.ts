@@ -356,6 +356,25 @@ describe('scorecard', () => {
         })
 
         it.each([
+            ['a gate in a card file', true, 'nodejs/tests/scenarios/cards/smoke.yaml'],
+            ['a shipped profile', true, 'nodejs/tests/scenarios/profiles/synthetic.yaml'],
+            ['the card loader', false, 'nodejs/tests/scenarios/cards/load.ts'],
+        ])('a committed change to %s keeps the runner version: %s', (_story, same, file) => {
+            const commitEdit = (content: string): string | null => {
+                mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
+                writeFileSync(path.join(repo, file), content)
+                git(repo, 'add', '.')
+                git(repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', content)
+                return provenanceOf(scenarios).runnerVersion
+            }
+
+            const before = commitEdit('gates:\n    duplicate_sends: 0\n')
+            const after = commitEdit('gates:\n    duplicate_sends: 3\n')
+
+            expect(before === after).toBe(same)
+        })
+
+        it.each([
             ['an edit to the generator', 'nodejs/tests/scenarios/generator/traffic.ts', true],
             ['a new file in the package', 'nodejs/src/added.ts', true],
             ['an edit outside the package', 'rust/Cargo.lock', false],

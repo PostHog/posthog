@@ -234,12 +234,6 @@ describe('load', () => {
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
             'profile: Alias resolution is disabled',
         ],
-        [
-            'a profile written for another card profile',
-            card,
-            { ...profile, name: 'prod-shape' },
-            'profile.name: prod-shape is not the card profile synthetic',
-        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
     })
@@ -265,6 +259,10 @@ describe('load', () => {
         ],
     ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
         expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
+    })
+
+    it('keeps the name of a profile passed from outside the repository', () => {
+        expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
     it.each<[string, Record<string, string>]>([
