@@ -374,6 +374,9 @@ def _search_pages(
             "page_size": REPORTS_PAGE_SIZE,
             "grouped": False,
             "enrich_response": True,
+            # Without these the search applies the token owner's rounding preference to `seconds`.
+            "rounding": 0,
+            "rounding_minutes": 0,
         },
         paginator=TogglReportsPaginator(),
         hooks={"response": [_raise_when_workspace_lacks_feature]},

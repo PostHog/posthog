@@ -66,7 +66,9 @@ class TestTimeEntries:
             ("2025-02-03", "2026-02-02", 51),
             ("2026-02-03", "2026-03-11", None),
         ]
-        assert {(b["order_by"], b["order_dir"], b["grouped"]) for b in bodies} == {("date", "ASC", False)}
+        assert {
+            (b["order_by"], b["order_dir"], b["grouped"], b["rounding"], b["rounding_minutes"]) for b in bodies
+        } == {("date", "ASC", False, 0, 0)}
         assert [(row["id"], row["workspace_id"], row["description"]) for row in result.rows] == [
             (101, 1, "Writing"),
             (102, 1, "Writing"),
