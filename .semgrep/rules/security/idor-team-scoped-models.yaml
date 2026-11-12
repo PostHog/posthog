@@ -99,6 +99,9 @@ rules:
                               |AutoresearchRun
                               |AutoresearchSuggestion
                               |AutoresearchTrainingRun
+                              |BaselineApproval
+                              |BaselineCommit
+                              |BaselineEntry
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -258,6 +261,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowBatchJobAudienceMember
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -401,6 +405,7 @@ rules:
                               |SandboxSession
                               |ResourceLink
                               |ScoreDefinition
+                              |ScoreDefinitionInput
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
@@ -509,6 +514,7 @@ rules:
                               |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
+                              |IntercomImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -635,6 +641,9 @@ rules:
                         |AutoresearchRun
                         |AutoresearchSuggestion
                         |AutoresearchTrainingRun
+                        |BaselineApproval
+                        |BaselineCommit
+                        |BaselineEntry
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -791,6 +800,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowBatchJobAudienceMember
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -926,6 +936,7 @@ rules:
                         |SandboxSession
                         |ResourceLink
                         |ScoreDefinition
+                        |ScoreDefinitionInput
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
@@ -1033,6 +1044,7 @@ rules:
                         |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
+                        |IntercomImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview

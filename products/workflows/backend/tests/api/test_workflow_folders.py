@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -26,10 +26,35 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.messaging.backend.facade.templates import get_template_placement
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.messaging.backend.facade.transactional_email import lock_transactional_workflow_id
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
+from products.workflows.backend.tests.api.test_hog_flow_revisions import _trigger_action
 
 DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
+
+DESIGN = {
+    "body": {
+        "rows": [
+            {
+                "id": "row1",
+                "columns": [
+                    {"id": "col1", "contents": [{"id": "txt1", "type": "text", "values": {"text": "<p>Old</p>"}}]}
+                ],
+            }
+        ]
+    }
+}
+WORKFLOW_PAYLOAD: dict[str, Any] = {
+    "name": "Synthetic welcome",
+    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+    "edges": [],
+}
+RENAME_TRIGGER = {"operations": [{"op": "update_action", "id": "trigger", "patch": {"name": "Renamed"}}]}
+DESIGN_EDIT = {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]}
 
 
 def _mixed_case(value: UUID) -> str:
@@ -717,6 +742,20 @@ class TestWorkflowFolders(APIBaseTest):
             ),
             ("refless_move_by_owner", "refless_move", "owner", 200, True),
             ("refless_move_by_key_without_workflow_scope", "refless_move", "key_without_workflow_scope", 403, False),
+            *(
+                (f"{path}_by_viewer_with_an_unrelated_editor_grant", path, "viewer_with_grant", status, False)
+                for path, status in [
+                    ("file", 403),
+                    ("rename", 403),
+                    ("move", 403),
+                    ("folder_move", 403),
+                    ("unlink", 403),
+                    ("folder_delete", 403),
+                    ("delete", 403),
+                    ("restore", 400),
+                    ("unfiled", 200),
+                ]
+            ),
         ]
     )
     def test_every_template_file_write_needs_access_to_change_the_template(
@@ -810,9 +849,23 @@ class TestWorkflowFolders(APIBaseTest):
             create_access_control(
                 team_id=self.team.id,
                 resource="hog_flow",
-                access_level={"editor": "editor", "viewer": "viewer", "no_access": "none"}[actor],
+                access_level={
+                    "editor": "editor",
+                    "viewer": "viewer",
+                    "viewer_with_grant": "viewer",
+                    "no_access": "none",
+                }[actor],
                 organization_member_id=membership.id,
             )
+            if actor == "viewer_with_grant":
+                unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
+                create_access_control(
+                    team_id=self.team.id,
+                    resource="hog_flow",
+                    resource_id=str(unrelated.id),
+                    access_level="editor",
+                    organization_member_id=membership.id,
+                )
             self.client.force_login(member)
 
         owner = APIClient()
@@ -971,13 +1024,13 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("folder_move", "post", "file_system/{folder_id}/move/", {"new_path": "Archive/Inbox"}, 0),
+            ("folder_move", "post", "file_system/{folder_id}/move/", {"new_path": "Archive/Inbox"}, 1),
             (
                 "file",
                 "post",
                 "file_system/",
                 {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"},
-                0,
+                1,
             ),
             ("folder_delete", "delete", "file_system/{folder_id}/?recursive=true", {}, 1),
             ("template_placement", "get", "messaging_templates/{template_id}/placement/", {}, 0),
@@ -986,7 +1039,7 @@ class TestWorkflowFolders(APIBaseTest):
                 "post",
                 "file_system/undo_delete/",
                 {"items": [{"type": "message_template", "ref": "{template_id}"}]},
-                1,
+                2,
             ),
         ]
     )
@@ -1176,43 +1229,58 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "create_in_folder",
-                "post",
-                {"_create_in_folder": "Campaigns", "name": "Synthetic new", "type": "email"},
-                "never",
-            ),
-            ("file_into_folder", "patch", {"_create_in_folder": "Campaigns"}, "never"),
-            ("rename_filed", "patch", {"name": "Synthetic renamed"}, "before"),
-            ("delete_filed", "patch", {"deleted": True}, "before"),
-            ("rename_filed_after_the_first_check", "patch", {"name": "Synthetic renamed"}, "after_the_first_check"),
-            ("delete_filed_after_the_first_check", "patch", {"deleted": True}, "after_the_first_check"),
+            ("create", "none", "post", "", {"name": "Synthetic new", "type": "email"}, 403),
+            ("file_into_folder", "unfiled", "patch", "", {"_create_in_folder": "Campaigns"}, 403),
+            ("rename_filed", "filed", "patch", "", {"name": "Synthetic renamed"}, 200),
+            ("rename_unfiled", "unfiled", "patch", "", {"name": "Synthetic renamed"}, 200),
+            ("same_name_filed", "filed", "patch", "", {"name": "Synthetic email"}, 200),
+            ("description_filed", "filed", "patch", "", {"description": "Changed"}, 200),
+            ("description_unfiled", "unfiled", "patch", "", {"description": "Changed"}, 200),
+            ("delete_filed", "filed", "patch", "", {"deleted": True}, 403),
+            ("delete_filed_after_the_template_read", "filed_after_the_read", "patch", "", {"deleted": True}, 403),
+            ("delete_unfiled", "unfiled", "patch", "", {"deleted": True}, 200),
+            ("design_filed", "filed", "patch", "design/", DESIGN_EDIT, 200),
+            ("design_unfiled", "unfiled", "patch", "design/", DESIGN_EDIT, 200),
         ]
     )
-    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(
-        self, _name: str, method: str, payload: dict[str, Any], filed: str
+    @patch(
+        "products.messaging.backend.presentation.views.message_templates.render_design_html",
+        return_value="<p>Synthetic</p>",
+    )
+    def test_a_template_save_by_a_workflow_viewer_writes_no_file_row(
+        self,
+        _name: str,
+        filed: str,
+        method: str,
+        suffix: str,
+        payload: dict[str, Any],
+        expected_status: int,
+        _render: Any,
     ) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
         template_id = self.client.post(
-            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
+            templates_url,
+            {"name": "Synthetic email", "type": "email", "content": {"email": {"subject": "Hi", "design": DESIGN}}},
+            format="json",
         ).json()["id"]
-        if filed != "before":
-            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        files = FileSystem.objects.filter(team=self.team, type="message_template")
+        if filed == "filed":
+            files.update(path="Campaigns/Approved copy", depth=2)
+        else:
+            files.delete()
 
-        def file_tree() -> set[tuple[str, str]]:
+        def file_tree() -> set[tuple[str, str, str | None]]:
             return set(
                 FileSystem.objects.filter(team=self.team, type__in=["message_template", "folder"]).values_list(
-                    "type", "path"
+                    "type", "path", "ref"
                 )
             )
 
         tree = file_tree()
-        self.assertEqual(any(file_type == "message_template" for file_type, _path in tree), filed == "before")
         self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
 
-        def file_after_the_first_lookup(team_id: int, lookup_id: Any) -> Any:
-            placement = get_template_placement(team_id, lookup_id)
-            if filed == "after_the_first_check" and placement.path is None:
+        def file_before_the_lock(team_id: int, lookup_id: Any) -> Any:
+            if filed == "filed_after_the_read":
                 FileSystem.objects.create(
                     team=self.team,
                     path="Campaigns/Synthetic email",
@@ -1221,20 +1289,105 @@ class TestWorkflowFolders(APIBaseTest):
                     ref=str(lookup_id),
                     created_by=self.user,
                 )
-                tree.update(file_tree())
-            return placement
+            return lock_transactional_workflow_id(team_id, lookup_id)
 
-        url = templates_url if method == "post" else f"{templates_url}{template_id}/"
+        url = templates_url if method == "post" else f"{templates_url}{template_id}/{suffix}"
         with patch(
-            "products.messaging.backend.presentation.views.message_templates.get_template_placement",
-            side_effect=file_after_the_first_lookup,
+            "products.messaging.backend.presentation.views.message_templates.lock_transactional_workflow_id",
+            side_effect=file_before_the_lock,
         ):
             response = getattr(self.client, method)(url, payload, format="json")
 
-        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.status_code, expected_status, response.content)
         self.assertEqual(file_tree(), tree)
-        if filed == "after_the_first_check":
-            self.assertIn(("message_template", "Campaigns/Synthetic email"), tree)
+
+    @parameterized.expand(
+        [
+            ("create", "draft", "post", "", WORKFLOW_PAYLOAD, 403),
+            ("rename", "draft", "patch", "{id}/", {"name": "Synthetic renamed"}, 403),
+            ("graph", "draft", "patch", "{id}/graph", RENAME_TRIGGER, 403),
+            ("publish", "staged", "post", "{id}/publish", {"confirm": True, "confirm_token": "{token}"}, 403),
+            ("discard_draft", "draft", "post", "{id}/discard_draft", {}, 403),
+            ("restore_revision", "draft", "post", "{id}/revisions/1/restore", {}, 403),
+            (
+                "apply_utm_defaults",
+                "email",
+                "post",
+                "apply_utm_defaults",
+                {"dry_run": False, "enable_where_off": True},
+                403,
+            ),
+            ("delete", "archived", "delete", "{id}/", None, 403),
+            ("bulk_delete", "archived", "post", "bulk_delete", {"ids": ["{id}"]}, 200),
+        ]
+    )
+    def test_a_workflow_save_by_a_workflow_viewer_writes_no_file_row(
+        self,
+        _name: str,
+        setup: str,
+        method: str,
+        suffix: str,
+        payload: dict[str, Any] | None,
+        expected_status: int,
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        token = ""
+        if setup == "staged":
+            sync_template_to_db(MOCK_NODE_TEMPLATES[0])
+            webhook: dict[str, Any] = {"id": "webhook", "name": "Webhook", "type": "function"}
+            webhook["config"] = {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+            live = {"name": "Synthetic welcome", "actions": [_trigger_action(), webhook]}
+            created = self.client.post(workflows_url, live, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+            activated = self.client.patch(f"{workflows_url}{workflow_id}/", {"status": "active"}, format="json")
+            self.assertEqual(activated.status_code, 200, activated.content)
+            url_edit = {"config": {"inputs": {"url": {"value": "https://changed.example.com"}}}}
+            stage = {"operations": [{"op": "update_action", "id": "webhook", "patch": url_edit}]}
+            staged = self.client.patch(
+                f"{workflows_url}{workflow_id}/graph", stage, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+            self.assertEqual(staged.status_code, 200, staged.content)
+            in_flight = {"count": 0, "by_action": {}, "position_unknown": 0}
+            with patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+                return_value=MagicMock(status_code=200, json=lambda: in_flight),
+            ):
+                preview = self.client.post(f"{workflows_url}{workflow_id}/publish", {}, format="json")
+            self.assertEqual(preview.status_code, 200, preview.content)
+            token = preview.json()["confirm_token"]
+        else:
+            created = self.client.post(workflows_url, WORKFLOW_PAYLOAD, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+        if setup == "email":
+            sync_template_to_db(_email_function_template())
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={"email_utm_tags_enabled": True, "email_utm_params": {"utm_source": "newsletter"}},
+            )
+            email: dict[str, Any] = {"id": "email_1", "name": "Send email", "type": "function_email"}
+            email["config"] = {"template_id": "template-email", "inputs": _valid_email_inputs()}
+            HogFlow.objects.filter(id=workflow_id).update(actions=[*WORKFLOW_PAYLOAD["actions"], email])
+        if setup == "archived":
+            HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ARCHIVED)
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).update(
+            path="Campaigns/Approved workflow", depth=2
+        )
+
+        def file_tree() -> set[tuple[str, str, str | None]]:
+            files = FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "folder"])
+            return set(files.values_list("type", "path", "ref"))
+
+        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
+        before = file_tree()
+        filled = json.dumps(payload).replace("{id}", workflow_id).replace("{token}", token)
+        body = json.loads(filled) if payload is not None else None
+        url = workflows_url + suffix.format(id=workflow_id)
+        response = getattr(self.client, method)(url, body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(file_tree(), before)
 
     def _log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant(self) -> None:
         self.organization.available_product_features = [
@@ -1255,29 +1408,6 @@ class TestWorkflowFolders(APIBaseTest):
             organization_member_id=membership.id,
         )
         self.client.force_login(member)
-
-    @parameterized.expand(
-        [("description_only", {"description": "Changed"}), ("same_name", {"name": "Synthetic email"})]
-    )
-    def test_a_template_save_that_keeps_its_name_leaves_a_renamed_file_alone(
-        self, _name: str, payload: dict[str, Any]
-    ) -> None:
-        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
-        template_id = self.client.post(
-            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
-        ).json()["id"]
-        FileSystem.objects.filter(team=self.team, type="message_template").update(
-            path="Campaigns/Approved copy", depth=2
-        )
-        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
-
-        response = self.client.patch(f"{templates_url}{template_id}/", payload, format="json")
-
-        self.assertIn(response.status_code, (200, 403), response.content)
-        self.assertEqual(
-            list(FileSystem.objects.filter(team=self.team, type="message_template").values_list("path", flat=True)),
-            ["Campaigns/Approved copy"],
-        )
 
     @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
     def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
@@ -2145,12 +2275,6 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
                 "SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE",
                 "This workflow is being saved. Try again in a moment.",
             ),
-            (
-                "template",
-                "message_template",
-                "SELECT 1 FROM posthog_messagetemplate WHERE id = %s FOR UPDATE",
-                "This template is being saved. Try again in a moment.",
-            ),
         ]
     )
     def test_tree_delete_refuses_while_a_save_holds_the_object(
@@ -2209,6 +2333,67 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         deleted = self.client.delete(f"{files_url}{file_id}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
         self.assertEqual(self.client.get(object_url).status_code, 404)
+
+    @parameterized.expand([("delete",), ("file",), ("rename",), ("move",), ("restore",)])
+    def test_a_template_tree_write_refuses_while_a_save_holds_the_template(self, write: str) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        created = self.client.post(templates_url, {"name": "Welcome", "type": "email"}, format="json")
+        self.assertEqual(created.status_code, 201, created.content)
+        template_id = created.json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
+            "id"
+        ]
+        if write == "restore":
+            self.assertEqual(self.client.delete(f"{files_url}{file_id}/").status_code, 200)
+        requests: dict[str, tuple[str, str, dict | None]] = {
+            "delete": ("delete", f"{file_id}/", None),
+            "file": ("post", "", {"path": "Placed/Welcome", "type": "message_template", "ref": template_id}),
+            "rename": ("patch", f"{file_id}/", {"path": "Renamed/Welcome"}),
+            "move": ("post", f"{file_id}/move/", {"new_path": "Moved/Welcome"}),
+            "restore": (
+                "post",
+                "undo_delete/",
+                {"items": [{"type": "message_template", "ref": template_id, "path": "Restored/Welcome"}]},
+            ),
+        }
+        method, suffix, payload = requests[write]
+
+        def tree() -> list[str]:
+            return sorted(
+                FileSystem.objects.filter(team=self.team, type="message_template").values_list("path", flat=True)
+            )
+
+        before = tree()
+        locked = Event()
+        release = Event()
+
+        def hold_the_row_like_a_save() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM posthog_messagetemplate WHERE id = %s FOR UPDATE", [template_id])
+                    locked.set()
+                    release.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            holder = executor.submit(hold_the_row_like_a_save)
+            self.assertTrue(locked.wait(timeout=5))
+            try:
+                refused = getattr(self.client, method)(f"{files_url}{suffix}", payload, format="json")
+            finally:
+                release.set()
+            holder.result(timeout=15)
+
+        self.assertEqual(refused.status_code, 409, refused.content)
+        self.assertEqual(refused.json()["detail"], "This template is being saved. Try again in a moment.")
+        self.assertEqual(tree(), before)
+
+        retried = getattr(self.client, method)(f"{files_url}{suffix}", payload, format="json")
+        self.assertLess(retried.status_code, 300, retried.content)
+        self.assertNotEqual(tree(), before)
 
     def test_a_template_tree_delete_reports_a_database_failure_as_an_error_not_a_busy_template(self) -> None:
         template_id = self.client.post(

@@ -266,9 +266,15 @@ def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple
 
 
 def check_file_system_object_changes(
-    context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]]
+    context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]], *, lock: bool = False
 ) -> dict[FileObjectRef, PermissionDenied]:
-    """Run each type's change check and return the refs it refused."""
+    """Run each type's change check and return the refs it refused.
+
+    With `lock`, a type with a delete lock has its objects locked for the rest of the caller's transaction
+    before the check reads them. A save of such an object locks it first, so the save and the file write
+    run one after the other, and each one sees what the other committed. The delete lock never waits, so it
+    cannot deadlock with the file rows the caller already holds.
+    """
     checked = {key: refs for key, refs in refs_by_type.items() if key[1] in _FILE_CHANGE_CHECKS}
     prepare_file_system_objects(context.request, checked)
     denied: dict[FileObjectRef, PermissionDenied] = {}
@@ -279,7 +285,11 @@ def check_file_system_object_changes(
         check, fields = _FILE_CHANGE_CHECKS[type_string]
         refs_by_value = _lookup_values(registration, refs)
         objects = _registered_objects(registration, team_id, refs)
-        for obj in objects.only(*fields) if objects is not None else []:
+        if objects is None:
+            continue
+        objects = objects.only(*fields).order_by("pk")
+        delete_lock = _DELETE_LOCKS.get(type_string)
+        for obj in delete_lock[0](objects) if lock and delete_lock else objects:
             try:
                 check(context, obj)
             except PermissionDenied as error:

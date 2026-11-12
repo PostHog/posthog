@@ -19,6 +19,7 @@ import { template as setVariableTemplate } from '~/cdp/templates/_destinations/p
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { FakeUsageIngestion } from '~/common/usage-ingestion/_tests/fake-usage-ingestion'
 import { createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -50,7 +51,11 @@ import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
+import { SandboxEmailService } from '../messaging/sandbox/sandbox-email.service'
+import { SandboxEmailSendStep } from '../messaging/sandbox/sandbox-email-step'
+import { SandboxMessage } from '../messaging/sandbox/sandbox-message'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
@@ -183,6 +188,8 @@ describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let cohortMembershipRepository: CohortMembershipRepository
     let hogFlowFunctionsService: HogFlowFunctionsService
+    let recipientPreferencesService: RecipientPreferencesService
+    let emailValidationService: EmailValidationService
     let hub: Hub
     let team: Team
     let integrationId: number
@@ -300,14 +307,14 @@ describe('Hogflow Executor', () => {
             hogExecutor
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(
+        recipientPreferencesService = new RecipientPreferencesService(
             recipientsManager,
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         )
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.
-        const emailValidationService = {
+        emailValidationService = {
             getSkipReason: () => Promise.resolve(null),
         } as unknown as EmailValidationService
         return {
@@ -1733,10 +1740,21 @@ describe('Hogflow Executor', () => {
                         },
                     }
                 )
+                invocation2.queueCreatedAt = DateTime.fromISO('2026-11-01T09:59:58Z')
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
+                expect(
+                    result2.metrics
+                        .find((m) => m.metric_name === 'conversion_by_start')
+                        ?.timestamp?.toUTC()
+                        .toISO()
+                ).toEqual('2026-11-01T09:59:58.000Z')
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1993,7 +2011,11 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -3290,7 +3312,74 @@ describe('Hogflow Executor', () => {
                 .build()
         }
 
-        it('should record billing metrics for both regular hog functions and email functions', async () => {
+        it('bills hog functions and own-domain email, and never a sandbox email in the same run', async () => {
+            const usageIngestion = new FakeUsageIngestion()
+            const usageReporter = new CdpUsageReporterService(await usageIngestion.start(), () => true)
+            const sandboxMailbox: SandboxMessage[] = []
+            const sandboxSes = {
+                send: (message: SandboxMessage) => {
+                    sandboxMailbox.push(message)
+                    return Promise.resolve({ status: 'accepted' as const, messageId: 'ses-1' })
+                },
+            }
+            executor = new HogFlowExecutorService(
+                hogFlowFunctionsService,
+                recipientPreferencesService,
+                emailValidationService,
+                cohortMembershipRepository,
+                hub.integrationManager,
+                null,
+                undefined,
+                usageReporter,
+                {
+                    sandboxEmail: {
+                        enabled: true,
+                        send: new SandboxEmailSendStep({
+                            service: new SandboxEmailService({
+                                enabled: true,
+                                fromAddress: 'sandbox@send.example.com',
+                                tenantName: 'sandbox-tenant',
+                                isProvisioned: () => Promise.resolve(true),
+                                checkRecipient: () => Promise.resolve({ ok: true }),
+                                authorize: () =>
+                                    Promise.resolve({
+                                        ok: true,
+                                        organizationId: 'org-1',
+                                        organizationName: 'Acme',
+                                        storedAddress: 'member@example.com',
+                                        tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(Date.now()) },
+                                    }),
+                                claimCaps: () =>
+                                    Promise.resolve({
+                                        ok: true,
+                                        markSending: () => Promise.resolve(true),
+                                        releaseUnsent: () => Promise.resolve(true),
+                                        refundUnsent: () => Promise.resolve(true),
+                                    }),
+                                teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                                ses: sandboxSes,
+                                now: () => new Date(Date.now()),
+                            }),
+                            hogInputsService: new HogInputsService(
+                                hub.integrationManager,
+                                new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                                hub.encryptedFields
+                            ),
+                            deliveredAddress: () => Promise.resolve('member@example.com'),
+                            siteUrl: hub.SITE_URL,
+                            recipientPreferences: recipientPreferencesService,
+                            events: { capture: () => Promise.resolve() },
+                            sesBucket: {
+                                limiter: { claimUpTo: () => Promise.resolve(1) } as unknown as RateLimiterService,
+                                key: '@posthog/ses/billing-test',
+                                capacity: 1,
+                                refillPerSecond: 1,
+                            },
+                        }),
+                    },
+                }
+            )
+
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3398,13 +3487,24 @@ describe('Hogflow Executor', () => {
                             },
                         },
                     },
+                    sandbox_email: {
+                        type: 'email_sandbox',
+                        config: {
+                            inputs: {
+                                email: {
+                                    value: { to: { email: 'member@example.com' }, subject: 'Sandbox', text: 'Hi' },
+                                },
+                            },
+                        },
+                    },
                 },
                 edges: [
                     { from: 'trigger', to: 'function_1', type: 'continue' },
                     { from: 'function_1', to: 'function_2', type: 'continue' },
                     { from: 'function_2', to: 'email_1', type: 'continue' },
                     { from: 'email_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
+                    { from: 'email_2', to: 'sandbox_email', type: 'continue' },
+                    { from: 'sandbox_email', to: 'exit', type: 'continue' },
                 ],
             })
 
@@ -3440,6 +3540,24 @@ describe('Hogflow Executor', () => {
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
+
+            expect(sandboxMailbox.map((message) => message.to.address)).toEqual(['member@example.com'])
+            await usageReporter.shutdown()
+            await usageIngestion.stop()
+            expect(
+                usageIngestion.accepted.map(({ teamId, usageKey, quantity }) => [teamId, usageKey, quantity]).sort()
+            ).toEqual([
+                [invocation.teamId, 'workflow_billable_invocations', 1],
+                [invocation.teamId, 'workflow_billable_invocations', 1],
+                [invocation.teamId, 'workflow_emails_sent', 1],
+                [invocation.teamId, 'workflow_emails_sent', 1],
+            ])
+            expect(
+                metrics.filter((m) => m.instance_id === 'sandbox_email').map((m) => [m.metric_kind, m.metric_name])
+            ).toEqual([
+                ['email', 'email_sandbox_sent'],
+                ['success', 'succeeded'],
+            ])
         })
 
         const suspendEmailSending = async (): Promise<void> => {
