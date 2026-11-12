@@ -1,14 +1,17 @@
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import OperationalError, connection
 from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.models.integration.email import lock_sender_domain
 
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
@@ -64,3 +67,17 @@ class TestDeleteUnusedFailedSesIdentities(BaseTest):
             call_command("delete_unused_failed_ses_identities", "--apply", "--pace-seconds", "0", stdout=StringIO())
 
         assert "orphan.com" in self.world.ses.identities
+
+    def test_waits_for_a_sender_create_in_progress_on_the_domain(self) -> None:
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "orphan.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                call_command("delete_unused_failed_ses_identities", "--apply", "--pace-seconds", "0", stdout=StringIO())
+            assert "orphan.com" in self.world.ses.identities
+        finally:
+            other.rollback()
+            other.close()
