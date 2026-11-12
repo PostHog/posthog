@@ -11,6 +11,7 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDimensionalPreAggregatedTable,
@@ -102,6 +103,9 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value.
+_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent"}
+
 
 def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
     """The event properties a typed column copies, or an empty tuple when the column copies nothing.
@@ -127,6 +131,8 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     elif isinstance(table, FlagEvaluationsTable):
         source = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+        source = _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     else:
         source = None
     return (source,) if source is not None else ()
@@ -181,6 +187,8 @@ def restricted_property_keys_for_table_type(
             AiEventsTable,
             WebStatsDimensionalPreAggregatedTable,
             WebBouncesDimensionalPreAggregatedTable,
+            MCPIntentAssignmentsTable,
+            RawMCPIntentAssignmentsTable,
         ),
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
