@@ -523,27 +523,45 @@ describe('workflowMetricsSummaryLogic', () => {
     })
 
     it.each([
-        { name: 'shows totals once a concurrency 429 clears', status: 429, retryAfter: '5', failed: false, sent: 3 },
-        { name: 'fails on a server error', status: 500, retryAfter: undefined, failed: true, sent: 0 },
-        { name: 'fails on a 429 that asks for a long wait', status: 429, retryAfter: '3600', failed: true, sent: 0 },
-    ])('message totals $name', async ({ status, retryAfter, failed, sent }) => {
+        {
+            name: 'show once a concurrency 429 clears',
+            fault: { status: 429, retryAfter: '5', times: 1 },
+            outcome: { failed: false, sent: 3, waitedRetryAfter: true },
+        },
+        {
+            name: 'fail when the retry gets a 429 too',
+            fault: { status: 429, retryAfter: '5', times: 2 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: true },
+        },
+        {
+            name: 'fail on a server error',
+            fault: { status: 500, times: 1 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: false },
+        },
+        {
+            name: 'fail on a 429 that asks for a long wait',
+            fault: { status: 429, retryAfter: '3600', times: 1 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: false },
+        },
+    ])('message totals $name', async ({ fault, outcome }) => {
         silenceKeaLoadersErrors()
-        useAppMetricsMocks([{ instanceId: 'email-1', metricName: 'email_sent', count: 3 }], "'email_sent'", {
-            status,
-            retryAfter,
-            times: 1,
-        })
+        useAppMetricsMocks([{ instanceId: 'email-1', metricName: 'email_sent', count: 3 }], "'email_sent'", fault)
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         try {
             let logic: ReturnType<typeof workflowMetricsSummaryLogic.build> | undefined
             void mountMetrics(makeWorkflow([step('email-1', 'function_email')]), {}, 60_000).then(
                 (mounted) => (logic = mounted)
             )
-            for (let waitedMs = 0; !logic && waitedMs < 10_000; waitedMs += 500) {
+            let waitedMs = 0
+            while (!logic && waitedMs < 20_000) {
                 await jest.advanceTimersByTimeAsync(500)
+                waitedMs += 500
             }
-            expect(logic?.values.messageTotalsFailed).toBe(failed)
-            expect(logic?.values.emailMetricsRows[0].sent).toBe(sent)
+            expect({
+                failed: logic?.values.messageTotalsFailed,
+                sent: logic?.values.emailMetricsRows[0].sent,
+                waitedRetryAfter: waitedMs >= 5000,
+            }).toEqual(outcome)
         } finally {
             jest.useRealTimers()
         }
