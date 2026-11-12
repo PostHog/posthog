@@ -82,9 +82,6 @@ USAGE_REPORT_MESSAGE_EXPIRY_SECONDS = 4 * 60 * 60
 # Celery task ID for query attribution
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
 
-# Same identity rule as the in-app instrumentation checklist: a random UUID distinct_id means unidentified.
-UUID_DISTINCT_ID_PATTERN = "^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$"
-
 
 def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
     """A String read of an AI event property: the `properties_group_ai` map on the legacy schema.
@@ -459,7 +456,6 @@ def get_all_ai_metrics(
                 event = '$ai_generation'
                 AND {prop("$ai_ingestion_source")} != 'otel'
                 AND distinct_id != {prop("$ai_trace_id")}
-                AND NOT match(distinct_id, %(uuid_pattern)s)
             ) as ai_generation_identified_count,
             countIf(event = '$ai_generation' AND toInt64OrZero({prop("$ai_tool_call_count")}) > 0) as ai_generation_with_tool_calls_count,
             countIf(event = '$ai_generation' AND {prop("$ai_ingestion_source")} = 'otel') as ai_otel_generation_count
@@ -475,7 +471,7 @@ def get_all_ai_metrics(
         begin,
         end,
         query_template,
-        {"ai_event_prefix": AI_EVENT_NAME_PREFIX, "uuid_pattern": UUID_DISTINCT_ID_PATTERN},
+        {"ai_event_prefix": AI_EVENT_NAME_PREFIX},
         num_splits=3,
         combine_results_func=_combine_all_metrics_results,
         team_ids=team_ids,

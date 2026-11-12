@@ -819,7 +819,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             properties={"$ai_tool_call_count": 0, "$ai_ingestion_source": "gateway"},
         )
         self._create_ai_events(team_2, "trace-1", "$ai_generation", 1, properties={"$ai_trace_id": "trace-1"})
-        self._create_ai_events(team_2, uuid4().hex, "$ai_generation", 1)
         self._create_ai_events(
             team_2, "user@example.com", "$ai_generation", 2, properties={"$ai_ingestion_source": "otel"}
         )
@@ -877,9 +876,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         org_2_report = org_reports[str(org_2.id)]
         assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
-        assert org_2_report["ai_generation_count"] == 10
+        assert org_2_report["ai_generation_count"] == 9
         assert org_2_report["ai_generation_with_session_count"] == 3
-        assert org_2_report["ai_generation_identified_count"] == 4
+        assert org_2_report["ai_generation_identified_count"] == 6
         assert org_2_report["ai_generation_with_tool_calls_count"] == 3
         assert org_2_report["ai_otel_generation_count"] == 2
         assert org_2_report["ai_llm_judge_evaluation_count"] == 0
