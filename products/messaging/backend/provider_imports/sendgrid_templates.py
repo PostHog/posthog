@@ -516,7 +516,9 @@ class _Converter:
     def node(self, node: object, frames: tuple[_Frame, ...]) -> str:
         if isinstance(node, _Text):
             # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
-            return node.text.replace("{%", '{{ "{%" }}')
+            text = node.text.replace("{%", '{{ "{%" }}')
+            # A dropped comment or trimmed space can put this `{` next to a `{` or `%` from the next node.
+            return f'{text[:-1]}{{{{ "{{" }}}}' if text.endswith("{") else text
         if isinstance(node, _Liquid):
             return node.liquid
         if isinstance(node, _Output):
