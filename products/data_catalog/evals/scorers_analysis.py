@@ -16,8 +16,8 @@ from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
+    JUDGE_MODEL,
     JudgedScorer,
-    judge_model,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.eval_harness.tool_chain import build_tool_chain, render_tool_chain
@@ -259,7 +259,7 @@ class _ChainJudge(JudgedScorer):
             name=name,
             prompt_template=template.replace("{{context}}", _JUDGE_CONTEXT),
             choice_scores=choice_scores,
-            model=judge_model(),
+            model=JUDGE_MODEL,
             **kwargs,
         )
 
@@ -390,11 +390,6 @@ class SurfacesAllFindingsWhenListed(SurfacesAllFindings):
 
     The parent scores such a case 1.0, which would lift this suite's average with cases it never graded.
     """
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        # The parent pins its own suite's baseline model. This suite grades every judge with one model.
-        self.model = judge_model()
 
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
         if not isinstance(expected, dict) or self._name() not in expected:
