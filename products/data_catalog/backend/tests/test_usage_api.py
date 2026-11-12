@@ -56,6 +56,12 @@ class TestVisiblePayload(SimpleTestCase):
             ("query_over_a_denied_table", frozenset({"billing"}), "select sum(amount) from billing", False),
             ("query_over_another_table", frozenset({"billing"}), "select count() from events", True),
             ("unparseable_query_with_denied_tables", frozenset({"billing"}), "select count( from", False),
+            (
+                "cut_query_with_denied_tables",
+                frozenset({"billing"}),
+                "select count() from events where " + "x = 1 and " * 600 + "1",
+                False,
+            ),
         ]
     )
     def test_reader_sees_only_visible_metrics_and_allowed_sql(
