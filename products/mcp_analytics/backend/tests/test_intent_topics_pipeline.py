@@ -79,11 +79,13 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         first = pipeline.run_sync(self.team, window_start=start, window_end=NOW, budget=2, page_size=1)
 
         assert (first.status, first.n_intents) == ("succeeded", 2)
-        assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == start + timedelta(hours=1)
+        first_end = start + pipeline.SYNC_RESUME_OVERLAP + pipeline.SYNC_SLICE
+        assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == first_end
         for call in mock_emit.call_args_list:
             insert_intent_embedding(self.team.pk, call.kwargs["document_id"], call.kwargs["content"], at=start)
         resume = pipeline.sync_window_start(self.team, now=NOW)
-        assert resume == start + timedelta(hours=1) - pipeline.SYNC_RESUME_OVERLAP
+        # The replayed overlap does not eat into the hour a budget-stopped run advances.
+        assert resume - start == pipeline.SYNC_SLICE
 
         second = pipeline.run_sync(self.team, window_start=resume, window_end=NOW, budget=100, page_size=1)
 
