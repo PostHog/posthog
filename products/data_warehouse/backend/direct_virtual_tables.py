@@ -19,7 +19,6 @@ from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 
-from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.data_warehouse.backend.clickhouse_helpers import (
     clickhouse_schema_metadata_to_dwh_columns,
     get_clickhouse_source_location,
@@ -51,6 +50,7 @@ from products.data_warehouse.backend.snowflake_helpers import (
     snowflake_schema_metadata_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.hogql import hogql_fields_and_structure_for_columns
+from products.warehouse_sources.backend.facade.live_queries import is_live_query_eligible
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
@@ -85,25 +85,6 @@ def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[External
         .order_by("name")
         if is_live_query_eligible(schema_row)
     ]
-
-
-def is_live_query_eligible(schema_row: ExternalDataSchema) -> bool:
-    return bool(schema_row.schema_metadata) and not schema_row.row_filters and not schema_row.masked_columns
-
-
-def live_only_access_ref(schema_row: ExternalDataSchema) -> ObjectAccessRef:
-    """The access-control reference for a live-only table, which has no synced table row.
-
-    It carries the schema id, which no table rule can name, so access resolves from the table's source
-    and then the resource defaults.
-    """
-    return ObjectAccessRef(
-        resource="warehouse_table",
-        id=str(schema_row.id),
-        team_id=schema_row.team_id,
-        created_by_id=None,
-        fallback_parent=FallbackParent(resource="external_data_source", id=str(schema_row.source_id)),
-    )
 
 
 # Keep in sync with the engine branches in build_direct_table_for_schema.

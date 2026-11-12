@@ -1481,8 +1481,7 @@ class Database(BaseModel):
         `_is_warehouse_table_denied` for a dual-mode table that is queryable live but has no synced table row.
         Userless context (no UserAccessControl) fails closed.
         """
-        # Function-local: the facade pulls the direct-SQL engine helpers, kept off django.setup().
-        from products.data_warehouse.backend.facade.direct_query import live_only_access_ref  # noqa: PLC0415
+        from products.warehouse_sources.backend.facade.live_queries import live_only_access_ref  # noqa: PLC0415
 
         uac = self.user_access_control
         if uac is not None and (

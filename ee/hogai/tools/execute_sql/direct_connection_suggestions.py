@@ -18,6 +18,7 @@ from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.warehouse_sources.backend.facade.live_queries import is_live_query_eligible, live_only_access_ref
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
 
@@ -145,12 +146,6 @@ def _matching_table_names(
             record(table.name, str(table.external_data_source_id))
 
     if dual_mode_ids:
-        # Function-local: the facade pulls the direct-SQL engine helpers.
-        from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
-            is_live_query_eligible,
-            live_only_access_ref,
-        )
-
         for schema in (
             ExternalDataSchema.objects.filter(
                 Q(should_sync=True) | Q(live_query_enabled=True),
