@@ -119,9 +119,9 @@ export interface EmailStatusApi {
     reason: string | null
 }
 
-export interface PatchedRescheduleEmailApi {
+export interface RescheduleEmailApi {
     /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now. */
-    scheduled_at?: string
+    scheduled_at: string
 }
 
 export interface RescheduledEmailApi {
