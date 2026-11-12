@@ -86,6 +86,10 @@ _DEDUP_HASH_BYTES = 8
 @activity.defn
 @track_activity()
 async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> None:
+    return await fetch_session_events(inputs)
+
+
+async def fetch_session_events(inputs: FetchSessionEventsInputs) -> None:
     """Fetch analytics events for a session and stash in Redis; idempotent — a second call finds the key and returns."""
     redis_client, redis_key = get_redis_state_client(
         label=StateActivitiesEnum.SESSION_EVENTS,
