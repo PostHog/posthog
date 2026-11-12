@@ -516,7 +516,6 @@ export class StateManager {
         ttlMs?: number | ((cached: State[D]) => number)
         /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
         expectTimeouts?: boolean
-        /** Drop the cached value instead of serving it when a refresh fails. */
         discardOnError?: (cached: State[D]) => boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
