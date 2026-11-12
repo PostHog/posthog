@@ -849,7 +849,7 @@ class TestFileSystemAPI(APIBaseTest):
         # Folder names are checked with this lookup on every create and rename, so its count and its page compare
         # the raw path that the (team, surface, path) index holds.
         with CaptureQueriesContext(connection) as captured:
-            self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "SomeFolder/File1", "limit": 2})
+            self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "SomeFolder/File1", "limit": "2"})
         lookups = [query["sql"] for query in captured.captured_queries if "SomeFolder/File1" in query["sql"]]
         self.assertEqual(len(lookups), 2, lookups)
         for sql in lookups:
