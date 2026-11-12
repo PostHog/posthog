@@ -75,7 +75,10 @@ const MetricsSceneContent = (): JSX.Element => {
         sql: metricsSqlDisabledReason,
         alerts: metricsViewerDisabledReason,
     }
-    const alertsEnabled = useFeatureFlag('PLATFORM_ALERTS_SOURCE_METRICS')
+    // The platform serves metrics alerts only when its own flag is on as well.
+    const platformAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS')
+    const metricsAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS_SOURCE_METRICS')
+    const alertsEnabled = platformAlertsEnabled && metricsAlertsEnabled
     const tabs = alertsEnabled ? TABS : TABS.filter((tab) => tab.key !== 'alerts')
     // A shared link to the alerts tab falls back to the default tab for someone without the flag.
     const shownTab = alertsEnabled || activeTab !== 'alerts' ? activeTab : DEFAULT_ACTIVE_TAB
