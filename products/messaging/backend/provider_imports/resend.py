@@ -92,7 +92,11 @@ class ResendImportProvider(ImportProvider):
             key="topics",
             label="Topics",
             description="Creates a marketing message category for each Resend topic.",
-            count_labels=(("created", "New categories"), ("already_present", "Already in PostHog, left as they are")),
+            count_labels=(
+                ("created", "New categories"),
+                ("already_present", "Already in PostHog, left as they are"),
+                ("private", "Private topics, left in Resend"),
+            ),
         ),
         ImportStepSpec(
             key="suppressions",
@@ -208,16 +212,26 @@ def _fetch_topics(
 
 
 def _save_topics(context: ImportContext, topics: list[dict[str, Any]]) -> SavedPage:
-    categories = [category for category in map(_to_category, topics) if category]
+    # The PostHog preferences page lists every category, so a private topic would show to every recipient.
+    private = [topic for topic in topics if topic.get("visibility") == "private"]
+    public = [topic for topic in topics if topic.get("visibility") != "private"]
+    categories = [category for category in map(_to_category, public) if category]
     result = import_categories(context.team_id, categories, context.created_by_id)
     return SavedPage(
         imported=result.created,
-        counts={"created": result.created, "already_present": result.already_present},
-        warnings=tuple(
-            f"{topic.get('name') or topic.get('id')}: Resend only sends this topic to people who opted in. PostHog "
-            "sends a category to everyone who hasn't opted out, so check who you send it to."
-            for topic in topics
-            if topic.get("default_subscription") == "opt_out"
+        counts={"created": result.created, "already_present": result.already_present, "private": len(private)},
+        warnings=(
+            *(
+                f"{topic.get('name') or topic.get('id')}: Resend only sends this topic to people who opted in. "
+                "PostHog sends a category to everyone who hasn't opted out, so check who you send it to."
+                for topic in public
+                if topic.get("default_subscription") == "opt_out"
+            ),
+            *(
+                f"{topic.get('name') or topic.get('id')}: private in Resend, so it wasn't imported. PostHog shows "
+                "every category on the preferences page. Create it yourself if your recipients may see it."
+                for topic in private
+            ),
         ),
     )
 

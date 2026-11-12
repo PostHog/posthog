@@ -121,8 +121,10 @@ class TestResendImport(BaseTest):
         }
 
     def test_opt_outs_read_contacts_without_creating_people(self) -> None:
-        self._run(["topics", "opt_outs", "topic_opt_outs"])
+        run = self._run(["topics", "opt_outs", "topic_opt_outs"])
 
+        assert run.progress["topics"]["counts"] == {"created": 2, "already_present": 0, "private": 1}
+        assert not MessageCategory.objects.filter(team_id=self.team.id, name__startswith="Beta invitations").exists()
         preferences = {
             row.identifier: row.preferences for row in MessageRecipientPreference.objects.filter(team_id=self.team.id)
         }
@@ -260,7 +262,7 @@ class TestResendImport(BaseTest):
         renamed = MessageCategory.objects.get(team_id=self.team.id, name="Product updates")
         renamed.name = "News"
         renamed.save()
-        deleted_category = MessageCategory.objects.get(team_id=self.team.id, name__startswith="Beta invitations")
+        deleted_category = MessageCategory.objects.get(team_id=self.team.id, name__startswith="Nyheter")
         deleted_category.deleted = True
         deleted_category.save()
 
