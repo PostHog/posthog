@@ -116,6 +116,11 @@ class WorkflowViewSerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the shared view was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the shared view was last changed.")
+    user_access_level = serializers.SerializerMethodField(help_text="Your workflow access in the owning project.")
+
+    def get_user_access_level(self, _view: object) -> str:
+        access = self.context["view"].user_access_control.access_level_for_resource("hog_flow")
+        return access.access_level if access else "none"
 
 
 class WorkflowViewCreateSerializer(serializers.Serializer):

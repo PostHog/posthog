@@ -299,10 +299,13 @@ class TestWorkflowViewAPI(APIBaseTest):
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
         member = User.objects.create_and_join(self.organization, "parent-viewer@example.com", None)
         AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="viewer")
+        AccessControl.objects.create(team=child, resource="hog_flow", access_level="editor")
         self.client.force_login(member)
         child_detail_url = f"/api/environments/{child.pk}/workflow_views/{view['id']}/"
 
-        self.assertEqual(self.client.get(child_detail_url).status_code, 200)
+        read = self.client.get(child_detail_url)
+        self.assertEqual(read.status_code, 200, read.content)
+        self.assertEqual(read.json()["user_access_level"], "viewer")
         for method, path, data in [
             ("patch", child_detail_url, {"name": "Changed from the child", "version": view["version"]}),
             ("delete", f"{child_detail_url}?version={view['version']}", {}),
