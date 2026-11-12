@@ -307,6 +307,27 @@ class TestGitLabIntegrationModel:
         assert mock_request.call_args.kwargs["allow_redirects"] is False
 
     @pytest.mark.parametrize(
+        "reachable_ids, expected",
+        [([7], True), ([7, 8], False), ([8], False), ([], False)],
+        ids=["project_token", "group_or_personal_token", "other_project_only", "no_access"],
+    )
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_token_reaches_only_connected_project(self, _mock_is_url_allowed, mock_request, reachable_ids, expected):
+        from posthog.models.integration import GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 7},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_request.return_value = MagicMock(status_code=200)
+        mock_request.return_value.json.return_value = [{"id": project_id} for project_id in reachable_ids]
+
+        assert GitLabIntegration(integration).token_reaches_only_connected_project() is expected
+        assert mock_request.call_args.kwargs["params"]["membership"] == "true"
+
+    @pytest.mark.parametrize(
         "status_code, permissions, expected_path",
         [
             (200, {"project_access": {"access_level": 30}, "group_access": None}, "acme/platform/api"),

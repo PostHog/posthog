@@ -466,6 +466,31 @@ class GitLabIntegration:
             default_branch=project.get("default_branch"),
         )
 
+    def token_reaches_only_connected_project(self) -> bool:
+        """Whether the token can reach the connected project and no other project.
+
+        A project access token passes. A group or personal token that reaches more fails, because
+        the sandbox holds the token and could use it on projects the connector never shared.
+        """
+        response = self._request(
+            "GET",
+            self.hostname,
+            "projects",
+            self._access_token(),
+            endpoint="/api/v4/projects",
+            params={"membership": "true", "simple": "true", "per_page": 2},
+        )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(f"GitLabIntegration: failed to list projects: {response.text[:300]}")
+        projects = self._json(response)
+        connected_id = self.integration.config.get("project_id")
+        return (
+            isinstance(projects, list)
+            and len(projects) == 1
+            and connected_id is not None
+            and str(projects[0].get("id")) == str(connected_id)
+        )
+
     @staticmethod
     def _merge_request(payload: dict[str, Any]) -> GitLabMergeRequest:
         return GitLabMergeRequest(
