@@ -41,7 +41,7 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
+export async function allocateEmailDequeueSeqs(pool: Pool | PoolClient, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
         const indices = indicesByTeam.get(teamId)
@@ -464,10 +464,22 @@ export class CyclotronV2Manager {
             throw new Error('createJobsIdempotently does not support overwriteExisting')
         }
 
-        await this.insertGuard()
+        // A repeat queues nothing, so it neither waits on capacity nor takes a fair-dequeue slot.
+        const liveIds = await this.liveIdempotencyKeyIds(entries.map((entry) => entry.id))
+        const fresh = entries.filter((entry) => !liveIds.has(entry.id))
+        if (fresh.length > 0) {
+            await this.insertGuard()
+        }
 
         // Outside the transaction, so the hot per-team counter row is not locked until commit.
-        const dequeueSeqs = await this.computeEmailDequeueSeqs(entries.map((entry) => entry.job))
+        const freshSeqs = await this.computeEmailDequeueSeqs(fresh.map((entry) => entry.job))
+        const dequeueSeqs = new Map<string, string>()
+        fresh.forEach((entry, i) => {
+            const dequeueSeq = freshSeqs[i]
+            if (dequeueSeq !== null) {
+                dequeueSeqs.set(entry.id, dequeueSeq)
+            }
+        })
 
         const now = Date.now()
         const client = await this.pool.connect()
@@ -499,13 +511,22 @@ export class CyclotronV2Manager {
             )
             claimedIds = new Set(claimed.rows.map((row) => row.id))
 
-            const toInsert = entries.flatMap((entry, i) => (claimedIds.has(entry.id) ? [{ ...entry, i }] : []))
+            const toInsert = entries.filter((entry) => claimedIds.has(entry.id))
+            // A key that expired with its job gone between the read above and this claim has no slot yet.
+            const unslotted = toInsert.filter((entry) => entry.job.queueName === 'email' && !dequeueSeqs.has(entry.id))
+            if (unslotted.length > 0) {
+                const lateSeqs = await allocateEmailDequeueSeqs(
+                    client,
+                    unslotted.map((entry) => entry.job.teamId)
+                )
+                unslotted.forEach((entry, k) => dequeueSeqs.set(entry.id, lateSeqs[k]))
+            }
             if (toInsert.length > 0) {
                 await this.insertJobRows(
                     client,
                     toInsert.map((entry) => entry.job),
                     toInsert.map((entry) => entry.id),
-                    toInsert.map((entry) => dequeueSeqs[entry.i]),
+                    toInsert.map((entry) => dequeueSeqs.get(entry.id) ?? null),
                     ''
                 )
             }
@@ -600,6 +621,17 @@ export class CyclotronV2Manager {
                 dequeueSeqs,
             ]
         )
+    }
+
+    // The claim's own retention rule: a key counts while unexpired or while its job still exists.
+    private async liveIdempotencyKeyIds(ids: string[]): Promise<Set<string>> {
+        const { rows } = await this.pool.query<{ id: string }>(
+            `SELECT k.id FROM cyclotron_idempotency_keys k
+             WHERE k.id = ANY($1::uuid[])
+                 AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
+            [ids]
+        )
+        return new Set(rows.map((row) => row.id))
     }
 
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {

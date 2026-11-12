@@ -1579,6 +1579,48 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('answers a repeat while the queue is full, and still refuses a new key', async () => {
+                const id = uuidv7()
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                const fullManager = createManager({ depthLimit: 1, depthCheckIntervalMs: 0 })
+                await fullManager.connect()
+                try {
+                    expect(await fullManager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['replayed'])
+                    expect(await fullManager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['mismatch'])
+                    await expect(fullManager.createJobsIdempotently([keyed(uuidv7(), 'a')])).rejects.toThrow(
+                        /queue is full/i
+                    )
+                } finally {
+                    await fullManager.disconnect()
+                }
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('takes an email dequeue slot only for a job it queues', async () => {
+                const teamId = 4242
+                const emailCounter = async (): Promise<string | undefined> =>
+                    (
+                        await assertPool.query<{ counter: string }>(
+                            'SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1',
+                            [teamId]
+                        )
+                    ).rows[0]?.counter
+                const email = (id: string, fingerprint: string): CyclotronV2IdempotentJobInit =>
+                    keyed(id, fingerprint, { teamId, queueName: 'email' })
+                const id = uuidv7()
+
+                expect(await manager.createJobsIdempotently([email(id, 'a')])).toEqual(['created'])
+                const afterCreate = await emailCounter()
+                expect(afterCreate).toBeDefined()
+
+                expect(await manager.createJobsIdempotently([email(id, 'a')])).toEqual(['replayed'])
+                expect(await manager.createJobsIdempotently([email(id, 'b')])).toEqual(['mismatch'])
+                expect(await emailCounter()).toBe(afterCreate)
+
+                expect(await manager.createJobsIdempotently([email(uuidv7(), 'a')])).toEqual(['created'])
+                expect(BigInt((await emailCounter())!)).toBe(BigInt(afterCreate!) + 1n)
+            })
+
             it('does not deadlock when concurrent calls carry the same ids in opposite orders', async () => {
                 const [first, second] = [uuidv7(), uuidv7()].sort()
                 await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
