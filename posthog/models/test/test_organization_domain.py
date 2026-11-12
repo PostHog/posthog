@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -83,3 +84,17 @@ class TestTheDomainOfAnEmailAddress(BaseTest):
         self.assertIsNone(OrganizationDomain.objects.get_verified_for_email_address(email))
         self.assertIsNone(OrganizationDomain.objects.get_sso_enforcement_for_email_address(email))
         self.assertFalse(OrganizationDomain.objects.is_domain_verified_for_organization(email, organization))
+
+
+class TestOutOfBandDomainsAreNotVerified(BaseTest):
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        domain = OrganizationDomain.objects.create(domain="abc.oast.live", organization=self.organization)
+        with (
+            patch("posthog.models.organization_domain.is_cloud", return_value=cloud),
+            patch("posthog.models.organization_domain.dnssec_resolver") as resolver,
+        ):
+            _, verified = domain.attempt_verification()
+
+        self.assertEqual(resolver.called, not cloud)
+        self.assertFalse(verified)

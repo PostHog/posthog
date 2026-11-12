@@ -27,6 +27,7 @@
             <div class="quill-card__footer flex flex-wrap gap-2"
                  data-slot="card-footer">
                 <button type="submit"
+                        {% if operation.pending_label %}data-pending-label="{{ operation.pending_label }}"{% endif %}
                         class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
                     {{ operation.label }}
                 </button>

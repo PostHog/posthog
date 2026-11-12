@@ -28,7 +28,7 @@ use siphasher::sip::SipHasher13;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use capture_logs::metric_record::KafkaMetricRow;
+use capture_logs::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 
 const REDIS_KEY_PREFIX: &str = "capture-logs:metric-series-labels";
 /// Members are spread over hour buckets so keys expire on their own and no
@@ -222,6 +222,18 @@ impl SeriesLabelGate {
         counter!("capture_metrics_series_labels_sent").increment(keys.len() as u64);
         counter!("capture_metrics_series_labels_skipped").increment(skipped);
         LabelledSeries { keys }
+    }
+
+    /// Run [`Self::decide`] and return the billable bytes of `rows` measured before any
+    /// labels are stripped. The meter (RFC #1350: 8 bytes per label) bills the
+    /// labels the customer sent, not the ones this dedup leaves on the wire.
+    pub fn decide_metered(
+        &self,
+        token: &str,
+        rows: &mut [KafkaMetricRow],
+    ) -> (LabelledSeries, u64) {
+        let records_bytes = sum_kafka_metric_row_bytes(rows);
+        (self.decide(token, rows), records_bytes)
     }
 
     /// Record the series that [`Self::decide`] left labelled, after the write
@@ -830,6 +842,28 @@ mod tests {
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+    }
+
+    #[test]
+    fn metered_bytes_count_labels_the_gate_strips() {
+        let (gate, _, _) = gate(true, false);
+
+        // Each row: 24 bytes per point + 8 bytes for each of its 2 labels.
+        let full = 24 + 8 * 2;
+        let mut rows = vec![row(7), row(7), row(8)];
+        let (labelled, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        gate.commit("token-a", labelled);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 3 * full);
+        assert!(sum_kafka_metric_row_bytes(&rows) < records_bytes);
+
+        // A later batch whose series are all known is fully stripped on the
+        // wire but still metered with every label it sent.
+        let mut rows = vec![row(7), row(8)];
+        let (_, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        assert_stripped(&rows[0]);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 2 * full);
     }
 
     #[test]

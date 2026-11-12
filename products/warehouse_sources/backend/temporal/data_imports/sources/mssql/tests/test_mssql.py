@@ -1,7 +1,12 @@
+import socket
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import pyarrow as pa
 import pymssql
@@ -12,11 +17,16 @@ from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_w
 )
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
@@ -573,6 +583,121 @@ class TestConnectTimeouts:
             pass
 
         assert mock_connect.call_args.kwargs["encryption"] == expected
+
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
+
+@contextmanager
+def _direct_connect_on_cloud(*answers, tunnel_endpoint: tuple[str, int] | None = None) -> Iterator[MagicMock]:
+    lookups = iter(answers)
+
+    def getaddrinfo(*_args, **_kwargs):
+        answer = next(lookups, answers[-1])
+        if isinstance(answer, BaseException):
+            raise answer
+        return addrinfo(1433, *answer)
+
+    with (
+        override_settings(CLOUD_DEPLOYMENT="US"),
+        patch(f"{_MIXINS_MODULE}.settings") as mock_settings,
+        patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=getaddrinfo),
+        patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+        patch(f"{_MSSQL_MODULE}.pymssql.connect") as mock_connect,
+    ):
+        mock_settings.TEST = False
+        mock_settings.DEBUG = False
+        mock_settings.E2E_TESTING = False
+        if tunnel_endpoint is None:
+            yield mock_connect
+        else:
+            with patch(f"{_MSSQL_MODULE}.open_ssh_tunnel") as tunnel:
+                tunnel.return_value.__enter__.return_value = tunnel_endpoint
+                yield mock_connect
+
+
+class TestConnectDialsTheValidatedAddress:
+    @parameterized.expand(
+        [
+            ("ipv4", "db.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("ipv6_carries_its_port", "db.example.com", ["2600:1f18::1"], "[2600:1f18::1]:1433"),
+            ("azure_sql", "myserver.database.windows.net", ["52.1.2.3"], "myserver.database.windows.net"),
+            (
+                "azure_synapse_gov",
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+                ["52.1.2.3"],
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+            ),
+            ("azure_synapse_china", "ws.sql.azuresynapse.azure.cn", ["52.1.2.3"], "ws.sql.azuresynapse.azure.cn"),
+            ("azure_zone_mid_name", "myserver.database.windows.net.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("azure_zone_without_dot", "evildatabase.windows.net", ["52.1.2.3"], "52.1.2.3"),
+        ]
+    )
+    def test_server_passed_to_the_driver(self, _name, host, answer, expected_server):
+        with _direct_connect_on_cloud(answer) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == expected_server
+
+    @parameterized.expand(
+        [
+            ("rebinds_after_the_first_lookup", "db.example.com", [["52.1.2.3"], ["10.0.0.5"]], HostNotAllowedError),
+            ("azure_host_is_still_checked", "myserver.database.windows.net", [["10.0.0.5"]], HostNotAllowedError),
+            (
+                "resolver_blip_on_the_pin_stays_retryable",
+                "db.example.com",
+                [["52.1.2.3"], socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")],
+                TemporaryHostResolutionError,
+            ),
+        ]
+    )
+    def test_never_dials_an_unapproved_address(self, _name, host, answers, expected_error):
+        with _direct_connect_on_cloud(*answers) as mock_connect:
+            with pytest.raises(expected_error):
+                with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                    pass
+
+        mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "unreachable_address_falls_over",
+                pymssql.OperationalError(
+                    20009, b"Unable to connect: Adaptive Server is unavailable or does not exist (52.1.2.3)"
+                ),
+                ["52.1.2.3", "52.1.2.4"],
+                None,
+            ),
+            (
+                "login_failure_stops",
+                pymssql.OperationalError(18456, b"Login failed for user 'u'."),
+                ["52.1.2.3"],
+                pymssql.OperationalError,
+            ),
+        ]
+    )
+    def test_tries_the_next_validated_address_only_when_one_is_unreachable(
+        self, _name, first_error, expected_servers, expected_error
+    ):
+        with _direct_connect_on_cloud(["52.1.2.3", "52.1.2.4"]) as mock_connect:
+            mock_connect.side_effect = [first_error, MagicMock()]
+            with pytest.raises(expected_error) if expected_error else nullcontext():
+                with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert [call.kwargs["server"] for call in mock_connect.call_args_list] == expected_servers
+
+    def test_a_tunnel_loopback_is_dialled_without_a_lookup(self):
+        with _direct_connect_on_cloud(
+            socket.gaierror(socket.EAI_NONAME, "unused"), tunnel_endpoint=("127.0.0.1", 40000)
+        ) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == "127.0.0.1"
+        assert mock_connect.call_args.kwargs["port"] == "40000"
 
 
 class _RaisingTunnel:
