@@ -52,6 +52,25 @@ describe('HogFlowActionSchema', () => {
                 },
             },
         ],
+        [
+            'email_sandbox saved through the API with null message categories',
+            {
+                id: 'action_email_sandbox_abc123',
+                name: 'Email',
+                type: 'email_sandbox',
+                description: '',
+                config: {
+                    message_category_id: null,
+                    message_category_type: null,
+                    inputs: {
+                        email: {
+                            templating: 'liquid',
+                            value: { to: { email: '{{ person.properties.email }}' }, subject: 'Hello', text: 'Hi' },
+                        },
+                    },
+                },
+            },
+        ],
     ])('validates %s action without created_at/updated_at', (_label, action) => {
         const result = HogFlowActionSchema.safeParse(action)
         expect(result.success).toBe(true)

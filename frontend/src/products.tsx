@@ -2440,7 +2440,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'insight',
         iconType: 'business_intelligence',
         href: `${urls.businessIntelligenceNew()}#q=`,
-        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
     },
 ]
@@ -2574,7 +2573,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
         tags: ['beta'],
-        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
     },
@@ -2718,6 +2716,41 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.dataCatalog(),
         searchKeywords: ['semantic layer', 'metrics', 'data dictionary', 'glossary', 'governance'],
         searchTabs: [
+            {
+                name: 'Tables & views',
+                href: urls.dataCatalog('tables'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: [
+                    'models',
+                    'materialized views',
+                    'materialization',
+                    'data modeling',
+                    'sql views',
+                    'saved queries',
+                ],
+            },
+            {
+                name: 'Lineage',
+                href: urls.dataCatalog('lineage'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: ['dag', 'dependencies'],
+            },
+            {
+                name: 'Data quality',
+                href: urls.dataCatalog('data-quality'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: ['data tests', 'checks', 'freshness'],
+            },
+            {
+                name: 'Usage',
+                href: urls.dataCatalog('usage'),
+                requiredFlags: [
+                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+                    FEATURE_FLAGS.DATA_MODELING_USAGE,
+                ],
+                searchKeywords: ['bytes read', 'cpu'],
+            },
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
@@ -3511,12 +3544,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
             },
             {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Search & AI',
+                name: 'AI traffic',
                 href: urls.webAnalyticsPagePerformance(),
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
             },
