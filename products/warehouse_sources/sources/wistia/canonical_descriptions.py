@@ -136,8 +136,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the webinar was created, in UTC.",
             "updated_at": "When the webinar was last updated, in UTC.",
             "audience_link": "Link for the audience to join the webinar.",
-            "host_link": "Link for the host to manage the webinar.",
-            "panelist_link": "Link for panelists to join the webinar.",
             "thumbnail_url": "URL of the custom thumbnail image of the webinar.",
             "folder": "Folder the webinar belongs to.",
         },

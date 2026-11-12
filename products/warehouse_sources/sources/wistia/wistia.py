@@ -8,6 +8,7 @@ from requests import Response
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
+    Endpoint,
     EndpointResource,
     PageNumberPaginator,
     Resource,
@@ -77,10 +78,15 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _drop_cursor(row: dict[str, Any]) -> dict[str, Any]:
-    # Each list row carries a `cursor` for Wistia's cursor pagination. It is only valid for the
-    # sort order of that request, so it has no meaning in the warehouse.
-    row.pop("cursor", None)
+# `cursor` is only valid for the sort order of one request, so it has no meaning in the warehouse.
+# Webinar host and panelist links give access to the webinar without a login, so they must not
+# reach every reader of the warehouse table.
+_DROPPED_FIELDS = ("cursor", "host_link", "panelist_link")
+
+
+def _drop_fields(row: dict[str, Any]) -> dict[str, Any]:
+    for field_name in _DROPPED_FIELDS:
+        row.pop(field_name, None)
     return row
 
 
@@ -125,7 +131,7 @@ def _top_level_resource(
         "resources": [
             {
                 "name": config.name,
-                "data_map": _drop_cursor,
+                "data_map": _drop_fields,
                 "endpoint": {
                     "path": config.path,
                     "params": params,
@@ -171,7 +177,7 @@ def _fan_out_resource(
 
     def _inject_parent_id(row: dict[str, Any]) -> dict[str, Any]:
         row[parent_key] = row.pop(prefixed_parent_id)
-        return _drop_cursor(row)
+        return _drop_fields(row)
 
     parent_resource: EndpointResource = {
         "name": parent_config.name,
@@ -186,24 +192,27 @@ def _fan_out_resource(
     child_params: dict[str, Any] = {
         "parent_id": {"type": "resolve", "resource": parent_config.name, "field": "hashed_id"},
     }
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": child_params,
+        # A parent deleted between the parent list and the child request returns 404.
+        "response_actions": [{"status_code": 404, "action": "ignore"}],
+    }
     if config.child_is_single_object:
         # One stats object per media: no pagination, and the body is a dict, not a list.
-        child_endpoint: dict[str, Any] = {"paginator": SinglePagePaginator()}
+        child_endpoint["paginator"] = SinglePagePaginator()
     else:
         child_params.update({**config.params, "per_page": PAGE_SIZE})
-        child_endpoint = {"paginator": WistiaPageNumberPaginator(), "data_selector_required": True}
+        child_endpoint["paginator"] = WistiaPageNumberPaginator()
+        child_endpoint["data_selector_required"] = True
 
     child_resource: EndpointResource = {
         "name": config.name,
         "include_from_parent": ["hashed_id"],
         "data_map": _inject_parent_id,
-        "endpoint": {
-            "path": config.path,
-            "params": child_params,
-            # A parent deleted between the parent list and the child request returns 404.
-            "response_actions": [{"status_code": 404, "action": "ignore"}],
-            **child_endpoint,
-        },
+        "endpoint": child_endpoint,
+        # The checkpoint keeps the parent page position, so it does not list every completed parent.
+        "resume_parent_pagination": True,
     }
 
     rest_config: RESTAPIConfig = {

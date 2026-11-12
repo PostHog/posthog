@@ -80,6 +80,18 @@ class TestTopLevelPagination:
         assert all("cursor" not in row for row in result.rows)
         assert result.saved_states == [WistiaResumeConfig(page=2)]
 
+    def test_webinar_rows_drop_the_private_access_links(self) -> None:
+        webinar = {
+            "hashed_id": "w1",
+            "audience_link": "https://example.com/join",
+            "host_link": "https://example.com/host-secret",
+            "panelist_link": "https://example.com/panelist-secret",
+        }
+        result = _driver().run("webinars", [_page([webinar])])
+
+        assert result.raised is None
+        assert result.rows == [{"hashed_id": "w1", "audience_link": "https://example.com/join"}]
+
     def test_resumes_from_saved_page(self) -> None:
         result = _driver().run("medias", [_page(_medias(1))], resume_state=WistiaResumeConfig(page=3))
 
@@ -174,6 +186,21 @@ class TestFanOut:
             {"load_count": 3, "play_count": 1, "actions": [], "media_hashed_id": "m2"},
         ]
 
+    def test_checkpoint_keeps_only_the_last_two_parent_pages(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/modern/medias":
+                page = int(request.param("page") or 0)
+                return _page([{"hashed_id": f"m{page}_{i}"} for i in range(100 if page < 4 else 1)])
+            return ScriptedResponse(json={"load_count": 1})
+
+        result = _driver().run("media_stats", answer)
+
+        assert result.raised is None
+        assert len(result.rows) == 301
+        assert max(len(state.fanout_state["completed"]) for state in result.saved_states if state.fanout_state) == 200
+        final_state = result.saved_states[-1].fanout_state
+        assert final_state is not None and final_state["parent"] == {"page": 3}
+
     def test_resume_skips_completed_parents(self) -> None:
         result = _driver().run(
             "media_stats",
@@ -228,6 +255,7 @@ class TestAccountStatsByDate:
         assert windows[-1][1] == "2026-11-12"
         # Windows are contiguous: each starts the day after the previous one ends.
         for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
+            assert next_start is not None and previous_end is not None
             assert date.fromisoformat(next_start).toordinal() == date.fromisoformat(previous_end).toordinal() + 1
         # The empty first window yields nothing, every later window yields its row.
         assert len(result.rows) == len(windows) - 1
