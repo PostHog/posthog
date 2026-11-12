@@ -235,6 +235,7 @@ describe('buildEmailMetricRows', () => {
                 markedAsSpam: 4,
                 untracked: 7,
                 trackedSends: 93,
+                removed: false,
             },
         ])
     })
@@ -244,6 +245,18 @@ describe('buildEmailMetricRows', () => {
             a1: { email_sent: 100, email_delivered: 60, email_untracked: 90, email_bounced: 40 },
         })
         expect(row.trackedSends).toBe(10)
+    })
+
+    it('adds a removed row for totals recorded under a step the workflow no longer has', () => {
+        const rows = buildEmailMetricRows([{ id: 'current', name: 'New welcome email' }], {
+            deleted: { email_sent: 30, email_opened: 12, email_link_clicked: 4 },
+            unused: { email_sent: 0 },
+            cappedPushStep: { message_frequency_capped: 5 },
+        })
+        expect(rows).toMatchObject([
+            { id: 'current', email: 'New welcome email', sent: 0, opened: 0, linkClicked: 0, removed: false },
+            { id: 'deleted', email: 'Removed email', sent: 30, opened: 12, linkClicked: 4, removed: true },
+        ])
     })
 
     // delivered falls back to sent - bounced (clamped at 0) when it wasn't collected. Spam
