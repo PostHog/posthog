@@ -16,6 +16,7 @@ from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
+    delete_owned_configuration,
     get_configuration,
     list_configurations,
     native_configuration_matches,
@@ -150,6 +151,12 @@ def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAler
     )
 
 
+def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes an insight alert with no insight row: sends the resolves of its open firings while its
+    destinations still exist, then removes them and the alert. Call it outside any transaction."""
+    delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
+
+
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
     """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
     return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
@@ -229,8 +236,10 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
         alert.threshold = Threshold(
             team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
         )
-    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    # An unsaved threshold has no `created_at`, which the API's readers expect, and a fresh id on
+    # every read. The alert's id keeps the threshold's id the same from one read to the next.
     alert.threshold.created_at = configuration.created_at
+    alert.threshold.id = configuration.id
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
