@@ -125,7 +125,11 @@ def _authored_config(config: Any, secret_keys: set[str]) -> Any:
     if not isinstance(config, dict):
         return config
     authored = {key: value for key, value in config.items() if key not in _SERVER_STEP_CONFIG_FIELDS}
-    if "inputs" in authored:
+    if isinstance(authored.get("inputs"), dict):
+        # A step's secret items are masked in a request and absent from the stored step, so they stay out whole.
+        public = {key: item for key, item in authored["inputs"].items() if key not in secret_keys}
+        authored["inputs"] = authored_inputs(public, set())
+    elif "inputs" in authored:
         authored["inputs"] = authored_inputs(authored["inputs"], secret_keys)
     if isinstance(authored.get("mappings"), list):
         authored["mappings"] = [authored_mapping(mapping) for mapping in authored["mappings"]]
