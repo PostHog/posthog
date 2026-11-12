@@ -108,6 +108,10 @@ def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, s
 @activity.defn
 @track_activity()
 def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> None:
+    return mark_observation_running(inputs)
+
+
+def mark_observation_running(inputs: MarkObservationRunningInputs) -> None:
     """Flip pending → running. Idempotent: an at-least-once retry against the now-RUNNING row is a no-op."""
     ReplayObservation.objects.filter(
         pk=inputs.observation_id,
@@ -188,6 +192,10 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 @activity.defn
 @track_activity()
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
+    return mark_observation_succeeded(inputs)
+
+
+def mark_observation_succeeded(inputs: MarkObservationSucceededInputs) -> None:
     """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
     with transaction.atomic():
         updated = ReplayObservation.objects.filter(

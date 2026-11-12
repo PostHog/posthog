@@ -26,7 +26,13 @@ import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, groupScopeRows, type 
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
-import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
+import type {
+    OAuthApplicationPublicMetadata,
+    OAuthEmaIssuerConsent,
+    OrganizationBasicType,
+    TeamBasicType,
+    UserType,
+} from '~/types'
 
 import { create as createOrganization } from 'products/platform_features/frontend/generated/api'
 
@@ -149,6 +155,7 @@ export interface oauthAuthorizeLogicValues {
     authorizationComplete: boolean
     consentResourceScopes: string[]
     effectiveScopes: string[]
+    emaIssuerConsent: OAuthEmaIssuerConsent | null
     filteredTeams: TeamBasicType[] | null
     identityScopeDescriptions: string[]
     isCanceling: boolean
@@ -726,7 +733,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                const scopes = oauthAuthorizeLogic.values.effectiveScopes
+                // The scope rows only describe resource scopes, so they would drop the EMA scope.
+                const emaIssuerConsent = oauthAuthorizeLogic.values.emaIssuerConsent
+                const scopes = emaIssuerConsent ? [emaIssuerConsent.scope] : oauthAuthorizeLogic.values.effectiveScopes
                 const result = await oauthAuthorize({
                     ...values,
                     allow: true,
@@ -752,6 +761,10 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     selectors(() => ({
         // The server sets this flag once for the page, so no action changes it.
         accessControlsApply: [() => [], (): boolean => getAppContext()?.oauth_consent_access_controls_apply === true],
+        emaIssuerConsent: [
+            () => [],
+            (): OAuthEmaIssuerConsent | null => getAppContext()?.oauth_ema_issuer_consent ?? null,
+        ],
         appName: [
             (s) => [s.oauthApplication],
             // The name is HTML-escaped at ingestion (see posthog/api/oauth/client_name.py). Decode
@@ -941,7 +954,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
@@ -984,8 +997,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             } else if (earlierAccess?.scoped_organizations.length && requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('scoped_organizations', [earlierAccess.scoped_organizations[0]])
             }
+            const emaIssuerConsent = values.emaIssuerConsent
+            if (emaIssuerConsent) {
+                const firstEligible = emaIssuerConsent.organizations.find((org) => !org.disabled_reason)
+                actions.setOauthAuthorizationValues({
+                    access_type: 'organizations',
+                    scoped_organizations: firstEligible ? [firstEligible.id] : [],
+                })
+            }
             actions.loadOAuthApplication()
-            actions.loadAllTeams()
+            if (!emaIssuerConsent) {
+                actions.loadAllTeams()
+            }
 
             if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
                 // The MCP branch narrows the resolved set to the scopes MCP tools actually

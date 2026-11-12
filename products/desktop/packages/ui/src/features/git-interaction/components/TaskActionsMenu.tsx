@@ -9,7 +9,10 @@ import {
   GitPullRequest,
   Link,
 } from "@phosphor-icons/react";
-import { getPrVisualConfig } from "@posthog/core/git-interaction/prStatus";
+import {
+  getPrVisualConfig,
+  parseGitlabMergeRequestUrl,
+} from "@posthog/core/git-interaction/prStatus";
 import { parseGithubUrl } from "@posthog/git/utils";
 import {
   ButtonGroup,
@@ -57,6 +60,7 @@ import {
   GitCommitDialog,
   GitPushDialog,
 } from "./GitInteractionDialogs";
+import { MergeRequestBadgeLink } from "./MergeRequestBadgeLink";
 import { PRBadgeLink } from "./PRBadgeLink";
 
 interface TaskActionsMenuProps {
@@ -96,19 +100,39 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
   } = useGitInteraction(taskId, isCloud ? undefined : localRepoPath);
 
   const { primaryUrl: prUrl, otherUrls } = useTaskPrUrls(taskId, isCloud);
+  const mergeRequest = isCloud ? parseGitlabMergeRequestUrl(prUrl) : null;
+  // A GitLab task has no GitHub PR, so the GitHub lookups below get nothing to fetch.
+  const githubPrUrl = mergeRequest ? null : prUrl;
+  const githubOtherUrls = mergeRequest ? [] : otherUrls;
   const cloudPrUrls = useCloudPrUrls(taskId);
   const prSummaries = useCloudPrSummaries(taskId);
   const { mutate: setPrimaryPr } = useSetPrimaryPr(taskId);
-  usePrSummaryBackfill(taskId, cloudPrUrls, otherUrls.length > 0, prSummaries);
-  const otherPrDetails = usePrDetailsMap(otherUrls);
+  usePrSummaryBackfill(
+    taskId,
+    cloudPrUrls,
+    githubOtherUrls.length > 0,
+    prSummaries,
+  );
+  const otherPrDetails = usePrDetailsMap(githubOtherUrls);
 
   const {
     meta: { state: prState, merged, draft, headRefName },
-  } = usePrDetails(prUrl);
+  } = usePrDetails(githubPrUrl);
   const { execute: executePrAction, isPending: isPrActionPending } =
-    usePrActions(prUrl);
+    usePrActions(githubPrUrl);
 
-  const pr = prUrl && prState !== null ? { url: prUrl, state: prState } : null;
+  const pr =
+    githubPrUrl && prState !== null
+      ? { url: githubPrUrl, state: prState }
+      : null;
+
+  if (prUrl && mergeRequest) {
+    return (
+      <div className="no-drag">
+        <MergeRequestBadgeLink url={prUrl} mergeRequest={mergeRequest} />
+      </div>
+    );
+  }
 
   // Cloud tasks only appear when they have a PR.
   if (isCloud && !pr) return null;

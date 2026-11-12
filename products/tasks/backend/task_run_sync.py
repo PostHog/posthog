@@ -29,11 +29,13 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 
 RUN_SYNC_ACTOR = "task_run"
 BACKFILL_ACTOR = "backfill"
+STATUS_REPAIR_ACTOR = "status_repair"
 
 _DERIVED_FROM_RUN_FIELDS = frozenset({"status", "scheduled_at", "error_message"})
 _LIVE_TASK_STATUSES = (Task.Status.QUEUED, Task.Status.RUNNING)
 _OPEN_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _QUERY_CHUNK = 1000
+MAX_REPAIRS_PER_PASS = 500
 
 
 @frozen
@@ -234,7 +236,7 @@ def sync_task_status_on_run(
     sync_task_statuses_on_commit([instance.task_id])
 
 
-def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
+def _scan_candidates(limit: int) -> tuple[dict[UUID, str | None], dict[UUID, LatestRun]]:
     live_task_ids = list(
         Task.objects.filter(status__in=_LIVE_TASK_STATUSES).order_by().values_list("id", flat=True)[:limit]
     )
@@ -251,12 +253,40 @@ def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
     stored: dict[UUID, str | None] = {}
     for chunk in _chunks(candidates):
         stored.update(Task.objects.filter(id__in=chunk).values_list("id", "status"))
-    runs = latest_runs(stored)
+    return stored, latest_runs(stored)
+
+
+def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
+    stored, runs = _scan_candidates(limit)
     counts = Counter(
         (status, derived)
         for task_id, status in stored.items()
         if status != (derived := derive_task_status(runs.get(task_id)).status)
     )
+    return [
+        StatusMismatch(stored_status=status, derived_status=derived, count=count)
+        for (status, derived), count in sorted(counts.items(), key=lambda item: (item[0][0] or "", item[0][1]))
+    ]
+
+
+def repair_status_mismatches(
+    *, scan_limit: int = 10_000, max_repairs: int = MAX_REPAIRS_PER_PASS
+) -> list[StatusMismatch]:
+    stored, runs = _scan_candidates(scan_limit)
+    mismatched = [
+        (task_id, status, derived)
+        for task_id, status in stored.items()
+        if status != (derived := derive_task_status(runs.get(task_id)).status)
+    ]
+    counts: Counter[tuple[str | None, str]] = Counter()
+    for task_id, status, derived in mismatched[:max_repairs]:
+        try:
+            repaired = sync_task_status(task_id, changed_by=STATUS_REPAIR_ACTOR)
+        except Exception:
+            logger.exception("task_status_repair_failed", task_id=str(task_id))
+            continue
+        if repaired:
+            counts[(status, derived)] += 1
     return [
         StatusMismatch(stored_status=status, derived_status=derived, count=count)
         for (status, derived), count in sorted(counts.items(), key=lambda item: (item[0][0] or "", item[0][1]))

@@ -14,7 +14,7 @@ export const metricMessageDlqCounter = new Counter({
 
 export const metricsAggregationPointsCounter = new Counter({
     name: 'metrics_ingestion_aggregation_points_total',
-    help: 'Sum points that went into aggregation (stage=in) and the points it produced (stage=out)',
+    help: 'Sum and histogram points that went into aggregation (stage=in) and the points it produced (stage=out)',
     labelNames: ['stage'],
 })
 
