@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,7 +23,15 @@ import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
-import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
+import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
+import { mcpToolQualityUrlWithDates } from '../mcpAnalyticsToolQualityLogic'
+import {
+    mcpDashboardOverviewLogic,
+    rankedToolsEmptyMessage,
+    rankToolsByErrorRate,
+    rankToolsByP95,
+    slowestToolsEmptyMessage,
+} from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
@@ -275,6 +285,32 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         onToolClick={openToolReport}
                     />
+                    <ToolLatencyChart
+                        rows={rankToolsByP95(toolRows)}
+                        emptyMessage={slowestToolsEmptyMessage(toolRows)}
+                        loading={!!loadingSections.toolRows}
+                        failed={failedLoads.toolRows}
+                        onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
+                        theme={theme}
+                        onToolClick={openToolReport}
+                        action={
+                            // Negative margin keeps the header as tall as a title-only header.
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'p95_duration_ms',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-slowest-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
+                    />
+                </TwoColumns>
+                <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
                         loading={!!loadingSections.harnessRows}
@@ -284,8 +320,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Error rate by harness"
                         emptyMessage="No harness data in this date range. Try a wider range."
                     />
-                </TwoColumns>
-                <TwoColumns>
                     <FacetShareCard
                         title="Why calls fail"
                         rows={facets.errorType}
@@ -294,13 +328,16 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         maxVisibleRows={8}
                     />
+                </TwoColumns>
+                {/* The card's self-start would shrink it to its content width in this flex column. */}
+                <div className="min-w-0">
                     <NotableSessionsTable
                         sessions={notableSessions}
                         loading={!!loadingSections.sessionRows}
                         failed={failedLoads.sessionRows}
                         onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
                     />
-                </TwoColumns>
+                </div>
             </Section>
         </div>
     )
