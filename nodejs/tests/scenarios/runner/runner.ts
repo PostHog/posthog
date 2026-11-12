@@ -204,7 +204,7 @@ async function seedWithin(
         }
         stage.catch(() => undefined)
         destroyConnections(postgres)
-        const why = deadline.aborted ? `seeding did not finish within ${withinMs} ms` : (signal.reason as Error).message
+        const why = deadline.aborted ? `seeding did not finish within ${withinMs} ms` : 'seeding was interrupted'
         throw new SeedingCutShort(`${why}; its connections were destroyed, restart required`)
     } finally {
         stop.removeEventListener('abort', onStop)
