@@ -989,6 +989,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
+        categories_enabled = isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
+            self.team, CODE_SEND_CATEGORIES_FLAG
+        )
         return self._queue_send(
             request,
             lambda idempotency_key: send_transactional_email(
@@ -998,15 +1001,10 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
-                category=self._enabled_category(data.get("category")),
+                category=_enabled_category(data.get("category"), categories_enabled),
             ),
             addressed={"template_id": str(template.id)},
         )
-
-    def _enabled_category(self, category: Any) -> Any:
-        if isinstance(category, SendCategoryDefinition) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
-            raise CategoriesNotEnabled()
-        return category
 
     def _queue_send(
         self,
@@ -1506,6 +1504,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             require_email_from_code(self.team)
         data = request.validated_data
         key = data["template_key"]
+        categories_enabled = _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
         with transactional_email_stage("workflow_access"):
             require_code_email_access(
                 self.team_id,
@@ -1513,15 +1512,13 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_editor=self._require_workflow_editor,
                 require_workflow_create=self._require_workflow_create,
             )
-            if isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
-                self.team, CODE_SEND_CATEGORIES_FLAG
-            ):
+            if categories_enabled and isinstance(data.get("category"), SendCategoryDefinition):
                 self._require_workflow_create()
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
                 self.team,
-                self._code_email(data),
+                self._code_email(data, categories_enabled),
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
@@ -1530,7 +1527,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             unavailable=unconfirmed_email_send,
         )
 
-    def _code_email(self, data: Mapping[str, Any]) -> CodeEmail:
+    def _code_email(self, data: Mapping[str, Any], categories_enabled: bool) -> CodeEmail:
         return CodeEmail(
             key=data["template_key"],
             subject=data["subject"],
@@ -1542,12 +1539,18 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
-            category=self._enabled_category(data.get("category")),
+            category=_enabled_category(data.get("category"), categories_enabled),
         )
 
 
 def _failed_send(outcome: str, error: TransactionalEmailError | DeliveryUnavailable) -> dict[str, Any]:
     return {"outcome": outcome, **({"category_type": error.category_type} if error.category_type else {})}
+
+
+def _enabled_category(category: Any, categories_enabled: bool) -> Any:
+    if isinstance(category, SendCategoryDefinition) and not categories_enabled:
+        raise CategoriesNotEnabled()
+    return category
 
 
 def _requested_category_type(category: Any) -> str:
