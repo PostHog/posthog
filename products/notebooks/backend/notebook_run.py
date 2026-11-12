@@ -119,10 +119,11 @@ def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool =
 def _require_browser_session_for_organization_grant_cells(team: Team, cell_plan: list[PlannedCell]) -> None:
     # The cells run later from a Temporal worker, which cannot see how this request authenticated,
     # so the check runs here, before the run exists.
-    for cell in cell_plan:
-        if not (cell["send_raw_query"] and cell["connection_id"]):
-            continue
-        source = get_direct_connection_source(team, cell["connection_id"])
+    raw_connection_ids = {
+        cell["connection_id"] for cell in cell_plan if cell["send_raw_query"] and cell["connection_id"]
+    }
+    for connection_id in raw_connection_ids:
+        source = get_direct_connection_source(team, connection_id)
         if source is not None and raw_query_uses_organization_grant(source):
             require_browser_session_for_organization_grant()
 
