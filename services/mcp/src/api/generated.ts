@@ -91082,11 +91082,6 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export interface PatchedRescheduleEmail {
-      /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now. */
-      scheduled_at?: string;
-    }
-
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -105394,6 +105389,11 @@ export namespace Schemas {
          * @maxItems 100
          */
       repos: string[];
+    }
+
+    export interface RescheduleEmail {
+      /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now. */
+      scheduled_at: string;
     }
 
     export interface RescheduledEmail {
