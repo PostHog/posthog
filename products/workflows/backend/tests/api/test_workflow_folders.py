@@ -1203,6 +1203,7 @@ class TestWorkflowFolders(APIBaseTest):
         [
             ("rename_by_viewer_there", "patch", "file", {"path": "Renamed/Refless email"}, "viewer", 403, False),
             ("rename_by_editor_there", "patch", "file", {"path": "Renamed/Refless email"}, "editor", 200, True),
+            ("rename_by_member_denied_there", "patch", "file", {"path": "Renamed/Refless email"}, "denied", 403, False),
             (
                 "folder_move_by_viewer_there",
                 "post",
@@ -1237,9 +1238,23 @@ class TestWorkflowFolders(APIBaseTest):
         member.is_staff = True
         member.save()
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
-        for team_id, level in ((self.team.id, "editor"), (sibling_team.id, sibling_level)):
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="editor", organization_member_id=membership.id
+        )
+        if sibling_level == "denied":
             create_access_control(
-                team_id=team_id, resource="hog_flow", access_level=level, organization_member_id=membership.id
+                team_id=sibling_team.id,
+                resource="project",
+                resource_id=str(sibling_team.id),
+                access_level="none",
+                organization_member_id=membership.id,
+            )
+        else:
+            create_access_control(
+                team_id=sibling_team.id,
+                resource="hog_flow",
+                access_level=sibling_level,
+                organization_member_id=membership.id,
             )
         self.client.force_login(member)
         suffix = {"file": f"{refless.id}/", "folder_move": f"{folder.id}/move/"}[target]

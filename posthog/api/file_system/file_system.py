@@ -674,7 +674,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             # A row without a ref names no object, so it takes the resource level in its own environment.
             # The tree spans every environment in the project, and `self.user_access_control` answers only
-            # for the environment of the request.
+            # for the environment of the request. A denied environment falls back to the resource default,
+            # so its project access is checked first.
             access_by_team = self.user_access_control.for_team_ids(
                 {target.team_id for target in ordered if not target.ref}
             )
@@ -691,8 +692,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for target in group:
                     if (target.type, target.ref) in missing or (
                         not target.ref
-                        and not access_by_team[target.team_id].check_access_level_for_resource(
-                            file_system_resource(target.type), required_level=level
+                        and not (
+                            access_by_team[target.team_id].has_project_access
+                            and access_by_team[target.team_id].check_access_level_for_resource(
+                                file_system_resource(target.type), required_level=level
+                            )
                         )
                     ):
                         denied[target] = PermissionDenied(message)
