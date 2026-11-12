@@ -58001,13 +58001,13 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationCpa {
-      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
+      /** CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search scale, budget, spend without conversions and content gap. */
       benchmark: number | null;
       /** Where the benchmark comes from. Null when there is no benchmark. */
       benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;
       /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
       bestCampaign: number | null;
-      /** Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet. */
+      /** Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA. Null when it has no conversions. */
       value: number | null;
       /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
       worstCampaign: number | null;
