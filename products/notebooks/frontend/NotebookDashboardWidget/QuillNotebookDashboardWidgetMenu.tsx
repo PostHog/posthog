@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonDialog } from '@posthog/lemon-ui'
 import { Badge, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import type { DashboardWidgetComponentProps } from 'products/dashboards/frontend/widgets/registry'
@@ -12,12 +11,16 @@ import type { DashboardWidgetComponentProps } from 'products/dashboards/frontend
 import type { WidgetSecurityReviewApi } from '../generated/api.schemas'
 import { SEVERITY_LABELS } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
 import { notebookDashboardWidgetLogic } from './notebookDashboardWidgetLogic'
+import { NOTEBOOK_WIDGET_NO_SNAPSHOT_REASON, openRefreshFromNotebookDialog } from './openRefreshFromNotebookDialog'
 
-function reviewBadgeVariant(severity: WidgetSecurityReviewApi['severity']): 'success' | 'warning' | 'destructive' {
-    if (severity === 'none') {
+function reviewBadgeVariant(review: WidgetSecurityReviewApi | null): 'default' | 'success' | 'warning' | 'destructive' {
+    if (!review) {
+        return 'default'
+    }
+    if (review.severity === 'none') {
         return 'success'
     }
-    return severity === 'high' || severity === 'critical' ? 'destructive' : 'warning'
+    return review.severity === 'high' || review.severity === 'critical' ? 'destructive' : 'warning'
 }
 
 export function QuillNotebookDashboardWidgetMenu({
@@ -34,7 +37,7 @@ export function QuillNotebookDashboardWidgetMenu({
     })
     const { snapshot, refreshing, runId, stopping, sourceLoading } = useValues(logic)
     const { refresh, stopRun, setSourceOpen } = useActions(logic)
-    const noSnapshotReason = !snapshot ? 'Load the saved results first' : undefined
+    const noSnapshotReason = snapshot ? undefined : NOTEBOOK_WIDGET_NO_SNAPSHOT_REASON
 
     return (
         <>
@@ -44,15 +47,7 @@ export function QuillNotebookDashboardWidgetMenu({
             {onConfigPublished ? (
                 <DropdownMenuItem
                     disabledReason={refreshing ? 'Refreshing…' : noSnapshotReason}
-                    onClick={() =>
-                        LemonDialog.open({
-                            title: 'Refresh from notebook?',
-                            description:
-                                'This runs all saved data cells using the notebook’s variables. Python compute may incur charges. Dashboard filters do not change these results.',
-                            primaryButton: { children: 'Run notebook', onClick: refresh },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }
+                    onClick={() => openRefreshFromNotebookDialog(refresh)}
                 >
                     Refresh from notebook
                 </DropdownMenuItem>
@@ -63,27 +58,30 @@ export function QuillNotebookDashboardWidgetMenu({
                 </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem
-                disabledReason={sourceLoading ? 'Loading…' : noSnapshotReason}
+                disabledReason={sourceLoading ? 'Loading source…' : noSnapshotReason}
                 onClick={() => setSourceOpen(true)}
+                description={
+                    snapshot ? (
+                        <>
+                            <span>Saved </span>
+                            <TZLabel time={snapshot.created_at} noStyles />
+                            {snapshot.build_hash ? (
+                                <span translate="no"> · Build {snapshot.build_hash.slice(0, 12)}</span>
+                            ) : null}
+                        </>
+                    ) : undefined
+                }
                 data-attr="notebook-widget-view-source"
             >
                 View source
+                {snapshot ? (
+                    <Badge variant={reviewBadgeVariant(snapshot.security_review)} className="ml-auto">
+                        {snapshot.security_review
+                            ? `Automated review: ${SEVERITY_LABELS[snapshot.security_review.severity]}`
+                            : 'Automated review unavailable'}
+                    </Badge>
+                ) : null}
             </DropdownMenuItem>
-            {snapshot ? (
-                <div className="flex flex-col items-start gap-1.5 px-2 py-1.5 text-xs text-secondary">
-                    <span>Saved {humanFriendlyDetailedTime(snapshot.created_at)}</span>
-                    {snapshot.security_review ? (
-                        <Badge variant={reviewBadgeVariant(snapshot.security_review.severity)}>
-                            Automated review: {SEVERITY_LABELS[snapshot.security_review.severity]}
-                        </Badge>
-                    ) : (
-                        <Badge>Automated review unavailable</Badge>
-                    )}
-                    {snapshot.build_hash ? (
-                        <span className="font-mono">Build {snapshot.build_hash.slice(0, 12)}</span>
-                    ) : null}
-                </div>
-            ) : null}
             <DropdownMenuSeparator />
         </>
     )

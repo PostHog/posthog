@@ -8,44 +8,34 @@ import {
     DropdownMenuSubTrigger,
 } from '@posthog/quill'
 
-import type { InsightCardMenuPlacement } from 'lib/components/Cards/InsightCard/insightCardMenu'
 import { QuillDashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/QuillDashboardWidgetPlacementMenus'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs, type Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
-export type QuillWidgetCardMenuItemsProps = {
-    widgetItems?: JSX.Element | null
-    viewUrl?: string
-    onEdit?: () => void
-    onDuplicate?: () => void
-    description?: { label: string; onClick: () => void }
-    placement?: InsightCardMenuPlacement
-    refresh?: { onRefresh: () => void; disabledReason?: string; lastRefresh?: string | number | Dayjs | null }
-    onRemove?: () => void
-}
+import type { WidgetCardMenu } from './widgetCardMenu'
 
 export function QuillWidgetCardMenuItems({
+    menu,
     widgetItems,
-    viewUrl,
-    onEdit,
-    onDuplicate,
-    description,
-    placement,
-    refresh,
-    onRemove,
-}: QuillWidgetCardMenuItemsProps): JSX.Element {
-    const hasMore = !!description || !!placement || !!refresh
+}: {
+    menu: WidgetCardMenu
+    widgetItems: JSX.Element | null
+}): JSX.Element {
+    const { viewUrl, edit, duplicate, dashboard, refresh } = menu
+    const placement = dashboard?.placement
+    const description = dashboard?.description
+    const hasMore = !!placement || !!description || !!refresh
 
     return (
         <>
-            {onEdit && (
-                <DropdownMenuItem onClick={onEdit} data-attr="dashboard-widget-edit">
+            {edit && (
+                <DropdownMenuItem onClick={edit} data-attr="dashboard-widget-edit">
                     Edit
                 </DropdownMenuItem>
             )}
             {viewUrl && <DropdownMenuItem onClick={() => router.actions.push(viewUrl)}>View</DropdownMenuItem>}
             {widgetItems}
-            {onDuplicate && <DropdownMenuItem onClick={onDuplicate}>Duplicate</DropdownMenuItem>}
+            {duplicate && <DropdownMenuItem onClick={duplicate}>Duplicate</DropdownMenuItem>}
             {hasMore && (
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger data-attr="dashboard-widget-more-menu">More</DropdownMenuSubTrigger>
@@ -66,7 +56,8 @@ export function QuillWidgetCardMenuItems({
                                     description={
                                         refresh.lastRefresh != null ? (
                                             <>
-                                                Last computed <TZLabel time={dayjs(refresh.lastRefresh)} noStyles />
+                                                <span>Last computed </span>
+                                                <TZLabel time={dayjs(refresh.lastRefresh)} noStyles />
                                             </>
                                         ) : undefined
                                     }
@@ -79,10 +70,10 @@ export function QuillWidgetCardMenuItems({
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
             )}
-            {onRemove && (
+            {dashboard?.remove && (
                 <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onClick={() => onRemove()}>
+                    <DropdownMenuItem variant="destructive" onClick={dashboard.remove}>
                         Remove from dashboard
                     </DropdownMenuItem>
                 </>

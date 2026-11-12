@@ -5,7 +5,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { DashboardFilter } from '~/queries/schema/schema-general'
 
-import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'

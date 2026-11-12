@@ -130,11 +130,10 @@ export function WidgetCardBodyMessage({
                 className="flex max-w-xs flex-col items-center gap-3 px-2 text-balance"
                 data-attr="widget-card-body-error"
             >
-                <span>{children}</span>
+                <span className="text-danger">{children}</span>
                 {onRefresh && quillSurface ? (
                     <Button
                         variant="outline"
-                        size="sm"
                         data-attr="widget-card-body-refresh"
                         loading={refreshing}
                         onClick={onRefresh}
@@ -162,7 +161,7 @@ export function WidgetCardBodyMessage({
             data-slot="widget-card-body-message"
             className={clsx(
                 'flex min-h-full w-full items-center justify-center text-center text-sm',
-                variant === 'error' ? 'text-danger' : 'text-muted'
+                variant !== 'error' && 'text-muted'
             )}
         >
             {content}
@@ -182,9 +181,9 @@ export function WidgetCardBodySkeleton({ rowCount = 4, className }: WidgetCardBo
         <div className={cn('flex flex-col gap-3', className)} aria-busy aria-label="Loading widget">
             {Array.from({ length: rowCount }, (_, index) => (
                 <div key={index} className="flex flex-col gap-2" aria-hidden>
-                    <RowSkeleton className="h-4 w-[70%] max-w-md" />
+                    <RowSkeleton className="h-4 w-7/10 max-w-md" />
                     <RowSkeleton className="h-3 w-full max-w-lg" />
-                    <RowSkeleton className="h-3 w-[45%] max-w-xs" />
+                    <RowSkeleton className="h-3 w-9/20 max-w-xs" />
                 </div>
             ))}
         </div>
