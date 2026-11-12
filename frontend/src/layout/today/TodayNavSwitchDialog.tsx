@@ -89,6 +89,9 @@ export function TodayNavSwitchDialog(): JSX.Element {
                         {tourJustCompleted ? (
                             <p className="m-0 text-sm text-balance text-muted-foreground">
                                 Feedback is welcome. We're listening.
+                                <br />
+                                To switch back to the old design, go to Settings &gt; Feature previews and turn off the
+                                new design preview.
                             </p>
                         ) : (
                             <p className="m-0 text-sm text-balance text-muted-foreground">
@@ -98,15 +101,16 @@ export function TodayNavSwitchDialog(): JSX.Element {
                         )}
                     </div>
                     <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => switchNav('new_nav_dialog')}
-                            data-attr="today-nav-switch-dialog-switch-back"
-                        >
-                            Switch back
-                        </Button>
+                        {!tourCompleted && (
+                            <Button
+                                variant="outline"
+                                onClick={() => switchNav('new_nav_dialog')}
+                                data-attr="today-nav-switch-dialog-switch-back"
+                            >
+                                Switch back
+                            </Button>
+                        )}
                         {tourCompleted ? (
-                            // Closes through the logic, not as a dismissal: the tour already showed where the switch is.
                             <Button variant="primary" onClick={tryItOut} data-attr="today-nav-switch-dialog-try-it">
                                 I'll try it out
                             </Button>
