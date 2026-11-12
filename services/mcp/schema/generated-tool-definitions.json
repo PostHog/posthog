@@ -8240,21 +8240,6 @@
             "readOnlyHint": false
         }
     },
-    "inbox-report-checks-create": {
-        "description": "Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own; there is no create surface for a person or a task token. Read a report's checks with inbox-report-checks-list.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Write a follow-up check (removed)",
-        "title": "Write a follow-up check (removed)",
-        "required_scopes": ["signal_scout_report:write"],
-        "api_operations": ["POST /api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "inbox-report-checks-list": {
         "description": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
