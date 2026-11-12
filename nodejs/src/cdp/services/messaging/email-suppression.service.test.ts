@@ -221,47 +221,6 @@ describe('EmailSuppressionService', () => {
                 last_bounce_diagnostic: expectedDiagnostic,
             })
         })
-
-        it('logs a failed reset or global clear without failing the notification, even for a retried team', async () => {
-            const svc = new EmailSuppressionService(hub.postgres, {
-                ...emailSuppressionConfigFromEnv(),
-                retryFailedWritesTeams: String(team.id),
-            })
-            const email = `delivered-${team.id}@example.com`
-            await svc.recordTransientBounces(team.id, [email], 'temp')
-            await svc.recordGlobalHardBounces([email], new Date(Date.now() - 60_000).toISOString())
-            const failWrites = `test_fail_delivery_writes_${team.id}`
-            const run = async (sql: string): Promise<void> => {
-                await hub.postgres.query(PostgresUse.COMMON_WRITE, sql, [], 'test-fail-delivery-writes')
-            }
-            await run(`CREATE FUNCTION ${failWrites}() RETURNS trigger LANGUAGE plpgsql
-                       AS $$ BEGIN RAISE EXCEPTION 'write failed'; END $$`)
-            await run(`CREATE TRIGGER ${failWrites} BEFORE UPDATE ON posthog_messagesuppression
-                       FOR EACH ROW WHEN (OLD.identifier = '${email}') EXECUTE FUNCTION ${failWrites}()`)
-            await run(`CREATE TRIGGER ${failWrites} BEFORE DELETE ON posthog_emailhardbounce
-                       FOR EACH ROW WHEN (OLD.email = '${email}') EXECUTE FUNCTION ${failWrites}()`)
-
-            try {
-                await expect(
-                    svc.recordDeliveries(team.id, [email], new Date(Date.now() + 60_000).toISOString(), {
-                        clearGlobal: true,
-                    })
-                ).resolves.toBeUndefined()
-            } finally {
-                await run(`DROP TRIGGER ${failWrites} ON posthog_messagesuppression`)
-                await run(`DROP TRIGGER ${failWrites} ON posthog_emailhardbounce`)
-                await run(`DROP FUNCTION ${failWrites}()`)
-            }
-
-            expect((await readRow(email))?.transient_bounce_count).toBe(1)
-            const globalRows = await hub.postgres.query(
-                PostgresUse.COMMON_READ,
-                'SELECT 1 FROM posthog_emailhardbounce WHERE email = $1',
-                [email],
-                'test-read-global-hard-bounce'
-            )
-            expect(globalRows.rows).toHaveLength(1)
-        })
     })
 
     describe('recordHardBounces', () => {

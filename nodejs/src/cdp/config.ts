@@ -222,7 +222,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
-    CDP_SES_SUPPRESSION_RETRY_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -481,7 +480,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
-        CDP_SES_SUPPRESSION_RETRY_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

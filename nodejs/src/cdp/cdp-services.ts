@@ -199,7 +199,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
-        | 'CDP_SES_SUPPRESSION_RETRY_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -478,7 +477,6 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
         globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
         softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
-        retryFailedWritesTeams: config.CDP_SES_SUPPRESSION_RETRY_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)

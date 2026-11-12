@@ -945,91 +945,20 @@ describe('EmailTrackingService', () => {
                 }
             )
 
-            describe('when a suppression write fails', () => {
-                const failingConstraint = (): string => `test_fail_hard_bounce_${team.id}`
+            it('counts a soft bounce once when Kafka redelivers its batch', async () => {
+                await postBounce({ functionId: hogFunction.id, recipient: 'soft@example.com', bounceType: 'Transient' })
+                const batch = queuedSesNotifications()
 
-                const failHardBounceWrites = async (): Promise<void> => {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `ALTER TABLE posthog_messagesuppression ADD CONSTRAINT ${failingConstraint()}
-                     CHECK (team_id <> ${team.id} OR identifier <> 'hard@example.com') NOT VALID`,
-                        [],
-                        'test-fail-hard-bounce-writes'
-                    )
-                }
+                await consumer.processBatch(batch)
+                await consumer.processBatch(batch)
 
-                const fixHardBounceWrites = async (): Promise<void> => {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `ALTER TABLE posthog_messagesuppression DROP CONSTRAINT IF EXISTS ${failingConstraint()}`,
-                        [],
-                        'test-fix-hard-bounce-writes'
-                    )
-                }
-
-                afterEach(fixHardBounceWrites)
-
-                const suppressionRows = async (): Promise<
-                    { identifier: string; suppressed: boolean; transient_bounce_count: number }[]
-                > =>
-                    (
-                        await hub.postgres.query(
-                            PostgresUse.COMMON_READ,
-                            `SELECT identifier, suppressed, transient_bounce_count
-                         FROM posthog_messagesuppression WHERE team_id = $1 ORDER BY identifier`,
-                            [team.id],
-                            'test-read-suppression'
-                        )
-                    ).rows
-
-                const writeFailures = async (outcome: string): Promise<number> =>
-                    (await register.getSingleMetric('cdp_email_suppression_write_failures_total')!.get()).values.find(
-                        (v) => v.labels.write === 'hard_bounce' && v.labels.outcome === outcome
-                    )?.value ?? 0
-
-                const queueHardAndSoftBounce = async (): Promise<Message[]> => {
-                    await postBounce({ functionId: hogFunction.id, recipient: 'hard@example.com' })
-                    await postBounce({
-                        functionId: hogFunction.id,
-                        recipient: 'soft@example.com',
-                        bounceType: 'Transient',
-                    })
-                    return queuedSesNotifications()
-                }
-
-                it('fails the batch, and its redelivery suppresses each address and counts the hard bounce once', async () => {
-                    hub.CDP_SES_SUPPRESSION_RETRY_TEAMS = String(team.id)
-                    startApiAndConsumer()
-                    const batch = await queueHardAndSoftBounce()
-                    await failHardBounceWrites()
-                    const retriedBefore = await writeFailures('retried')
-
-                    await expect(consumer.processBatch(batch)).rejects.toThrow('hard_bounce')
-                    await fixHardBounceWrites()
-                    await consumer.processBatch(batch)
-
-                    expect(await suppressionRows()).toEqual([
-                        { identifier: 'hard@example.com', suppressed: true, transient_bounce_count: 0 },
-                        { identifier: 'soft@example.com', suppressed: false, transient_bounce_count: 1 },
-                    ])
-                    expect(await writeFailures('retried')).toBe(retriedBefore + 1)
-                    expect(recordedMetrics().filter(([name]) => name === 'email_bounced_hard')).toEqual([
-                        ['email_bounced_hard', 1],
-                    ])
-                })
-
-                it('drops the write and counts it for a team outside the retry switch', async () => {
-                    const batch = await queueHardAndSoftBounce()
-                    await failHardBounceWrites()
-                    const droppedBefore = await writeFailures('dropped')
-
-                    await consumer.processBatch(batch)
-
-                    expect(await suppressionRows()).toEqual([
-                        { identifier: 'soft@example.com', suppressed: false, transient_bounce_count: 1 },
-                    ])
-                    expect(await writeFailures('dropped')).toBe(droppedBefore + 1)
-                })
+                const rows = await hub.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    `SELECT identifier, transient_bounce_count FROM posthog_messagesuppression WHERE team_id = $1`,
+                    [team.id],
+                    'test-read-suppression'
+                )
+                expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
             })
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {

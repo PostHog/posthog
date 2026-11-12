@@ -15,14 +15,6 @@ const cdpEmailSuppressionTotal = new Counter({
     labelNames: ['result'],
 })
 
-const cdpEmailSuppressionWriteFailures = new Counter({
-    name: 'cdp_email_suppression_write_failures_total',
-    help: 'A suppression-list write for an SES notification failed. `retried` = the notification fails so Kafka redelivers it; `dropped` = logged and lost, for a team outside CDP_SES_SUPPRESSION_RETRY_TEAMS.',
-    labelNames: ['write', 'outcome'],
-})
-
-type SuppressionWrite = 'transient_bounce' | 'hard_bounce' | 'complaint'
-
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
 const EVENT_ID_MAX_LENGTH = 128
@@ -64,17 +56,6 @@ export type EmailSuppressionConfig = {
     transientBounceThreshold: number
     globalHardBounceEnforce?: boolean
     softBounceEventTimeTeams?: string
-    retryFailedWritesTeams?: string
-}
-
-export class SuppressionWriteError extends Error {
-    constructor(
-        public readonly write: SuppressionWrite,
-        cause: unknown
-    ) {
-        super(`Could not write the suppression list (${write})`, { cause })
-        this.name = 'SuppressionWriteError'
-    }
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -156,7 +137,6 @@ export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
     private readonly stampsSoftBounceWithEventTime: ValueMatcher<number>
-    private readonly retriesFailedWrites: ValueMatcher<number>
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -167,7 +147,6 @@ export class EmailSuppressionService {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
         this.stampsSoftBounceWithEventTime = buildIntegerMatcher(config.softBounceEventTimeTeams, true)
-        this.retriesFailedWrites = buildIntegerMatcher(config.retryFailedWritesTeams, true)
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -176,19 +155,6 @@ export class EmailSuppressionService {
 
     public clear(): void {
         this.lazyLoader.clear()
-    }
-
-    private async write(write: SuppressionWrite, teamId: number | undefined, run: () => Promise<void>): Promise<void> {
-        try {
-            await run()
-        } catch (error) {
-            const retried = teamId !== undefined && this.retriesFailedWrites(teamId)
-            cdpEmailSuppressionWriteFailures.inc({ write, outcome: retried ? 'retried' : 'dropped' })
-            logger.error('[EmailSuppression] Failed to write the suppression list', { write, teamId, retried, error })
-            if (retried) {
-                throw new SuppressionWriteError(write, error)
-            }
-        }
     }
 
     /** Pre-send check: does the team's suppression list block this recipient for this kind of email? */
@@ -335,7 +301,7 @@ export class EmailSuppressionService {
             WHERE NOT COALESCE($8::varchar = ANY(posthog_messagesuppression.transient_bounce_event_ids), false)
         `
 
-        await this.write('transient_bounce', teamId, async () => {
+        try {
             const result = await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
             const counted = result.rowCount ?? identifiers.length
             cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, counted)
@@ -344,7 +310,9 @@ export class EmailSuppressionService {
             }
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record transient bounces', { teamId, error })
+        }
     }
 
     /**
@@ -360,12 +328,14 @@ export class EmailSuppressionService {
             return
         }
 
-        await this.write('hard_bounce', teamId, async () => {
+        try {
             await this.upsertHardBounces(teamId, identifiers, diagnostic)
             cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+        }
     }
 
     private async upsertHardBounces(
@@ -517,12 +487,14 @@ export class EmailSuppressionService {
                 updated_at = NOW()
         `
 
-        await this.write('complaint', teamId, async () => {
+        try {
             await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordComplaints')
             cdpEmailSuppressionTotal.inc({ result: 'complaint' }, identifiers.length)
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
+        }
     }
 
     /**
