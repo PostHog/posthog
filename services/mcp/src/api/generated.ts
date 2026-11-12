@@ -13690,7 +13690,7 @@ export namespace Schemas {
       /** When the agent ran the query. */
       occurred_at: string;
       /**
-         * Agent session of the query, when known.
+         * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
          * @nullable
          */
       session_id: string | null;
@@ -62299,6 +62299,8 @@ export namespace Schemas {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -62420,6 +62422,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -62591,6 +62595,8 @@ export namespace Schemas {
        * * `helpscout` - Help Scout
        * * `decagon` - Decagon
        * * `vitally` - Vitally
+       * * `intercom_tickets` - Intercom tickets
+       * * `pylon` - Pylon
        * * `usersnap` - Usersnap
        * * `typeform` - Typeform
        * * `qualtrics` - Qualtrics
@@ -64243,6 +64249,14 @@ export namespace Schemas {
       state: string | null;
       priority: string | null;
       admin_assignee_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface IntercomTicketsTicketSignalExtra {
+      ticket_id: string | null;
+      category: string | null;
+      ticket_state_category: string | null;
+      ticket_type_name: string | null;
       created_at: string | null;
     }
 
@@ -101016,6 +101030,14 @@ export namespace Schemas {
       failed_distinct_ids: string[];
     }
 
+    export interface PylonTicketSignalExtra {
+      number: string | null;
+      state: string | null;
+      type: string | null;
+      link: string | null;
+      created_at: string | null;
+    }
+
     export interface QualtricsFeedbackSignalExtra {
       survey_id: string | null;
       recorded_date: string | null;
@@ -105912,6 +105934,8 @@ export namespace Schemas {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -106033,6 +106057,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -106380,7 +106406,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106497,6 +106523,8 @@ export namespace Schemas {
        * * `helpscout` - helpscout
        * * `decagon` - decagon
        * * `vitally` - vitally
+       * * `intercom_tickets` - intercom_tickets
+       * * `pylon` - pylon
        * * `usersnap` - usersnap
        * * `typeform` - typeform
        * * `qualtrics` - qualtrics
@@ -117157,6 +117185,15 @@ export namespace Schemas {
       history_table: HistoryTableRef | null;
     }
 
+    export interface TableSource {
+      /** Name of the table or view, as the agent's search returned it. */
+      name: string;
+      /** Sessions in the window that found its description and then queried it. */
+      sessions: number;
+      /** Distinct people behind those sessions. */
+      people: number;
+    }
+
     export interface TaggerUpdate {
       /** @maxLength 400 */
       name: string;
@@ -120537,27 +120574,32 @@ export namespace Schemas {
     }
 
     export interface TopicCoverage {
-      /** Sessions that ran a catalog metric directly. */
-      canonical: number;
-      /** Sessions that read a catalog metric, then changed it. */
-      adapted: number;
-      /** Sessions that re-derived a catalog metric without consulting it. */
-      silent: number;
-      /** Sessions that ran SQL that matches no catalog metric. */
-      raw_sql_only: number;
-      /** Sessions that ran no query. */
-      no_sql: number;
+      /** Sessions that asked for a metric and found one that fits. */
+      metric: number;
+      /** Sessions that asked for a metric, found none, and found a table or view description that fits. */
+      table: number;
+      /** Sessions that asked for a metric and found neither. */
+      nothing: number;
     }
 
     export interface TopicCluster {
-      /** Short name of the topic, written by a model from sample intents. */
+      /** Short name of the subject. 'Other' holds the sessions that fit no topic. */
       title: string;
-      /** Agent sessions in the topic. Scout sessions are not clustered. */
+      /** One sentence on what the topic covers. */
+      description: string;
+      /** Agent sessions in the topic. Scout sessions are not included. */
       session_count: number;
-      /** How the topic's sessions got their numbers. */
+      /** Distinct people behind the topic's sessions. */
+      people: number;
+      /** What the sessions that asked for a metric ended up with. */
       coverage: TopicCoverage;
-      /** A few intents from the topic's sessions. */
-      sample_intents: string[];
+    }
+
+    export interface TopicDefinition {
+      /** Short name of the subject. */
+      title: string;
+      /** One sentence on what the topic covers. */
+      description: string;
     }
 
     /**
@@ -120575,6 +120617,21 @@ export namespace Schemas {
       all_marketing: boolean | null;
       /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
       topics: TopicPreferencesTopics;
+    }
+
+    export interface TopicSessionCounts {
+      /** Sampled sessions that calculated or compared data. */
+      analysis: number;
+      /** Sampled sessions that read or checked specific things. */
+      lookup: number;
+      /** Sampled sessions from a scheduled or repeated job. */
+      automation: number;
+      /** Sampled sessions whose intents did not show what they did with data. */
+      unclear: number;
+      /** Sampled sessions that the model failed to read. */
+      unread: number;
+      /** Analysis sessions whose coverage check failed. They count as a metric only after a direct run. */
+      coverage_unchecked: number;
     }
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
@@ -121985,10 +122042,22 @@ export namespace Schemas {
          */
       adjusted_runs: AdjustedRun[] | null;
       /**
-         * Agent session topics. Null until clustered.
+         * Agent session topics. Null until grouped.
          * @nullable
          */
       topics: TopicCluster[] | null;
+      /**
+         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
+         * @nullable
+         */
+      topic_definitions: TopicDefinition[] | null;
+      /** What the sampled sessions were about, by kind. Null until grouped. */
+      topic_sessions: TopicSessionCounts | null;
+      /**
+         * Tables and views that agents found by description and then queried. Null until counted.
+         * @nullable
+         */
+      table_sources: TableSource[] | null;
       /**
          * Recurring query shapes and their catalog outcome. Null until grouped.
          * @nullable
