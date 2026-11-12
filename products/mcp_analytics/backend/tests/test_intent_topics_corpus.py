@@ -10,12 +10,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.error_tracking.backend.indexed_embedding import DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL, EMBEDDING_TABLES
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.intent_hash import intent_hash
 from products.mcp_analytics.backend.intent_topics.constants import EMBEDDING_MODEL
 from products.mcp_analytics.backend.intent_topics.corpus import (
@@ -119,6 +119,22 @@ class TestFetchSeenHashes(ClickhouseTestMixin, APIBaseTest):
         seen = fetch_seen_hashes(self.team, [*hashes, intent_hash("never")], now=WINDOW_START)
 
         assert seen == set(hashes)
+
+    def test_reads_each_chunk_of_hashes_in_one_query(self) -> None:
+        hashes = [intent_hash(f"seen {i}") for i in range(5)]
+        for i, h in enumerate(hashes):
+            insert_intent_embedding(self.team.pk, h, f"seen {i}", at=WINDOW_START - timedelta(days=1))
+
+        with (
+            patch("products.mcp_analytics.backend.intent_topics.corpus.HASH_CHUNK_SIZE", 3),
+            patch(
+                "products.mcp_analytics.backend.intent_topics.corpus.execute_hogql_query", wraps=execute_hogql_query
+            ) as execute,
+        ):
+            seen = fetch_seen_hashes(self.team, [*hashes, intent_hash("never")], now=WINDOW_START)
+
+        assert seen == set(hashes)
+        assert execute.call_count == 2
 
     def test_empty_input_makes_no_query(self) -> None:
         assert fetch_seen_hashes(self.team, [], now=WINDOW_START) == set()
