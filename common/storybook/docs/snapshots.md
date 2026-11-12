@@ -90,7 +90,7 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 ## Baselines and visual review
 
 - Baselines are hashes in `frontend/snapshots.yml`, one entry per `<story-id>[--<width>]--<theme>`, signed by visual review. The PNGs under `frontend/__snapshots__/` are not the baseline, and CI deletes them before each run.
-- On a PR, CI runs only the stories that the diff can affect, in Chromium. Master and the merge queue run every story, in WebKit too.
+- On a PR, CI runs only the stories that the diff can affect, in Chromium. Master and the merge queue run every story in Chromium. A nightly run on master renders every story in WebKit and Firefox, which take no snapshots and only catch stories that fail to render.
 - The `run-ci-frontend` label runs every story on a PR. Use it to bring back a baseline for a story that the diff doesn't touch. The label takes effect on the next push or ready-for-review, not when you add it.
 - Each changed snapshot shows up in the visual review run for the PR. A person approves it there, and finalizing the run commits the new hashes to the PR branch.
 - A finalized run pushes a commit to the branch. In a stack, that forces a restack of every layer above it, so put the stories that change in the top layer.
