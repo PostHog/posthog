@@ -32,7 +32,15 @@ from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
 from posthog.models import User
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
+    MetricSearchBurstRateThrottle,
+    MetricSearchSustainedRateThrottle,
+    MetricWriteBurstRateThrottle,
+    MetricWriteSustainedRateThrottle,
+)
 
 from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
@@ -154,6 +162,12 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return [HogQLQueryThrottle()]
             if kind in _STRUCTURED_QUERY_KINDS:
                 return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        # A search can embed its query, and a write can embed the metric, which spends model provider budget.
+        action = getattr(self, "action", None)
+        if action == "list" and self.request.query_params.get(api_settings.SEARCH_PARAM):
+            return [*super().get_throttles(), MetricSearchBurstRateThrottle(), MetricSearchSustainedRateThrottle()]
+        if action in ("create", "update", "partial_update"):
+            return [*super().get_throttles(), MetricWriteBurstRateThrottle(), MetricWriteSustainedRateThrottle()]
         return super().get_throttles()
 
     @extend_schema(

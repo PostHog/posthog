@@ -1,16 +1,23 @@
 """Ranked catalog search over a team's metrics, behind the ``search`` parameter of the metric list.
 
-Postgres full-text search over weighted metric fields, exact and acronym matches on names, and a
-trigram fallback for typos. Every hit carries the reason it matched, and the result says whether any
-hit is a confident match.
+Two lanes feed one ranked list. The lexical lane always runs: Postgres full-text search over weighted
+metric fields, exact and acronym matches on names, and a trigram fallback for typos. The semantic lane
+runs only when the caller passes a query embedding: cosine similarity against the vectors stored on the
+metric rows. Every hit carries the reason it matched, and the result says whether any hit is a
+confident match.
+
+A team holds a few hundred metrics, so the semantic lane ranks in Python with no vector index. Above
+``SEMANTIC_MAX_CANDIDATES`` it skips itself and logs, so a large catalog costs no more than word matching.
 """
 
 import re
-from collections.abc import Sequence
+import math
+import heapq
+from collections.abc import Callable, Sequence
 from enum import IntEnum, StrEnum
 from functools import reduce
 from operator import or_
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.contrib.postgres.search import (
@@ -24,6 +31,8 @@ from django.db.models import BooleanField, Case, Expression, Func, Q, QuerySet, 
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Coalesce, Greatest, Least
 
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.helpers.trigram_search import normalize_search_term
 from posthog.models import Team, User
@@ -32,15 +41,22 @@ from ..facade.contracts import MetricListFilters
 from ..facade.enums import MetricStatus
 from ..models import Metric
 from .analytics import AnalyticsProps, capture_metric_search_event
+from .metric_embeddings import METRIC_EMBEDDING_MODEL, embed_search_query, embedding_is_current, semantic_search_enabled
 from .metrics import metrics_visible_to_user
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+logger = structlog.get_logger(__name__)
+
 MAX_SEARCH_PHRASINGS = 5
 MAX_SEARCH_PHRASING_LENGTH = 200
 # A search answers with a short ranked page unless the caller asks for more.
 SEARCH_DEFAULT_LIMIT = 10
+
+# A hit scores 1 / (RRF_K + its best rank in either lane). The best rank counts, not the sum over both
+# lanes: a sum lifts weak word matches that the semantic lane also lists above a strong semantic-only hit.
+RRF_K = 60
 
 # word_similarity of a misspelled word against the closest word in a name. "retension" scores about
 # 0.5 against "retention". Every word of a phrasing must reach it, so one correct word does not carry
@@ -49,16 +65,29 @@ TRIGRAM_MIN_WORD_SIMILARITY = 0.45
 # Shorter words, such as "of", share too few trigrams with any name to count for or against a typo match.
 _TYPO_MIN_WORD_LENGTH = 3
 
+# The semantic lane keeps its closest metrics with no cosine floor. On short metric text, correct hits
+# and the nearest metric to a query with no metric score in the same range, so a floor drops right
+# answers without keeping wrong ones out. The agent tells them apart with metric-describe.
+SEMANTIC_TOP_K = 10
+
+# A semantic hit this close counts as a confident match. A placeholder until the eval calibrates it.
+SEMANTIC_CONFIDENT_SIMILARITY = 0.55
+
+# Scoring one vector in Python takes about a millisecond, so a team over this many embedded metrics gets
+# word matching only, and a log line says the lane needs a vector index.
+SEMANTIC_MAX_CANDIDATES = 2000
+
 _ACRONYM_MAX_LENGTH = 6
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
 class SearchMode(StrEnum):
     LEXICAL = "lexical"
+    HYBRID = "hybrid"
 
 
 class MatchTier(IntEnum):
-    """How strongly a lexical hit matches. A higher tier always ranks above a lower one."""
+    """How strongly a lexical hit matches. Among lexical hits, a higher tier always ranks above a lower one."""
 
     SOME_WORDS = 1
     TYPO = 2
@@ -255,30 +284,69 @@ def _lexical_lane(candidates: QuerySet[Metric], phrasings: list[str]) -> dict[UU
     return best
 
 
+def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right))
+    norm = math.sqrt(sum(a * a for a in left)) * math.sqrt(sum(b * b for b in right))
+    return dot / norm if norm else 0.0
+
+
+def _semantic_lane(candidates: QuerySet[Metric], query_embedding: list[float], top_k: int) -> dict[UUID, float]:
+    """Cosine similarity for the ``top_k`` closest metrics whose vector still matches their text."""
+    embedded = candidates.filter(embedding__isnull=False, embedding_model=METRIC_EMBEDDING_MODEL)
+    count = embedded.count()
+    if count > SEMANTIC_MAX_CANDIDATES:
+        logger.warning("metric_semantic_search_skipped_large_catalog", embedded_metrics=count)
+        return {}
+    # defer(None) drops the embedding deferral that metrics_for_team adds, which only() would keep.
+    rows = (
+        embedded.defer(None)
+        .only(
+            "id", "name", "display_name", "description", "unit", "embedding", "embedding_model", "embedding_text_hash"
+        )
+        .iterator(chunk_size=200)
+    )
+    # A vector made from text that changed since is skipped until the refresh task replaces it.
+    similarities = (
+        (metric.id, cosine_similarity(query_embedding, cast(list[float], metric.embedding)))
+        for metric in rows
+        if embedding_is_current(metric)
+    )
+    return dict(heapq.nlargest(top_k, similarities, key=lambda item: item[1]))
+
+
 def search_metrics(
     candidates: QuerySet[Metric],
     queries: Sequence[str],
     *,
     limit: int = SEARCH_DEFAULT_LIMIT,
     offset: int = 0,
+    embed_query: Callable[[str], list[float] | None] | None = None,
+    semantic_top_k: int = SEMANTIC_TOP_K,
 ) -> MetricSearchResult:
     """Rank ``candidates`` against one or more phrasings of the same need, and load one page of hits.
 
-    ``candidates`` must already be the metrics the caller may see.
+    ``candidates`` must already be the metrics the caller may see. ``embed_query`` turns the joined
+    phrasings into a vector, or returns None when embedding fails, in which case only the lexical lane runs.
     """
     phrasings = normalize_phrasings(queries)
     if not phrasings:
         return MetricSearchResult(hits=[], total=0, confident_match=False, search_mode=SearchMode.LEXICAL)
 
     lexical = _lexical_lane(candidates, phrasings)
+
+    query_embedding = embed_query("; ".join(phrasings)) if embed_query is not None else None
+    semantic = _semantic_lane(candidates, query_embedding, semantic_top_k) if query_embedding is not None else {}
+
     # Rank on light rows, then load full metrics only for the hits that are returned.
     rows = {
         metric_id: (name, status)
-        for metric_id, name, status in candidates.filter(id__in=set(lexical)).values_list("id", "name", "status")
+        for metric_id, name, status in candidates.filter(id__in=set(lexical) | set(semantic)).values_list(
+            "id", "name", "status"
+        )
     }
     # Inside one tier an approved metric ranks first, because approval says more than the text rank.
-    ranked = sorted(
-        rows,
+    lexical_ranked = sorted(
+        (metric_id for metric_id in rows if metric_id in lexical),
         key=lambda metric_id: (
             -lexical[metric_id].tier,
             rows[metric_id][1] != MetricStatus.APPROVED,
@@ -286,15 +354,51 @@ def search_metrics(
             rows[metric_id][0],
         ),
     )
+    semantic_ranked = sorted(
+        (metric_id for metric_id in rows if metric_id in semantic),
+        key=lambda metric_id: (-semantic[metric_id], rows[metric_id][0]),
+    )
+    # A confident word match ranks above every meaning-only hit. The weaker word matches and the semantic
+    # lane interleave by their best rank below them.
+    confident_ids = [metric_id for metric_id in lexical_ranked if lexical[metric_id].tier >= CONFIDENT_TIER]
+    confident_set = set(confident_ids)
+    scores: dict[UUID, float] = {}
+    for lane_ranked in (lexical_ranked, semantic_ranked):
+        weaker = [metric_id for metric_id in lane_ranked if metric_id not in confident_set]
+        for position, metric_id in enumerate(weaker, start=1):
+            scores[metric_id] = max(scores.get(metric_id, 0.0), 1.0 / (RRF_K + position))
+    ranked = confident_ids + sorted(
+        scores,
+        key=lambda metric_id: (
+            -scores[metric_id],
+            metric_id not in lexical,
+            rows[metric_id][1] != MetricStatus.APPROVED,
+            rows[metric_id][0],
+        ),
+    )
+
     page = ranked[offset : offset + limit]
-    metrics = {metric.id: metric for metric in candidates.filter(id__in=page).select_related("created_by", "owner")}
-    hits = [
-        MetricSearchHit(metric=metrics[metric_id], match_reason=lexical[metric_id].reason)
-        for metric_id in page
-        if metric_id in metrics
-    ]
-    confident = any(match.tier >= CONFIDENT_TIER for match in lexical.values())
-    return MetricSearchResult(hits=hits, total=len(ranked), confident_match=confident, search_mode=SearchMode.LEXICAL)
+    metrics = {
+        metric.id: metric
+        for metric in candidates.filter(id__in=page).defer("embedding").select_related("created_by", "owner")
+    }
+    hits = []
+    for metric_id in page:
+        if metric_id not in metrics:
+            continue
+        similarity = semantic.get(metric_id)
+        reason = lexical[metric_id].reason if metric_id in lexical else f"similar meaning ({similarity:.2f})"
+        hits.append(MetricSearchHit(metric=metrics[metric_id], match_reason=reason))
+
+    confident = any(match.tier >= CONFIDENT_TIER for match in lexical.values()) or any(
+        score >= SEMANTIC_CONFIDENT_SIMILARITY for score in semantic.values()
+    )
+    return MetricSearchResult(
+        hits=hits,
+        total=len(ranked),
+        confident_match=confident,
+        search_mode=SearchMode.HYBRID if query_embedding is not None else SearchMode.LEXICAL,
+    )
 
 
 def search_catalog(
@@ -308,10 +412,19 @@ def search_catalog(
     offset: int = 0,
     analytics_props: AnalyticsProps | None = None,
 ) -> MetricSearchResult:
-    """Search the metrics the list would show the user, and record the search without its text."""
+    """Search the metrics the list would show the user, with the semantic lane when the team has it on.
+
+    The search is recorded without its text.
+    """
     candidates = metrics_visible_to_user(team, user, user_access_control, filters)
     phrasings = split_search(search)
-    result = search_metrics(candidates, phrasings, limit=limit, offset=offset)
+    result = search_metrics(
+        candidates,
+        phrasings,
+        limit=limit,
+        offset=offset,
+        embed_query=(lambda text: embed_search_query(team, text)) if semantic_search_enabled(team) else None,
+    )
     # Later pages of the same search are not new searches.
     if offset > 0:
         return result
