@@ -152,6 +152,7 @@ class TestRecommendIncrementalFields(SimpleTestCase):
     @parameterized.expand(
         [
             ("agrees_with_the_rules", lambda: _FakeClient(_pick("c0"))),
+            ("picks_a_non_timestamp", lambda: _FakeClient(_pick("c1"))),
             ("low_confidence", lambda: _FakeClient(_pick("c1", confidence=0.4))),
             ("refusal", lambda: _FakeClient(RefusalAnswer())),
             ("option_out_of_range", lambda: _FakeClient(_pick("c9"))),
@@ -175,6 +176,11 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         [
             ("update_column_found", _schema("orders", _field("created_at"), _field("updated_at")), {}),
             ("single_candidate", _schema("orders", _field("created_at")), {}),
+            (
+                "silent_column_is_not_a_timestamp",
+                _schema("orders", _field("created_at"), _field("version", IncrementalFieldType.Integer)),
+                {},
+            ),
             (
                 "insert_only_candidates",
                 _schema("orders", _field("created_at"), _field("id", IncrementalFieldType.Integer)),
@@ -270,6 +276,17 @@ class TestRecommendIncrementalFields(SimpleTestCase):
 
         assert sorted(len(questions) for _, questions in client.calls) == [8, 32]
         assert all(schema.incremental_fields[0]["field"] == "fecha_actualizacion" for schema in schemas)
+
+    def test_model_reads_a_cut_name_and_the_pick_keeps_the_full_column(self) -> None:
+        long_name = "fecha_" + "x" * 4000
+        schema = _schema("orders", _field("created_at"), _field(long_name), _field("id", IncrementalFieldType.Integer))
+        client = _FakeClient(_pick("c2"))
+
+        self._run([schema], client)
+
+        state, _ = client.calls[0]
+        assert max(len(column["name"]) for column in state["tables"]["t0"]["columns"]) == 256
+        assert schema.incremental_fields[0]["field"] == long_name
 
     def test_synthetic_xmin_is_never_offered(self) -> None:
         schema = _open_schema()

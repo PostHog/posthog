@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.models.external_data_schema import updat
 from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
+    is_temporal,
     name_is_silent,
     tracks_updates,
 )
@@ -56,13 +57,15 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-PROMPT_VERSION = 1
 # The sync settings form waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
 # The open tables one call asks about, so a caller sending more gets no answer for the rest.
 MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
+# Callers send their own names, so the model reads at most this much of each one. Picks map back by
+# position, so a cut name still resolves to its full column.
+MAX_NAME_CHARS = 256
 CACHE_TTL_SECONDS = 24 * 60 * 60
 QUEUED_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
@@ -81,6 +84,8 @@ _INSTRUCTIONS = (
     "Pick the column whose value changes every time a row is inserted or updated, so that edited rows sync again. "
     "When two columns are equally likely, pick the indexed one that is never empty."
 )
+# Keys every cached and stored answer, so editing the instructions retires the old answers.
+PROMPT_VERSION = hashlib.sha256(_INSTRUCTIONS.encode()).hexdigest()[:12]
 
 
 def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team") -> None:
@@ -205,6 +210,8 @@ def _candidates_key(schema: SourceSchema) -> str:
 def _without_model_pick(field: IncrementalField) -> IncrementalField:
     cleaned: IncrementalField = {**field}
     cleaned.pop("picked_by_model", None)
+    if "notes" in cleaned:
+        cleaned["notes"] = [note for note in cleaned["notes"] if note != MODEL_PICK_NOTE]
     return cleaned
 
 
@@ -253,8 +260,13 @@ def _candidates(schema: SourceSchema) -> list[IncrementalField]:
 
 def _is_open(schema: SourceSchema) -> bool:
     candidates = _candidates(schema)
-    # With every name saying "created" or "updated", the rules already know the answer.
-    return len(candidates) >= 2 and not tracks_updates(candidates[0]) and any(map(name_is_silent, candidates))
+    # Only a timestamp whose name says neither "created" nor "updated" can beat the rules, and only
+    # a timestamp pick is one every surface (wizard, sync form, MCP) uses as the cursor.
+    return (
+        len(candidates) >= 2
+        and not tracks_updates(candidates[0])
+        and any(name_is_silent(field) and is_temporal(field) for field in candidates)
+    )
 
 
 def _model_allowed(team: "Team") -> bool:
@@ -286,11 +298,11 @@ def _within_team_budget(team_id: int, requests: int) -> bool:
 
 def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     return {
-        "table": schema.name,
+        "table": schema.name[:MAX_NAME_CHARS],
         "columns": [
             {
                 "option": f"c{position}",
-                "name": field["field"],
+                "name": field["field"][:MAX_NAME_CHARS],
                 "type": str(field.get("field_type") or field["type"]),
                 "indexed": field.get("is_indexed", True),
                 "nullable": field.get("nullable", False),
@@ -353,9 +365,9 @@ async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSch
 def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
     fields = schema.incremental_fields
     chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
-    # Agreeing with the rules adds nothing. Marking it would also make append skip a column that may
-    # never change, such as `created_at`.
-    if chosen is None or chosen is fields[0]:
+    # Agreeing with the rules adds nothing, and marking it would make append skip a column that may
+    # never change, such as `created_at`. A non-timestamp pick is one the wizard would ignore.
+    if chosen is None or chosen is fields[0] or not is_temporal(chosen):
         return False
     rest: list[IncrementalField] = [
         {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen
@@ -365,7 +377,7 @@ def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
             **chosen,
             "recommended": True,
             "picked_by_model": True,
-            "notes": [MODEL_PICK_NOTE, *(note for note in chosen.get("notes", []) if note != MODEL_PICK_NOTE)],
+            "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])],
         },
         *rest,
     ]

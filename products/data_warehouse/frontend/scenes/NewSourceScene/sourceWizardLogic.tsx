@@ -42,6 +42,10 @@ import {
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax,
+    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax,
+} from 'products/warehouse_sources/frontend/generated/api.zod'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
@@ -353,14 +357,12 @@ const isTimestampType = (field: IncrementalField): boolean => {
     return type === 'timestamp' || type === 'datetime' || type === 'date'
 }
 
+const isIdField = (field: IncrementalField): boolean => /^(id|uuid)/i.test(field.label) && field.type === 'integer'
+
 // The backend ranks database-source candidates and marks its pick. Trust it only for the kinds of
 // field the name rules below would accept, so a recommended integer such as `score` is not a cursor.
 const recommendedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
-    fields.find(
-        (field) =>
-            field.recommended &&
-            (isTimestampType(field) || (/^(id|uuid)/i.test(field.label) && field.type === 'integer'))
-    )
+    fields.find((field) => field.recommended && (isTimestampType(field) || isIdField(field)))
 
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     const recommended = recommendedIncrementalField(fields)
@@ -389,11 +391,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
         return timestamp
     }
     // fallback to numeric fields matching "id" or "uuid" case insensitive
-    const id = fields.find((field) => {
-        const idRegex = /^id/i
-        const uuidRegex = /^uuid/i
-        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
-    })
+    const id = fields.find(isIdField)
     if (id) {
         return id
     }
@@ -433,11 +431,6 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
     }
     return selectAll
 }
-
-// The tables one recommendations request asks the model about, which the endpoint also enforces.
-const MAX_RECOMMENDATION_TABLES = 128
-// The decision model's option limit per table, which the endpoint also enforces.
-const MAX_RECOMMENDATION_CANDIDATES = 16
 
 export interface PollingSyncSettings {
     sync_type: 'full_refresh' | 'incremental' | 'append'
@@ -487,7 +480,10 @@ async function fetchIncrementalFieldPicks(
             tables: batch.map((schema) => ({
                 table: schema.table,
                 // The model reads only the leading ranked candidates, so the rest stay local.
-                incremental_fields: recommendationCandidates(schema).slice(0, MAX_RECOMMENDATION_CANDIDATES),
+                incremental_fields: recommendationCandidates(schema).slice(
+                    0,
+                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax
+                ),
             })),
         })
         for (const table of response.tables) {
@@ -1150,7 +1146,7 @@ export interface sourceWizardLogicMeta {
             | 'Set up webhook'
             | 'Tables ready to query'
         isWrapped: (arg: any) => boolean
-        incrementalFieldModelEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
+        incrementalFieldModelEnabled: (featureFlags: FeatureFlagsSet, isDirectQueryMode: boolean, arg: any) => boolean
     }
 }
 
@@ -2044,10 +2040,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         // determines if the wizard is wrapped in another component
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
         // One-click setup shows no table list, so a late pick would change tables nobody reviews.
+        // A direct-query source syncs nothing, so a pick would only reorder unused candidates.
         incrementalFieldModelEnabled: [
-            (s) => [s.featureFlags, (_, props) => props.autoConfigureTables],
-            (featureFlags: FeatureFlagsSet, autoConfigureTables: boolean | undefined): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL] && !autoConfigureTables,
+            (s) => [s.featureFlags, s.isDirectQueryMode, (_, props) => props.autoConfigureTables],
+            (
+                featureFlags: FeatureFlagsSet,
+                isDirectQueryMode: boolean,
+                autoConfigureTables: boolean | undefined
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL] &&
+                !isDirectQueryMode &&
+                !autoConfigureTables,
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
@@ -2056,7 +2059,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         loadIncrementalFieldRecommendations: async () => {
             const connectorName = values.selectedConnector?.name
             const teamId = values.currentTeamId
-            const tables = values.databaseSchema.filter((schema) => recommendationCandidates(schema).length >= 2)
+            const tables = values.databaseSchema.filter(
+                (schema) => !schema.permission_error && recommendationCandidates(schema).length >= 2
+            )
             if (!connectorName || teamId === null || tables.length === 0 || !values.incrementalFieldModelEnabled) {
                 return
             }
@@ -2071,7 +2076,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 values.connectorSelectionCount === selection
             // One batch at a time keeps a large discovery from sending a burst of requests. Each batch's
             // picks land as soon as it answers, and a failed batch drops only its own tables.
-            for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
+            for (const batch of chunk(tables, externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)) {
                 // An obsolete discovery would spend the team's model budget on answers nobody reads.
                 if (!stillApplies()) {
                     return

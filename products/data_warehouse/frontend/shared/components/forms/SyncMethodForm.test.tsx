@@ -111,6 +111,42 @@ describe('SyncMethodForm', () => {
         cleanup()
     })
 
+    it.each([
+        ['incremental', true],
+        ['append', false],
+    ] as const)('shows the model note only while %s is the selected method', (syncType, shown) => {
+        render(
+            <SyncMethodForm
+                schema={{
+                    ...baseSchema,
+                    sync_type: syncType,
+                    incremental_available: true,
+                    append_available: true,
+                    incremental_field: 'fecha_actualizacion',
+                    incremental_fields: [
+                        {
+                            field: 'fecha_actualizacion',
+                            field_type: 'timestamp',
+                            label: 'fecha_actualizacion',
+                            type: 'timestamp',
+                            recommended: true,
+                            picked_by_model: true,
+                            notes: ['Picked by AI from the table and column names.'],
+                        },
+                        { field: 'created_at', field_type: 'timestamp', label: 'created_at', type: 'timestamp' },
+                    ],
+                    primary_key_columns: ['id'],
+                }}
+                availableColumns={[]}
+                onClose={() => {}}
+                onSave={() => {}}
+            />
+        )
+
+        expect(screen.queryByText('Picked by AI from the table and column names.') !== null).toBe(shown)
+        cleanup()
+    })
+
     describe('shared settings of the keyed methods', () => {
         afterEach(cleanup)
 

@@ -2130,21 +2130,47 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('asks for no recommendations without the feature flag', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: false })
+        it.each([
+            {
+                name: 'without the feature flag',
+                flag: false,
+                schema: {},
+                before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
+            },
+            {
+                name: 'for a direct-query source, which syncs nothing',
+                flag: true,
+                schema: {},
+                before: (logic: ReturnType<typeof sourceWizardLogic.build>) =>
+                    logic.actions.updateSource({ access_method: 'direct' }),
+            },
+            {
+                name: 'for a table the credentials cannot read',
+                flag: true,
+                schema: { permission_error: 'Missing read access' },
+                before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
+            },
+        ])('asks for no recommendations $name', async ({ flag, schema, before }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: flag })
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.orders', {
                     incremental_fields: [
                         { ...createdAt, recommended: true },
                         { ...modelPick, recommended: false },
                     ],
+                    ...schema,
                 }),
             ] as ExternalDataSourceSyncSchema[])
             const recommend = jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate).mockReset()
 
-            const { unmount } = await mountAndLoadSchemas(postgresSource)
+            const logic = sourceWizardLogic({ availableSources: { [postgresSource.name]: postgresSource } })
+            const unmount = logic.mount()
 
             try {
+                logic.actions.selectConnector(postgresSource)
+                before(logic)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
                 expect(recommend).not.toHaveBeenCalled()
             } finally {
                 unmount()
