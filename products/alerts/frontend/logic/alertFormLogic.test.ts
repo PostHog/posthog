@@ -390,6 +390,46 @@ describe('alertFormLogic', () => {
         })
     })
 
+    it.each([
+        {
+            outcome: 'succeeds',
+            response: () =>
+                Promise.resolve(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })),
+            toasts: () => ({
+                success: [expect.stringMatching(/^Alert snoozed until Jul 16, \d\d:30\.$/)],
+                error: [],
+            }),
+        },
+        {
+            outcome: 'fails',
+            response: () => Promise.reject(new Error('network down')),
+            toasts: () => ({ success: [], error: ["We couldn't snooze this alert. Please try again."] }),
+        },
+    ])('keeps the editor open and tells the user when a snooze $outcome', async ({ response, toasts }) => {
+        const onEditSuccess = jest.fn()
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        updateSpy.mockImplementationOnce(response)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults({ id: existingAlert.id }), checks: undefined })
+
+        await expectLogic(logic, () => {
+            logic.actions.snoozeAlert('2026-07-16T15:30:00Z')
+        }).toFinishAllListeners()
+
+        expect(onEditSuccess).not.toHaveBeenCalled()
+        expect({
+            success: successToastSpy.mock.calls.map(([message]) => message),
+            error: errorToastSpy.mock.calls.map(([message]) => message),
+        }).toEqual(toasts())
+    })
+
     it('saves the edits disabled before offering to take ownership when the owner left', async () => {
         const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
         updateSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))

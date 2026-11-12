@@ -9,7 +9,9 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -954,16 +956,29 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
+                try {
+                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                        snoozed_until: resolvedSnoozeUntil,
+                    })
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    const snoozedUntilLabel = formatDate(
+                        dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
+                        'MMM D, HH:mm'
+                    )
+                    lemonToast.success(`Alert snoozed until ${snoozedUntilLabel}.`)
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'snooze alert',
+                        alertId: values.alertForm.id,
+                    })
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
@@ -980,6 +995,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {
