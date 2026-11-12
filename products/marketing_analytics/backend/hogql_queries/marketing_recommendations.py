@@ -371,7 +371,11 @@ class _Recommender:
         for campaign in self.campaigns.values():
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
-            budget = self._budget_constrained(campaign)
+            budget = (
+                None
+                if self._is_brand_campaign(campaign, brand_spend)
+                else self._budget_constrained(campaign, self._campaign_benchmark(campaign))
+            )
             # Campaigns that share a budget each report it as constrained, so one row covers the shared budget.
             if budget and not (campaign.budget_id and campaign.budget_id in constrained_budgets):
                 recommendations.append(budget)
@@ -423,13 +427,19 @@ class _Recommender:
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
         return recommendations
 
-    def _budget_constrained(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation | None:
+    def _budget_constrained(
+        self, campaign: CampaignStats, benchmark: _Benchmark | None
+    ) -> MarketingAnalyticsRecommendation | None:
         budget, recommended = campaign.daily_budget, campaign.recommended_daily_budget
+        cpa = self._compared_cpa(campaign, benchmark)
         if (
             "BUDGET_CONSTRAINED" not in campaign.status_reasons
             or not budget
             or not recommended
             or recommended <= budget
+            or benchmark is None
+            or cpa is None
+            or cpa > benchmark.cpa
         ):
             return None
         lost = (
@@ -442,10 +452,12 @@ class _Recommender:
             "campaign",
             campaign.name,
             f"Raise the daily budget from {self._money(budget)} to {self._money(recommended)}",
-            f"Limited by budget. {lost}{self._money(recommended)} a day is Google's recommended budget.",
+            f"Limited by budget, and its {benchmark.compared} is at or below {benchmark.label}. "
+            f"{lost}{self._money(recommended)} a day is Google's recommended budget.",
             (recommended - budget) * 30,
             "invest",
             "estimated",
+            cpa=self._cpa(cpa, benchmark),
         )
 
     def _brand_leak(

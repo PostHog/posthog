@@ -173,10 +173,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'budget_constrained',
         level: 'campaign',
-        subject: 'Search - Brand',
+        subject: 'Search - Generic',
         action: 'Raise the daily budget from $50 to $80',
-        reason: 'Google Ads reports this campaign as limited by budget and recommends $80 a day.',
+        reason: "Limited by budget, and its non-brand CPA is at or below the account's non-brand CPA. 22% of eligible impressions are lost because the budget runs out. $80 a day is Google's recommended budget.",
         impact: 900,
+        cpa: cpa(85, 100, 'account'),
         impactDirection: 'invest',
         impactType: 'estimated',
     }),

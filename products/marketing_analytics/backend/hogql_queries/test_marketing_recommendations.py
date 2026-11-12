@@ -71,22 +71,42 @@ def _inputs(
 class TestMarketingRecommendations(SimpleTestCase):
     @parameterized.expand(
         [
-            ("google_recommends_more", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, True),
-            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, False),
-            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, False),
-            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, False),
+            ("cpa_below_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 200.0}, (), True),
+            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, {}, (), False),
+            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, {}, (), False),
+            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, {}, (), False),
+            ("cpa_above_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 50.0}, (), False),
+            (
+                "brand_campaign",
+                ("BUDGET_CONSTRAINED",),
+                "ELIGIBLE",
+                300.0,
+                {"target_cpa": 200.0},
+                (_term("example login", "c1", 1000, 10),),
+                False,
+            ),
         ]
     )
-    def test_budget_rule_needs_a_budget_limit_and_google_recommendation(
-        self, _name: str, reasons: tuple[str, ...], status: str, recommended: float | None, expected: bool
+    def test_budget_rule_needs_a_budget_limit_google_recommendation_and_cpa_within_benchmark(
+        self,
+        _name: str,
+        reasons: tuple[str, ...],
+        status: str,
+        recommended: float | None,
+        overrides: dict[str, object],
+        terms: tuple[SearchTermStats, ...],
+        expected: bool,
     ) -> None:
-        campaign = _campaign(status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended)
-        rules = [rec for rec in recommend(_inputs((campaign,))) if rec.rule == "budget_constrained"]
+        campaign = _campaign(
+            status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended, **overrides
+        )
+        rules = [rec for rec in recommend(_inputs((campaign,), terms)) if rec.rule == "budget_constrained"]
         assert bool(rules) == expected
         if expected:
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
-            assert rules[0].cpa is None
+            assert rules[0].cpa is not None
+            assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
 
     @parameterized.expand(
         [

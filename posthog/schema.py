@@ -7074,8 +7074,8 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
         ...,
         description=(
             "CPA benchmark the rule compares the subject with. Only rules that judge a"
-            " CPA carry `cpa`, so rules about brand overlap, budget, policy, rank or"
-            " organic search have none."
+            " CPA carry `cpa`: review, Search scale, budget, spend without conversions"
+            " and content gap."
         ),
     )
     benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | None = Field(

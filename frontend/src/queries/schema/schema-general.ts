@@ -8941,8 +8941,8 @@ export interface MarketingAnalyticsRecommendationCpa {
      */
     value: number | null
     /**
-     * CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`, so rules about
-     * brand overlap, budget, policy, rank or organic search have none.
+     * CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search
+     * scale, budget, spend without conversions and content gap.
      */
     benchmark: number | null
     /** Where the benchmark comes from. Null when there is no benchmark. */
