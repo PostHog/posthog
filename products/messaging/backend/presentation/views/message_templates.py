@@ -61,14 +61,15 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
+    MessageTemplatePlacement,
     MessageTemplateRow,
     create_template,
     edit_template_content,
     get_template,
+    get_template_placement,
     list_templates,
     save_template_draft,
     team_category_id,
-    template_file_path,
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
@@ -1093,10 +1094,12 @@ class MessageTemplatesViewSet(
             return transactional_email_throttles()
         return super().get_throttles()
 
-    def read_object(self) -> MessageTemplateRow | None:
+    def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
+            if self.action == "placement":
+                return get_template_placement(self.team_id, self.kwargs["pk"])
             # A send never reads the tags, so it skips their queries.
             return get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
         except MessageTemplateMissing:
@@ -1234,9 +1237,8 @@ class MessageTemplatesViewSet(
     )
     @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
     def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        template = self.get_object()
-        path = template_file_path(self.team_id, template.id)
-        return Response(MessageTemplatePlacementSerializer({"path": path}).data)
+        placement = self.get_object()
+        return Response(MessageTemplatePlacementSerializer({"path": placement.path}).data)
 
     @extend_schema(
         request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]

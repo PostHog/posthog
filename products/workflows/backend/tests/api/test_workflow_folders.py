@@ -525,9 +525,16 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("folder_move", "post", "{folder_id}/move/", {"new_path": "Archive/Inbox"}, 0),
-            ("file", "post", "", {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"}, 0),
-            ("folder_delete", "delete", "{folder_id}/?recursive=true", {}, 1),
+            ("folder_move", "post", "file_system/{folder_id}/move/", {"new_path": "Archive/Inbox"}, 0),
+            (
+                "file",
+                "post",
+                "file_system/",
+                {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"},
+                0,
+            ),
+            ("folder_delete", "delete", "file_system/{folder_id}/?recursive=true", {}, 1),
+            ("template_placement", "get", "messaging_templates/{template_id}/placement/", {}, 0),
         ]
     )
     def test_a_template_file_check_reads_only_the_template_access_fields(
@@ -545,9 +552,9 @@ class TestWorkflowFolders(APIBaseTest):
 
         with CaptureQueriesContext(connection) as queries:
             response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/file_system/{suffix.format(folder_id=folder.id)}",
+                f"/api/projects/{self.team.id}/{suffix.format(folder_id=folder.id, template_id=template_id)}",
                 {key: value.format(template_id=template_id) for key, value in payload.items()},
-                format="json",
+                **({} if method == "get" else {"format": "json"}),
             )
 
         self.assertIn(response.status_code, (200, 201), response.content)
@@ -563,6 +570,22 @@ class TestWorkflowFolders(APIBaseTest):
             template_locks,
             template_queries,
         )
+
+    def test_a_folder_delete_reads_the_team_row_no_more_often_for_more_templates(self) -> None:
+        def team_reads_for_a_folder_of(count: int, folder_path: str) -> int:
+            folder = FileSystem.objects.create(team=self.team, path=folder_path, depth=1, type="folder")
+            for index in range(count):
+                self.client.post(
+                    f"/api/projects/{self.team.id}/messaging_templates/",
+                    {"name": f"Email {index}", "type": "email", "_create_in_folder": folder_path},
+                    format="json",
+                )
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true")
+            self.assertEqual(response.status_code, 200, response.content)
+            return len([query for query in queries.captured_queries if 'FROM "posthog_team"' in query["sql"]])
+
+        self.assertEqual(team_reads_for_a_folder_of(3, "Many"), team_reads_for_a_folder_of(1, "One"))
 
     @parameterized.expand(
         [

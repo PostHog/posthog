@@ -74,9 +74,20 @@ def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = Tru
         raise MessageTemplateMissing() from e
 
 
-def template_file_path(team_id: int, template_id: UUID) -> str | None:
-    """The path of the template's own file, not a shortcut, whether or not the project tree shows it."""
-    return templates_service.file_path(team_id, template_id)
+@frozen
+class MessageTemplatePlacement:
+    id: UUID
+    # The path of the template's own file, not a shortcut, whether or not the project tree shows it.
+    path: str | None
+
+
+def get_template_placement(team_id: int, template_id: UUID | str) -> MessageTemplatePlacement:
+    """Where the team's template that is not deleted sits in the project tree. Reads no template content."""
+    try:
+        found_id = templates_service.team_template_id(team_id, template_id)
+    except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
+        raise MessageTemplateMissing() from e
+    return MessageTemplatePlacement(id=found_id, path=templates_service.file_path(team_id, found_id))
 
 
 def team_category_id(team_id: int, category_id: Any) -> UUID:

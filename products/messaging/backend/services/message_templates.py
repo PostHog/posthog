@@ -92,6 +92,14 @@ def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
 
 
+def team_template_id(team_id: int, template_id: UUID | str) -> UUID:
+    return (
+        MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id)
+        .values_list("id", flat=True)
+        .get()
+    )
+
+
 def file_path(team_id: int, template_id: UUID) -> str | None:
     return (
         FileSystem.objects.filter(

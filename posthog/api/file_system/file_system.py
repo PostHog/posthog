@@ -1328,19 +1328,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not row.ref:
                 raise serializers.ValidationError({"detail": f"Cannot delete type '{row.type}' without a reference."})
             groups.setdefault((row.team_id, row.type, canonical_file_system_ref(row.type, row.ref)), []).append(row)
+        surviving = {
+            (row.team_id, row.type, canonical_file_system_ref(row.type, row.ref))
+            for row in locked
+            if row.pk not in removed_ids and row.shortcut is False and row.ref
+        }
         carriers: list[FileSystem] = []
         objects_to_delete: list[FileObjectRef] = []
         for (team_id, file_type, ref), group in sorted(groups.items()):
-            remaining = any(
-                row.pk not in removed_ids
-                and row.team_id == team_id
-                and row.type == file_type
-                and row.shortcut is False
-                and row.ref
-                and canonical_file_system_ref(file_type, row.ref) == ref
-                for row in locked
-            )
-            if not remaining:
+            if (team_id, file_type, ref) not in surviving:
                 carriers.append(group[0])
                 objects_to_delete.append(FileObjectRef(team_id=team_id, type=file_type, ref=ref))
 

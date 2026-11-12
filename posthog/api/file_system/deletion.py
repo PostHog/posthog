@@ -188,12 +188,14 @@ def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRe
         if object_ref.type in _DELETE_LOCKS and object_ref.type in _MODEL_REGISTRY:
             refs_by_type.setdefault((object_ref.type, object_ref.team_id), set()).add(object_ref.ref)
     locked: dict[FileObjectRef, Any] = {}
+    teams: dict[int, Any] = {}
     for (type_string, team_id), type_refs in sorted(refs_by_type.items()):
         registration = _MODEL_REGISTRY[type_string]
         lock, fields = _DELETE_LOCKS[type_string]
         refs_by_value = _lookup_values(registration, type_refs)
         if not refs_by_value:
             continue
+        model = apps.get_model(registration.app_label, registration.model_name)
         objects = (
             _get_queryset(registration)
             .only(*fields)
@@ -203,6 +205,10 @@ def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRe
             .order_by("pk")
         )
         for instance in lock(objects):
+            # The soft delete's save signals read the team. One instance per team saves a read per object.
+            if team_id not in teams:
+                teams[team_id] = model._meta.get_field(registration.team_field).related_model.objects.get(pk=team_id)
+            setattr(instance, registration.team_field, teams[team_id])
             for ref in refs_by_value.get(getattr(instance, registration.lookup_field), []):
                 locked[FileObjectRef(team_id=team_id, type=type_string, ref=ref)] = instance
     return locked
