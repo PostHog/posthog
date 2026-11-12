@@ -11,7 +11,9 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import github  # noqa: E402
 import review_pr  # noqa: E402
+import familiarity  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
 from test_review_local import _thread_comment  # noqa: E402
@@ -150,3 +152,86 @@ def test_author_rejected_bot_finding_resolves_only_when_the_judge_upholds_it(
     upheld = f"after checking the author's rejection: `posthog`: {_FINDING} Rejection holds:"
     assert (upheld in result["review_body"]) is (expected == "APPROVED")
     assert ".." not in result["review_body"]
+
+
+def _graphql_comment(login: str, typename: str, association: str, reply_to: dict | None) -> dict:
+    return {
+        "author": {"login": login, "__typename": typename},
+        "authorAssociation": association,
+        "body": _FINDING if reply_to is None else f"Not a bug, says {login}.",
+        "databaseId": 1,
+        "replyTo": reply_to,
+        "reactions": {"nodes": []},
+    }
+
+
+@pytest.mark.parametrize(
+    "replies, expected",
+    [
+        pytest.param([("alice", "User", "MEMBER")], "APPROVED", id="author-answered-the-bot"),
+        pytest.param(
+            [("alice", "User", "MEMBER"), ("mallory", "User", "NONE")], "REFUSED", id="an-untrusted-person-joined"
+        ),
+    ],
+)
+def test_fetched_bot_thread_resolves_only_between_the_bot_and_the_author(
+    monkeypatch, tmp_path: Path, replies: list[tuple[str, str, str]], expected: str
+) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    base_sha = _commit(tmp_path, "CACHE = {}\n")
+    head_sha = _commit(tmp_path, "CACHE = {'warm': True}\n\ndef handler():\n    return CACHE['warm']\n")
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
+    pull = {
+        "title": "chore(app): warm the handler cache",
+        "state": "open",
+        "draft": False,
+        "mergeable_state": "clean",
+        "user": {"login": "alice", "type": "User"},
+        "labels": [],
+        "body": "",
+        "base": {"ref": "master", "sha": base_sha, "repo": {"default_branch": "master"}},
+        "head": {"sha": head_sha},
+    }
+    rest = {"repos/PostHog/posthog/pulls/1": pull, f"repos/PostHog/posthog/commits/{head_sha}/check-runs": {}}
+    monkeypatch.setattr(github, "_gh_api", lambda endpoint, paginate=False: rest.get(endpoint, []))
+    nodes = [_graphql_comment("posthog", "Bot", "NONE", None)] + [
+        _graphql_comment(*reply, {"databaseId": 1}) for reply in replies
+    ]
+    thread = {"isResolved": False, "isOutdated": False, "path": "src/app.py", "line": 3}
+    page = {"pageInfo": {"hasNextPage": False, "endCursor": None}}
+    graphql = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reactions": {"nodes": []},
+                    "reviewThreads": {
+                        **page,
+                        "nodes": [{**thread, "comments": {"pageInfo": {"hasNextPage": False}, "nodes": nodes}}],
+                    },
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(github, "_gh_graphql", lambda query, variables=None: graphql)
+    monkeypatch.setattr(github, "_is_org_member", lambda org, member: False)
+    monkeypatch.setattr(familiarity, "_fetch_author_pr_numbers", lambda author, repo: set())
+    _JudgingReviewer.facts = {
+        "risky_areas": [],
+        "reviews_on_current_head": [],
+        "owning_team_author": False,
+        "strong_familiarity": False,
+        "unresolved_substantive_concerns": [],
+        "other_refusal_grounds": [],
+        "rejected_bot_concerns": [_rejected()],
+        "reasoning": "One rejected finding.",
+        "change_summary": "The handler reads from a warm cache.",
+    }
+    monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _JudgingReviewer)
+
+    pipeline = review_pr.Pipeline(1, "PostHog/posthog")
+    pipeline.run()
+    result = pipeline.to_dict()
+
+    assert result["final_verdict"] == expected
+    upheld = f"after checking the author's rejection: `posthog`: {_FINDING} Rejection holds:"
+    assert (upheld in result["review_body"]) is (expected == "APPROVED")
