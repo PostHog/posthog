@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import BoundedSemaphore, Event
+from urllib.parse import quote
 from uuid import uuid4
 
 from unittest.mock import Mock, patch
@@ -167,6 +168,7 @@ class TestSelection(SimpleTestCase):
                         "is_generated": False,
                         "document_id": "doc",
                         "ordinal": 2,
+                        "url": "https://docs.example.com/activation",
                     }
                 ],
             }
@@ -194,6 +196,16 @@ class TestSelection(SimpleTestCase):
         self.assertIn("is_drifted", result.context)
         rendered = [json.loads(line) for line in result.context.splitlines() if line.startswith("{")]
         records = {record["kind"]: json.loads(record["text"]) for record in rendered}
+        self.assertEqual(
+            {record["kind"]: record["url"] for record in rendered},
+            {
+                "skill": f"https://posthog.example.com/project/42/skills/{quote(self.skill['name'], safe='')}",
+                "metric": "https://posthog.example.com/project/42/data-catalog/metrics/activation",
+                "business_knowledge": "https://docs.example.com/activation",
+                "certification": "",
+                "relationship": "",
+            },
+        )
         self.assertEqual(records["metric"]["is_drifted"], True)
         self.assertEqual(records["metric"]["status"], "approved")
         self.assertEqual(records["certification"]["status"], "approved")
