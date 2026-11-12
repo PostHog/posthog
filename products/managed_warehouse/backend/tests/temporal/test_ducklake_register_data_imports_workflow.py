@@ -6,7 +6,7 @@ import decimal
 import datetime as dt
 import contextlib
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 from pathlib import Path
 from typing import Any, cast
@@ -20,7 +20,8 @@ import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.workflow import ParentClosePolicy
 from trino.exceptions import TrinoUserError
 
 from posthog.sync import database_sync_to_async
@@ -30,6 +31,7 @@ from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob,
 from products.managed_warehouse.backend.temporal import (
     ducklake_register_data_imports_trino as trino_module,
     ducklake_register_data_imports_workflow as registration_module,
+    ducklake_register_trino_landing as landing_module,
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     ENGINE_DUCKGRES,
@@ -40,6 +42,8 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsMetadata,
     DuckLakeRegisterDataImportsWorkflow,
+    DuckLakeTrinoLandingSweepInputs,
+    DuckLakeTrinoLandingSweepWorkflow,
     build_register_data_imports_workflow_id,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
@@ -1079,27 +1083,47 @@ async def test_workflow_retries_completed_state_without_recording_failure(monkey
 
 
 @pytest.mark.asyncio
-async def test_workflow_cleanup_finalizer_runs_when_copy_activity_fails(monkeypatch):
-    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
-    failed_at = started_at + dt.timedelta(minutes=3)
+@pytest.mark.parametrize(
+    "engine, sweep_patched, start_error, expect_child",
+    [
+        pytest.param(ENGINE_DUCKGRES, True, None, False, id="duckgres"),
+        pytest.param(ENGINE_TRINO, True, None, True, id="trino"),
+        pytest.param(ENGINE_TRINO, False, None, False, id="trino_before_the_sweep_patch"),
+        pytest.param(ENGINE_TRINO, True, WorkflowAlreadyStartedError("id", "type"), True, id="trino_sweep_exists"),
+    ],
+)
+async def test_workflow_cleanup_finalizer_runs_when_copy_activity_fails(
+    monkeypatch, engine, sweep_patched, start_error, expect_child
+):
+    metadata = dataclasses.replace(_activity_inputs().metadata, engine=engine)
+    if engine == ENGINE_TRINO:
+        metadata = dataclasses.replace(
+            metadata,
+            landing_uri="s3://ducklake/_ph_imports/posthog_data_imports_team_1/postgres_customers/schema/job",
+        )
     execute_activity = AsyncMock(
         side_effect=[
             True,
             None,
-            _activity_inputs().metadata,
+            metadata,
             RuntimeError("register worker died"),
             None,
             None,
         ]
     )
+    start_child_workflow = AsyncMock(side_effect=start_error)
     _mock_workflow_metrics(monkeypatch)
-    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
-    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=9)))
     monkeypatch.setattr(
         registration_module.workflow,
-        "now",
-        MagicMock(side_effect=[started_at, failed_at, failed_at]),
+        "patched",
+        MagicMock(
+            side_effect=lambda patch_id: sweep_patched or patch_id != registration_module._TRINO_LANDING_SWEEP_PATCH_ID
+        ),
     )
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "start_child_workflow", start_child_workflow)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=9)))
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(return_value=MINTED_AT))
 
     with pytest.raises(RuntimeError, match="register worker died"):
         await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
@@ -1118,6 +1142,48 @@ async def test_workflow_cleanup_finalizer_runs_when_copy_activity_fails(monkeypa
     assert names is not None
     assert cleanup_call.args[1].table_names == [names.shadow_name, names.previous_name]
     assert cleanup_call.args[1].schema_name == _activity_inputs().metadata.ducklake_schema_name
+    if not expect_child:
+        start_child_workflow.assert_not_awaited()
+        return
+    token = names.shadow_name.removeprefix("__ph_register_")
+    start_child_workflow.assert_awaited_once_with(
+        DuckLakeTrinoLandingSweepWorkflow.run,
+        DuckLakeTrinoLandingSweepInputs(
+            team_id=1,
+            attempt_uri=(
+                "s3://ducklake/_ph_imports/posthog_data_imports_team_1/postgres_customers/schema/job/"
+                f"1234567890_abcdef12/{token}"
+            ),
+            delete_after=MINTED_AT
+            + registration_module._SWEEP_MIN_AGE
+            + registration_module._LANDING_SWEEP_CLOCK_MARGIN,
+        ),
+        id=f"ducklake-register-data-imports-landing-sweep-1-{_workflow_inputs().schema_id}-{token}",
+        parent_close_policy=ParentClosePolicy.ABANDON,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delay", [dt.timedelta(hours=2), dt.timedelta(hours=-1)], ids=["waits", "due"])
+async def test_landing_sweep_workflow_waits_for_the_sweep_age_before_sweeping(monkeypatch, delay) -> None:
+    inputs = DuckLakeTrinoLandingSweepInputs(
+        team_id=1, attempt_uri="s3://b/_ph_imports/a", delete_after=MINTED_AT + delay
+    )
+    sleep = AsyncMock()
+    execute_activity = AsyncMock()
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(return_value=MINTED_AT))
+    monkeypatch.setattr(registration_module.workflow, "sleep", sleep)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+
+    await DuckLakeTrinoLandingSweepWorkflow().run(inputs)
+
+    if delay > dt.timedelta(0):
+        sleep.assert_awaited_once_with(delay)
+    else:
+        sleep.assert_not_awaited()
+    assert [call.args for call in execute_activity.await_args_list] == [
+        (registration_module.sweep_trino_registration_landing_activity, inputs)
+    ]
 
 
 def test_cleanup_activity_drops_requested_tables_and_sweeps_stale_ones(monkeypatch):
@@ -1542,7 +1608,7 @@ def _register_through_trino(
     *,
     hive_partition_columns: tuple[str, ...] = (),
     should_publish: bool = True,
-    before_add_files: Callable[[], None] | None = None,
+    before_add_files_batch: Callable[[int, Sequence[str]], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
 ) -> trino_module.TrinoRegistrationResult:
@@ -1560,7 +1626,7 @@ def _register_through_trino(
         hive_partition_columns=hive_partition_columns,
         filesystem=_LocalFilesystem(),
         should_publish=lambda: should_publish,
-        before_add_files=before_add_files,
+        before_add_files_batch=before_add_files_batch,
         deadline_monotonic=deadline_monotonic,
         canary=canary,
     )
@@ -1600,8 +1666,9 @@ def test_trino_registration_runs_the_expected_statements(
             "note": pa.array(["a", "b"]),
         }
     )
+    monkeypatch.setattr(trino_module, "add_files_batches", partial(trino_module.add_files_batches, max_files=1))
     fake = _FakeTrino(row_count=4)
-    statements_before_add_files: list[int] = []
+    batches: list[tuple[int, list[str], int]] = []
 
     result = _register_through_trino(
         monkeypatch,
@@ -1609,7 +1676,7 @@ def test_trino_registration_runs_the_expected_statements(
         tmp_path,
         dict.fromkeys(relative_paths, table),
         hive_partition_columns=hive_partition_columns,
-        before_add_files=lambda: statements_before_add_files.append(len(fake.statements)),
+        before_add_files_batch=lambda index, paths: batches.append((index, list(paths), len(fake.statements))),
         canary=canary,
     )
 
@@ -1626,13 +1693,18 @@ def test_trino_registration_runs_the_expected_statements(
     else:
         assert "WITH (" not in create
     add_files = fake.statements_matching("EXECUTE add_files")
-    assert len(add_files) == 1
-    assert statements_before_add_files == [fake.statements.index(add_files[0])]
-    assert fake.statements.index(create) < statements_before_add_files[0]
+    sorted_paths = sorted(str(tmp_path / relative_path) for relative_path in relative_paths)
+    assert len(add_files) == 2
+    assert [(index, paths) for index, paths, _ in batches] == [(0, sorted_paths[:1]), (1, sorted_paths[1:])]
+    assert [statements_before for _, _, statements_before in batches] == [
+        fake.statements.index(statement) for statement in add_files
+    ]
+    assert fake.statements.index(create) < batches[0][2]
     assert f"import_id => '{ATTEMPT_TOKEN}_00000'" in add_files[0]
-    assert f"hive_partitioning => {hive_partitioning}" in add_files[0]
+    assert f"import_id => '{ATTEMPT_TOKEN}_00001'" in add_files[1]
+    assert all(f"hive_partitioning => {hive_partitioning}" in statement for statement in add_files)
     assert (
-        fake.statements.index(add_files[0])
+        fake.statements.index(add_files[-1])
         < fake.statements.index(fake.statements_matching("SELECT count(*)")[0])
         < len(fake.statements) - 1
     )
@@ -1792,7 +1864,7 @@ def test_trino_registration_refuses_files_it_cannot_register_before_any_catalog_
     _name: str, footers: list[trino_module.ParquetFooter], hive_columns: list[str], message: str, monkeypatch
 ) -> None:
     connect = MagicMock()
-    before_add_files = MagicMock()
+    before_add_files_batch = MagicMock()
     monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
     monkeypatch.setattr(trino_module, "read_parquet_footers", lambda filesystem, paths: footers)
 
@@ -1809,12 +1881,12 @@ def test_trino_registration_refuses_files_it_cannot_register_before_any_catalog_
             hive_partition_columns=hive_columns,
             filesystem=_LocalFilesystem(),
             should_publish=lambda: True,
-            before_add_files=before_add_files,
+            before_add_files_batch=before_add_files_batch,
         )
 
     assert error.value.non_retryable is True
     connect.assert_not_called()
-    before_add_files.assert_not_called()
+    before_add_files_batch.assert_not_called()
 
 
 def test_read_parquet_footers_reads_row_counts_and_types_from_the_files(tmp_path) -> None:
@@ -2155,7 +2227,7 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
         "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         f"1234567890_abcdef12/{kwargs['attempt_token']}"
     )
-    landing_prefix = re.fullmatch(rf"({re.escape(attempt_prefix)}/[0-9a-f]{{16}})/k=1/a\.parquet", copy_calls[0][1][0])
+    landing_prefix = re.fullmatch(rf"({re.escape(attempt_prefix)}/m[0-9a-f]{{16}})/k=1/a\.parquet", copy_calls[0][1][0])
     assert landing_prefix
     assert kwargs["landing_paths"] == [f"s3://{landing_prefix.group(1)}/k=1/a.parquet"]
     assert kwargs["hive_partition_columns"] == ["k"]
@@ -2170,6 +2242,14 @@ class _FakeS3:
         self.partial_copy_fails = partial_copy_fails
         self.rm_mode = rm_mode
         self.copy_destinations: list[str] = []
+        self.bodies: dict[str, bytes] = {}
+
+    def pipe_file(self, path: str, value: bytes) -> None:
+        self.keys.add(path)
+        self.bodies[path] = value
+
+    def cat_file(self, path: str) -> bytes:
+        return self.bodies[path]
 
     def invalidate_cache(self, path: str | None = None) -> None:
         pass
@@ -2191,6 +2271,8 @@ class _FakeS3:
             raise RuntimeError("delete failed")
         if self.rm_mode == "works":
             self.keys.difference_update(paths)
+            for path in paths:
+                self.bodies.pop(path, None)
 
 
 @pytest.mark.parametrize(
@@ -2225,11 +2307,13 @@ def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
     source_keys = {f"{source_prefix}/k=1/a.parquet", f"{source_prefix}/k=2/b.parquet"}
     fake_s3 = _FakeS3(source_keys, partial_copy_fails=partial_copy_fails, rm_mode=rm_mode)
     capture = MagicMock()
+    first_batch: list[str] = []
 
     def fake_register(**kwargs: Any) -> trino_module.TrinoRegistrationResult:
         if registration == "fails_before_add_files":
             raise ApplicationError("footer type error", non_retryable=True)
-        kwargs["before_add_files"]()
+        first_batch.extend(kwargs["landing_paths"][:1])
+        kwargs["before_add_files_batch"](0, first_batch)
         if registration == "fails_after_add_files_started":
             raise RuntimeError("add files failed")
         return trino_module.TrinoRegistrationResult(published=registration == "published", row_count=3)
@@ -2259,6 +2343,12 @@ def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
         assert copy_and_register_ducklake_data_imports_activity(inputs) is expected_result
 
     assert source_keys <= fake_s3.keys
+    if registration != "fails_before_add_files":
+        execution_folder = fake_s3.copy_destinations[0].split("/k=")[0]
+        assert fake_s3.bodies.keys() == {f"{execution_folder}/_ph_add_files/00000.json"}
+        assert json.loads(next(iter(fake_s3.bodies.values()))) == {"files": first_batch}
+    else:
+        assert fake_s3.bodies == {}
     if files_deleted:
         assert fake_s3.keys == source_keys
     else:
@@ -2443,3 +2533,116 @@ def test_parse_inputs_reads_the_engine_override_and_keeps_old_json_valid(
 
     assert inputs.register_through_trino is expected_override
     assert inputs.use_trino_canary is expected_canary
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "unregistered_after_worker_loss",
+        "partially_registered",
+        "older_execution_without_manifests",
+        "attempt_may_still_run",
+        "manifest_lists_a_file_outside_its_execution",
+        "not_a_landing_folder",
+        "glob_like_name",
+    ],
+)
+def test_landing_sweep_activity_deletes_only_files_no_manifest_lists(monkeypatch, scenario) -> None:
+    age = (
+        dt.timedelta(hours=5)
+        if scenario == "attempt_may_still_run"
+        else registration_module._SWEEP_MIN_AGE + dt.timedelta(minutes=1)
+    )
+    minted = int((dt.datetime.now(dt.UTC) - age).timestamp())
+    token = f"{minted}_a1b2c3d4e5f60718"
+    sibling_token = f"{minted}_0000000000000001"
+    root = "imports" if scenario == "not_a_landing_folder" else "_ph_imports"
+    generation = f"ducklake/{root}/schema_a/table_a/schema-id/job/1234567890_abcdef12"
+    folder = "0123456789abcdef" if scenario == "older_execution_without_manifests" else "m0123456789abcdef"
+    execution = f"{generation}/{token}/{folder}"
+    sibling = f"{generation}/{sibling_token}/m0123456789abcdef/a.parquet"
+    files = [f"{execution}/a.parquet", f"{execution}/k=1/b.parquet"]
+    manifest_entries: list[str] = []
+    expected_deleted: set[str] = set()
+    if scenario == "unregistered_after_worker_loss":
+        expected_deleted = set(files)
+    if scenario == "partially_registered":
+        second_execution_file = f"{generation}/{token}/mfedcba9876543210/e.parquet"
+        files += [f"{execution}/c.parquet", f"{execution}/k=2/d.parquet", second_execution_file]
+        manifest_entries = files[:2]
+        expected_deleted = set(files[2:])
+    if scenario == "manifest_lists_a_file_outside_its_execution":
+        manifest_entries = [f"{generation}/{token}/mfedcba9876543210/a.parquet"]
+    if scenario == "glob_like_name":
+        files = [f"{execution}/k=[1]/x.parquet", f"{execution}/k=1/x.parquet"]
+        manifest_entries = [files[1]]
+    fake_s3 = _FakeS3({sibling, *files})
+    if manifest_entries:
+        landing_module.write_batch_manifest(
+            fake_s3, f"s3://{execution}", 0, [f"s3://{entry}" for entry in manifest_entries]
+        )
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    inputs = DuckLakeTrinoLandingSweepInputs(
+        team_id=1, attempt_uri=f"s3://{generation}/{token}", delete_after=dt.datetime.now(dt.UTC)
+    )
+    before = set(fake_s3.keys)
+
+    if scenario in ("attempt_may_still_run", "manifest_lists_a_file_outside_its_execution", "not_a_landing_folder"):
+        with pytest.raises(ApplicationError) as error:
+            registration_module.sweep_trino_registration_landing_activity(inputs)
+        assert error.value.non_retryable is (scenario != "attempt_may_still_run")
+        assert fake_s3.keys == before
+        return
+    registration_module.sweep_trino_registration_landing_activity(inputs)
+
+    assert fake_s3.keys == before - expected_deleted
+
+
+def test_landing_sweep_keeps_the_files_the_copy_activity_manifested(monkeypatch) -> None:
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/k=1/a.parquet", f"{source_prefix}/k=2/b.parquet"}
+    fake_s3 = _FakeS3(source_keys)
+
+    def fake_register(**kwargs: Any) -> trino_module.TrinoRegistrationResult:
+        kwargs["before_add_files_batch"](0, kwargs["landing_paths"][:1])
+        raise RuntimeError("the activity died after one batch")
+
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=fake_register)
+    )
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    names = registration_module._new_trino_registration_table_names(
+        dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
+    )
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(
+            base.metadata,
+            engine=ENGINE_TRINO,
+            source_schema_id=str(uuid.UUID(int=5)),
+            landing_uri="s3://ducklake/_ph_imports/schema_a/table_a/schema/job",
+        ),
+        registration_table_names=names,
+    )
+    token = names.shadow_name.removeprefix("__ph_register_")
+
+    with pytest.raises(RuntimeError, match="died after one batch"):
+        copy_and_register_ducklake_data_imports_activity(inputs)
+    first, second = fake_s3.copy_destinations
+    execution_folder = first.split("/k=")[0]
+    attempt_uri = "s3://" + execution_folder.rsplit("/", 1)[0]
+    assert attempt_uri.endswith(f"/{token}")
+    landing_module.sweep_unregistered_landing_files(
+        fake_s3,
+        attempt_uri,
+        now=dt.datetime.now(dt.UTC) + registration_module._SWEEP_MIN_AGE + dt.timedelta(minutes=10),
+        min_age=registration_module._SWEEP_MIN_AGE,
+    )
+
+    assert fake_s3.keys == source_keys | {first, f"{execution_folder}/_ph_add_files/00000.json"}
+    assert second not in fake_s3.keys

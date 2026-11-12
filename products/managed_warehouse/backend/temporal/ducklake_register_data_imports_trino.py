@@ -355,7 +355,7 @@ def register_prepared_files_through_trino(
     hive_partition_columns: Sequence[str],
     filesystem: ParquetFilesystem,
     should_publish: Callable[[], bool],
-    before_add_files: Callable[[], None] | None = None,
+    before_add_files_batch: Callable[[int, Sequence[str]], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
 ) -> TrinoRegistrationResult:
@@ -364,8 +364,8 @@ def register_prepared_files_through_trino(
     `landing_paths` are this attempt's copied files. The columns and the expected row count come from their Parquet
     footers, because add_files compares each file's own types exactly. The import ids derive from `attempt_token`,
     so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the `time.monotonic()` value
-    at which the running statement is cancelled. `before_add_files` runs once before the first add_files statement.
-    Until then no table can reference the landing files.
+    at which the running statement is cancelled. `before_add_files_batch` runs before each add_files
+    statement with the batch index and files. Until the first call no table can reference the landing files.
     """
     sorted_paths = sorted(landing_paths)
     # A type error fails here, before any catalog work.
@@ -382,9 +382,9 @@ def register_prepared_files_through_trino(
     ) as statements:
         statements.run(f"CREATE SCHEMA IF NOT EXISTS {statements.qualified(ducklake_schema)}")
         statements.run(_create_table_statement(statements, ducklake_schema, shadow_name, staging_schema))
-        if before_add_files is not None:
-            before_add_files()
         for index, batch in enumerate(add_files_batches(sorted_paths)):
+            if before_add_files_batch is not None:
+                before_add_files_batch(index, batch)
             rows = statements.run(
                 _add_files_statement(
                     statements,

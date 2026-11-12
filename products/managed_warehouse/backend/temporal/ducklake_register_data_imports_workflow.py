@@ -21,8 +21,10 @@ from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.workflow import ParentClosePolicy
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -58,6 +60,12 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     register_prepared_files_through_trino,
     staging_table_minted_at,
     staging_table_name,
+)
+from products.managed_warehouse.backend.temporal.ducklake_register_trino_landing import (
+    LANDING_ROOT,
+    new_execution_folder_name,
+    sweep_unregistered_landing_files,
+    write_batch_manifest,
 )
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_bytes_metric,
@@ -107,8 +115,7 @@ _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 _CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 ENGINE_DUCKGRES = "duckgres"
 ENGINE_TRINO = "trino"
-# Prefix of the folders that hold a Trino registration's copy of the files, below the DuckLake data path.
-_TRINO_IMPORTS_PREFIX = "_ph_imports"
+_TRINO_LANDING_SWEEP_PATCH_ID = "ducklake-register-trino-landing-sweep-2026-11"
 _SHADOW_TABLE_PREFIX = "__ph_register_"
 
 
@@ -262,6 +269,13 @@ class DuckLakeRegisterCleanupInputs:
     table_names: list[str]
     engine: str = ENGINE_DUCKGRES
     trino_canary: bool = False
+
+
+@frozen
+class DuckLakeTrinoLandingSweepInputs:
+    team_id: int
+    attempt_uri: str
+    delete_after: dt.datetime
 
 
 class _StalePreparedGenerationError(Exception):
@@ -543,9 +557,16 @@ def _trino_landing_uri(
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
     generation_token = _generation_token(prepared_queryable_folder, job_id)
     return (
-        f"{data_path}{_TRINO_IMPORTS_PREFIX}/{ducklake_schema_name}/{ducklake_table_name}/"
+        f"{data_path}{LANDING_ROOT}/{ducklake_schema_name}/{ducklake_table_name}/"
         f"{source_schema_id}/{safe_job_id}/{generation_token}"
     )
+
+
+def _trino_attempt_uri(landing_uri: str, *, job_id: str, prepared_queryable_folder: str, attempt_token: str) -> str:
+    generation_uri = _generation_scoped_landing_uri(
+        landing_uri, job_id=job_id, prepared_queryable_folder=prepared_queryable_folder
+    )
+    return f"{generation_uri}/{attempt_token}"
 
 
 def _copy_and_register_through_trino(
@@ -568,19 +589,21 @@ def _copy_and_register_through_trino(
             non_retryable=True,
         )
     attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
-    generation_uri = _generation_scoped_landing_uri(
+    attempt_uri = _trino_attempt_uri(
         metadata.landing_uri,
         job_id=inputs.job_id,
         prepared_queryable_folder=metadata.prepared_queryable_folder,
+        attempt_token=attempt_token,
     )
-    landing_uri = f"{generation_uri}/{attempt_token}/{uuid.uuid4().hex[:16]}"
+    landing_uri = f"{attempt_uri}/{new_execution_folder_name()}"
     organization_id = str(_get_org_id_for_team(inputs.team_id))
 
     add_files_started = False
 
-    def mark_add_files_started() -> None:
+    def record_add_files_batch(index: int, paths: Sequence[str]) -> None:
         nonlocal add_files_started
         add_files_started = True
+        write_batch_manifest(get_s3_client(), landing_uri, index, paths)
 
     with heartbeater:
         try:
@@ -600,7 +623,7 @@ def _copy_and_register_through_trino(
                     hive_partition_columns=_hive_partition_columns(landing_uri, landing_paths),
                     filesystem=get_s3_client(),
                     should_publish=lambda: _should_publish_prepared_generation(inputs),
-                    before_add_files=mark_add_files_started,
+                    before_add_files_batch=record_add_files_batch,
                     deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
                     canary=metadata.trino_canary,
                 )
@@ -1156,6 +1179,9 @@ _TRINO_MAX_START_DELAY = _SWEEP_MIN_AGE - _REGISTER_COPY_START_TO_CLOSE - dt.tim
 # comfortably inside the finalizer's start_to_close on a contended catalog.
 # Every registration run sweeps again, so a backlog drains across runs.
 _SWEEP_BATCH_LIMIT = 15
+# The landing sweep activity measures the attempt's age on the worker clock, which can lag the Temporal server
+# clock that fires the sweep workflow's timer. Without a margin the first attempt can refuse and retry.
+_LANDING_SWEEP_CLOCK_MARGIN = dt.timedelta(minutes=5)
 _REGISTRATION_TABLE_REGEX = "^__ph_(register|previous)_[0-9a-f]{32}$"
 
 
@@ -1240,6 +1266,58 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
         else:
             if swept:
                 logger.info("Swept stale DuckLake registration tables", table_names=swept)
+
+
+@activity.defn
+def sweep_trino_registration_landing_activity(inputs: DuckLakeTrinoLandingSweepInputs) -> None:
+    bind_contextvars(team_id=inputs.team_id)
+    result = sweep_unregistered_landing_files(
+        get_s3_client(), inputs.attempt_uri, now=dt.datetime.now(dt.UTC), min_age=_SWEEP_MIN_AGE
+    )
+    LOGGER.info(
+        "Swept the unregistered landing files of a Trino registration attempt",
+        attempt_uri=inputs.attempt_uri,
+        deleted_count=len(result.deleted),
+        kept_count=len(result.kept),
+        undeletable_count=len(result.undeletable),
+        unmanifested_executions=list(result.unmanifested_executions),
+    )
+
+
+async def _start_trino_landing_sweep(
+    inputs: DuckLakeRegisterDataImportsInputs,
+    metadata: DuckLakeRegisterDataImportsMetadata,
+    registration_table_names: RegistrationTableNames,
+    logger: typing.Any,
+) -> None:
+    attempt_token = registration_table_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
+    minted_at = staging_table_minted_at(registration_table_names.shadow_name)
+    if minted_at is None:
+        return
+    try:
+        attempt_uri = _trino_attempt_uri(
+            metadata.landing_uri,
+            job_id=inputs.job_id,
+            prepared_queryable_folder=metadata.prepared_queryable_folder,
+            attempt_token=attempt_token,
+        )
+        # The sweep waits because an execution that lost its heartbeat can still be running, and only after the
+        # sweep age can no add_files of the attempt commit. ABANDON frees this workflow's id for the next
+        # registration instead of holding it for hours.
+        await workflow.start_child_workflow(
+            DuckLakeTrinoLandingSweepWorkflow.run,
+            DuckLakeTrinoLandingSweepInputs(
+                team_id=inputs.team_id,
+                attempt_uri=attempt_uri,
+                delete_after=minted_at + _SWEEP_MIN_AGE + _LANDING_SWEEP_CLOCK_MARGIN,
+            ),
+            id=f"ducklake-register-data-imports-landing-sweep-{inputs.team_id}-{inputs.schema_id}-{attempt_token}",
+            parent_close_policy=ParentClosePolicy.ABANDON,
+        )
+    except WorkflowAlreadyStartedError:
+        logger.info("The landing sweep of this registration attempt already started", attempt_token=attempt_token)
+    except Exception:
+        logger.exception("Failed to start the landing sweep of a failed Trino registration attempt")
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:
@@ -1348,6 +1426,14 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+            except Exception:
+                if (
+                    registration_table_names is not None
+                    and metadata.engine == ENGINE_TRINO
+                    and workflow.patched(_TRINO_LANDING_SWEEP_PATCH_ID)
+                ):
+                    await _start_trino_landing_sweep(inputs, metadata, registration_table_names, logger)
+                raise
             finally:
                 if registration_table_names is not None:
                     try:
@@ -1426,3 +1512,32 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 get_ducklake_register_data_imports_last_success_metric(team_id=inputs.team_id, schema_id=schema_id).set(
                     finished_at.timestamp()
                 )
+
+
+@workflow.defn(name="ducklake-register.data-imports-landing-sweep")
+class DuckLakeTrinoLandingSweepWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> DuckLakeTrinoLandingSweepInputs:
+        loaded = json.loads(inputs[0])
+        return DuckLakeTrinoLandingSweepInputs(
+            team_id=loaded["team_id"],
+            attempt_uri=loaded["attempt_uri"],
+            delete_after=dt.datetime.fromisoformat(loaded["delete_after"]),
+        )
+
+    @workflow.run
+    async def run(self, inputs: DuckLakeTrinoLandingSweepInputs) -> None:
+        wait = inputs.delete_after - workflow.now()
+        if wait > dt.timedelta(0):
+            await workflow.sleep(wait)
+        await workflow.execute_activity(
+            sweep_trino_registration_landing_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            retry_policy=RetryPolicy(
+                maximum_attempts=10,
+                initial_interval=dt.timedelta(minutes=1),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(minutes=30),
+            ),
+        )
