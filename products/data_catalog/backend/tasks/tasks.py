@@ -14,7 +14,7 @@ from ..logic.lineage import sync_metric_lineage
 from ..logic.metric_embeddings import (
     BACKFILL_BATCH_SIZE,
     BACKFILL_SPACING_SECONDS,
-    metrics_missing_embedding,
+    metrics_to_backfill,
     refresh_metric_embedding,
 )
 from ..models.metric import Metric
@@ -55,12 +55,12 @@ def refresh_metric_embedding_task(metric_id: str, team_id: int) -> None:
     queue=CeleryQueue.DEFAULT.value,
 )
 def backfill_metric_embeddings_task() -> None:
-    """Embed metrics written before semantic search, one spaced-out batch per run.
+    """Embed metrics written before semantic search, one spaced-out batch per run, for teams with the backfill flag on.
 
     A temporary backfill: once existing metrics have vectors, writes keep them current and this task,
     with its schedule entry, can go.
     """
-    for position, (metric_id, team_id) in enumerate(metrics_missing_embedding(BACKFILL_BATCH_SIZE)):
+    for position, (metric_id, team_id) in enumerate(metrics_to_backfill(BACKFILL_BATCH_SIZE)):
         refresh_metric_embedding_task.apply_async(
             args=[metric_id, team_id], countdown=position * BACKFILL_SPACING_SECONDS
         )

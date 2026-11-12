@@ -10,9 +10,9 @@ from posthog.models.scoping import team_scope
 
 from ...logic.metric_embeddings import (
     can_embed,
+    embedding_backfill_enabled,
     metrics_needing_embedding,
     refresh_metric_embedding,
-    semantic_search_enabled,
 )
 from ...models.metric import Metric
 
@@ -64,7 +64,7 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Embed for every organization that approved AI data processing, not only the teams with "
-            "the semantic search flag on. Use it to prepare teams before the flag reaches them.",
+            "the embedding backfill flag on.",
         )
         parser.add_argument(
             "--sleep-ms",
@@ -104,7 +104,7 @@ class Command(BaseCommand):
     def _team_allowed(self, team: Team, *, skip_flag_check: bool) -> bool:
         if not can_embed(team):
             return False
-        return skip_flag_check or semantic_search_enabled(team)
+        return skip_flag_check or embedding_backfill_enabled(team)
 
     def _backfill_team(self, team: Team, *, dry_run: bool, force: bool, sleep_seconds: float) -> TeamResult:
         with team_scope(team.pk):

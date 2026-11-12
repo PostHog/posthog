@@ -15,6 +15,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.data_catalog.backend.logic.metric_embeddings import (
+    EMBEDDING_BACKFILL_FEATURE_FLAG,
     METRIC_EMBEDDING_MODEL,
     RefreshOutcome,
     metric_search_text,
@@ -255,10 +256,13 @@ class TestMetricEmbeddingRefresh(BaseTest):
         assert self._stored("nps").embedding == [0.1, 0.2]
         assert self._stored("arr").embedding == [0.5, 0.5]
 
-    def test_backfill_sweep_embeds_only_metrics_without_a_vector_in_consenting_orgs(self, generate: MagicMock) -> None:
+    def test_backfill_sweep_embeds_only_metrics_without_a_vector_in_flagged_consenting_teams(
+        self, generate: MagicMock
+    ) -> None:
         other_org = Organization.objects.create(name="No AI consent", is_ai_data_processing_approved=False)
         other_team = Team.objects.create(organization=other_org, name="No AI consent")
-        for team, name in [(self.team, "mrr"), (self.team, "arr"), (other_team, "nps")]:
+        unflagged_team = Team.objects.create(organization=self.organization, name="Backfill flag off")
+        for team, name in [(self.team, "mrr"), (self.team, "arr"), (other_team, "nps"), (unflagged_team, "dau")]:
             with team_scope(team.id):
                 Metric.objects.for_team(team.id).create(team=team, name=name, description=f"{name} metric")
         Metric.objects.for_team(self.team.id).filter(name="arr").update(
@@ -276,13 +280,18 @@ class TestMetricEmbeddingRefresh(BaseTest):
         with self.captureOnCommitCallbacks(execute=False):
             update_metric(self._stored("churn"), team=self.team, user=self.user, description="Logo churn")
 
-        backfill_metric_embeddings_task()
+        def backfill_flag(flag: str, distinct_id: str, **_kwargs: object) -> bool:
+            return flag == EMBEDDING_BACKFILL_FEATURE_FLAG and distinct_id == str(self.team.uuid)
+
+        with patch(_FLAG, side_effect=backfill_flag):
+            backfill_metric_embeddings_task()
 
         assert generate.call_count == 2
         assert self._stored("mrr").embedding == [0.1, 0.2]
         assert self._stored("churn").embedding == [0.1, 0.2]
-        with team_scope(other_team.id):
-            assert Metric.objects.for_team(other_team.id).get(name="nps").embedding is None
+        for team, name in [(other_team, "nps"), (unflagged_team, "dau")]:
+            with team_scope(team.id):
+                assert Metric.objects.for_team(team.id).get(name=name).embedding is None
 
 
 def _hash_of(metric: Metric) -> str:
