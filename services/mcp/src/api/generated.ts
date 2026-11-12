@@ -1138,6 +1138,8 @@ export namespace Schemas {
     export interface AEOSetupContext {
       /** Up to 5 domains the project may be about, the most likely first. */
       websites: AEOWebsiteCandidate[];
+      /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
+      engines: AEOEngineSetting[];
       /** Domains already set as the project's own brands. */
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
@@ -1150,6 +1152,8 @@ export namespace Schemas {
       ai_data_processing_approved: boolean;
       /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
       first_run_available: boolean;
+      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      prompt_target: number;
     }
 
     /**
@@ -1194,7 +1198,7 @@ export namespace Schemas {
        * * `keywords` - Keywords
        * * `first_run` - First Run */
       step: SetupStepEnum;
-      /** pending, running, done, skipped (the project already had it, or the first run is not available) or failed.
+      /** pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed.
        *
        * * `pending` - Pending
        * * `running` - Running
@@ -1204,7 +1208,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_available), or why the keywords step failed. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available), or why the keywords step failed. */
       detail?: string;
     }
 
@@ -1239,6 +1243,14 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * The engines to track, by id. Every other engine is turned off before any run. At least one must be available. Leave it out to keep the current engine settings.
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      engines?: string[];
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks. */
+      run_first_check?: boolean;
     }
 
     export interface AEOVisibilityDashboard {

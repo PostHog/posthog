@@ -240,7 +240,13 @@ def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
         auto_setup.run_job(
             team_id,
             job_id,
-            SetupRequest(domain=request["domain"], brand=request["brand"], description=request["description"]),
+            SetupRequest(
+                domain=request["domain"],
+                brand=request["brand"],
+                description=request["description"],
+                # A task queued before this field existed carries no key and queues no run.
+                run_first_check=request.get("run_first_check", False),
+            ),
         )
     except Exception:
         # Without this the client would poll a pending job until it expires.

@@ -310,7 +310,7 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, then queues a first citation check run with the default engines. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, and with run_first_check queues a first citation check run with the enabled engines. Each check is a paid call to every enabled engine, and the daily schedule keeps running them. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreateBodyDomainMax = 200
@@ -318,6 +318,12 @@ export const aeoSetupCreateBodyDomainMax = 200
 export const aeoSetupCreateBodyBrandMax = 200
 
 export const aeoSetupCreateBodyDescriptionMax = 1000
+
+export const aeoSetupCreateBodyEnginesItemMax = 64
+
+export const aeoSetupCreateBodyEnginesMax = 20
+
+export const aeoSetupCreateBodyRunFirstCheckDefault = false
 
 export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
     domain: zod
@@ -336,6 +342,21 @@ export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
         .max(aeoSetupCreateBodyDescriptionMax)
         .optional()
         .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    engines: zod
+        .array(
+            zod.string().max(aeoSetupCreateBodyEnginesItemMax).describe('An engine id from GET aeo_setup\/context\/.')
+        )
+        .max(aeoSetupCreateBodyEnginesMax)
+        .optional()
+        .describe(
+            'The engines to track, by id. Every other engine is turned off before any run. At least one must be available. Leave it out to keep the current engine settings.'
+        ),
+    run_first_check: zod
+        .boolean()
+        .default(aeoSetupCreateBodyRunFirstCheckDefault)
+        .describe(
+            'Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks.'
+        ),
 })
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000

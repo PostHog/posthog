@@ -27,7 +27,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
-from products.aeo.backend import catalog, keyword_suggestions, suggestions
+from products.aeo.backend import catalog, engine_settings, keyword_suggestions, suggestions
 from products.aeo.backend.facade.contracts import (
     MAX_SETUP_WEBSITES,
     SETUP_ENOUGH_KEYWORDS,
@@ -140,6 +140,8 @@ def read_context(team: Team) -> SetupContext:
         has_checks=AEOCitationCheck.objects.for_team(team.id).exists(),
         ai_data_processing_approved=bool(team.organization.is_ai_data_processing_approved),
         first_run_available=citation_tracking_enabled(team),
+        engines=tuple(engine_settings.list_engine_settings(team.id)),
+        prompt_target=SETUP_PROMPT_COUNT,
     )
 
 
@@ -278,12 +280,14 @@ def _add_keywords(team_id: int, request: SetupRequest) -> SetupStepState:
     return SetupStepState(step=SetupStep.KEYWORDS, status=SetupStepStatus.DONE, added=result.created)
 
 
-def _queue_first_run(team: Team) -> SetupStepState:
+def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
     from products.aeo.backend.tasks.tasks import (  # noqa: PLC0415 -- import cycle
         citation_tracking_enabled,
         run_aeo_citation_checks_for_team_task,
     )
 
+    if not request.run_first_check:
+        return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail="not_requested")
     if AEOCitationCheck.objects.for_team(team.id).exists():
         return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail="already_run")
     if not citation_tracking_enabled(team):
@@ -330,5 +334,5 @@ def run_job(team_id: int, job_id: str, request: SetupRequest) -> None:
         )
 
     progress.set(SetupStep.FIRST_RUN, SetupStepStatus.RUNNING)
-    progress.steps[SetupStep.FIRST_RUN] = _queue_first_run(team)
+    progress.steps[SetupStep.FIRST_RUN] = _queue_first_run(team, request)
     progress.save(SuggestionJobStatus.COMPLETED)

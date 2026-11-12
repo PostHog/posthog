@@ -27,15 +27,17 @@ from products.aeo.backend.facade.contracts import (
     SetupStepState,
     WebsiteCandidate,
 )
-from products.aeo.backend.presentation.views import _AEOFlagGateMixin
+from products.aeo.backend.presentation.views import AEOEngineSettingSerializer, _AEOFlagGateMixin
 
 SETUP_DESCRIPTION = (
     "Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the "
     "organization. In order, it adds the site as the project's own brand, has PostHog suggest "
     f"{SETUP_PROMPT_COUNT} prompts and saves them, has PostHog suggest {SETUP_KEYWORD_COUNT} keywords and saves "
-    "them, then queues a first citation check run with the default engines. A step the project already covers is "
+    "them, and with run_first_check queues a first citation check run with the enabled engines. Each check is a "
+    "paid call to every enabled engine, and the daily schedule keeps running them. A step the project already covers is "
     f"skipped: an own brand exists, {SETUP_ENOUGH_PROMPTS} or more active prompts, {SETUP_ENOUGH_KEYWORDS} or more "
-    "keywords, or any check already recorded. Returns a pending job right away; poll GET aeo_setup/<id>/ until it "
+    "keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off "
+    "before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it "
     "completes, which takes a few minutes. Running it again only fills the gaps."
 )
 
@@ -62,6 +64,11 @@ class AEOSetupContextSerializer(DataclassSerializer):
         many=True,
         help_text=f"Up to {MAX_SETUP_WEBSITES} domains the project may be about, the most likely first.",
     )
+    engines = AEOEngineSettingSerializer(
+        many=True,
+        help_text="Every engine as the project runs it now, defaults included. Ask the user which ones to track, "
+        "and offer only the available ones.",
+    )
 
     class Meta:
         dataclass = SetupContext
@@ -77,6 +84,10 @@ class AEOSetupContextSerializer(DataclassSerializer):
             "first_run_available": {
                 "help_text": "Whether citation checks run for this project. When false, setup saves the brand, "
                 "prompts and keywords but cannot queue the first run."
+            },
+            "prompt_target": {
+                "help_text": "How many prompts setup asks PostHog to suggest. One run makes about this many checks "
+                "per enabled engine."
             },
         }
 
@@ -98,6 +109,19 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         max_length=1000,
         help_text="What the product does and who it is for. Inferred from the site when empty.",
     )
+    engines = serializers.ListField(
+        child=serializers.CharField(max_length=64, help_text="An engine id from GET aeo_setup/context/."),
+        required=False,
+        max_length=20,
+        help_text="The engines to track, by id. Every other engine is turned off before any run. At least one must "
+        "be available. Leave it out to keep the current engine settings.",
+    )
+    run_first_check = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Queue a first citation check run after setup. Each check is a paid call to every enabled engine. "
+        "When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks.",
+    )
 
 
 class AEOSetupStepSerializer(DataclassSerializer):
@@ -109,11 +133,11 @@ class AEOSetupStepSerializer(DataclassSerializer):
                 "help_text": "brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued)."
             },
             "status": {
-                "help_text": "pending, running, done, skipped (the project already had it, or the first run is not available) or failed."
+                "help_text": "pending, running, done, skipped (the project already had it, or the first run was not requested or is not available) or failed."
             },
             "added": {"help_text": "How many brands, prompts or keywords the step added."},
             "detail": {
-                "help_text": "Why a step was skipped (already_set, already_run, not_available), or why the keywords step failed."
+                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available), or why the keywords step failed."
             },
         }
 
@@ -163,7 +187,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         description=SETUP_DESCRIPTION,
         responses={
             202: OpenApiResponse(response=AEOSetupJobSerializer),
-            400: OpenApiResponse(description="The domain is not valid."),
+            400: OpenApiResponse(description="The domain is not valid, or no chosen engine can run."),
         },
         tags=["web_analytics"],
     )
@@ -178,11 +202,15 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             job = start_setup(
                 self.team_id,
                 SetupRequest(
-                    domain=data["domain"], brand=data.get("brand", ""), description=data.get("description", "")
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    run_first_check=data["run_first_check"],
+                    engines=tuple(data["engines"]) if "engines" in data else None,
                 ),
             )
         except SetupRequestError as error:
-            raise ValidationError({"domain": str(error)})
+            raise ValidationError(str(error))
         return Response(AEOSetupJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
