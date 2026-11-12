@@ -19,6 +19,7 @@ import {
 } from '../services/monitoring/hog-invocation-results.service'
 import { IntakeBatchServices, insertIntakeBatch } from './intake-batch'
 import { encodeIntakeMessage } from './message'
+import { keyedRunId } from './run-intake'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const FLOW_ID = '0193a7b2-0000-7000-8000-000000000001'
@@ -86,6 +87,7 @@ describe('insertIntakeBatch', () => {
                 event: {
                     uuid: new UUIDT().toString(),
                     event: '$transactional_email',
+                    timestamp: '2026-11-12T10:00:00.000Z',
                     properties: { to: overrides.to ?? 'ada@example.com' },
                 },
                 actionStepCount: 0,
@@ -171,6 +173,16 @@ describe('insertIntakeBatch', () => {
                 value: invalid.value,
                 headers: expect.objectContaining({ dlq_step: 'parse', dlq_reason: 'schema_invalid' }),
             }),
+        ])
+    })
+
+    it('writes the queued status of a keyed send, dated by its trigger event', async () => {
+        const id = keyedRunId(7, 'transactional-email', `key-${new UUIDT().toString()}`)
+
+        await insertIntakeBatch([send({ id }).message], services, OPTIONS)
+
+        expect(emailStatuses()).toEqual([
+            expect.objectContaining({ message_id: id, status: 'queued', created_at: '2026-11-12 10:00:00.000000' }),
         ])
     })
 

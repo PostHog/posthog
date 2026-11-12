@@ -10,7 +10,7 @@ import type { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { CyclotronV2IdempotentOutcome } from '../services/cyclotron-v2/types'
 import { CdpDeadLetterService, DeadLetterCircuitBreakerError } from '../services/dead-letter/cdp-dead-letter.service'
 import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal } from '../services/messaging/email-priority'
-import { EmailStatusService } from '../services/messaging/email-status.service'
+import { EmailStatusService, messageCreatedAtOf } from '../services/messaging/email-status.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocation, CyclotronJobQueueKind, HogFlowInvocationContext } from '../types'
 import {
@@ -51,7 +51,7 @@ export type IntakeBatchServices = {
     deadLetters: Pick<CdpDeadLetterService, 'recordMessageFailure' | 'produceForBatch'>
     invocationResults: Pick<
         HogInvocationResultsService,
-        'queueLifecycleRow' | 'dropQueuedRowsFor' | 'handOffQueuedRows'
+        'prepareLifecycleRow' | 'queuePreparedRow' | 'handOffQueuedRows'
     >
     emailStatus: Pick<EmailStatusService, 'queue' | 'flush'>
 }
@@ -151,30 +151,25 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
     if (runs.length === 0) {
         return
     }
-    // Queued before the claim because the running row stamps firstScheduledAt on the state, and the job must store it.
-    runs.forEach((run) => services.invocationResults.queueLifecycleRow(run.invocation, 'running'))
-    let outcomes: CyclotronV2IdempotentOutcome[]
-    try {
-        outcomes = await claimWithRetry(
-            runs.map((run) => ({
-                job: intakeJobInit(run.message),
-                fingerprint: claimFingerprint(run.message.job.id, run.message.fingerprint),
-            })),
-            services.cyclotron,
-            options
-        )
-    } catch (error) {
-        services.invocationResults.dropQueuedRowsFor(runs.map((run) => run.invocation.id))
-        throw error
-    }
-
-    services.invocationResults.dropQueuedRowsFor(
-        runs.flatMap((run, i) => (outcomes[i] === 'created' ? [] : [run.invocation.id]))
+    // Prepared before the claim, as Run intake does: the running row stamps firstScheduledAt on the state, which the
+    // job must store, and its version must come before a worker that finishes the job first.
+    const runningRows = runs.map((run) => services.invocationResults.prepareLifecycleRow(run.invocation, 'running'))
+    const outcomes = await claimWithRetry(
+        runs.map((run) => ({
+            job: intakeJobInit(run.message),
+            fingerprint: claimFingerprint(run.message.job.id, run.message.fingerprint),
+        })),
+        services.cyclotron,
+        options
     )
+
     runs.forEach((run, i) => {
         claimsCounter.labels({ kind: options.kind, outcome: outcomes[i] }).inc()
-        if (outcomes[i] === 'created' && run.message.kind === 'transactional-email') {
-            queueSend(run, services.emailStatus)
+        if (outcomes[i] === 'created') {
+            services.invocationResults.queuePreparedRow(runningRows[i])
+            if (run.message.kind === 'transactional-email') {
+                queueSend(run, services.emailStatus)
+            }
         } else if (outcomes[i] === 'mismatch') {
             // The run shares its id with the first request of its key, so no row can name it without naming that one.
             logger.warn('[CdpIntake] An idempotency key was reused for a different request', {
@@ -220,6 +215,9 @@ function queueSend({ message }: IntakeRun, emailStatus: IntakeBatchServices['ema
         status: 'queued',
         recipient: typeof recipient === 'string' ? recipient : undefined,
         functionId: message.job.functionId ?? undefined,
+        messageCreatedAt: messageCreatedAtOf(
+            (message.job.state?.state as Partial<HogFlowInvocationContext> | null)?.event
+        ),
     })
 }
 
