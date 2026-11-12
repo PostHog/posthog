@@ -59,6 +59,9 @@ export interface supportSetupCardLogicActions {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
     } // teamLogic
+    cancelPendingChannel: () => {
+        value: true
+    }
     openChannelSettings: (channel: SupportSetupChannel) => {
         channel: SupportSetupChannel
     }
@@ -75,11 +78,6 @@ export interface supportSetupCardLogicActions {
 
 export type supportSetupCardLogicType = MakeLogicType<supportSetupCardLogicValues, supportSetupCardLogicActions>
 
-/**
- * Picking a channel on the Support empty state. The channel tabs in Support settings only
- * render once Support is on, so a pick on a project with Support off enables it first and
- * opens the channel's tab when the team update lands.
- */
 export const supportSetupCardLogic = kea<supportSetupCardLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SupportSetupCard', 'supportSetupCardLogic']),
     connect(() => ({
@@ -98,15 +96,15 @@ export const supportSetupCardLogic = kea<supportSetupCardLogicType>([
             preview,
         }),
         openChannelSettings: (channel: SupportSetupChannel) => ({ channel }),
+        cancelPendingChannel: true,
     }),
     reducers({
-        // The channel whose pick is waiting on the enable request. It doubles as the in-flight
-        // state that locks the card against a second pick.
         pendingChannel: [
             null as SupportSetupChannel | null,
             {
                 pickChannel: (_, { channel }) => channel,
                 openChannelSettings: () => null,
+                cancelPendingChannel: () => null,
                 updateCurrentTeamFailure: () => null,
             },
         ],
@@ -118,23 +116,24 @@ export const supportSetupCardLogic = kea<supportSetupCardLogicType>([
                 // pinned: analytics event name. Renaming it breaks insights built on it.
                 posthog.capture('support setup channel picked', { channel, mode })
             }
-            // A preview renders on a project that already has tickets, so it must not change
-            // the project's settings.
+            // A preview renders on a project that has tickets, so it must not change settings.
             if (preview || values.currentTeam?.conversations_enabled) {
                 actions.openChannelSettings(channel)
                 return
             }
+            // The channel tabs in Support settings only render once Support is on.
             actions.updateCurrentTeam({ conversations_enabled: true })
         },
-        updateCurrentTeamSuccess: ({ payload }) => {
+        updateCurrentTeamSuccess: ({ currentTeam }) => {
             const channel = values.pendingChannel
-            // Other team updates also land here. Only the enable request this logic sent
-            // carries `conversations_enabled` while a pick is pending.
-            if (!channel || !payload?.conversations_enabled) {
+            if (!channel) {
                 return
             }
-            // Support settings fires this event when its own switch enables Support, but that
-            // logic is not mounted on the empty state.
+            // teamLogic drops the enable request's result when a newer team update starts, so check the team.
+            if (!currentTeam?.conversations_enabled) {
+                actions.cancelPendingChannel()
+                return
+            }
             // pinned: analytics event name and `source` value. Renaming them breaks insights built on them.
             posthog.capture('support activation completed', { source: 'support_empty_state', channel })
             actions.openChannelSettings(channel)

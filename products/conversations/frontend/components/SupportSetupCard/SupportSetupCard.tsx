@@ -29,13 +29,9 @@ interface SetupChannel {
     icon: JSX.Element
     title: string
     description: string
-    connected: boolean
+    connected?: boolean
 }
 
-/**
- * The Support empty state's setup card: one row per channel a ticket can arrive on, each
- * opening that channel's tab in Support settings.
- */
 export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMode; preview: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -83,8 +79,6 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
             icon: <IconCode />,
             title: 'Direct API',
             description: 'Send tickets from your own contact form or custom UI.',
-            // The API has no switch of its own, so it has no connected state to report.
-            connected: false,
         },
     ]
 
@@ -124,7 +118,6 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
                     </LemonButton>
                 ))}
             </div>
-            {/* The imports tab in Support settings only exists once Support is on. */}
             {supportEnabled ? (
                 <div className="border-t border-primary px-4 py-2.5 text-xs text-secondary">
                     Moving from Zendesk?{' '}
