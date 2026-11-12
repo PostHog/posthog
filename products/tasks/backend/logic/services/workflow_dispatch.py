@@ -26,6 +26,7 @@ from products.tasks.backend.metrics import (
     observe_task_run_dispatch_callback,
 )
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch, execute_after_commit
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 DISPATCH_PAYLOAD_VERSION = 1
@@ -283,6 +284,7 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
             error_message="This scheduled run was canceled because the task was deleted.",
             updated_at=now,
         )
+        sync_task_statuses_on_commit(task_run.task_id for task_run in task_runs)
 
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(len(valid_run_ids))
     WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(len(dispatches))

@@ -39,6 +39,8 @@ class TransactionalEmailError(Exception):
 
     code = "invalid"
     attr: str | None = None
+    # The total size of the files the CDP service verified before it refused, or None when it didn't verify them all.
+    attachment_bytes: int | None = None
 
 
 class TemplateNotSendable(TransactionalEmailError):
@@ -115,10 +117,69 @@ class FieldNotAccepted(TransactionalEmailError):
         self.field = field
 
 
+class MessageTooLarge(TransactionalEmailError):
+    code = "message_too_large"
+
+    def __init__(self, largest_file_sha256: str | None) -> None:
+        super().__init__("These files make the email larger than PostHog can send.")
+        self.largest_file_sha256 = largest_file_sha256
+
+
+class AttachmentNotUploaded(TransactionalEmailError):
+    code = "attachment_not_uploaded"
+
+    def __init__(self, sha256: str | None) -> None:
+        super().__init__("A file this email names isn't uploaded.")
+        self.sha256 = sha256
+
+
+class UploadQuotaExceeded(TransactionalEmailError):
+    code = "upload_quota_exceeded"
+
+
+class AttachmentsRefused(TransactionalEmailError):
+    attr = "attachments"
+
+    def __init__(self, code: str, message: str, *, why: str, fix: str) -> None:
+        super().__init__(message)
+        self.code, self.why, self.fix = code, why, fix
+
+
+@frozen
+class AttachmentUploadRequest:
+    sha256: str
+    size: int
+
+
+class AttachmentUploadStatus(LabeledStrEnum):
+    PRESENT = "present", "Present"
+    UPLOAD = "upload", "Upload"
+
+
+@frozen
+class PresentAttachment:
+    sha256: str
+    expires_at: datetime
+    status: AttachmentUploadStatus = AttachmentUploadStatus.PRESENT
+
+
+@frozen
+class AttachmentUploadTarget:
+    sha256: str
+    url: str = field(repr=False)
+    method: str
+    headers: dict[str, str]
+    url_expires_at: datetime
+    status: AttachmentUploadStatus = AttachmentUploadStatus.UPLOAD
+
+
+AttachmentUploadSlot = PresentAttachment | AttachmentUploadTarget
+
+
 @frozen
 class EmailAttachment:
+    sha256: str
     filename: str
-    content: str = field(repr=False)
     content_type: str | None = None
     content_id: str | None = None
 
@@ -162,6 +223,8 @@ class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+    # The total size of the email's files, as the CDP service verified them. None when it didn't say.
+    attachment_bytes: int | None = None
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
