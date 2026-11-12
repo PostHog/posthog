@@ -13,7 +13,11 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.file_system.constants import DEFAULT_SURFACE, workflows_list_v2_enabled
+from posthog.models.file_system.constants import (
+    DEFAULT_SURFACE,
+    resolved_workflows_list_v2_answer,
+    workflows_list_v2_enabled,
+)
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
@@ -337,9 +341,12 @@ class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
         )
 
     def files_new_rows(self) -> bool:
-        return self.created_by is not None and workflows_list_v2_enabled(
-            self.team, self.created_by, allow_remote_evaluation=self._create_in_folder is not None
-        )
+        if self.created_by_id is None:
+            return False
+        resolved = resolved_workflows_list_v2_answer(self.team_id, self.created_by_id)
+        if resolved is not None:
+            return resolved
+        return self.created_by is not None and workflows_list_v2_enabled(self.team, self.created_by)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

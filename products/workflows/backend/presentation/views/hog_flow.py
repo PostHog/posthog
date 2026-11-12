@@ -4,6 +4,7 @@ import uuid as uuid_mod
 import hashlib
 import dataclasses
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -69,6 +70,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import Property, PropertyValidationError
 from posthog.paging import Page, PageRequest
@@ -397,7 +399,7 @@ _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "sour
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
-def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
             WORKFLOWS_COHORT_CONDITIONS_FLAG,
@@ -1759,7 +1761,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -5438,7 +5440,7 @@ class HogFlowViewSet(
                 user is not None
                 and not user.is_anonymous
                 and not isinstance(user, SyntheticUser)
-                and _cohort_conditions_rolled_out(user, str(self.team.organization_id))
+                and cohort_conditions_rolled_out(user, str(self.team.organization_id))
             )
         if self._cohort_conditions_rollout:
             return True
@@ -5864,11 +5866,18 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        result = create_workflow(
-            team_id=self.team_id,
-            user_id=self._actor_id(),
-            validated_data=serializer.validated_data,
-        )
+        # Filing into a requested folder asks the flag service, so it has to answer before the save takes its locks.
+        creator = self.request.user if self.request.user.is_authenticated else None
+        with (
+            resolved_workflows_list_v2(self.team, [cast(User, creator)])
+            if creator is not None and "_create_in_folder" in serializer.validated_data
+            else nullcontext()
+        ):
+            result = create_workflow(
+                team_id=self.team_id,
+                user_id=self._actor_id(),
+                validated_data=serializer.validated_data,
+            )
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)

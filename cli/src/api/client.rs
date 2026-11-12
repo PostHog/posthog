@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -10,11 +10,14 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
     Method, Url,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::{invocation_context::InvocationConfig, utils::throttler::Throttler};
+use crate::{
+    invocation_context::InvocationConfig,
+    utils::{ci::detailed_diagnostics, redact_request_error, redact_url, throttler::Throttler},
+};
 const ONE_MINUTE_IN_MS: u64 = 60 * 1000;
 
 #[derive(Clone)]
@@ -47,6 +50,67 @@ mod tests {
     }
 
     #[test]
+    fn error_diagnostics_exclude_response_data_and_url_credentials() {
+        for body in [
+            r#"{"type":"validation_error","code":"invalid","detail":"BODY_SECRET","attr":"FIELD_SECRET","extra":{"key":"EXTRA_SECRET"}}"#,
+            r#"{"type":"TYPE_SECRET","code":"CODE_SECRET"}"#,
+            "BODY_SECRET FIELD_SECRET EXTRA_SECRET",
+        ] {
+            let error = ClientError::ApiError(
+                400,
+                Box::new(Url::parse("https://user:HOST_SECRET@example.com/api/test?token=QUERY_SECRET#FRAGMENT_SECRET").unwrap()),
+                body.to_string(),
+            );
+            for output in [error.to_string(), format!("{error:?}")] {
+                assert!(output.contains("400"), "{output}");
+                assert!(output.contains("/api/test"), "{output}");
+                for secret in [
+                    "HOST_SECRET",
+                    "QUERY_SECRET",
+                    "FRAGMENT_SECRET",
+                    "BODY_SECRET",
+                    "FIELD_SECRET",
+                    "EXTRA_SECRET",
+                    "TYPE_SECRET",
+                    "CODE_SECRET",
+                ] {
+                    assert!(!output.contains(secret), "{output}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn api_error_message_shows_posthog_details_only_outside_ci() {
+        let url =
+            Url::parse("https://user:HOST_SECRET@example.com/api/test?token=QUERY_SECRET").unwrap();
+        let drf = r#"{"type":"validation_error","code":"invalid","detail":"Release is locked.","attr":"release"}"#;
+        let base = "API error: status='400' url='https://example.com/api/test'";
+
+        for (body, show_detail, expected) in [
+            (
+                drf,
+                true,
+                format!("{base} error='validation_error' code='invalid' details='Release is locked.', attributes='release'"),
+            ),
+            (
+                drf,
+                false,
+                format!("{base}. PostHog's error details are hidden in CI. Run the command outside CI to see them."),
+            ),
+            (
+                r#"{"type":"validation_error\u001b","code":"invalid\u009d","detail":"café\n\tvalue\u0007","attr":"field\u009c"}"#,
+                true,
+                format!("{base} error='validation_error\\u001b' code='invalid\\u009d' details='café\n\tvalue\\u0007', attributes='field\\u009c'"),
+            ),
+            ("<html>BODY_SECRET</html>", true, base.to_string()),
+            ("<html>BODY_SECRET</html>", false, base.to_string()),
+        ] {
+            assert_eq!(api_error_message(400, &url, body, show_detail), expected);
+        }
+    }
+
+    #[test]
     fn falls_back_to_body_match_for_legacy_errors() {
         let error = api_error("legacy release_id_mismatch response");
 
@@ -54,7 +118,7 @@ mod tests {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ClientError {
     RequestError(reqwest::Error),
     // All invalid status codes
@@ -65,29 +129,83 @@ pub enum ClientError {
 impl Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientError::RequestError(err) => write!(f, "Request error: {err}"),
+            ClientError::RequestError(err) => {
+                write!(f, "Request failed")?;
+                if let Some(url) = err.url() {
+                    write!(f, " for {}", redact_url(url))?;
+                }
+                if err.is_timeout() {
+                    write!(f, " (timeout)")?;
+                } else if err.is_connect() {
+                    write!(f, " (connection error)")?;
+                }
+                Ok(())
+            }
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }
             ClientError::ApiError(status, url, body) => {
-                // We only parse api error on display to catch all errors even when the body is not JSON
-                match serde_json::from_str::<ApiErrorResponse>(body) {
-                    Ok(api_error) => {
-                        write!(f, "API error: {api_error}")
-                    }
-                    Err(_) => write!(
-                        f,
-                        "API error: status='{status}' url='{url}' message='{body}'",
-                    ),
-                }
+                write!(f, "{}", describe_api_failure(*status, url, body))
             }
         }
     }
 }
 
+#[derive(Deserialize)]
+struct ApiErrorResponse {
+    r#type: String,
+    code: String,
+    detail: String,
+    attr: Option<String>,
+}
+
+pub fn describe_api_failure(status: u16, url: &Url, body: &str) -> String {
+    api_error_message(status, url, body, detailed_diagnostics())
+}
+
+// Only a body in PostHog's error shape is ever shown. Any other body can be a proxy page or text
+// that repeats the request, so it never appears, in CI or outside it.
+fn api_error_message(status: u16, url: &Url, body: &str, show_detail: bool) -> String {
+    let mut message = format!("API error: status='{status}' url='{}'", redact_url(url));
+
+    let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(body) else {
+        return message;
+    };
+
+    if !show_detail {
+        message.push_str(
+            ". PostHog's error details are hidden in CI. Run the command outside CI to see them.",
+        );
+        return message;
+    }
+
+    message.push_str(&format!(
+        " error='{}' code='{}' details='{}'",
+        api_error.r#type, api_error.code, api_error.detail
+    ));
+    if let Some(attr) = &api_error.attr {
+        message.push_str(&format!(", attributes='{attr}'"));
+    }
+    let mut escaped = String::with_capacity(message.len());
+    for character in message.chars() {
+        if character.is_control() && !matches!(character, '\n' | '\t') {
+            escaped.push_str(&format!("\\u{:04x}", character as u32));
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
+impl Debug for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl From<reqwest::Error> for ClientError {
     fn from(error: reqwest::Error) -> Self {
-        ClientError::RequestError(error)
+        ClientError::RequestError(redact_request_error(error))
     }
 }
 
@@ -118,28 +236,6 @@ fn api_error_code(body: &str) -> Option<String> {
     serde_json::from_str::<ApiErrorCodeResponse>(body)
         .ok()
         .and_then(|api_error| api_error.code)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ApiErrorResponse {
-    r#type: String,
-    code: String,
-    detail: String,
-    attr: Option<String>,
-}
-
-impl Display for ApiErrorResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "error='{}' code='{}' details='{}'",
-            self.r#type, self.code, self.detail
-        )?;
-        if let Some(attr) = &self.attr {
-            write!(f, ", attributes='{attr}'")?;
-        }
-        Ok(())
-    }
 }
 
 pub trait SendRequestFn: FnOnce(RequestBuilder) -> RequestBuilder {}
@@ -239,7 +335,7 @@ impl PHClient {
 
     fn create_request(&self, method: Method, url: Url) -> RequestBuilder {
         let headers = self.build_headers();
-        debug!("building request for {method} {url}");
+        debug!("building request for {method} {}", redact_url(&url));
         self.client
             .request(method, url)
             .bearer_auth(&self.config.api_key)
@@ -273,13 +369,11 @@ impl PHClient {
         let env_id = self.config.env_id.clone();
 
         let base_url = Url::parse(&host)
-            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}")))?
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?
             .join(&format!("api/{base}/{env_id}/"))
-            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}")))?
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?
             .join(path)
-            .map_err(|e| {
-                ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}/{path}"))
-            })?;
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?;
         Ok(base_url)
     }
 }

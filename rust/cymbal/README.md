@@ -12,6 +12,28 @@ Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
+## Shared exception counters (processing mode)
+
+`modes/processing/ledger.rs` counts a team's batch of exceptions per issue in one script call and returns the recent counts.
+Rules that limit or alert on exceptions decide from that result, so they do not need Redis keys of their own.
+No pipeline stage calls the ledger yet.
+
+The caller chooses the windows.
+A window is a number of fixed buckets of one width, for example 12 buckets of 5 minutes or 24 buckets of one hour.
+Buckets follow the processing clock, not the event timestamp.
+
+| Key | Type | Fields | Expiry |
+| --- | --- | --- | --- |
+| `et:c1:{team_id}:b:<width>:<bucket>` | hash | `_n`: the team's exceptions in the bucket; one field per issue ID: that issue's exceptions in the bucket | `buckets + 2` widths after the first exception in the bucket |
+
+`<width>` is the bucket width in seconds, and `<bucket>` is the Unix time divided by the width.
+The `{team_id}` hash tag keeps all the keys of a team in one slot.
+The number of fields minus one is the number of issues with an exception in the bucket.
+
+A rolling count is the sum of the buckets inside the window, plus the bucket before them weighted by the share of it that the window still covers.
+For that reason the ledger stores one bucket more than the window holds.
+The estimate assumes that the events of that oldest bucket were spread evenly.
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token

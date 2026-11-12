@@ -11,7 +11,7 @@ tools:
         operation: account_notes_list
         enabled: true
         scopes:
-            - account:read
+            - account_note:read
         annotations:
             readOnly: true
             destructive: false
@@ -263,7 +263,7 @@ tools:
         operation: accounts_notebooks_create
         enabled: true
         scopes:
-            - account:write
+            - account_note:write
         annotations:
             readOnly: false
             destructive: false
@@ -277,13 +277,14 @@ tools:
             (ProseMirror JSON) only if you already have a structured document; the server converts it into the same
             markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is
             created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of
-            tag names, shared with account tags) to tag the note at creation time.
+            tag names, shared with account tags) to tag the note at creation time. A note a scout writes is also tagged
+            `scout` and `scout-<skill name>` by the server, so pass only topic tags.
         feature_flag: customer-analytics-csp
     accounts-notebooks-destroy:
         operation: accounts_notebooks_destroy
         enabled: true
         scopes:
-            - account:write
+            - account_note:write
         annotations:
             readOnly: false
             destructive: true
@@ -296,7 +297,7 @@ tools:
         operation: accounts_notebooks_list
         enabled: true
         scopes:
-            - account:read
+            - account_note:read
         annotations:
             readOnly: true
             destructive: false
@@ -314,7 +315,7 @@ tools:
         operation: accounts_notebooks_partial_update
         enabled: true
         scopes:
-            - account:write
+            - account_note:write
         annotations:
             readOnly: false
             destructive: false
@@ -329,7 +330,7 @@ tools:
         operation: accounts_notebooks_retrieve
         enabled: true
         scopes:
-            - account:read
+            - account_note:read
         annotations:
             readOnly: true
             destructive: false
