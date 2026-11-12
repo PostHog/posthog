@@ -784,6 +784,33 @@ def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
     )
 
 
+def _filter_by_merge(
+    qs: QuerySet[RoutingRun], *, merged: bool | None, merged_after: datetime | None, merged_before: datetime | None
+) -> QuerySet[RoutingRun]:
+    if merged is not None:
+        qs = qs.filter(pull_request__merged_at__isnull=not merged)
+    if merged_after is not None:
+        qs = qs.filter(pull_request__merged_at__gte=merged_after)
+    if merged_before is not None:
+        qs = qs.filter(pull_request__merged_at__lt=merged_before)
+    return qs
+
+
+def _runs_deciding_about(
+    team_id: int, *, owner: str | None, outcome: RoutingOwnerOutcome | None, reason: RoutingOwnerReason | None
+) -> QuerySet:
+    # One subquery on the owners table, so a run that cut one owner and requested another never
+    # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.
+    owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
+    if owner:
+        owners = owners.filter(owner=owner)
+    if outcome:
+        owners = owners.filter(outcome=outcome)
+    if reason:
+        owners = owners.filter(reason=reason)
+    return owners.values("run_id")
+
+
 def list_routing_runs(
     team_id: int,
     *,
@@ -834,23 +861,9 @@ def list_routing_runs(
         qs = qs.filter(created_at__gte=created_after)
     if created_before is not None:
         qs = qs.filter(created_at__lt=created_before)
-    if merged is not None:
-        qs = qs.filter(pull_request__merged_at__isnull=not merged)
-    if merged_after is not None:
-        qs = qs.filter(pull_request__merged_at__gte=merged_after)
-    if merged_before is not None:
-        qs = qs.filter(pull_request__merged_at__lt=merged_before)
+    qs = _filter_by_merge(qs, merged=merged, merged_after=merged_after, merged_before=merged_before)
     if owner or outcome or reason:
-        # One subquery on the owners table, so a run that cut one owner and requested another never
-        # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.
-        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
-        if owner:
-            owners = owners.filter(owner=owner)
-        if outcome:
-            owners = owners.filter(outcome=outcome)
-        if reason:
-            owners = owners.filter(reason=reason)
-        qs = qs.filter(id__in=owners.values("run_id"))
+        qs = qs.filter(id__in=_runs_deciding_about(team_id, owner=owner, outcome=outcome, reason=reason))
     return LazyDTOList(qs, _routing_run_to_dto)
 
 
