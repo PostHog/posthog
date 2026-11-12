@@ -9,17 +9,18 @@ import {
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
-import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import type { TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 import { QuillDashboardTileMenuItems } from '../QuillDashboardTileMenuItems'
+import { TextCardDisplayOptions } from './TextCardDisplayOptions'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -34,7 +35,7 @@ interface DashboardTextItemProps
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
-    onToggleTransparentBackground?: () => void
+    onUpdateDisplayOptions?: (displayOptions: TileDisplayOptions) => void
     onRemove?: () => void
     isDraggingRef?: React.RefObject<boolean>
 }
@@ -50,7 +51,7 @@ function DashboardTextItemInternal(
         tileGroupMoveOptions,
         onMoveToTileGroup,
         onDuplicate,
-        onToggleTransparentBackground,
+        onUpdateDisplayOptions,
         onRemove,
         isDraggingRef,
         ...textCardProps
@@ -70,6 +71,9 @@ function DashboardTextItemInternal(
 
     const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
+    const displayOptions = onUpdateDisplayOptions ? (
+        <TextCardDisplayOptions tile={tile} onUpdateDisplayOptions={onUpdateDisplayOptions} />
+    ) : null
     const quillMenuItems = todayRailNav ? (
         <QuillDashboardTileMenuItems
             editLabel={`Edit ${tileType}`}
@@ -86,11 +90,7 @@ function DashboardTextItemInternal(
             duplicateDataAttr={`duplicate-${tileType}-from-dashboard`}
             onRemove={onRemove}
             removeDataAttr={`remove-${tileType}-tile-from-dashboard`}
-            transparentBackground={
-                tileType === 'text' && onToggleTransparentBackground
-                    ? { checked: !!tile.transparent_background, onToggle: onToggleTransparentBackground }
-                    : undefined
-            }
+            displayOptions={displayOptions}
         />
     ) : undefined
     const moreButtonOverlay = (
@@ -98,18 +98,9 @@ function DashboardTextItemInternal(
             <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
                 Edit {tileType}
             </LemonButton>
-            {tileType === 'text' && onToggleTransparentBackground && (
+            {displayOptions && (
                 <LemonDropdown
-                    overlay={
-                        <div className="w-60 px-2 py-1">
-                            <ChartOptionSwitch
-                                label="Transparent background"
-                                checked={!!tile.transparent_background}
-                                onChange={onToggleTransparentBackground}
-                                data-attr="text-card-menu-transparent-background"
-                            />
-                        </div>
-                    }
+                    overlay={<div className="w-60 px-2 py-1">{displayOptions}</div>}
                     closeOnClickInside={false}
                     placement="right-start"
                     fallbackPlacements={['left-start']}
@@ -117,7 +108,7 @@ function DashboardTextItemInternal(
                     <LemonButton
                         fullWidth
                         sideIcon={<IconChevronRight className="size-3" />}
-                        data-attr="text-card-display-options"
+                        data-attr="dashboard-tile-display-options"
                     >
                         Display options
                     </LemonButton>

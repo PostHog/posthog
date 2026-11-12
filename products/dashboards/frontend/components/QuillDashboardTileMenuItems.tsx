@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import {
     DropdownMenuItem,
     DropdownMenuSeparator,
@@ -8,7 +10,6 @@ import {
 
 import type { InsightCardMenuPlacement } from 'lib/components/Cards/InsightCard/insightCardMenu'
 import { QuillDashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/QuillDashboardWidgetPlacementMenus'
-import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 
 export function QuillDashboardTileMenuItems({
     editLabel,
@@ -19,7 +20,7 @@ export function QuillDashboardTileMenuItems({
     duplicateDataAttr,
     onRemove,
     removeDataAttr,
-    transparentBackground,
+    displayOptions,
 }: {
     editLabel: string
     editDataAttr: string
@@ -29,26 +30,19 @@ export function QuillDashboardTileMenuItems({
     duplicateDataAttr: string
     onRemove?: () => void
     removeDataAttr: string
-    transparentBackground?: { checked: boolean; onToggle: () => void }
+    displayOptions?: ReactNode
 }): JSX.Element {
     return (
         <>
             <DropdownMenuItem onClick={onEdit} data-attr={editDataAttr}>
                 {editLabel}
             </DropdownMenuItem>
-            {transparentBackground && (
+            {displayOptions && (
                 <DropdownMenuSub>
-                    <DropdownMenuSubTrigger data-attr="text-card-display-options">
+                    <DropdownMenuSubTrigger data-attr="dashboard-tile-display-options">
                         Display options
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="px-2 py-1">
-                        <QuillChartOptionSwitch
-                            label="Transparent background"
-                            checked={transparentBackground.checked}
-                            onChange={transparentBackground.onToggle}
-                            data-attr="text-card-menu-transparent-background"
-                        />
-                    </DropdownMenuSubContent>
+                    <DropdownMenuSubContent className="px-2 py-1">{displayOptions}</DropdownMenuSubContent>
                 </DropdownMenuSub>
             )}
             <QuillDashboardWidgetPlacementMenus {...placement} />

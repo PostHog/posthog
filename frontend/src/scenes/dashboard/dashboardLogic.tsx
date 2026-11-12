@@ -518,6 +518,8 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
+export type TileDisplayOptions = Partial<Pick<DashboardTile, 'show_description' | 'transparent_background'>>
+
 export interface PendingInsertion {
     x: number
     y: number
@@ -1656,9 +1658,6 @@ export interface dashboardLogicActions {
     toggleTileGroup: (groupKey: string) => {
         groupKey: string
     }
-    toggleTileTransparentBackground: (tileId: number) => {
-        tileId: number
-    }
     triggerDashboardRefresh: (isAutomatic?: boolean) => {
         isAutomatic: boolean
     }
@@ -1689,6 +1688,13 @@ export interface dashboardLogicActions {
         color: InsightColor | null
     ) => {
         color: InsightColor | null
+        tileId: number
+    }
+    updateTileDisplayOptions: (
+        tileId: number,
+        displayOptions: TileDisplayOptions
+    ) => {
+        displayOptions: Partial<Pick<DashboardTile, 'show_description' | 'transparent_background'>>
         tileId: number
     }
     updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => {
@@ -2442,7 +2448,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
-        toggleTileTransparentBackground: (tileId: number) => ({ tileId }),
+        updateTileDisplayOptions: (tileId: number, displayOptions: TileDisplayOptions) => ({ tileId, displayOptions }),
         setTileProperty: (
             tileId: number,
             properties: Partial<
@@ -5085,6 +5091,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
+        // TODO: move color into updateTileDisplayOptions so every tile property save shares one optimistic update and rollback path.
         updateTileColor: async ({ tileId, color }) => {
             // Defense in depth: shared dashboards (DashboardPlacement.Public)
             // shouldn't render the tile-color editor, so this listener should
@@ -5105,40 +5112,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 lemonToast.error('Failed to update tile color')
             }
         },
-        toggleTileDescription: async ({ tileId }) => {
-            // Defense in depth — same reason as updateTileColor above.
-            if (isSharedView()) {
-                return
-            }
-            const matchingTile = values.tiles.find((tile) => tile.id === tileId)
-            const previousValue = matchingTile?.show_description
-            const newValue = previousValue === false
-            actions.setTileProperty(tileId, { show_description: newValue })
-            try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                    tiles: [{ id: tileId, show_description: newValue }],
-                })
-            } catch {
-                actions.setTileProperty(tileId, { show_description: previousValue })
-                lemonToast.error('Failed to update tile')
-            }
+        toggleTileDescription: ({ tileId }) => {
+            const previousValue = values.tiles.find((tile) => tile.id === tileId)?.show_description
+            actions.updateTileDisplayOptions(tileId, { show_description: previousValue === false })
         },
-        toggleTileTransparentBackground: async ({ tileId }) => {
+        updateTileDisplayOptions: async ({ tileId, displayOptions }) => {
             // Defense in depth — same reason as updateTileColor above.
             if (isSharedView()) {
                 return
             }
-            const previousValue = values.tiles.find((tile) => tile.id === tileId)?.transparent_background
-            const newValue = !previousValue
-            actions.setTileProperty(tileId, { transparent_background: newValue })
+            const currentTile = values.tiles.find((tile) => tile.id === tileId)
+            const previousOptions: TileDisplayOptions = {
+                show_description: currentTile?.show_description,
+                transparent_background: currentTile?.transparent_background,
+            }
+            actions.setTileProperty(tileId, displayOptions)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                    tiles: [{ id: tileId, transparent_background: newValue }],
+                    tiles: [{ id: tileId, ...displayOptions }],
                 })
             } catch {
-                actions.setTileProperty(tileId, { transparent_background: previousValue })
+                actions.setTileProperty(tileId, previousOptions)
                 lemonToast.error('Failed to update tile')
             }
         },
