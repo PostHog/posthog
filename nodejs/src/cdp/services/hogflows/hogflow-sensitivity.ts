@@ -13,4 +13,14 @@ export const hasSensitiveMessageStep = (hogFlow: Partial<Pick<HogFlow, 'actions'
 
 export const isSensitiveMessage = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
-): boolean => invocation.state?.send?.sensitive ?? invocation.hogFunction?.metadata?.sensitive === true
+): boolean => {
+    const metadata = invocation.hogFunction?.metadata
+    const stepSensitive = metadata?.sensitive === true
+    // A send can wait in the queue, and the template can be marked sensitive while it waits. The send API refuses
+    // `sensitive: false` only for a template that is already marked, so a marked template wins here too. A key
+    // without a template has a step that is always sensitive, which the send's own flag can turn off.
+    if (stepSensitive && metadata?.template_uuid) {
+        return true
+    }
+    return invocation.state?.send?.sensitive ?? stepSensitive
+}
