@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
+MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 
 
@@ -65,7 +66,7 @@ def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDoma
     if not records:
         return PublishedRecords(records=frozenset())
     lookups = {_lookup_for(record) for record in records}
-    with ThreadPoolExecutor(max_workers=len(lookups)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(lookups), MAX_PARALLEL_LOOKUPS)) as pool:
         answers = dict(zip(lookups, pool.map(lambda lookup: _resolve(resolver, lookup), lookups)))
     return PublishedRecords(
         records=frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or [])),
