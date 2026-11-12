@@ -197,18 +197,19 @@ describe('provider edge SES feedback', () => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
         const throttle = { name: 'ses.throttle', params: { rate: 1 } }
         const bounce = { name: 'ses.reject', params: { type: 'bounce' }, dose: { share: 1 } }
+        const added: number[] = []
+        const answers: number[] = []
         try {
-            const added = []
             for (const fault of order === 'throttle first' ? [throttle, bounce] : [bounce, throttle]) {
                 added.push((await control('POST', '/_faults', fault)).status)
             }
-            const answers = [await sendTracked(), await sendTracked()]
-            await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
-
-            expect({ added, answers }).toEqual({ added: [201, 201], answers: [200, 429] })
+            answers.push(await sendTracked(), await sendTracked())
         } finally {
             clock.mockRestore()
         }
+
+        expect({ added, answers }).toEqual({ added: [201, 201], answers: [200, 429] })
+        await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
     })
 
     it.each([200, 403])(
