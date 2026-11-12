@@ -407,6 +407,7 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
             no_rows_count=execution.no_rows_count,
+            coverage_complete=spec.coverage_complete,
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -450,6 +451,7 @@ def _plan_to_freeze(
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
     no_rows_count: int = 0,
+    coverage_complete: bool = True,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -477,6 +479,9 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             total_steps=total_steps,
         )
+        return None
+    if not coverage_complete:
+        logger.warning("ai_report.plan_coverage_incomplete_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     if chart_failure_count:
         logger.warning(

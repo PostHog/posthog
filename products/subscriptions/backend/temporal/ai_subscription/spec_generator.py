@@ -21,6 +21,7 @@ from posthog.hogql.functions import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
@@ -44,11 +45,14 @@ from products.subscriptions.backend.temporal.ai_subscription.prompts import (
     resolve_prompt,
 )
 from products.subscriptions.backend.temporal.ai_subscription.schemas import (
+    COVERAGE_ITEM_ID_MAX_LENGTH,
+    COVERAGE_NEED_MAX_LENGTH,
     MAX_CHART_CATEGORIES,
     MAX_CHARTS_PER_REPORT,
     MAX_QUERY_PLAN_STEPS,
     CoverageItem,
     CoveredQueryPlan,
+    CoveredQueryPlanStep,
     EnrichedPromptSpec,
     QueryCoverage,
     QueryPlan,
@@ -769,7 +773,9 @@ def step_reads_table(hogql: str) -> bool:
 
 
 def _step_compares_periods(hogql: str) -> bool:
-    return any(token in hogql for token in _COMPARISON_PLACEHOLDERS)
+    # A previous-period range alone can return one combined total. The step must also split at
+    # `{{window_start}}`, so the report gets separate current and previous values.
+    return WINDOW_START_PLACEHOLDER in hogql and any(token in hogql for token in _COMPARISON_PLACEHOLDERS)
 
 
 @dataclass(frozen=True)
@@ -818,10 +824,16 @@ def _planning_llm(
     return llm, llm_config
 
 
+def _render_coverage_item(item: CoverageItem) -> str:
+    # The coverage pass can copy prompt text into an item, so strip tags that would close the
+    # <coverage> or <items_to_fix> envelope.
+    item_id = sanitize_user_text(item.id, COVERAGE_ITEM_ID_MAX_LENGTH)
+    need = sanitize_user_text(item.need, COVERAGE_NEED_MAX_LENGTH)
+    return f"- {item_id}: {need}" + (" (previous period)" if item.needs_previous_period else "")
+
+
 def _render_coverage(items: Sequence[CoverageItem]) -> str:
-    return "\n".join(
-        f"- {item.id}: {item.need}" + (" (previous period)" if item.needs_previous_period else "") for item in items
-    )
+    return "\n".join(_render_coverage_item(item) for item in items)
 
 
 def _planner_base_prompt(team: Team, context_blob: str, cleaned_prompt: str) -> str:
@@ -840,12 +852,33 @@ def _planner_base_prompt(team: Team, context_blob: str, cleaned_prompt: str) -> 
 
 
 def _format_coverage_failures(failures: Sequence[CoverageFailure]) -> str:
-    return "\n".join(
-        f"- {failure.item.id}: {failure.item.need}"
-        + (" (previous period)" if failure.item.needs_previous_period else "")
-        + f". {failure.reason}"
-        for failure in failures
-    )
+    return "\n".join(f"{_render_coverage_item(failure.item)}. {failure.reason}" for failure in failures)
+
+
+class PlanGenerationError(Exception):
+    """The planner returned no usable plan for a valid prompt. Model output varies between calls, so
+    the delivery retries instead of disabling the subscription the way `PromptRejectedError` does."""
+
+
+@frozen
+class GeneratedQueryPlan:
+    plan: QueryPlan
+    # Coverage items that no step in `plan` answers. The report still runs, but the plan must not be
+    # frozen, or every later delivery replays the same gap.
+    uncovered_item_ids: tuple[str, ...]
+
+
+def _merge_repair_steps(
+    original: Sequence[CoveredQueryPlanStep],
+    repair: Sequence[CoveredQueryPlanStep],
+    failed_ids: set[str],
+) -> list[CoveredQueryPlanStep]:
+    repaired_ids = {item_id for step in repair for item_id in step.covers}
+    # An original step that answers only items the repair now covers is the deficient version.
+    superseded = [step for step in original if step.covers and set(step.covers) <= failed_ids & repaired_ids]
+    remaining = [step for step in original if step not in superseded]
+    # Repair steps exist because the original plan left a gap, so they get room under the step cap first.
+    return remaining[: max(0, MAX_QUERY_PLAN_STEPS - len(repair))] + list(repair[:MAX_QUERY_PLAN_STEPS])
 
 
 def generate_query_plan(
@@ -855,7 +888,7 @@ def generate_query_plan(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]] = None,
-) -> QueryPlan:
+) -> GeneratedQueryPlan:
     # One planner call at low reasoning effort drops items the prompt asks for, most often the
     # previous-period comparison. A separate coverage pass lists those items first, and a
     # deterministic check sends only the uncovered items to one repair call.
@@ -918,14 +951,24 @@ def generate_query_plan(
             logger.warning("ai_subscription.plan_repair_failed", team_id=team.id, exc_info=True)
             repair = None
         if isinstance(repair, CoveredQueryPlan):
-            kept.extend(step for step in repair.steps if step_reads_table(step.hogql))
+            repair_steps = [step for step in repair.steps if step_reads_table(step.hogql)]
+            kept = _merge_repair_steps(kept, repair_steps, {failure.item.id for failure in failures})
+    kept = kept[:MAX_QUERY_PLAN_STEPS]
     if not kept:
-        raise PromptRejectedError("Planner returned no step that reads data.")
-    return QueryPlan(
-        overall_intent=plan.overall_intent,
-        steps=[
-            QueryPlanStep.model_validate(step.model_dump(exclude={"covers"})) for step in kept[:MAX_QUERY_PLAN_STEPS]
-        ],
+        raise PlanGenerationError("Planner returned no step that reads data.")
+    remaining = check_plan_coverage(coverage, CoveredQueryPlan(overall_intent=plan.overall_intent, steps=kept))
+    if remaining:
+        logger.warning(
+            "ai_subscription.plan_coverage_incomplete",
+            team_id=team.id,
+            uncovered_items=[failure.item.id for failure in remaining],
+        )
+    return GeneratedQueryPlan(
+        plan=QueryPlan(
+            overall_intent=plan.overall_intent,
+            steps=[QueryPlanStep.model_validate(step.model_dump(exclude={"covers"})) for step in kept],
+        ),
+        uncovered_item_ids=tuple(failure.item.id for failure in remaining),
     )
 
 
@@ -945,7 +988,7 @@ def build_enriched_prompt(
         relevant_events=relevant_events,
         core_memory_text=_load_core_memory_text(team, user),
     )
-    plan = generate_query_plan(
+    generated = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,
         team=team,
@@ -953,7 +996,11 @@ def build_enriched_prompt(
         trace_correlation_id=trace_correlation_id,
     )
     return EnrichedPromptSpec(
-        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        plan=generated.plan,
+        relevant_events=relevant_events,
+        coverage_complete=not generated.uncovered_item_ids,
     )
 
 

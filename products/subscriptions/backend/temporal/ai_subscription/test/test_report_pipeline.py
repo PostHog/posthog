@@ -1078,16 +1078,19 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
 
 @pytest.mark.parametrize(
-    "total_steps,failed_count,should_freeze",
+    "total_steps,failed_count,coverage_complete,should_freeze",
     [
-        (12, 0, True),  # all succeeded
-        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
-        (12, 6, False),  # half failed
-        (12, 12, False),  # all failed
-        (1, 1, False),  # the single step failed
+        (12, 0, True, True),  # all succeeded
+        (12, 1, True, False),  # a single step failed — re-plan rather than replay one broken query every run
+        (12, 6, True, False),  # half failed
+        (12, 12, True, False),  # all failed
+        (1, 1, True, False),  # the single step failed
+        (12, 0, False, False),  # all succeeded, but the plan still misses a coverage item
     ],
 )
-def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+def test_plan_to_freeze_requires_no_failures(
+    total_steps: int, failed_count: int, coverage_complete: bool, should_freeze: bool
+) -> None:
     # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
     # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
     # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
@@ -1106,6 +1109,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         total_steps=total_steps,
         relevant_events=["export created"],
         trace_correlation_id=None,
+        coverage_complete=coverage_complete,
     )
     if should_freeze:
         assert result == {
