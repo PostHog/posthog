@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from django.core.cache import cache
@@ -30,6 +30,10 @@ logger = structlog.get_logger(__name__)
 _CANCEL_MARK_TTL = timedelta(hours=1)
 _STATUS_LAG = timedelta(minutes=5)
 _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
+
+
+class _CacheWrite(Protocol):
+    def __call__(self, key: str, value: str, *, timeout: int) -> object: ...
 
 
 class _CancelMark(StrEnum):
@@ -90,7 +94,7 @@ def _mark_attempted_unless_canceled(team_id: int, message_id: UUID) -> None:
     _write_cancel_mark(cache.add, team_id, message_id, _CancelMark.ATTEMPTED)
 
 
-def _write_cancel_mark(write: Callable[..., Any], team_id: int, message_id: UUID, mark: _CancelMark) -> None:
+def _write_cancel_mark(write: _CacheWrite, team_id: int, message_id: UUID, mark: _CancelMark) -> None:
     try:
         write(_cancel_mark_key(team_id, message_id), mark.value, timeout=int(_CANCEL_MARK_TTL.total_seconds()))
     except Exception:
