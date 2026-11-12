@@ -85,7 +85,7 @@ describe('AccountProductUsage history', () => {
         expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
         fireEvent.click(within(modal).getByLabelText('close'))
         query.mockResolvedValue({ results: { rows: [], people: [], accounts: [], truncated: false } })
-        fireEvent.click(screen.getByTestId('account-product-usage-first-use-retry'))
+        fireEvent.click(screen.getAllByTestId('account-product-usage-first-use-retry')[0])
         await waitFor(() => expect(screen.queryByText('Could not load first-use history. Try again.')).toBeNull())
         expect(query.mock.calls.filter(([request]) => request.kind === NodeKind.BookActivityPeopleQuery)).toHaveLength(
             1
