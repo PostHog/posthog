@@ -1402,31 +1402,33 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 actions.openFolder(folder)
             }
         },
-        moveWorkflowToFolder: async ({ id }) => {
+        moveWorkflowToFolder: async ({ id }, breakpoint) => {
             if (values.movingWorkflowId) {
                 return
             }
             actions.setMovingWorkflowId(id)
+            let files: FileSystemEntry[]
             try {
-                const files = await listAllFiles(String(values.currentTeamId), `type:hog_flow ref:${id}`)
-                projectTreeDataLogic.actions.addLoadedResults({
-                    searchTerm: '',
-                    results: files,
-                    hasMore: false,
-                    lastCount: files.length,
-                })
-                const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
-                if (entry && !entry.shortcut) {
-                    if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
-                        moveToLogic.actions.openMoveToModal([entry])
-                    }
-                } else {
-                    lemonToast.error("Couldn't find this workflow in project files")
-                }
+                files = await listAllFiles(String(values.currentTeamId), `type:hog_flow ref:${id}`, breakpoint)
             } catch {
-                lemonToast.error("Couldn't load this workflow's folder")
-            } finally {
+                // The list unmounted while the lookup ran, so its outcome belongs to a page the person left.
+                breakpoint()
                 actions.setMovingWorkflowId(null)
+                lemonToast.error("Couldn't load this workflow's folder")
+                return
+            }
+            actions.setMovingWorkflowId(null)
+            projectTreeDataLogic.actions.addLoadedResults({
+                searchTerm: '',
+                results: files,
+                hasMore: false,
+                lastCount: files.length,
+            })
+            const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
+            if (!entry || entry.shortcut) {
+                lemonToast.error("Couldn't find this workflow in project files")
+            } else if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
+                moveToLogic.actions.openMoveToModal([entry])
             }
         },
     })),

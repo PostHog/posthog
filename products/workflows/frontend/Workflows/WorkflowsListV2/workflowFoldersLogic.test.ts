@@ -1469,6 +1469,42 @@ describe('workflowFoldersLogic', () => {
         unmountMoveTo()
     })
 
+    it.each([
+        { outcome: 'resolves', answer: (): [number, unknown] => [200, paginated([])] },
+        { outcome: 'fails', answer: (): [number, unknown] => [500, {}] },
+    ])('drops a workflow lookup that $outcome after the list unmounts', async ({ answer }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        showToasts()
+        let releaseLookup!: () => void
+        const lookupHeld = new Promise<void>((resolve) => (releaseLookup = resolve))
+        let lookups = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    if (!new URL(request.url).searchParams.get('search')?.includes('ref:')) {
+                        return projectFiles({ request })
+                    }
+                    lookups += 1
+                    await lookupHeld
+                    return answer()
+                },
+            },
+        })
+        const unmountMoveTo = moveToLogic.mount()
+        const moving = logic.asyncActions.moveWorkflowToFolder(FIXTURE_WORKFLOWS[2].id)
+        await waitFor(() => expect(lookups).toBe(1))
+        logic.unmount()
+        releaseLookup()
+        await moving.catch(() => undefined)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(moveToLogic.values.isOpen).toBe(false)
+        expect(screen.queryByText("Couldn't find this workflow in project files")).not.toBeInTheDocument()
+        expect(screen.queryByText("Couldn't load this workflow's folder")).not.toBeInTheDocument()
+        logic.mount()
+        unmountMoveTo()
+    })
+
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing/Cards', false)
