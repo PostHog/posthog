@@ -1370,7 +1370,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "windsor-ai": "credentials",
     "wise": "credentials",
     "wispr-flow": "credentials",
-    "wistia": "credentials",
+    "wistia": "token",
     "wix": "credentials",
     "wiz": "credentials",
     "wompi": "credentials",
