@@ -1,4 +1,5 @@
-from datetime import UTC, date, datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
 
@@ -20,7 +21,7 @@ class TestReadSignature(SimpleTestCase):
             (
                 "filters_and_aggregates_outside_the_sort_key",
                 "SELECT count() FROM events WHERE event = 'a' AND timestamp >= '2026-03-01'",
-                "SELECT uniq(person_id) FROM events AS e WHERE e.event = 'a' AND e.timestamp >= toDateTime('2026-03-01', 'UTC') AND properties.$browser = 'Chrome'",
+                "SELECT uniq(person_id) FROM events AS e WHERE e.event = 'a' AND e.timestamp >= toDateTime('2026-03-01') AND properties.$browser = 'Chrome'",
             ),
             (
                 "bound_spelling",
@@ -36,6 +37,31 @@ class TestReadSignature(SimpleTestCase):
                 "subquery_or_cte",
                 "SELECT count() FROM (SELECT event FROM events WHERE timestamp > '2026-03-01')",
                 "WITH scoped AS (SELECT event FROM events WHERE timestamp > '2026-03-01') SELECT count() FROM scoped",
+            ),
+            (
+                "chart_bounds_wrapped_in_assume_not_null",
+                "SELECT count() FROM events WHERE timestamp >= assumeNotNull(toDateTime('2026-03-01 00:00:00')) AND timestamp <= assumeNotNull(toDateTime('2026-03-14 23:59:59'))",
+                "SELECT count() FROM events WHERE timestamp >= assumeNotNull(toDateTime('2026-03-01 08:15:00')) AND timestamp <= assumeNotNull(toDateTime('2026-03-14 08:14:59'))",
+            ),
+            (
+                "same_utc_day_in_two_zones",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-03-01 20:00:00', 'America/New_York')",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-03-02 01:00:00', 'UTC')",
+            ),
+            (
+                "qualified_events_table",
+                "SELECT count() FROM posthog.events WHERE event = 'a' AND timestamp >= '2026-03-01'",
+                "SELECT count() FROM events WHERE event = 'a' AND timestamp >= '2026-03-01'",
+            ),
+            (
+                "filter_outside_a_subquery",
+                "SELECT count() FROM (SELECT * FROM events) WHERE event = 'a'",
+                "SELECT count() FROM events WHERE event = 'a'",
+            ),
+            (
+                "unused_cte",
+                "WITH unused AS (SELECT event FROM events WHERE event = 'x') SELECT count() FROM persons",
+                "SELECT count() FROM persons",
             ),
         ]
     )
@@ -95,6 +121,41 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT id FROM (WITH persons AS (SELECT 1 AS id) SELECT id FROM persons) UNION ALL SELECT id FROM persons",
             ),
             (
+                "filter_outside_a_subquery",
+                "SELECT count() FROM (SELECT * FROM events) WHERE event = 'a'",
+                "SELECT count() FROM (SELECT * FROM events) WHERE event = 'b'",
+            ),
+            (
+                "filter_outside_a_cte",
+                "WITH scoped AS (SELECT * FROM events) SELECT count() FROM scoped WHERE timestamp >= '2026-03-01'",
+                "WITH scoped AS (SELECT * FROM events) SELECT count() FROM scoped WHERE timestamp >= '2026-03-02'",
+            ),
+            (
+                "self_joined_bounds_swapped",
+                "SELECT count() FROM events AS a JOIN events AS b ON a.distinct_id = b.distinct_id WHERE a.event = 'signup' AND a.timestamp >= '2026-03-01' AND b.event = 'purchase' AND b.timestamp >= '2026-03-02'",
+                "SELECT count() FROM events AS a JOIN events AS b ON a.distinct_id = b.distinct_id WHERE a.event = 'signup' AND a.timestamp >= '2026-03-02' AND b.event = 'purchase' AND b.timestamp >= '2026-03-01'",
+            ),
+            (
+                "qualified_events_table_event_name",
+                "SELECT count() FROM posthog.events WHERE event = 'a'",
+                "SELECT count() FROM posthog.events WHERE event = 'b'",
+            ),
+            (
+                "projected_alias",
+                "SELECT event AS name FROM events WHERE name = 'a'",
+                "SELECT event AS name FROM events WHERE name = 'b'",
+            ),
+            (
+                "scalar_cte_window",
+                "WITH now() - INTERVAL 7 DAY AS start SELECT count() FROM events WHERE timestamp >= start",
+                "WITH now() - INTERVAL 30 DAY AS start SELECT count() FROM events WHERE timestamp >= start",
+            ),
+            (
+                "timezone_argument",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-03-01 23:00:00', 'America/Los_Angeles')",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-03-01 23:00:00', 'UTC')",
+            ),
+            (
                 "event_condition_narrowed_by_another_filter",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
                 "SELECT count() FROM events WHERE event = 'a' OR (event = 'b' AND properties.plan = 'pro')",
@@ -106,15 +167,20 @@ class TestReadSignature(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("datetime", datetime(2026, 3, 1, 5, 0, tzinfo=UTC)),
-            ("date", date(2026, 3, 1)),
+            ("naive_datetime", datetime(2026, 3, 1, 5, 0), "2026-03-01 09:30:00"),
+            ("date", date(2026, 3, 1), "2026-03-01 09:30:00"),
+            (
+                "aware_datetime",
+                datetime(2026, 3, 1, 23, 0, tzinfo=ZoneInfo("America/New_York")),
+                "2026-03-02T01:00:00+00:00",
+            ),
         ]
     )
-    def test_date_object_bound_matches_its_string_form(self, _name, value):
+    def test_date_object_bound_matches_its_string_form(self, _name, value, string_form):
         from_object = parse_select(
             "SELECT count() FROM events WHERE timestamp >= {start}", placeholders={"start": ast.Constant(value=value)}
         )
-        from_string = parse_select("SELECT count() FROM events WHERE timestamp >= '2026-03-01 09:30:00'")
+        from_string = parse_select(f"SELECT count() FROM events WHERE timestamp >= '{string_form}'")
 
         assert read_signature(from_object) == read_signature(from_string)
 
