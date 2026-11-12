@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from functools import partial
 from time import monotonic, sleep
 
+from django.db.models import Count, Max
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -12,6 +13,7 @@ from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
 from products.alerts.backend.facade.api import insight_short_ids_watched_by
+from products.customer_analytics.backend.facade.api import get_key_metric_names
 from products.dashboards.backend.facade.api import (
     DashboardInsights,
     DashboardInsightTile,
@@ -55,6 +57,10 @@ RECENT_DAYS = 14
 BUILT_DAYS = 28
 SIGNAL_MIX = (3, 2, 2, 2)
 SIGNAL_CANDIDATES = 12
+ROW_TILES = 4
+POPULAR_DAYS = 30
+POPULAR_REFS = 12
+POPULAR_MIN_VIEWERS = 2
 
 
 @frozen
@@ -85,7 +91,11 @@ def find(context: Context) -> Found:
     return Found(
         pulse=tuple(
             progressive_metrics(
-                context, excluded, PULSE_CANDIDATES - len(context.pinned), own_candidates(context, excluded)
+                context,
+                excluded,
+                PULSE_CANDIDATES - len(context.pinned),
+                own_candidates(context, excluded),
+                fill_popular=True,
             )
         )
     )
@@ -102,7 +112,12 @@ def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | N
 
 
 def progressive_metrics(
-    context: Context, excluded: Collection[str], budget: int, items: Sequence[ViewedItem]
+    context: Context,
+    excluded: Collection[str],
+    budget: int,
+    items: Sequence[ViewedItem],
+    *,
+    fill_popular: bool = False,
 ) -> list[contracts.HighlightMetric]:
     if budget <= 0:
         return []
@@ -121,6 +136,8 @@ def progressive_metrics(
                     for tile in dashboard.tiles
                 )
     choices = _eligible_choices(context, excluded, candidates)
+    if fill_popular:
+        choices = [*choices, *_popular_choices(context, excluded, choices)]
     selected: dict[str, PulseChoice] = {}
     tried: set[str] = set()
     slots: dict[str, contracts.PulseSlot] = {}
@@ -230,6 +247,47 @@ def _eligible_choices(
             )
         )
     return choices
+
+
+def _key_metric_places(context: Context) -> int:
+    if not context.allows("customer_analytics:read"):
+        return 0
+    none: dict[str, str] = {}
+    names = context.guard("key metric names", partial(get_key_metric_names, team=context.team), none)
+    return sum(key not in context.pinned and key not in context.hidden for key in names)
+
+
+def _popular_refs(context: Context) -> list[str]:
+    rows = (
+        FileSystemViewLog.objects.filter(
+            team=context.team, type="insight", viewed_at__gte=timezone.now() - timedelta(days=POPULAR_DAYS)
+        )
+        .values("ref")
+        .annotate(viewers=Count("user_id", distinct=True), last_viewed=Max("viewed_at"))
+        .filter(viewers__gte=POPULAR_MIN_VIEWERS)
+        .order_by("-viewers", "-last_viewed", "ref")[:POPULAR_REFS]
+    )
+    return [row["ref"] for row in rows]
+
+
+def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[PulseChoice]) -> list[PulseChoice]:
+    free = ROW_TILES - len(context.pinned) - len(own) - _key_metric_places(context)
+    if free <= 0:
+        return []
+    none: list[str] = []
+    refs = context.guard(
+        "popular insights", partial(context.daily, "routine_popular_insights", partial(_popular_refs, context)), none
+    )
+    known = {choice.key for choice in own}
+    candidates = [
+        PulseCandidate(
+            viewed=ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.POPULAR),
+            short_id=ref,
+        )
+        for ref in refs
+        if f"{INSIGHT_PREFIX}{ref}" not in known
+    ]
+    return _eligible_choices(context, excluded, candidates)[:free]
 
 
 def _next_choice(

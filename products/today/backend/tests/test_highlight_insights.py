@@ -28,7 +28,7 @@ from products.today.backend.facade.enums import PulseSlotStatus
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
-from products.today.backend.logic.today_highlights import home, popular, routine
+from products.today.backend.logic.today_highlights import home, routine
 
 TODAY = date(2026, 10, 13)
 
@@ -472,14 +472,15 @@ class TestRoutineInsights(BaseTest):
 
     @parameterized.expand(
         [
-            ("a person without habits", 0, ["insight:team_fav", "insight:runner_up"]),
-            ("a person whose habits leave one place", 3, ["insight:team_fav"]),
-            ("a person whose habits fill the row", 4, []),
+            ("a person without habits", [], {}, ["team_fav", "runner_up"]),
+            ("a habit that is already popular", ["team_fav"], {}, ["runner_up"]),
+            ("habits and a key metric leave one place", ["h1", "h2"], {"signup_event": "Sign-ups"}, ["team_fav"]),
+            ("habits that fill the row", ["h1", "h2", "h3", "h4"], {}, []),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
-        self, _name: str, habits: int, expected: list[str]
+        self, _name: str, habits: list[str], key_metrics: dict[str, str], expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
         seen = {"team_fav": viewers, "runner_up": viewers[:2], "solo": viewers[:1], "ignored": viewers}
@@ -492,25 +493,28 @@ class TestRoutineInsights(BaseTest):
                     ref=ref,
                     viewed_at=datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=UTC),
                 )
-        for i in range(habits):
+        for ref in habits:
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
                 type="insight",
-                ref=f"habit{i}",
+                ref=ref,
                 view_days=[TODAY - timedelta(days=age) for age in (1, 5, 9)],
                 viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
             )
         points = [(TODAY - timedelta(days=d), 2.0) for d in range(14, 0, -1)]
 
-        with patch.object(
-            routine,
-            "get_insight_series",
-            side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+        with (
+            patch.object(
+                routine,
+                "get_insight_series",
+                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+            ),
+            patch.object(routine, "get_key_metric_names", return_value=key_metrics),
         ):
-            pulse = popular.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
+            pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
 
-        self.assertEqual([(m.key, m.reason) for m in pulse], [(key, "popular") for key in expected])
+        self.assertEqual([m.key for m in pulse if m.reason == "popular"], [f"insight:{ref}" for ref in expected])
 
 
 class TestProgressiveInsights(SimpleTestCase):
