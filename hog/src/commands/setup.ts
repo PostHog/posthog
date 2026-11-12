@@ -194,7 +194,11 @@ export default defineCommand({
         }
 
         const { requireLatestForSetup } = await import('@/updates/check')
-        const hog = await requireLatestForSetup(ctx.runtime, next ? 'setup next' : 'setup')
+        const hog = await requireLatestForSetup(
+            ctx.runtime,
+            next ? 'setup next' : 'setup',
+            ctx.globals.skipSslVerification === true
+        )
 
         const { runSetup } = await import('@/setup/run')
         return { ...(await runSetup(ctx, { next, ...options })), hog }

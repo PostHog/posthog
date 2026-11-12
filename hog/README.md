@@ -31,10 +31,11 @@ npx @posthog/hog setup                                              # run once w
 | Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
 | npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
 
-`--version <version>` installs that version instead of the latest one.
+`--version <version>` installs that version instead of the latest one, except for Homebrew, which installs only the latest.
+`hog upgrade` refuses to run with `--skip-ssl-verification` or `HOG_SKIP_SSL_VERIFICATION`, because the manifest is the only check on what it installs.
 On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
 
-hog reads the latest release from `https://releases.posthog.com/hog/stable/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder.
+hog reads the latest release from `https://releases.posthog.com/hog/stable/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
 
 - A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing.
 - Agents, pipes, `-o json`, CI, npx and runs from source never see that line.

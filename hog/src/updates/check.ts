@@ -18,6 +18,7 @@ const SETUP_MAX_AGE_MS = 10 * 60 * 1000
 // The daily check runs alongside the command, so a slow answer costs at most this much at the end.
 const BACKGROUND_TIMEOUT_MS = 1500
 const SETUP_TIMEOUT_MS = 5000
+const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000
 
 export const NO_UPDATE_CHECK_ENV = ['HOG_NO_UPDATE_CHECK'] as const
 
@@ -27,7 +28,11 @@ const LatestSchema = z.object({
     minimumVersion: z.string().optional(),
 })
 
-const CacheSchema = z.object({ checkedAt: z.number(), latest: LatestSchema })
+const CacheSchema = z.object({
+    checkedAt: z.number(),
+    latest: LatestSchema.optional(),
+    failedAt: z.number().optional(),
+})
 
 type Latest = z.infer<typeof LatestSchema>
 type Cache = z.infer<typeof CacheSchema>
@@ -45,6 +50,10 @@ async function readCache(runtime: Runtime): Promise<Cache | undefined> {
     }
 }
 
+async function saveCache(runtime: Runtime, cache: Cache): Promise<void> {
+    await runtime.writePrivateFile(hogFile(runtime, CACHE_FILE), `${JSON.stringify(cache)}\n`).catch(() => {})
+}
+
 async function writeCache(runtime: Runtime, manifest: Manifest): Promise<Cache> {
     const cache: Cache = {
         checkedAt: runtime.now(),
@@ -54,26 +63,34 @@ async function writeCache(runtime: Runtime, manifest: Manifest): Promise<Cache> 
             ...(manifest.minimumVersion ? { minimumVersion: manifest.minimumVersion } : {}),
         },
     }
-    await runtime.writePrivateFile(hogFile(runtime, CACHE_FILE), `${JSON.stringify(cache)}\n`).catch(() => {})
+    await saveCache(runtime, cache)
     return cache
 }
 
-// A failed request falls back to the cache, however old: an unreachable release never fails a command.
-export async function latestRelease(
+// An outage never slows every command: the daily check falls back to the cache and backs off for an hour.
+async function latestRelease(
     runtime: Runtime,
-    maxAgeMs: number,
-    timeoutMs: number
+    options: { maxAgeMs: number; timeoutMs: number; setup: boolean }
 ): Promise<Latest | undefined> {
     const cache = await readCache(runtime)
-    if (cache && runtime.now() - cache.checkedAt < maxAgeMs) {
+    if (cache?.latest && runtime.now() - cache.checkedAt < options.maxAgeMs) {
+        return cache.latest
+    }
+    if (!options.setup && cache?.failedAt !== undefined && runtime.now() - cache.failedAt < RETRY_AFTER_FAILURE_MS) {
         return cache.latest
     }
     try {
-        return (await writeCache(runtime, await fetchManifest(runtime, { timeoutMs }))).latest
+        return (await writeCache(runtime, await fetchManifest(runtime, { timeoutMs: options.timeoutMs }))).latest
     } catch {
+        if (options.setup) {
+            return undefined
+        }
+        await saveCache(runtime, { checkedAt: cache?.checkedAt ?? 0, latest: cache?.latest, failedAt: runtime.now() })
         return cache?.latest
     }
 }
+
+const DAILY = { maxAgeMs: DAY_MS, timeoutMs: BACKGROUND_TIMEOUT_MS, setup: false }
 
 export async function rememberRelease(runtime: Runtime, manifest: Manifest): Promise<void> {
     await writeCache(runtime, manifest)
@@ -113,19 +130,21 @@ export async function currentVersionInfo(runtime: Runtime, off: boolean): Promis
     if (!checksUpdates(runtime)) {
         return versionInfo(runtime, undefined)
     }
-    const latest = off
-        ? (await readCache(runtime))?.latest
-        : await latestRelease(runtime, DAY_MS, BACKGROUND_TIMEOUT_MS)
+    const latest = off ? (await readCache(runtime))?.latest : await latestRelease(runtime, DAILY)
     return versionInfo(runtime, latest)
 }
 
-// Any newer release stops setup, even one patch. An unreachable manifest or a dev build doesn't.
-export async function requireLatestForSetup(runtime: Runtime, rerun: string): Promise<HogVersionInfo> {
-    if (!checksUpdates(runtime)) {
+// Any newer release stops setup, even one patch. An unreachable or untrusted manifest doesn't.
+export async function requireLatestForSetup(runtime: Runtime, rerun: string, tlsOff: boolean): Promise<HogVersionInfo> {
+    if (!checksUpdates(runtime) || tlsOff) {
         return versionInfo(runtime, undefined)
     }
 
-    const latest = await latestRelease(runtime, SETUP_MAX_AGE_MS, SETUP_TIMEOUT_MS)
+    const latest = await latestRelease(runtime, {
+        maxAgeMs: SETUP_MAX_AGE_MS,
+        timeoutMs: SETUP_TIMEOUT_MS,
+        setup: true,
+    })
     const method = await detectInstallMethod(runtime)
     const info = await versionInfo(runtime, latest, method)
     if (info.updateAvailable) {
@@ -149,7 +168,7 @@ export class UpdateCheck {
     ) {
         this.pending =
             checksUpdates(runtime) && !off
-                ? latestRelease(runtime, DAY_MS, BACKGROUND_TIMEOUT_MS).catch(() => undefined)
+                ? latestRelease(runtime, DAILY).catch(() => undefined)
                 : Promise.resolve(undefined)
     }
 

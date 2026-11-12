@@ -221,17 +221,22 @@ async function realPath(path: string): Promise<string> {
 
 async function replaceExecutable(path: string, contents: Uint8Array): Promise<void> {
     const temporary = join(dirname(path), `.hog.${randomUUID()}.tmp`)
+    const old = join(dirname(path), 'hog.old.exe')
+    let movedAside = false
     try {
         await writeFile(temporary, contents, { flag: 'wx', mode: 0o755 })
         await chmod(temporary, 0o755)
         if (process.platform === 'win32') {
-            const old = join(dirname(path), 'hog.old.exe')
             await rm(old, { force: true })
             await rename(path, old)
+            movedAside = true
         }
         await rename(temporary, path)
     } catch (error) {
         await rm(temporary, { force: true })
+        if (movedAside) {
+            await rename(old, path).catch(() => {})
+        }
         throw error
     }
 }
@@ -256,7 +261,8 @@ export function processRuntime(): Runtime {
         execPath: process.execPath,
         isMusl: () => (process.platform === 'linux' ? isMusl() : Promise.resolve(false)),
         runCommand: async (argv) => {
-            const child = Bun.spawn(argv, { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
+            // Not the caller's folder: pnpm reads a project's .pnpmfile.cjs even for a global install.
+            const child = Bun.spawn(argv, { cwd: homedir(), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
             return child.exited
         },
         replaceExecutable,

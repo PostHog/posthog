@@ -35,7 +35,7 @@ export default defineCommand({
     // Agents read `hog` to see whether to run `hog upgrade` first.
     run: async ({ ctx }) => {
         const config = await ctx.config().catch(() => undefined)
-        const off = updateChecksOff(ctx.runtime, config?.config)
+        const off = updateChecksOff(ctx.runtime, config?.config) || ctx.globals.skipSslVerification === true
         const [status, hog] = await Promise.all([checkAuthStatus(ctx), currentVersionInfo(ctx.runtime, off)])
         return { ...status, hog }
     },

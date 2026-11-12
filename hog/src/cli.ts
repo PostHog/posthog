@@ -467,6 +467,13 @@ async function configOptOuts(runtime: Runtime): Promise<{ telemetry: boolean; up
     }
 }
 
+function tlsOff(tokens: Token[], runtime: Runtime): boolean {
+    return (
+        tokens.some((token) => token.kind === 'option' && token.name === 'skip-ssl-verification') ||
+        safeEnvFlag(runtime.env, GLOBAL_OPTIONS.skipSslVerification.env)
+    )
+}
+
 // Windows can't replace a running hog.exe, so `hog upgrade` renamed it. It isn't running any more.
 async function removeReplacedBinary(runtime: Runtime): Promise<void> {
     if (runtime.platform === 'win32' && !runtime.isDevelopment) {
@@ -563,7 +570,10 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         isHelp || tokens.some((token) => token.kind === 'option' && ['help', 'h', 'version', 'V'].includes(token.name))
     const updates = answersAtOnce
         ? undefined
-        : new UpdateCheck(runtime, optOuts.updateCheck || updateChecksOff(runtime, undefined))
+        : new UpdateCheck(
+              runtime,
+              optOuts.updateCheck || updateChecksOff(runtime, undefined) || tlsOff(tokens, runtime)
+          )
     await removeReplacedBinary(runtime)
 
     let exitCode: number
@@ -590,8 +600,8 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         exitCode = ignore && failure.exitCode === EXIT_FAILURE ? 0 : failure.exitCode
     }
 
-    // A `hog_outdated` failure already says to update, so the notice would repeat it.
-    if (failure?.code !== 'hog_outdated') {
+    // A `hog_outdated` failure already says to update, and a JSON failure is one object on stderr.
+    if (failure?.code !== 'hog_outdated' && !(failure && mode.format === 'json')) {
         await updates?.finish({ mode, command: state.command })
     }
 

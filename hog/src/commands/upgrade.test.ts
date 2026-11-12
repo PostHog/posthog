@@ -111,6 +111,41 @@ describe('update notice', () => {
         expect(result.error()).toMatchObject({ code: 'hog_outdated' })
     })
 
+    test('waits an hour after a failed check before it asks again', async () => {
+        const failed = await runHog(['config', 'schema'], { ...PERSON, respond: release(null) })
+
+        const next = await runHog(['config', 'schema'], {
+            ...PERSON,
+            files: failed.files,
+            respond: release(manifest('0.2.0', BUILT)),
+        })
+
+        expect(failed.requests.filter((request) => request.url === STABLE)).toHaveLength(1)
+        expect(next.requests.filter((request) => request.url === STABLE)).toHaveLength(0)
+    })
+
+    test.each([
+        ['--skip-ssl-verification', { ...PERSON }, ['--skip-ssl-verification']],
+        ['HOG_SKIP_SSL_VERIFICATION', { ...PERSON, env: { NO_COLOR: '1', HOG_SKIP_SSL_VERIFICATION: '1' } }, []],
+    ])('%s sends no update request, because the manifest could not be trusted', async (_name, options, flags) => {
+        const result = await runHog(['config', 'schema', ...flags], {
+            ...options,
+            respond: release(manifest('0.3.0', BUILT)),
+        })
+
+        expect(result.requests.filter((request) => request.url.includes('releases.posthog.com'))).toEqual([])
+    })
+
+    test('keeps a failed JSON command to one error object on stderr, without the minimumVersion warning', async () => {
+        const latest = manifest('0.1.0-alpha.7', BUILT, { minimumVersion: '0.1.0-alpha.6' })
+
+        const result = await runHog(['setup', 'bogus'], { env: AGENT, build: RUNNING, respond: release(latest) })
+
+        expect(result.exitCode).toBe(2)
+        expect(result.error()).toMatchObject({ code: 'invalid_setup_command' })
+        expect(result.stderr.trim().split('\n')).toHaveLength(1)
+    })
+
     test('reads the release at most once a day', async () => {
         const first = await runHog(['config', 'schema'], { ...PERSON, respond: release(manifest('0.2.0', BUILT)) })
 
@@ -171,6 +206,21 @@ describe('setup on an outdated hog', () => {
         expect(result.exitCode).toBe(1)
         expect(result.stderr).toContain('Setup needs the latest hog, 0.2.0')
         expect(result.stderr).not.toContain('is out')
+    })
+
+    test('ignores an old cached release when the manifest is out of reach', async () => {
+        const twoDaysAgo = Date.UTC(2026, 0, 1) - 2 * 24 * 60 * 60 * 1000
+        const cache = { checkedAt: twoDaysAgo, latest: { version: '0.2.0', publishedAt: BUILT } }
+
+        const result = await runHog(['setup'], {
+            env: AGENT,
+            build: RUNNING,
+            files: { '/home/test/.config/hog/update-check.json': JSON.stringify(cache) },
+            respond: release(null),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ step: 'purpose', hog: { latest: null } })
     })
 
     test('carries on when the release manifest is out of reach', async () => {
@@ -287,23 +337,45 @@ describe('hog upgrade', () => {
         expect(result.json()).toMatchObject({ action: 'upgraded', latest: '0.1.0-alpha.2' })
     })
 
+    const BREW = { build: RUNNING, execPath: '/opt/homebrew/Cellar/hog/0.1.0/bin/hog', respond: release(NEWER) }
+
     test.each([
-        ['an agent gets the package manager command and hog runs nothing', AGENT, [], 'run_command', []],
-        ['a person who says yes runs it', { NO_COLOR: '1' }, ['yes'], 'ran', [['brew', 'upgrade', 'hog']]],
-        ['a person who says no runs nothing', { NO_COLOR: '1' }, ['no'], 'declined', []],
-    ])('Homebrew: %s', async (_name, env, answers, action, commands) => {
-        const result = await runHog(['upgrade', '--raw'], {
-            env,
-            stdoutIsTTY: env !== AGENT,
-            answers,
-            build: RUNNING,
-            execPath: '/opt/homebrew/Cellar/hog/0.1.0/bin/hog',
-            respond: release(NEWER),
-        })
+        ['an agent', ['upgrade'], { ...BREW, env: AGENT }],
+        ['a person with --raw, so stdout stays JSON', ['upgrade', '--raw'], { ...PERSON, ...BREW, answers: [] }],
+    ])('Homebrew: %s gets the command and hog runs nothing', async (_name, argv, options) => {
+        const result = await runHog(argv, options)
+
+        expect(result.commands).toEqual([])
+        expect(result.json()).toMatchObject({ action: 'run_command', command: 'brew upgrade hog' })
+    })
+
+    test.each([
+        ['says yes runs it', ['yes'], 'Updated hog to 0.1.0-alpha.8', [['brew', 'upgrade', 'hog']]],
+        ['says no runs nothing', ['no'], 'Homebrew manages this copy', []],
+    ])('Homebrew: a person who %s', async (_name, answers, stdout, commands) => {
+        const result = await runHog(['upgrade'], { ...PERSON, ...BREW, answers })
 
         expect(result.commands).toEqual(commands)
         expect(result.executables).toEqual({})
-        expect(result.json()).toMatchObject({ action, command: 'brew upgrade hog' })
+        expect(result.stdout).toContain(stdout)
+    })
+
+    test('refuses a version pin for Homebrew, which installs only the latest', async () => {
+        const result = await runHog(['upgrade', '--version', '0.1.0-alpha.2'], { ...BREW, env: AGENT })
+
+        expect(result.error()).toMatchObject({ code: 'version_pin_unsupported' })
+        expect(result.requests.filter((request) => request.url.includes('releases.posthog.com'))).toEqual([])
+    })
+
+    test('refuses to run with TLS verification off, and sends no request', async () => {
+        const result = await runHog(['upgrade'], {
+            env: { ...AGENT, HOG_SKIP_SSL_VERIFICATION: '1' },
+            build: RUNNING,
+            respond: release(NEWER),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'upgrade_needs_tls' })
+        expect(result.requests.filter((request) => request.url.includes('releases.posthog.com'))).toEqual([])
     })
 
     test.each([

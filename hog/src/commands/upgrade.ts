@@ -121,7 +121,21 @@ export default defineCommand({
 
     async run({ options, ctx }): Promise<UpgradeResult> {
         const { runtime } = ctx
+        if (ctx.globals.skipSslVerification) {
+            throw new HogError(
+                'upgrade_needs_tls',
+                "hog upgrade doesn't run with TLS verification off, because it couldn't trust what it downloads.",
+                'Run it without --skip-ssl-verification and HOG_SKIP_SSL_VERIFICATION.'
+            )
+        }
         const method = await detectInstallMethod(runtime)
+        if (options.version !== undefined && method.kind === 'homebrew') {
+            throw new HogError(
+                'version_pin_unsupported',
+                'Homebrew installs only the latest hog, so --version does nothing for this copy.',
+                'Run `brew upgrade hog` for the latest version, or install with the install script to pick a version.'
+            )
+        }
         const manifest = await fetchManifest(runtime, { version: options.version })
         if (options.version === undefined) {
             await rememberRelease(runtime, manifest)
@@ -156,7 +170,7 @@ export default defineCommand({
 
         if (PACKAGE_MANAGERS.includes(method.kind) && command) {
             const prompts = ctx.prompts
-            if (!prompts) {
+            if (!prompts || ctx.globals.raw) {
                 return result('run_command')
             }
             if (!(await prompts.confirm(`Run ${command}?`))) {
