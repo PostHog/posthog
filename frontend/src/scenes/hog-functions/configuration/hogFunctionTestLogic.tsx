@@ -527,7 +527,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
                         return
                     }
-                    lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                    lemonToast.error(
+                        e?.detail || `An unexpected server error occurred while testing the function: ${e}`
+                    )
                 }
             },
         },

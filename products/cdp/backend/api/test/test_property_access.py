@@ -4,12 +4,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition, Team
+from posthog.models import OrganizationMembership, Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestCDPPropertyAccess(APIBaseTest):
