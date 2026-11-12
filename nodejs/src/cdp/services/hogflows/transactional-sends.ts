@@ -225,6 +225,14 @@ export class TransactionalSends {
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
+            if (idempotencyKey) {
+                invocation.state.idempotencyKey = {
+                    hash: IdempotencyKeys.hash(idempotencyKey),
+                    fingerprint,
+                    replayFields: attachmentTotals,
+                    ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
+                }
+            }
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
             try {
                 await this.deps.queue.queueInvocations([invocation])
@@ -277,7 +285,7 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         send: AcceptedSend | undefined
     ) {
-        const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = request
+        const { to, distinct_id: distinctId, variables } = request
         const event: HogFunctionInvocationGlobals['event'] = {
             uuid: new UUIDT().toString(),
             event: TRANSACTIONAL_EMAIL_EVENT,
@@ -308,9 +316,6 @@ export class TransactionalSends {
         if (send) {
             const { attachments: _references, ...queuedSend } = send
             invocation.state.send = queuedSend
-        }
-        if (idempotencyKey) {
-            invocation.state.idempotencyKeyHash = IdempotencyKeys.hash(idempotencyKey)
         }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
@@ -422,12 +427,12 @@ export class ScheduledTransactionalSends {
             return { outcome: result.outcome }
         }
         const job = v2JobToInvocation(result.job)
-        const idempotencyKeyHash = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKeyHash
-        if (idempotencyKeyHash) {
+        const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
+        if (idempotencyKey) {
             await this.deps.idempotencyKeys.replayUntilDayAfter(
                 teamId,
-                idempotencyKeyHash,
                 messageId,
+                idempotencyKey,
                 latestDueAtOf(messageId)
             )
         }

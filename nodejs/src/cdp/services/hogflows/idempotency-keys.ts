@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
+import type { QueuedIdempotencyKey } from '../../types'
 
 // Covers a caller's timeout and retry. After this a pending key expires, so a crash after the queue
 // write and before the run is recorded can cost a duplicate, but never a send the caller thinks happened.
@@ -20,11 +21,9 @@ const VALKEY_TIMEOUT_MS = 1000
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
-// It keeps a longer window that a reschedule set while this write waited or retried.
+// It keeps a longer window that a reschedule set while a completion waited or retried.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
-// Lengthens the window only while the key still holds this run, and never shortens it. The run may
-// still be pending here, when its completion waits for the store.
-const REPLAY_UNTIL_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then if redis.call('PTTL', KEYS[1]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 1 end return 0`
+const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
@@ -305,19 +304,22 @@ export class IdempotencyKeys {
         return true
     }
 
-    private async writeQueued({ redisKey, value, expiresAt }: PendingCompletion): Promise<void> {
+    private async writeQueued(
+        { redisKey, value, expiresAt }: PendingCompletion,
+        operation: 'mark_queued' | 'replay_until' = 'mark_queued'
+    ): Promise<void> {
         const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000)
         const written = await this.timed(
-            'mark_queued',
+            operation,
             () =>
-                this.valkey?.useClient({ name: 'idempotency-mark-queued' }, (client) =>
+                this.valkey?.useClient({ name: CLIENT_NAMES[operation] }, (client) =>
                     client.eval(MARK_QUEUED_SCRIPT, 1, redisKey, JSON.stringify(value), value.invocationId, ttlSeconds)
                 ) ?? Promise.resolve(null)
         )
         if (written === 0) {
             logger.warn('🔑', 'idempotency key held by another request, run not recorded', { scope: this.scope })
         }
-        this.count('mark_queued', written === 0 ? 'not_owned' : 'written')
+        this.count(operation, written === 0 ? 'not_owned' : 'written')
     }
 
     async release(teamId: number, key: string, invocationId: string): Promise<void> {
@@ -340,17 +342,29 @@ export class IdempotencyKeys {
         return createHash('sha256').update(key).digest('hex')
     }
 
-    async replayUntilDayAfter(teamId: number, keyHash: string, invocationId: string, latestDueAt: Date): Promise<void> {
-        const ttlMs = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000 - Date.now()
+    // Writes the run's queued record, so a replay works after a reschedule even when the completion of the
+    // accept never reached the store.
+    async replayUntilDayAfter(
+        teamId: number,
+        invocationId: string,
+        { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
+        latestDueAt: Date
+    ): Promise<void> {
         try {
-            const kept = await this.timed(
-                'replay_until',
-                () =>
-                    this.valkey?.useClient({ name: 'idempotency-replay-until' }, (client) =>
-                        client.eval(REPLAY_UNTIL_SCRIPT, 1, this.redisKeyOf(teamId, keyHash), invocationId, ttlMs)
-                    ) ?? Promise.resolve(null)
+            await this.writeQueued(
+                {
+                    redisKey: this.redisKeyOf(teamId, hash),
+                    value: {
+                        fingerprint,
+                        invocationId,
+                        queued: true,
+                        ...(replayFields && { replayFields }),
+                        ...(scheduledAt && { scheduledAt }),
+                    },
+                    expiresAt: latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000,
+                },
+                'replay_until'
             )
-            this.count('replay_until', kept === 1 ? 'kept' : 'not_owned')
         } catch (error) {
             logger.error('🔑', 'idempotency key replay window not extended', {
                 scope: this.scope,
