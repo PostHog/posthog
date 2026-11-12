@@ -13,7 +13,8 @@ import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
-    isMusl: (readdir: (folder: string) => string[]) => boolean
+    libcFamily: (report: unknown) => string | undefined
+    candidates: (platform: string, arch: string, libc: string | undefined) => string[]
 }
 
 describe('npm launcher', () => {
@@ -29,25 +30,32 @@ describe('npm launcher', () => {
     })
 
     test.each([
-        ['Alpine', { '/lib': ['ld-musl-x86_64.so.1', 'libc.musl-x86_64.so.1'] }, true],
-        ['Debian', { '/lib': ['x86_64-linux-gnu'], '/usr/lib': ['os-release'] }, false],
-    ])('detects musl on %s', (_name, folders: Record<string, string[]>, musl) => {
-        const readdir = (folder: string): string[] => {
-            const names = folders[folder]
-            if (!names) {
-                throw new Error('ENOENT')
-            }
-            return names
-        }
-        expect(launcher.isMusl(readdir)).toBe(musl)
+        [
+            'glibc, even with musl installed',
+            { header: { glibcVersionRuntime: '2.39' }, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] },
+            'glibc',
+        ],
+        ['Alpine', { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
+        ['an unknown libc', { header: {} }, undefined],
+    ])('reads the libc of %s as npm does', (_name, report, libc) => {
+        expect(launcher.libcFamily(report)).toBe(libc)
+    })
+
+    test('falls back to the other libc build on Linux only', () => {
+        expect(launcher.candidates('linux', 'x64', 'glibc')).toEqual(['linux-x64', 'linux-x64-musl'])
+        expect(launcher.candidates('linux', 'arm64', 'musl')).toEqual(['linux-arm64-musl', 'linux-arm64'])
+        expect(launcher.candidates('darwin', 'arm64', undefined)).toEqual(['darwin-arm64'])
     })
 })
 
-const here = launcher.targetId(
-    process.platform,
-    process.arch,
-    process.platform === 'linux' && launcher.isMusl(readdirSync)
-)
+const hostHasMuslLoader = ['/lib', '/usr/lib'].some((folder) => {
+    try {
+        return readdirSync(folder).some((name) => name.startsWith('ld-musl-'))
+    } catch {
+        return false
+    }
+})
+const here = launcher.targetId(process.platform, process.arch, process.platform === 'linux' && hostHasMuslLoader)
 const INSTALL_SH = join(import.meta.dir, 'install.sh')
 
 interface FakeRelease {
@@ -66,7 +74,7 @@ async function sh(command: string[], cwd: string): Promise<void> {
 async function fakeRelease(
     version: string,
     where: 'bucket' | 'mirror',
-    options: { checksum?: string; target?: string } = {}
+    options: { checksum?: string; target?: string; broken?: boolean } = {}
 ): Promise<FakeRelease> {
     const root = await mkdtemp(join(tmpdir(), 'hog-install-'))
     const release: FakeRelease = {
@@ -80,7 +88,7 @@ async function fakeRelease(
 
     const build = join(root, 'build')
     await mkdir(build, { recursive: true })
-    await writeFile(join(build, 'hog'), `#!/bin/sh\necho ${version}\n`)
+    await writeFile(join(build, 'hog'), options.broken ? '#!/bin/sh\nexit 1\n' : `#!/bin/sh\necho ${version}\n`)
     await chmod(join(build, 'hog'), 0o755)
 
     const versionFolder =
@@ -182,6 +190,19 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
         expect(result.exitCode).toBe(1)
         expect(result.stderr).toContain("doesn't match SHA256SUMS")
         expect(await Bun.file(join(release.installDir, 'hog')).exists()).toBe(false)
+    })
+
+    test('keeps the installed hog when the new build does not run here', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket', { broken: true })
+        await mkdir(release.installDir, { recursive: true })
+        await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
+
+        const result = await install(release, ['--version', '1.2.3'])
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain("doesn't run on this machine")
+        expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(readdirSync(release.installDir)).toEqual(['hog'])
     })
 
     test('points Git Bash to the PowerShell installer and installs nothing', async () => {

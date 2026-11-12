@@ -25,10 +25,6 @@ env:
     BUN_VERSION: 1.4.2
     RELEASE_BRANCH: chore/release-hog
 
-concurrency:
-    group: release-hog
-    cancel-in-progress: false
-
 jobs:
     check-changesets:
         name: Check for hog changesets
@@ -89,6 +85,12 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         environment: hog-release
+        # One preparation at a time. A newer push replaces a run still waiting to start, and its
+        # release pull request includes the older changesets. Publishing has its own group, so a
+        # push never cancels a publish run.
+        concurrency:
+            group: release-hog-prepare
+            cancel-in-progress: false
         permissions:
             contents: read
             # The approvals of this run, which the guard checks.
@@ -145,6 +147,44 @@ jobs:
 
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
+
+            # The guard covers only this run's push. The release ships every pending changeset, so the
+            # authors and mergers of the pull requests that added them can't approve it either.
+            - name: Check approvers against every pending changeset
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" \
+                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
+                  blocked=""
+                  for file in hog/.sampo/changesets/*.md; do
+                      [ -e "$file" ] || continue
+                      commit=$(git log --diff-filter=A --format=%H -n 1 -- "$file")
+                      people=$(gh api "repos/$REPOSITORY/commits/$commit/pulls" \
+                          --jq '.[] | select(.merged_at != null) | .user.login, (.merged_by.login // empty)' | grep -v '\[bot\]$' || true)
+                      for approver in $approvers; do
+                          if printf '%s\n' "$people" | grep -qx "$approver"; then
+                              blocked="$blocked $approver ($file)"
+                          fi
+                      done
+                  done
+                  if [ -n "$blocked" ]; then
+                      echo "::error::These approvers authored or merged a pull request this release ships:$blocked. Re-run the failed jobs and have someone else approve."
+                      exit 1
+                  fi
+
+            # The guard checked the pull requests up to this run's commit. A hog change merged since
+            # then would ship without its author being kept from approving, so it stops the release.
+            - name: Check that hog didn't change after the guarded commit
+              run: |
+                  changed=$(git diff --name-only "$GITHUB_SHA" HEAD -- hog services/mcp)
+                  if [ -n "$changed" ]; then
+                      echo "::error::hog changed on master after $GITHUB_SHA, which the approval guard checked. Its changeset push starts a new release run; without a changeset, run this workflow from master by hand."
+                      printf '%s\n' "$changed"
+                      exit 1
+                  fi
 
             - name: Check for remaining changesets
               id: recheck-changesets
@@ -492,8 +532,14 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   RELEASE_COMMIT: ${{ github.sha }}
                   REPOSITORY: ${{ github.repository }}
+                  RELEASER_LOGIN: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_LOGIN }}
               run: |
                   set -euo pipefail
+
+                  if [ -z "$RELEASER_LOGIN" ]; then
+                      echo "::error::Set the GH_APP_POSTHOG_HOG_RELEASER_LOGIN variable to the hog releaser App's bot login, like hog-releaser[bot]"
+                      exit 1
+                  fi
 
                   release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
                       --jq ".[] | select(.merged_at != null and .base.ref == \"master\" and .head.ref == \"$RELEASE_BRANCH\") | .number")
@@ -504,16 +550,15 @@ jobs:
                   release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
                   pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
 
-                  # The hog releaser App opened the pull request and made its only commit. An App's
-                  # commits through the API are signed, so a verified commit by the same bot holds up.
-                  author=$(printf '%s' "$pr_data" | jq -r '.user.login')
-                  author_type=$(printf '%s' "$pr_data" | jq -r '.user.type')
+                  # Only the hog releaser App may open the pull request and make its commit, which the
+                  # API signs for an App.
                   head=$(printf '%s' "$pr_data" | jq -r '.head.sha')
                   head_data=$(gh api "repos/$REPOSITORY/commits/$head")
-                  if [ "$author_type" != Bot ] \
-                      || [ "$(printf '%s' "$head_data" | jq -r '.author.login // empty')" != "$author" ] \
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.head.repo.full_name')" != "$REPOSITORY" ] \
+                      || [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASER_LOGIN" ] \
+                      || [ "$(printf '%s' "$head_data" | jq -r '.author.login // empty')" != "$RELEASER_LOGIN" ] \
                       || [ "$(printf '%s' "$head_data" | jq -r '.commit.verification.verified')" != true ]; then
-                      echo "::error::The release pull request and its commit were not both made by the hog releaser App"
+                      echo "::error::The release pull request and its commit were not both made by $RELEASER_LOGIN"
                       exit 1
                   fi
 
@@ -638,6 +683,9 @@ jobs:
         runs-on: macos-15
         timeout-minutes: 60
         environment: hog-publish
+        concurrency:
+            group: release-hog-publish-${{ needs.release.outputs.version }}
+            cancel-in-progress: false
         permissions:
             contents: read
             # AssumeRoleWithWebIdentity into the release bucket's publisher role.
@@ -707,7 +755,7 @@ jobs:
             - name: Check whether the bucket has this version
               id: existing
               run: |
-                  if aws s3api head-object --bucket "$BUCKET" --key "hog/v$VERSION/manifest.json" >/dev/null 2>&1; then
+                  if aws s3api head-object --bucket "$BUCKET" --key "hog/v$VERSION/.upload-complete" >/dev/null 2>&1; then
                       echo "uploaded=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "uploaded=false" >> "$GITHUB_OUTPUT"
@@ -788,7 +836,8 @@ jobs:
                   set -euo pipefail
                   if [ "$UPLOADED" = true ]; then
                       mkdir -p "$RUNNER_TEMP/published"
-                      aws s3 cp "s3://$BUCKET/hog/v$VERSION/" "$RUNNER_TEMP/published/" --recursive --only-show-errors
+                      aws s3 cp "s3://$BUCKET/hog/v$VERSION/" "$RUNNER_TEMP/published/" --recursive \
+                          --exclude .upload-complete --only-show-errors
                       bun release/package.ts --reuse "$RUNNER_TEMP/published"
                   else
                       bun release/package.ts --version "$VERSION" --build-date "$BUILD_DATE"
@@ -796,16 +845,24 @@ jobs:
 
             # Before the GitHub release, so the bucket has the files before anything links to them.
             # The role can't delete, so nothing here removes an object.
+            # The marker goes last. Without it, a rerun signs and uploads the version again, over the
+            # files a failed upload left. Nothing reads them before stable points at this version.
             - name: Upload to the release bucket
               if: steps.existing.outputs.uploaded == 'false'
               run: |
+                  set -euo pipefail
+                  immutable="public, max-age=31536000, immutable"
                   aws s3 cp hog/dist/release/out/assets/ "s3://$BUCKET/hog/v$VERSION/" --recursive \
-                      --cache-control "public, max-age=31536000, immutable" --only-show-errors
+                      --cache-control "$immutable" --only-show-errors
+                  printf '%s\n' "$GITHUB_RUN_ID" | aws s3 cp - "s3://$BUCKET/hog/v$VERSION/.upload-complete" \
+                      --cache-control "$immutable" --only-show-errors
 
             - name: Check whether this is the latest release
               id: latest
               working-directory: hog
-              run: echo "latest=$(bun release/is-latest.ts --version "$VERSION")" >> "$GITHUB_OUTPUT"
+              run: |
+                  latest=$(bun release/is-latest.ts --version "$VERSION")
+                  echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
             # Rewritten for every release, so they get a short cache lifetime and an invalidation.
             # A rerun of an older version leaves them alone.
@@ -890,6 +947,8 @@ jobs:
         needs: [release, publish]
         runs-on: ubuntu-24.04
         timeout-minutes: 15
+        # Each package's npm trusted publisher names this environment, so only master can publish.
+        environment: hog-publish
         permissions:
             contents: read
             # npm trusted publishing exchanges the job's OIDC token, so no npm token is stored.
