@@ -88,6 +88,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.alerts.backend.activity_logging import log_destination_changes
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -2571,6 +2572,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        log_destination_changes(
+            alert,
+            user=user,
+            was_impersonated=is_impersonated(request),
+            action="created",
+            destination_types=dict.fromkeys(hog_function_ids, data["type"]),
+        )
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
             event="insight alert destination created",
@@ -2597,7 +2605,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
         try:
-            soft_delete_alert_destinations(
+            removed = soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),
                 allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
@@ -2605,6 +2613,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
+
+        log_destination_changes(
+            alert,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            action="deleted",
+            destination_types=removed,
+        )
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),

@@ -171,8 +171,8 @@ def create_alert_destination_hog_functions(
 
 def soft_delete_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: list[UUID]
-) -> None:
-    destinations.soft_delete_alert_destinations(
+) -> dict[UUID, str | None]:
+    return destinations.soft_delete_alert_destinations(
         team_id=team_id,
         alert_id=alert_id,
         allowed_event_ids=allowed_event_ids,

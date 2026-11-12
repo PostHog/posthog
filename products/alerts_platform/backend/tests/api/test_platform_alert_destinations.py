@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.integration.auth_types import ANY
 from posthog.models.scoping import team_scope
@@ -77,6 +78,21 @@ class TestPlatformAlertDestinations(APIBaseTest):
         removed = self.client.post(f"{self.url}delete/", {"destination_ids": [slack.json()["id"]]}, format="json")
         assert removed.status_code == status.HTTP_204_NO_CONTENT
         assert [d["type"] for d in self.client.get(self.url).json()] == ["pagerduty"]
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="PlatformAlertConfiguration",
+            item_id=str(self.configuration_id),
+            detail__changes__contains=[{"field": "destinations"}],
+        ).order_by("created_at")
+        assert [
+            (row.user_id, [(change["action"], change["before"] or change["after"]) for change in row.detail["changes"]])
+            for row in logged
+        ] == [
+            (self.user.id, [("created", {"id": slack.json()["id"], "type": "slack"})]),
+            (self.user.id, [("created", {"id": pagerduty.json()["id"], "type": "pagerduty"})]),
+            (self.user.id, [("deleted", {"id": slack.json()["id"], "type": "slack"})]),
+        ]
+        assert not any(_ROUTING_KEY in str(row.detail) or "secret-token" in str(row.detail) for row in logged)
         deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):

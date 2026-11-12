@@ -325,7 +325,9 @@ def soft_delete_alert_destinations(
     alert_id: str,
     allowed_event_ids: Collection[str],
     hog_function_ids: list[UUID],
-) -> None:
+) -> dict[UUID, str | None]:
+    """Soft-deletes the alert's destinations among `hog_function_ids`, and returns each one's
+    destination type, None for a template no destination type matches."""
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         owned_rows = [
@@ -359,6 +361,13 @@ def soft_delete_alert_destinations(
 
         HogFunction.objects.filter(team_id=team_id, id__in=unique_ids).update(deleted=True, enabled=False)
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=unique_ids)
+    return {
+        row.hog_function_id: spec.type.value
+        if row.template_id and (spec := SPEC_BY_TEMPLATE_ID.get(row.template_id))
+        else None
+        for row in owned_rows
+        if row.hog_function_id in unique_ids
+    }
 
 
 def retire_alert_hog_functions(*, team_id: int, alert_id: str) -> None:

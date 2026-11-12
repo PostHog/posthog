@@ -8,13 +8,22 @@ loads.
 """
 
 import dataclasses
-from typing import Optional
+from collections.abc import Mapping
+from typing import Literal, Optional
+from uuid import UUID
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 
@@ -116,6 +125,52 @@ def handle_alert_subscription_change(
                 ),
             ),
         )
+
+
+def log_destination_changes(
+    alert: AlertConfiguration,
+    *,
+    user: User,
+    was_impersonated: bool,
+    action: Literal["created", "deleted"],
+    destination_types: Mapping[UUID, str | None],
+) -> None:
+    """Logs destinations added to or removed from an alert. Each one is named by id and type only,
+    because its settings hold webhook URLs and routing keys."""
+    if not destination_types:
+        return
+    log_activity(
+        organization_id=alert.team.organization_id,
+        team_id=alert.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=alert.id,
+        scope="AlertConfiguration",
+        activity="updated",
+        detail=Detail(
+            name=alert.name,
+            type="alert_destination_change",
+            changes=[
+                Change(
+                    type="AlertConfiguration",
+                    action=action,
+                    field="destinations",
+                    before=summary if action == "deleted" else None,
+                    after=summary if action == "created" else None,
+                )
+                for summary in (
+                    {"id": str(destination_id), "type": destination_type}
+                    for destination_id, destination_type in sorted(destination_types.items(), key=lambda i: str(i[0]))
+                )
+            ],
+            context=AlertConfigurationContext(
+                insight_id=alert.insight_id,
+                insight_short_id=alert.insight.short_id,
+                insight_name=alert.insight.name,
+                alert_name=alert.name,
+            ),
+        ),
+    )
 
 
 @receiver(pre_delete, sender=AlertConfiguration)

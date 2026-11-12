@@ -1421,6 +1421,19 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_destination_change",
+        ).order_by("created_at")
+        assert [
+            (row.user_id, [(change["action"], change["before"] or change["after"]) for change in row.detail["changes"]])
+            for row in logged
+        ] == [
+            (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),
+            (self.user.id, [("deleted", {"id": hog_function_id, "type": "slack"})]),
+        ]
 
     def _destination(self, alert_id: UUID | None = None) -> HogFunction:
         return HogFunction.objects.create(
