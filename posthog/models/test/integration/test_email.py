@@ -26,7 +26,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         integration = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
-        assert integration.team == self.team
+        assert integration.team_id == self.team.id
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
         assert integration.config["domain"] == "successdomain.com"
@@ -37,9 +37,10 @@ class TestEmailIntegrationDomainValidation(BaseTest):
     def test_duplicate_sender_in_same_team_is_rejected(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
-        first = EmailIntegration.create_native_integration(
+        first_record = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
+        first = Integration.objects.get(pk=first_record.id)
         first.config["verified"] = True
         first.save()
 
@@ -253,12 +254,13 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
     def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
         with patch("products.workflows.backend.facade.api.create_ses_email_domain"):
-            return EmailIntegration.create_native_integration(
+            record = EmailIntegration.create_native_integration(
                 {"email": email, "name": "Test"},
                 team_id=team_id,
                 organization_id=organization_id,
                 created_by=self.user,
             )
+        return Integration.objects.get(pk=record.id)
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_team_cascade_delete_cleans_up_ses_identity(self, mock_delete_identity):

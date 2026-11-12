@@ -38,5 +38,9 @@ def _canonical_decimal(literal: str) -> str:
     sign, integer, fraction, exponent = match.group(1), match.group(2), match.group(3) or "", match.group(4) or "0"
     digits = (integer + fraction).lstrip("0")
     significant = digits.rstrip("0")
-    power = int(exponent) - len(fraction) + len(digits) - len(significant)
+    try:
+        power = int(exponent) - len(fraction) + len(digits) - len(significant)
+    except ValueError:
+        # Python refuses to read an integer past 4,300 digits, and no double can hold that exponent anyway.
+        return literal
     return f"{sign}{significant}e{power}" if significant else "0"

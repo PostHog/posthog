@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models import TaggedItem
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
@@ -88,6 +90,17 @@ def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
+
+
+def file_path(team_id: int, template_id: UUID) -> str | None:
+    return (
+        FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE), team_id=team_id, type="message_template", ref=str(template_id)
+        )
+        .exclude(shortcut=True)
+        .values_list("path", flat=True)
+        .first()
+    )
 
 
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:

@@ -84,20 +84,79 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
     })
 
-    it('deletes a template for good and brings it back on undo, in the library and the project tree', async () => {
+    it.each([
+        ['while the tree shows a shortcut to it', true],
+        ['while the tree hides it', false],
+    ])('deletes a template for good and brings it back into its folder on undo, %s', async (_name, withShortcut) => {
         await expectLogic(logic).toFinishAllListeners()
-        const treeEntry = { id: 'file-a', path: 'Unfiled/Email templates/Welcome', type: 'message_template', ref: 'a' }
         let deleted = false
+        let restoredPath: string | undefined
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': () => [
                     200,
                     { results: deleted ? [] : [template('a', 'Welcome', [])] },
                 ],
-                '/api/environments/:team_id/file_system/': ({ request }) =>
-                    new URL(request.url).searchParams.get('ref') === 'a' && !deleted
-                        ? [200, { results: [treeEntry], count: 1 }]
-                        : [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/messaging_templates/:id/placement/': () => [
+                    200,
+                    { path: deleted ? null : (restoredPath ?? 'Campaigns/Welcome') },
+                ],
+                '/api/environments/:team_id/file_system/': () => [200, { results: [], count: 0 }],
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    if (deleted) {
+                        return [404, { detail: 'Not found.' }]
+                    }
+                    deleted = ((await request.json()) as { deleted: boolean }).deleted
+                    return [200, template('a', 'Welcome', [])]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/file_system/undo_delete/': async ({ request }) => {
+                    const { items } = (await request.json()) as { items: { ref: string; path?: string }[] }
+                    deleted = false
+                    restoredPath = items[0].path ?? 'Unfiled/Email templates/Welcome'
+                    return [200, { undone: items }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: withShortcut })
+        projectTreeDataLogic.mount()
+        if (withShortcut) {
+            projectTreeDataLogic.actions.addLoadedResults({
+                results: [
+                    { id: 'file-a', path: 'Campaigns/Welcome', type: 'message_template', ref: 'a' },
+                    { id: 'shortcut-a', path: 'Shortcuts/Welcome', type: 'message_template', ref: 'a', shortcut: true },
+                ],
+            } as any)
+        }
+        const toast = jest.spyOn(lemonToast, 'info')
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteTemplate(template('a', 'Welcome', []))
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadTemplates()).toFinishAllListeners()
+        expect(logic.values.templates.map((t) => t.id)).toEqual([])
+
+        await toast.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['a'])
+        expect(restoredPath).toBe('Campaigns/Welcome')
+
+        toast.mockRestore()
+        projectTreeDataLogic.unmount()
+    })
+
+    it('keeps a template when the lookup of its folder fails, and deletes it on retry once the lookup works', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let lookupFails = true
+        let deleted = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/:id/placement/': () =>
+                    lookupFails ? [500, { detail: 'Server error' }] : [200, { path: 'Campaigns/Welcome' }],
             },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
@@ -106,27 +165,24 @@ describe('messageTemplatesLogic', () => {
                 },
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-        projectTreeDataLogic.mount()
-        projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry] } as any)
-        const toast = jest.spyOn(lemonToast, 'info')
+        const error = jest.spyOn(lemonToast, 'error')
 
         await expectLogic(logic, () => {
             logic.actions.deleteTemplate(template('a', 'Welcome', []))
         }).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.loadTemplates()).toFinishAllListeners()
-        expect(logic.values.templates.map((t) => t.id)).toEqual([])
-        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']).toBeUndefined()
 
-        await toast.mock.calls[0][1]?.button?.action?.()
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        expect(logic.values.templates.map((t) => t.id)).toEqual(['a'])
-        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']?.path).toBe(
-            'Unfiled/Email templates/Welcome'
-        )
+        expect(deleted).toBe(false)
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['a', 'b', 'c'])
+        const retry = error.mock.calls[0][1]?.button
+        expect(retry?.label).toBe('Retry')
 
-        toast.mockRestore()
-        projectTreeDataLogic.unmount()
+        lookupFails = false
+        await expectLogic(logic, () => {
+            void retry?.action()
+        }).toFinishAllListeners()
+
+        expect(deleted).toBe(true)
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['b', 'c'])
+        error.mockRestore()
     })
 })

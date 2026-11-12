@@ -57935,6 +57935,16 @@
             "required": ["type", "session_id", "timestamp_ms"],
             "type": "object"
         },
+        "SessionReplayListConfiguration": {
+            "additionalProperties": false,
+            "properties": {
+                "filter_test_accounts": {
+                    "description": "Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -61915,6 +61925,9 @@
             "properties": {
                 "analytics_list": {
                     "$ref": "#/definitions/AnalyticsListDisplayConfiguration"
+                },
+                "session_replay": {
+                    "$ref": "#/definitions/SessionReplayListConfiguration"
                 },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"

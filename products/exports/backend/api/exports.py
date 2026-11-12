@@ -258,15 +258,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 )
 
         if export_context and export_context.get("heatmap_url"):
-            ok, err = is_heatmap_url_allowed(
-                export_context["heatmap_url"],
-                export_context.get("heatmap_type"),
-            )
-            if not ok:
-                raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
+            self._validate_heatmap_url(export_context)
 
         data["team_id"] = self.context["team_id"]
         return data
+
+    def _validate_heatmap_url(self, export_context: dict) -> None:
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team is not None else Team.objects.get(pk=self.context["team_id"])
+        ok, err = is_heatmap_url_allowed(export_context["heatmap_url"], export_context.get("heatmap_type"), team)
+        if not ok:
+            raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
         # force_async here to avoid blocking patches to the /sharing endpoint
