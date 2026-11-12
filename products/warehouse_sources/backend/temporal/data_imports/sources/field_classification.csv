@@ -603,7 +603,7 @@ Hex,api_key workspace_url,,,,,hex
 HeyGen,api_key,,,,,hey-gen
 HeyReach,api_key,,,,,hey-reach
 HiBob,service_user_id service_user_token,,,,,hi-bob
-HighLevel,,,,,,high-level
+HighLevel,private_integration_token location_id,,,,,high-level
 Hightouch,api_key,,,,,hightouch
 Hitpay,api_key platform_api_key environment,,,,,hitpay
 Hivebrite,,,,,,hivebrite
