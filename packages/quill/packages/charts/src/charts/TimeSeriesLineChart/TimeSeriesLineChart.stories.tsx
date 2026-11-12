@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { ChartHoverSync } from '../../core/hover-sync'
 import type { Series } from '../../core/types'
-import { Stage, useReactiveTheme } from '../../story-helpers'
+import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
 import type { TimeInterval } from '../../utils/dates'
 import { ciRanges } from '../../utils/statistics'
 import type { YAxisConfig } from '../../utils/use-axis-formatters'
@@ -472,6 +472,9 @@ export const SyncedHover: Story = {
                 </div>
             </ChartHoverSync>
         )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
     },
 }
 
