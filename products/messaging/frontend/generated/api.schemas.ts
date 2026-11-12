@@ -1091,6 +1091,86 @@ export interface SendTransactionalEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
 }
 
+/**
+ * * `manual` - Manual
+ * * `detected` - Detected from GitHub
+ */
+export type CodeEmailSourceOriginEnumApi =
+    (typeof CodeEmailSourceOriginEnumApi)[keyof typeof CodeEmailSourceOriginEnumApi]
+
+export const CodeEmailSourceOriginEnumApi = {
+    Manual: 'manual',
+    Detected: 'detected',
+} as const
+
+export interface CodeEmailApi {
+    /** The code email's ID. */
+    id: string
+    /** The `template_key` your code sends under. Each key is one email. */
+    key: string
+    /** The hidden workflow that sends this key's emails. */
+    hog_flow_id: string
+    /** What the email is for. Empty when nobody added one. */
+    description: string
+    /** Tags for organizing transactional emails. */
+    tags: string[]
+    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    sensitive: boolean
+    /**
+     * A link to the file in your repository that sends this email. Null when unlinked.
+     * @nullable
+     */
+    source_url: string | null
+    /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+     *
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub */
+    readonly source_origin: CodeEmailSourceOriginEnumApi | null
+    /** When your code first sent under this key. */
+    created_at: string
+    /**
+     * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+     * @nullable
+     */
+    user_access_level: string | null
+}
+
+export interface PatchedCodeEmailUpdateApi {
+    /**
+     * What the email is for.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+    source_url?: string | null
+}
+
+export interface CodeEmailSourceCandidateApi {
+    /** The repository that holds the file, as `owner/name`. */
+    repository: string
+    /** The file's path in the repository. */
+    path: string
+    /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+    line: number
+    /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+    url: string
+    /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+    call_site: boolean
+}
+
+export interface CodeEmailSourceCandidatesApi {
+    /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+    candidates: CodeEmailSourceCandidateApi[]
+    /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+    complete: boolean
+}
+
 export interface TransactionalEmailLogEntryApi {
     /** The `message_id` that the send returned. */
     message_id: string
