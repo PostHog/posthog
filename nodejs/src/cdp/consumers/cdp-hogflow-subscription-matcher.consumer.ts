@@ -165,7 +165,6 @@ type ParkedCandidate = {
     status: 'available' | 'running'
 }
 
-// A held job to signal, with the flow's wait steps it may already be parked on by the time the signal lands.
 type HeldJobSignal = { id: string; waitActionIds: string[] }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -435,7 +434,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 continue
             }
 
-            // A worker holds this job, so its parked state isn't written yet and could be any of the flow's waits.
             if (candidate.status === 'running') {
                 if (!eventsOnly && (await anyWaitConditionWakes(hogflow, candidateGlobals, filterGlobalsFor, source))) {
                     heldSignals.push({ id: candidate.id, waitActionIds: waitActionIdsOf(hogflow) })
@@ -531,7 +529,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 matched: matchedJobs.length,
                 woken,
             })
-            // A worker took these between the candidate read and the wake.
             for (const m of taken) {
                 if (m.stepMatched || m.recheckMatched) {
                     heldSignals.push({ id: m.id, waitActionIds: waitActionIdsOf(hogflows[m.functionId]) })
@@ -542,7 +539,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         await this.signalHeldJobs(heldSignals)
     }
 
-    // A job released in the meantime and parked on one of its waits is woken here instead.
     private async signalHeldJobs(signals: HeldJobSignal[]): Promise<void> {
         if (signals.length === 0) {
             return
@@ -1208,7 +1204,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             await client.query('BEGIN')
             // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
             // with processMatchedJobs so concurrent move/match batches can't deadlock.
-            // A held job parks under the person read at its dequeue, so it gets a wake signal instead of a re-key.
             const rows = await client.query(
                 `SELECT id, team_id, distinct_id, function_id, action_id, state, status
                  FROM cyclotron_jobs

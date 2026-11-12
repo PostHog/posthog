@@ -1787,8 +1787,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 ),
             })
 
-            // Triggers the flow under test next to a flow whose fetch blocks, so both runs share one
-            // worker batch and neither is written back until the gate opens.
             const triggerAlongsideSlowRun = async (): Promise<() => void> => {
                 await createWorkflow({
                     actions: {

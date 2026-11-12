@@ -49,7 +49,6 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
-    // Wake now instead of at scheduledAt if the subscription matcher signaled the job while it was held.
     wakeOnSignal: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),

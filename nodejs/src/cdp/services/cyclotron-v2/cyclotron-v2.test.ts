@@ -1351,7 +1351,6 @@ describe('Cyclotron V2', () => {
             expect(res.rows[0].priority).toBe(expected)
         })
 
-        // The subscription matcher signals a held job by moving `scheduled` past the dequeue time.
         it.each([
             ['wakes a signaled job that asks for it', true, true, true],
             ['ignores the signal when the park does not ask for it', true, false, false],
