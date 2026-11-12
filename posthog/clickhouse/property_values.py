@@ -138,7 +138,7 @@ def PROPERTY_VALUES_DAILY_TABLE_SQL() -> str:
         + """
 PARTITION BY day
 ORDER BY (team_id, property_type, property_key, property_value)
-TTL day + INTERVAL 7 DAY DELETE
+TTL day + INTERVAL 8 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1

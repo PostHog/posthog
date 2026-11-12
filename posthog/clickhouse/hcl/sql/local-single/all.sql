@@ -1842,7 +1842,7 @@ CREATE TABLE posthog.property_values_daily (
   property_key LowCardinality(String),
   property_value String,
   day Date DEFAULT toDate(now())
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values_daily', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) PARTITION BY day TTL day + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values_daily', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) PARTITION BY day TTL day + toIntervalDay(8) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.property_values_daily_distributed (
   team_id Int64,
   property_type LowCardinality(String),

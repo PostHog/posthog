@@ -2015,7 +2015,7 @@ database "posthog" {
   table "property_values_daily" {
     order_by     = ["team_id", "property_type", "property_key", "property_value"]
     partition_by = "day"
-    ttl          = "day + toIntervalDay(7)"
+    ttl          = "day + toIntervalDay(8)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
