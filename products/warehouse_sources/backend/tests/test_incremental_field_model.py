@@ -284,7 +284,7 @@ class TestRecommendIncrementalFields(SimpleTestCase):
 
         self._run([schema], client)
 
-        state, _ = client.calls[0]
+        state: Any = client.calls[0][0]
         assert max(len(column["name"]) for column in state["tables"]["t0"]["columns"]) == 256
         assert schema.incremental_fields[0]["field"] == long_name
 
