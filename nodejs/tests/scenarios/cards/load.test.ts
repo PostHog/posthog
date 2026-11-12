@@ -25,6 +25,25 @@ const card = {
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
 
+const bounceCard = {
+    ...card,
+    drive: { for: '30s', traffic: [{ name: 'bounce_followup' }] },
+    valves: [{ valve: 'ses.reject', target: 'ses', dose: { type: 'bounce' }, at: '0s', for: '2m' }],
+    invariants: [
+        { name: 'at_least_once' },
+        { name: 'duplicate_sends' },
+        { name: 'refused_at_intake' },
+        { name: 'bounced_suppressed' },
+    ],
+}
+
+const bounceProfile = { ...profile, traffic: { bounce_followup: { ratePerSecond: 0.5 } } }
+
+const bounceFor = (dose: object, at: string, holdFor: string): object => ({
+    ...bounceCard,
+    valves: [{ valve: 'ses.reject', target: 'ses', dose, at, for: holdFor }],
+})
+
 const emailWorkerKill = {
     valve: 'role.kill',
     target: 'cdp-cyclotron-worker-email',
@@ -238,6 +257,33 @@ describe('load', () => {
             },
             undefined,
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
+        ],
+        [
+            'bounced_suppressed with a bounce that bounces only some sends',
+            bounceFor({ type: 'bounce', share: 0.5 }, '0s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that starts after the drive does',
+            bounceFor({ type: 'bounce' }, '10s', '2m'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with a bounce that ends before the drive does',
+            bounceFor({ type: 'bounce' }, '0s', '10s'),
+            bounceProfile,
+            'invariants.3.name: bounced_suppressed needs a ses.reject bounce at share 1 from 0s for the whole 30s drive',
+        ],
+        [
+            'bounced_suppressed with bounced traffic that sends no follow-up',
+            {
+                ...bounceCard,
+                drive: { ...bounceCard.drive, traffic: [{ name: 'bounce_followup' }, { name: 'event_email' }] },
+            },
+            { ...bounceProfile, traffic: { ...bounceProfile.traffic, event_email: { ratePerSecond: 2 } } },
+            'invariants.3.name: bounced_suppressed needs traffic that follows up every bounce, and event_email does not',
         ],
         [
             'transactional traffic with no verdict on intake refusals',
