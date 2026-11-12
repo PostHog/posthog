@@ -90,7 +90,9 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams
+    return MessagingTemplatesListQueryParams.extend({
+        basic: MessagingTemplatesListQueryParams.shape['basic'].default(true).optional(),
+    })
 }
 
 const workflowsListEmailTemplates = (): ToolBase<
