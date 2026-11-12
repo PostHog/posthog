@@ -311,7 +311,10 @@ class TestUpdateActivitySummary(BaseTest):
         self._changes(3, days_ago=1)
         llm = FakeLLM([ANSWER])
 
-        with patch("products.signals.backend.activity_summary.logic.MIN_PROMPT_VERSION", min_prompt_version):
+        with (
+            patch("products.signals.backend.activity_summary.logic.MIN_PROMPT_VERSION", min_prompt_version),
+            patch("products.signals.backend.activity_summary.logic.MIN_RENDER_VERSION", RENDER_VERSION),
+        ):
             result = self._update(llm, **kwargs)
 
         assert (result.status, result.rebuilt, result.outdated) == (UpdateStatus.OK, rebuilt, outdated)
