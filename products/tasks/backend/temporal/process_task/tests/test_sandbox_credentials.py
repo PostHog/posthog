@@ -8,6 +8,7 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     GitHubSandboxCredential,
     build_sandbox_credentials,
+    clear_github_env_from_gitlab_sandbox,
     github_refresh_interval_seconds,
     replace_sandbox_credentials,
     set_git_remote_token,
@@ -85,6 +86,18 @@ class TestSetGitRemoteToken:
         sandbox.execute.return_value = ExecutionResult(stdout="", stderr="not a git repo", exit_code=128)
 
         assert set_git_remote_token(sandbox, "owner/repo", "ghs_new") is False
+
+
+class TestClearGithubEnvFromGitlabSandbox:
+    def test_blanks_the_github_file_and_leaves_remotes_alone(self):
+        sandbox = MagicMock()
+        sandbox.write_file.return_value = _ok()
+        sandbox.execute.return_value = _ok()
+
+        assert clear_github_env_from_gitlab_sandbox(sandbox) is True
+
+        assert sandbox.write_file.call_args.args[1] == b""
+        assert not any("git remote" in call.args[0] for call in sandbox.execute.call_args_list)
 
 
 class TestReplaceSandboxCredentials:

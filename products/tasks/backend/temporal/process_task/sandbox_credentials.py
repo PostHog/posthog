@@ -160,6 +160,15 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
     return remote_cleared and env_cleared
 
 
+def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
+    """Blank the GitHub credential file of a GitLab run's sandbox, leaving its GitLab remotes alone.
+
+    A task can move from GitHub to GitLab while its sandbox runs, and the file can still hold the
+    previous actor's GitHub token. Returns ``True`` only when the file was cleared.
+    """
+    return _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+
+
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
     """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
