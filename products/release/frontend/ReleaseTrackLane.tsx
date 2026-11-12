@@ -7,7 +7,9 @@ export function ReleaseTrackLane({ lane, color, scale }: { lane: Lane; color: st
     const height = laneHeight(lane)
     return (
         <div className="relative border-t border-border/60" style={{ height }}>
-            {lane.kind === 'flag' ? (
+            {lane.kind === 'flag' && !lane.steps.length ? (
+                <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
+            ) : lane.kind === 'flag' ? (
                 <ReleaseRolloutChart
                     color={color}
                     steps={lane.steps}

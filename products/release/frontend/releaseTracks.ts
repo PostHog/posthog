@@ -54,6 +54,7 @@ export type Lane =
           status: string
           live: boolean
           steps: RolloutStep[]
+          span: ReleaseSpan
           href: string
       }
     | {
@@ -91,6 +92,15 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? [],
+            span: {
+                key: `flag-span-${flag.id}`,
+                kind: 'flag',
+                from: flag.created_at,
+                to: dayjs().toISOString(),
+                label: flag.active ? 'Live' : 'Off',
+                tone: flag.active ? undefined : 'default',
+                href: urls.featureFlag(flag.id),
+            },
             href: urls.featureFlag(flag.id),
         })
     }

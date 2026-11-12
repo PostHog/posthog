@@ -70,6 +70,7 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
     const scale = CALENDAR_SCALE()
     const { row, steps, lanes } = track
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
+    const hasExperiment = summarySpans.some((span) => span.kind.startsWith('experiment'))
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />
@@ -92,15 +93,19 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
                         style={{ top: 20 }}
                     />
                 )}
-                {summarySpans.map((span) => (
-                    <ReleaseTrackSpan
-                        key={span.key}
-                        span={span}
-                        scale={scale}
-                        top={SPAN_LOOK[span.kind].top}
-                        height={SPAN_LOOK[span.kind].height}
-                    />
-                ))}
+                {summarySpans.map((span) =>
+                    span.kind === 'early_access' && hasExperiment ? (
+                        <ReleaseTrackSpan key={span.key} span={span} scale={scale} top={18} height={6} thin />
+                    ) : (
+                        <ReleaseTrackSpan
+                            key={span.key}
+                            span={span}
+                            scale={scale}
+                            top={SPAN_LOOK[span.kind].top}
+                            height={SPAN_LOOK[span.kind].height}
+                        />
+                    )
+                )}
                 {!open && (
                     <ReleaseTrackMarkers
                         events={row.events.filter(
@@ -158,7 +163,7 @@ export function ReleaseTimeline(): JSX.Element {
 
     useEffect(() => {
         const ids = [
-            ...new Set(filteredRows.slice(0, ACTIVITY_ROWS).flatMap((row) => row.flags.map((flag) => flag.id))),
+            ...new Set(filteredRows.slice(0, ACTIVITY_ROWS).flatMap((row) => (row.flags[0] ? [row.flags[0].id] : []))),
         ]
         if (ids.length) {
             loadFlagActivity(ids)
