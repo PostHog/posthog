@@ -55,6 +55,16 @@ const v1Body = (events: string[]): string =>
         })),
     })
 
+// The shape posthog-js posts to /e: a top-level array, each event carrying its own token.
+const arrayBody = (tokens: (string | null)[], where: 'token' | 'properties' = 'token'): string =>
+    JSON.stringify(
+        tokens.map((token, i) =>
+            where === 'token'
+                ? { token, event: `e${i}`, distinct_id: 'synthetic_user_1', properties: {} }
+                : { event: `e${i}`, distinct_id: 'synthetic_user_1', properties: { token } }
+        )
+    )
+
 const bearer = (token: string): Record<string, string> => ({ Authorization: `Bearer ${token}` })
 
 const detect = (overrides: { url?: string; body?: string | null; headers?: Record<string, string> }): boolean =>
@@ -98,7 +108,7 @@ describe('self-loop-guard', () => {
             expect(extractRequestApiKey(captureBody('e'), INGEST_URL)).toBe(OWN_TOKEN)
         })
 
-        it.each(['token', 'api_token'])('reads the top-level %s field', (field) => {
+        it.each(['token', '$token', 'api_token'])('reads the top-level %s field', (field) => {
             expect(extractRequestApiKey(JSON.stringify({ [field]: OWN_TOKEN }), INGEST_URL)).toBe(OWN_TOKEN)
         })
 
@@ -180,6 +190,39 @@ describe('self-loop-guard', () => {
                 args: { body: JSON.stringify({ event: 'alpha' }) },
                 expected: false,
             },
+            // Legacy capture also takes the token from each event: its `token`, `$token` or
+            // `api_key` field, else `properties.token`. An array body counts only when exactly one
+            // distinct token appears, as capture's `extract_token` requires.
+            {
+                case: 'posthog-js array body with the project own token on each event',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OWN_TOKEN]) },
+                expected: true,
+            },
+            {
+                case: 'array body with the project own token only in properties.token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OWN_TOKEN], 'properties') },
+                expected: true,
+            },
+            {
+                case: 'array body where only some events carry the project own token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, null]) },
+                expected: true,
+            },
+            {
+                case: 'array body mixing the project own token and another, which capture rejects',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OTHER_TOKEN]) },
+                expected: false,
+            },
+            {
+                case: 'array body with a different project token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OTHER_TOKEN]) },
+                expected: false,
+            },
+            {
+                case: 'single event with the project own token only in properties.token',
+                args: { body: JSON.stringify({ event: 'alpha', properties: { token: OWN_TOKEN } }) },
+                expected: true,
+            },
             // Capture v1 authenticates only with the Authorization header.
             {
                 case: 'v1 batch with the project own token as a Bearer header',
@@ -239,14 +282,15 @@ describe('self-loop-guard', () => {
         })
 
         it.each([
-            { case: 'legacy batch', body: batchBody(['a', 'b']) },
-            { case: 'capture v1 batch', body: v1Body(['a', 'b']) },
-        ])("stamps this function's depth onto every entry of a $case body", ({ body }) => {
-            const before = parseJSON(body)
-            const parsed = parseJSON(injectSelfLoopDepth(body, FN, 5) as string)
-            expect(parsed.batch.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
-            // Everything outside the depth map, such as v1 options, is sent as the destination built it.
-            expect(parsed.batch.map((e: any) => e.options)).toEqual(before.batch.map((e: any) => e.options))
+            { case: 'legacy batch', body: batchBody(['a', 'b']), entries: (parsed: any) => parsed.batch },
+            { case: 'capture v1 batch', body: v1Body(['a', 'b']), entries: (parsed: any) => parsed.batch },
+            { case: 'posthog-js array', body: arrayBody([OWN_TOKEN, OWN_TOKEN]), entries: (parsed: any) => parsed },
+        ])("stamps this function's depth onto every entry of a $case body", ({ body, entries }) => {
+            const before = entries(parseJSON(body))
+            const after = entries(parseJSON(injectSelfLoopDepth(body, FN, 5) as string))
+            expect(after.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
+            // Everything outside the depth map, such as v1 options or per-event tokens, is sent as the destination built it.
+            expect(after.map((e: any) => [e.options, e.token])).toEqual(before.map((e: any) => [e.options, e.token]))
         })
 
         it("preserves other functions' depths in the map - only its own entry is touched", () => {

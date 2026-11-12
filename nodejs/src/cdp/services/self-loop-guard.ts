@@ -33,7 +33,7 @@ const V1_INGEST_PATHS = new Set(['/i/v1/analytics/events', '/i/v1/ai/events'])
 const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e', ...V1_INGEST_PATHS])
 
 // Top-level body fields that carry the credential a capture request authenticates with.
-const API_KEY_FIELDS = ['api_key', 'token', 'api_token'] as const
+const API_KEY_FIELDS = ['api_key', 'token', '$token', 'api_token'] as const
 
 export const selfLoopGuardCounter = new Counter({
     name: 'cdp_self_loop_guard_total',
@@ -59,20 +59,45 @@ const ingestPath = (urlString: string): string | null => {
 
 export const isPostHogIngestUrl = (urlString: string): boolean => ingestPath(urlString) !== null
 
-// The credential a legacy capture request authenticates with - either a top-level body field
-// or an `api_key`/`token` query parameter. Deliberately does NOT look at `$lib_token`
+// A legacy event's own token, read the way capture reads it (`RawEvent::extract_token`): its
+// `token`, `$token` or `api_key` field, else `properties.token`.
+const eventToken = (event: unknown): string | null => {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+        return null
+    }
+    const obj = event as Record<string, unknown>
+    for (const field of API_KEY_FIELDS) {
+        if (typeof obj[field] === 'string') {
+            return obj[field] as string
+        }
+    }
+    const properties = obj.properties
+    if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+        const token = (properties as Record<string, unknown>).token
+        return typeof token === 'string' ? token : null
+    }
+    return null
+}
+
+// The credential a legacy capture request authenticates with - a top-level body field, the
+// event's own token, or an `api_key`/`token` query parameter. A top-level array of events (the
+// posthog-js shape) counts only when exactly one distinct token appears, because capture rejects
+// one with several (`extract_token`). Deliberately does NOT look at `$lib_token`
 // (SDK metadata auto-attached to event properties) or `Authorization` headers: legacy capture
 // ingests with neither, so they carry a token without expressing intent to ingest as that project.
 export const extractRequestApiKey = (body: string | null | undefined, urlString: string): string | null => {
     if (body) {
         try {
             const parsed = parseJSON(body)
-            if (parsed && typeof parsed === 'object') {
-                const obj = parsed as Record<string, unknown>
-                for (const field of API_KEY_FIELDS) {
-                    if (typeof obj[field] === 'string') {
-                        return obj[field] as string
-                    }
+            if (Array.isArray(parsed)) {
+                const tokens = new Set(parsed.map(eventToken).filter((token) => token !== null))
+                if (tokens.size === 1) {
+                    return [...tokens][0]
+                }
+            } else {
+                const token = eventToken(parsed)
+                if (token !== null) {
+                    return token
                 }
             }
         } catch {
@@ -184,9 +209,11 @@ export const injectSelfLoopDepth = (
         event.properties = properties
     }
     const obj = parsed as Record<string, unknown>
-    if (Array.isArray(obj.batch)) {
-        for (const entry of obj.batch) {
-            if (entry && typeof entry === 'object') {
+    // A batch object holds its events in `batch`; a posthog-js body is a top-level array of them.
+    const entries = Array.isArray(parsed) ? parsed : Array.isArray(obj.batch) ? obj.batch : null
+    if (entries) {
+        for (const entry of entries) {
+            if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
                 stamp(entry as Record<string, unknown>)
             }
         }
