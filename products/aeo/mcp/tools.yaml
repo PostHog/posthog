@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: AI citation tracking
 feature: aeo
-url_prefix: /web/content-autopilot
+url_prefix: /web/ai-visibility
 ui_apps: {}
 tools:
     aeo-brands-create:

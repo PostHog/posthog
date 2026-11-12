@@ -510,13 +510,13 @@ describe('webAnalyticsLogic URL restoration', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
             [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
         })
-        router.actions.push('/web/content-autopilot/prompts/prompt-1')
+        router.actions.push('/web/ai-visibility/prompts/prompt-1')
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.setDates('-30d', null)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toContain('/web/content-autopilot/prompts/prompt-1')
+        expect(router.values.location.pathname).toContain('/web/ai-visibility/prompts/prompt-1')
     })
 
     it('restores the date range and interval from the URL', async () => {
@@ -562,7 +562,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(pushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it.each(['/web/bots', '/web/content-autopilot'])(
+    it.each(['/web/bots', '/web/ai-visibility'])(
         'redirects off %s when the AI visibility flag is disabled',
         async (path) => {
             featureFlagLogic.actions.setFeatureFlags(
@@ -622,7 +622,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname.endsWith('/web/content-autopilot')).toBe(true)
+        expect(router.values.location.pathname.endsWith('/web/ai-visibility')).toBe(true)
         expect(router.values.searchParams).toEqual({})
     })
     const FILTER_A = {

@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -19,9 +21,8 @@ export const manifest: ProductManifest = {
         webAnalyticsMarketing: (): string => `/web/marketing`,
         webAnalyticsHealth: (): string => `/web/health`,
         webAnalyticsLive: (): string => `/web/live`,
-        webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
-        webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
-        webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
+        webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
+        webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -59,12 +60,20 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
-        '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
+        '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+        '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
         '/heatmaps/:id': ['Heatmap', 'heatmap'],
+    },
+    // AI visibility used to live under its old content autopilot path, and bots had a tab inside it.
+    redirects: {
+        '/web/content-autopilot': (_, searchParams) =>
+            combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
+        '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
+            combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
+        '/web/bots': () => urls.webAnalyticsContentAutopilot(),
     },
     fileSystemTypes: {},
     treeItemsProducts: [
@@ -84,11 +93,6 @@ export const manifest: ProductManifest = {
                 {
                     name: 'AI visibility',
                     href: urls.webAnalyticsContentAutopilot(),
-                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-                },
-                {
-                    name: 'Bots',
-                    href: urls.webAnalyticsBotAnalytics(),
                     flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
                 },
                 {

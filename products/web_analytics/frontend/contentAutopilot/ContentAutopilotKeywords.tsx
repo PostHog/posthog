@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
 import { ContentAutopilotKeywordList } from './ContentAutopilotKeywordList'
 import { ContentAutopilotKeywordModifiers } from './ContentAutopilotKeywordModifiers'
 import { ContentAutopilotKeywordReportTable } from './ContentAutopilotKeywordReportTable'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import { ContentAutopilotKeywordsSkeleton } from './ContentAutopilotKeywordsSkeleton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 
 export const ContentAutopilotKeywords = (): JSX.Element => {
@@ -27,7 +28,7 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
         )
     }
     if (!keywords) {
-        return <LemonSkeleton className="h-32 w-full" />
+        return <ContentAutopilotKeywordsSkeleton />
     }
     if (keywords.length === 0) {
         return (

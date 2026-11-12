@@ -50,7 +50,7 @@ const aeoBrandsList = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/web/content-autopilot')
+        return await withPostHogUrl(context, result, '/web/ai-visibility')
     },
 })
 
@@ -139,7 +139,7 @@ const aeoPromptsChecksList = (): ToolBase<
                 version: params.version,
             },
         })
-        return await withPostHogUrl(context, result, '/web/content-autopilot')
+        return await withPostHogUrl(context, result, '/web/ai-visibility')
     },
 })
 
@@ -159,7 +159,7 @@ const aeoPromptsGet = (): ToolBase<ReturnType<typeof AeoPromptsGetSchema>, WithP
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/web/content-autopilot/prompts/${result.id}`)
+        return await withPostHogUrl(context, result, `/web/ai-visibility/prompts/${result.id}`)
     },
 })
 
@@ -218,11 +218,11 @@ const aeoPromptsList = (): ToolBase<
                 ...result,
                 results: await Promise.all(
                     (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/web/content-autopilot/prompts/${item.id}`)
+                        withPostHogUrl(context, item, `/web/ai-visibility/prompts/${item.id}`)
                     )
                 ),
             },
-            '/web/content-autopilot'
+            '/web/ai-visibility'
         )
     },
 })
@@ -271,7 +271,7 @@ const aeoPromptsStatsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/stats/`,
         })
-        return await withPostHogUrl(context, result, `/web/content-autopilot/prompts/${params.id}`)
+        return await withPostHogUrl(context, result, `/web/ai-visibility/prompts/${params.id}`)
     },
 })
 
@@ -332,7 +332,7 @@ const aeoPromptsUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/web/content-autopilot/prompts/${result.id}`)
+        return await withPostHogUrl(context, result, `/web/ai-visibility/prompts/${result.id}`)
     },
 })
 
