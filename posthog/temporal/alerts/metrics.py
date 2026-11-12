@@ -20,6 +20,18 @@ def record_ai_detector_check_outcome(outcome: AiDetectorCheckOutcome) -> None:
     _AI_DETECTOR_CHECK_COUNTER.labels(outcome=outcome).inc()
 
 
+# No team label, to bound cardinality. The `alert firing signal skipped` event carries the team for cap drops.
+_ALERT_FIRING_SIGNAL_COUNTER = Counter(
+    "posthog_insight_alerts_firing_signals_total",
+    "Insight alert firing signals that passed the episode gates, by outcome",
+    labelnames=["outcome"],
+)
+
+
+def record_alert_firing_signal_outcome(outcome: str) -> None:
+    _ALERT_FIRING_SIGNAL_COUNTER.labels(outcome=outcome).inc()
+
+
 def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:
     oldest_due_age_seconds: float = 0.0
     if oldest_due_at is not None:

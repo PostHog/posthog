@@ -48,6 +48,8 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -174,6 +176,8 @@ tools:
                 - window_minutes
                 - schedule_restriction
                 - grouping
+                - labels
+                - annotations
                 - platform_owned
                 - created_at
                 - updated_at
@@ -218,6 +222,8 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -256,6 +262,8 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -428,10 +436,43 @@ tools:
             idempotent: true
         title: Group logs by attributes
         description_file: ./prompts/logs-group-by.md
-        feature_flag: logs-agent-tools
+        hooks: logs/groupByRedactionHooks
         response:
             exclude:
                 - groups.*.value
+    logs-impact:
+        operation: logs_impact_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count sessions and users affected by logs
+        description: >
+            Estimate how many sessions and users the logs matching a filter set touch. Use it when the user asks who an
+            error or log pattern affects, or how widespread it is.
+
+
+            Takes the same filters as `logs-count`, inside `query`, and defaults to the last hour:
+
+
+            ```json
+
+            { "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+
+            ```
+
+
+            Returns the matching log total, unique `sessions` and `users` (HyperLogLog estimates), how many logs carry
+            each ID, and the top 5 session IDs and distinct IDs by log count. `sessionGroupKey` and `personGroupKey`
+            name the attribute that holds each ID: pass it to `logs-group-by` for the full breakdown.
+
+
+            Low `logsWithSessionId` or `logsWithDistinctId` means the service does not log those IDs, not that no one is
+            affected.
+        hooks: logs/redactCredentialsHooks
     logs-patterns:
         operation: logs_patterns_create
         enabled: true

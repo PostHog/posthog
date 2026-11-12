@@ -135,7 +135,7 @@ impl Slot {
     }
 
     /// A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
-    fn drops_its_block(self, written: &str) -> bool {
+    fn leaves_its_block_unread(self, written: &str) -> bool {
         match self {
             Slot::ImageSet => written.contains('\\'),
             Slot::CrossFade { in_image_set } => in_image_set,
@@ -623,11 +623,11 @@ fn events(tc: &TestCase, placed: &[Placed], shape: Shape) -> String {
     with_json_escapes(tc, &Value::Array(events).to_string())
 }
 
-fn drop_reasons(placed: &[Placed], shape: Shape) -> Vec<&'static str> {
+fn unread_reasons(placed: &[Placed], shape: Shape) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if placed
         .iter()
-        .any(|placed| placed.slot.drops_its_block(&placed.written))
+        .any(|placed| placed.slot.leaves_its_block_unread(&placed.written))
     {
         reasons.push("unplaced_slot");
     }
@@ -678,7 +678,7 @@ fn block_of(events: &str) -> Option<Block> {
     })
 }
 
-/// The stored lines, or why the block is not stored. The recorder skips a message it cannot read.
+/// The stored lines, or why the block has no guarantee about its URLs. The recorder skips a message it cannot read.
 fn stored(tc: &TestCase, events: &str) -> Result<String, &'static str> {
     let Some(block) = block_of(events) else {
         tc.event("unreadable_message");
@@ -686,8 +686,8 @@ fn stored(tc: &TestCase, events: &str) -> Result<String, &'static str> {
     };
     let (lines, _, counts): (Vec<u8>, _, WriterCounts) =
         write_block(&block, &TEAM_KEY, KEY_MONTH, || Ok(Vec::new())).unwrap();
-    tc.event(counts.dropped.unwrap_or("stored"));
-    match counts.dropped {
+    tc.event(counts.unread.unwrap_or("stored"));
+    match counts.unread {
         Some(reason) => Err(reason),
         None => Ok(String::from_utf8(lines).unwrap()),
     }
@@ -822,11 +822,11 @@ fn a_stored_block_holds_no_accepted_url_in_an_image_slot(tc: TestCase) {
 
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
-fn drops_a_block_only_for_a_reason_the_page_holds(tc: TestCase) {
+fn leaves_a_block_unread_only_for_a_reason_the_page_holds(tc: TestCase) {
     let page = draw_page(&tc);
     if let Err(reason) = stored(&tc, &page.events) {
         assert!(
-            drop_reasons(&page.placed, page.shape).contains(&reason),
+            unread_reasons(&page.placed, page.shape).contains(&reason),
             "{reason}: {}",
             page.events
         );
@@ -844,7 +844,7 @@ fn each_spelling_of_a_url_gets_the_reference_its_fetch_job_names(tc: TestCase) {
     let slots: Vec<Slot> = SLOTS
         .iter()
         .copied()
-        .filter(|slot| !slot.drops_its_block("") && slot.names_an_accepted_url(shape))
+        .filter(|slot| !slot.leaves_its_block_unread("") && slot.names_an_accepted_url(shape))
         .collect();
     let count = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let placed: Vec<Placed> = (0..count)

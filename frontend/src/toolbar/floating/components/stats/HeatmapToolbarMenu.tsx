@@ -15,6 +15,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { HeatmapVariantPicker } from '~/toolbar/shared/elements/HeatmapVariantPicker'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
@@ -108,6 +109,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         loadingAllElementStats,
         loadAllPagesLoaded,
         scrollDepthPosthogJsError,
+        heatmapVariantFilter,
+        heatmapVariantFlags,
+        heatmapVariantFilterGate,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -121,6 +125,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
+        setHeatmapVariantFilter,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -183,14 +188,21 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </p>
                 )}
 
-                <div className="flex flex-row items-center gap-2 py-2 border-b">
+                <div className="flex flex-row flex-wrap items-center gap-2 py-2 border-b">
                     <DateFilter
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                            setCommonFilters({ ...commonFilters, date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
+                    />
+                    <HeatmapVariantPicker
+                        variantFilter={heatmapVariantFilter}
+                        variantFlags={heatmapVariantFlags}
+                        variantFilterGate={heatmapVariantFilterGate}
+                        onChange={setHeatmapVariantFilter}
+                        data-attr="heatmap-variant-filter"
                     />
                     <LemonButton
                         size="small"

@@ -63,7 +63,8 @@ const ghStackToolSchema = {
     .optional()
     .describe(
       "Path to the git checkout whose origin remote names the repository; defaults to the " +
-        "session's working directory. Relative paths resolve against the session cwd.",
+        "session's working directory, or the only cloned repository when that is not a checkout. " +
+        "Relative paths resolve against the session cwd.",
     ),
 };
 

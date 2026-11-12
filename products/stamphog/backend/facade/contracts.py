@@ -19,10 +19,18 @@ from pydantic.dataclasses import dataclass
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    LlmSkipReason,
+    OwnerKind,
+    PinReason,
     ReviewRequestRefusal,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
+    RoutingMode,
+    RoutingOwnerOutcome,
+    RoutingOwnerReason,
+    RoutingScope,
+    RoutingStatus,
 )
 
 
@@ -40,6 +48,8 @@ class RepoConfigDTO:
     review_mode: str = ""
     trigger_label: str = ""
     routing_mode: str = ""
+    routing_fork_labels: dict[str, str] = Field(default_factory=dict)
+    review_on_clean_external_review: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -65,6 +75,24 @@ class AddRepositoryResultDTO:
 
 
 @dataclass(frozen=True)
+class PullRequestRoutingDTO:
+    """The latest reviewer routing record of a pull request: its phase, never its plan."""
+
+    status: RoutingStatus
+    head_sha: str
+    mode: RoutingMode
+    trigger: str
+    scope: RoutingScope | None = None
+    # A claim this old may be taken over, which does not prove that its task died.
+    claim_expired: bool = False
+    waiting_since: datetime | None = None
+    claimed_at: datetime | None = None
+    routed_at: datetime | None = None
+    full_routed_head: str = ""
+    pinned_routed_head: str = ""
+
+
+@dataclass(frozen=True)
 class PullRequestDTO:
     """A pull request stamphog knows about, including merge state once it merges."""
 
@@ -84,6 +112,8 @@ class PullRequestDTO:
     merge_commit_sha: str = ""
     merged_at: datetime | None = None
     posted_comment_id: int | None = None
+    routing_mode: RoutingMode = RoutingMode.OFF
+    routing: PullRequestRoutingDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -142,6 +172,63 @@ class ReviewRunDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class RoutingPinDTO:
+    """A changed path that pinned an owner, so the cut step could not remove them."""
+
+    reason: PinReason
+    path: str
+
+
+@dataclass(frozen=True)
+class RoutingFileDTO:
+    """A changed file that one owner owns, as GitHub listed it when the run made its requests."""
+
+    path: str
+    previous_path: str | None = None
+    status: str = ""
+    additions: int = 0
+    deletions: int = 0
+    owners_source: str | None = None
+
+
+@dataclass(frozen=True)
+class RoutingRunOwnerDTO:
+    """What one reviewer routing run did with one owner of the changed code, and why."""
+
+    owner: str
+    kind: OwnerKind
+    outcome: RoutingOwnerOutcome
+    reason: RoutingOwnerReason
+    model_reason: str = ""
+    pins: list[RoutingPinDTO] = Field(default_factory=list)
+    files: list[RoutingFileDTO] = Field(default_factory=list)
+    lines: int = 0
+    file_count: int = 0
+
+
+@dataclass(frozen=True)
+class RoutingRunDTO:
+    """One reviewer routing run that made its GitHub writes, with its decision for every owner."""
+
+    id: UUID
+    team_id: int
+    repository: str
+    pr_number: int
+    head_sha: str
+    mode: RoutingMode
+    trigger: str
+    scope: RoutingScope
+    fork: bool = False
+    llm_skipped: LlmSkipReason | None = None
+    model: str = ""
+    files_truncated: bool = False
+    additions_resolved: bool = True
+    owners_sha: str = ""
+    owners: list[RoutingRunOwnerDTO] = Field(default_factory=list)
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

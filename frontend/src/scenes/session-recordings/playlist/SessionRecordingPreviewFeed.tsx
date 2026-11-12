@@ -42,8 +42,8 @@ export const SessionRecordingPreviewFeed = memo(
 
         const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
         const recordingProperties = recordingPropertiesById[recording.id]
-        const loading = !recordingProperties && recordingPropertiesLoading
         const iconProperties = gatherIconProperties(recordingProperties, recording)
+        const loading = iconProperties.length === 0 && !recordingProperties && recordingPropertiesLoading
         const errorCount = recording.console_error_count ?? 0
         const startUrl = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
         // nextSessionRecording is undefined while autoplay is off, so the label disappears with it
@@ -54,7 +54,7 @@ export const SessionRecordingPreviewFeed = memo(
                 <div
                     data-quill
                     className={clsx(
-                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-start gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px] text-foreground',
+                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-center gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px] text-foreground',
                         isActive && 'SessionRecordingPreview--active'
                     )}
                 >
@@ -64,14 +64,14 @@ export const SessionRecordingPreviewFeed = memo(
                         </span>
                     )}
                     {loading ? (
-                        <Skeleton className="w-16 h-16 shrink-0 rounded" />
+                        <Skeleton className="w-14 h-14 shrink-0 rounded" />
                     ) : (
-                        <div className="grid grid-cols-2 grid-rows-2 gap-0.5 p-0.5 w-16 h-16 shrink-0 rounded border border-border bg-muted overflow-hidden ph-no-capture">
+                        <div className="grid grid-cols-2 grid-rows-2 gap-0.5 p-0.5 w-14 h-14 shrink-0 rounded border border-border bg-muted overflow-hidden ph-no-capture">
                             {iconProperties.map(({ property, value, label }) => (
                                 <Tooltip key={property}>
                                     <TooltipTrigger
                                         render={
-                                            <span className="flex items-center justify-center rounded-sm bg-card leading-none text-base" />
+                                            <span className="flex items-center justify-center rounded-sm bg-card leading-none text-sm" />
                                         }
                                     >
                                         <PropertyIcon property={property} value={value} />
@@ -101,19 +101,22 @@ export const SessionRecordingPreviewFeed = memo(
                                     </TooltipContent>
                                 </Tooltip>
                             )}
-                            {recording.ongoing && (
-                                <Tooltip>
-                                    <TooltipTrigger render={<span className="inline-flex shrink-0 mt-0.5" />}>
-                                        <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        This recording is still ongoing - we received data within the last 5 minutes.
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                            {!recording.viewed && (
-                                <span className="shrink-0 pt-1">
-                                    <QuillUnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                            {(recording.ongoing || !recording.viewed) && (
+                                <span className="flex items-center gap-x-1.5 shrink-0 h-[1lh] text-xs leading-snug">
+                                    {recording.ongoing && (
+                                        <Tooltip>
+                                            <TooltipTrigger render={<span className="inline-flex" />}>
+                                                <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                This recording is still ongoing - we received data within the last 5
+                                                minutes.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {!recording.viewed && (
+                                        <QuillUnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                                    )}
                                 </span>
                             )}
                         </div>

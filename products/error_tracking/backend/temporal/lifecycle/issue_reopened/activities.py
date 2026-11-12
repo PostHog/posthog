@@ -44,6 +44,8 @@ async def emit_issue_reopened_signal_activity(inputs: IssueReopenedWorkflowInput
             "Previously resolved error tracking issue has reappeared - this particular exception was observed "
             "previously, and thought to be resolved, but has reappeared"
         ),
+        event="$error_tracking_issue_reopened",
+        exception_timestamp=inputs.event_timestamp,
     )
 
 

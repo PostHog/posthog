@@ -39,6 +39,12 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
             'Only return suggestions in this status.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `dismissed` - Dismissed\n\* `expired` - Expired\n\* `auto_resolved` - Auto-resolved'
         ),
     subject_id: zod.string().optional().describe('Only return suggestions about the view or table with this ID.'),
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
 })
 
 export const warehouseSuggestionsRetrievePathIdRegExp = new RegExp(
@@ -64,6 +70,15 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsAcceptCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })
 
@@ -157,6 +172,15 @@ export const WarehouseSuggestionsDismissCreateParams = () => zod.object({
         ),
 })
 
+export const WarehouseSuggestionsDismissCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
+})
+
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = () => zod.object({
@@ -191,5 +215,14 @@ export const WarehouseSuggestionsStatusRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsStatusRetrieveQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })

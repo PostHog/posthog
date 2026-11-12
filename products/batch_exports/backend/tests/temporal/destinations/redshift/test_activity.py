@@ -17,8 +17,8 @@ from products.batch_exports.backend.service import (
     BatchExportSessionsModel,
 )
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
-    ConnectionParameters,
     RedshiftInsertInputs,
+    ServerConnectionParameters,
     TableParameters,
     insert_into_redshift_activity_from_stage,
     redshift_default_fields,
@@ -31,6 +31,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    make_redshift_integration,
 )
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -75,10 +76,8 @@ async def _run_activity(
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=redshift_default_fields(),
     )
-    connection_parameters = ConnectionParameters(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
+    integration = await make_redshift_integration(team.pk, redshift_config)
+    connection_parameters = ServerConnectionParameters(
         port=redshift_config["port"],
         database=redshift_config["database"],
     )
@@ -92,6 +91,7 @@ async def _run_activity(
         batch_export=batch_export_inputs,
         connection=connection_parameters,
         table=table_parameters,
+        integration_id=integration.id,
     )
 
     assert insert_inputs.batch_export.batch_export_id is not None

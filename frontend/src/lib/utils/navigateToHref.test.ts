@@ -28,10 +28,15 @@ describe('navigateToHref', () => {
         window.POSTHOG_APP_CONTEXT = originalAppContext
     })
 
-    it('routes an in-app path client-side', () => {
-        navigateToHref('/insights/abc123')
+    it.each([
+        ['/insights/abc123', ['/insights/abc123']],
+        ['/insights?page=2', ['/insights?page=2']],
+        ['/persons?search=001234', ['/persons?search=001234', { search: '001234' }]],
+        ['/persons?search=0x1f&page=2', ['/persons?search=0x1f&page=2', { search: '0x1f' }]],
+    ])('routes %s client-side, keeping query values the router would change as text', (href, pushArgs) => {
+        navigateToHref(href)
 
-        expect(push).toHaveBeenCalledWith('/insights/abc123')
+        expect(push).toHaveBeenCalledWith(...pushArgs)
         expect(window.location.href).toEqual('https://us.posthog.com/project/997/dashboard')
     })
 

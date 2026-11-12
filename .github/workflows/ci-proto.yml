@@ -118,10 +118,10 @@ jobs:
                       }
 
     validation:
-        name: Lint and check proto compatibility (depot-ubuntu-22.04-4)
+        name: Lint and check proto compatibility (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 5
 
         steps:
@@ -225,6 +225,21 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /bin/
+                      /common/
+                      /nodejs/
+                      /patches/
+                      /proto/
+                      /rust/common/hogvm/node/
+                      /rust/replay-anonymizer-node/
+                      /rust/ai-research/replay-core-v4-node/
+                  sparse-checkout-cone-mode: false
 
             - name: Install buf
               uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0

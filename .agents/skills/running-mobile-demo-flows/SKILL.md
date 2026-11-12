@@ -43,7 +43,7 @@ export DO_NOT_TRACK=1
 pnpm install --frozen-lockfile
 bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
 bash scripts/ci-argent.sh \
-    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app \
+    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHogApp.app \
     /tmp/mobile-argent-artifacts
 ```
 

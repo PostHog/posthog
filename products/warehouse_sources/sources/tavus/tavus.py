@@ -1,23 +1,24 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.tavus.settings import TAVUS_ENDPOINTS
+from products.warehouse_sources.sources.tavus.settings import PAGE_SIZE, TAVUS_ENDPOINTS, TavusEndpointConfig
 
 TAVUS_BASE_URL = "https://tavusapi.com/v2"
-# Tavus list endpoints paginate with `page` (0-indexed) and `limit`; a large limit minimises round
-# trips for the typically small video/replica/persona/conversation tables.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/replicas"
@@ -28,6 +29,9 @@ class TavusResumeConfig:
     # Next page to fetch (0-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on the id.
     next_page: int = 0
+    # Framework fan-out checkpoint ({"completed": [...], "current": ..., "child_state": ...}) for
+    # canvas_interactions.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _probe_headers(api_key: str) -> dict[str, str]:
@@ -93,6 +97,64 @@ class TavusPageNumberPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": TAVUS_BASE_URL,
+        # Auth (the account-wide API key) travels via the framework auth config so its value is
+        # redacted from logged URLs and sampled bodies; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
+        "paginator": TavusPageNumberPaginator(limit=PAGE_SIZE),
+    }
+
+
+def _fanout_resource(
+    api_key: str,
+    config: TavusEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[TavusResumeConfig],
+) -> Resource:
+    assert config.fanout is not None
+    parent = TAVUS_ENDPOINTS[config.fanout.parent_name]
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(TavusResumeConfig(fanout_state=state))
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # The parent paginator sets `limit` itself, and the child takes no paging params.
+            page_size_param=None,
+            parent_endpoint_extra={"data_selector": "data", "data_selector_required": True},
+            # The child path does not end in a placeholder, so without this it would inherit the
+            # parent's page-number paginator and send page/limit params the endpoint does not take.
+            child_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": "data",
+                "data_selector_required": True,
+            },
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+
 def tavus_source(
     api_key: str,
     endpoint: str,
@@ -103,21 +165,24 @@ def tavus_source(
 ) -> SourceResponse:
     config = TAVUS_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        fanout_resource = _fanout_resource(api_key, config, team_id, job_id, resumable_source_manager)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: fanout_resource,
+            primary_keys=config.primary_keys,
+            column_hints=fanout_resource.column_hints,
+        )
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": TAVUS_BASE_URL,
-            # Auth (the account-wide API key) travels via the framework auth config so its value is
-            # redacted from logged URLs and sampled bodies; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
-            "paginator": TavusPageNumberPaginator(limit=PAGE_SIZE),
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
+                    "params": dict(config.params),
                     "data_selector": "data",
                     # The list envelope always carries `data`; a 200 missing it means the response
                     # shape changed — fail loud instead of silently advancing past lost rows.

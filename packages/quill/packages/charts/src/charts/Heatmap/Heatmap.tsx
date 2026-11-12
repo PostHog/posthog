@@ -253,7 +253,7 @@ function wrapClickData(data: PointClickData<HeatmapRowMeta>, scales: ChartScales
 
 export function Heatmap({ onError, ...rest }: HeatmapProps): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.cells}>
             <HeatmapInner {...rest} />
         </ChartErrorBoundary>
     )

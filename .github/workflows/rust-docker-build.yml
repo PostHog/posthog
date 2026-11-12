@@ -166,6 +166,9 @@ jobs:
                     - release: ingestion-consumer
                       digest_key: ingestion-consumer
                       values_key: image
+                    - release: logs-ingestion-rust
+                      digest_key: logs-ingestion-rust
+                      values_key: image
                     - release: ingestion-control-plane
                       digest_key: ingestion-control-plane
                       values_key: image

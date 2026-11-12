@@ -34,6 +34,12 @@ export interface RedisPoolConfig {
      * borrowing it. Enough of those and the pool is empty for good.
      */
     acquireTimeoutMillis?: number
+    /**
+     * Destroys a pooled client that still waits for replies when it is borrowed. ioredis keeps a command
+     * that hit commandTimeout queued until a reply arrives, so on a connection that stopped answering
+     * every reuse adds commands that are never released.
+     */
+    discardStalledClients?: boolean
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
@@ -151,7 +157,10 @@ export async function createRedisClient(
             // A command waits offline while the client reconnects, so commandTimeout never starts for it.
             let timer: NodeJS.Timeout | undefined
             await Promise.race([
-                redis.info(),
+                // Without the offline queue, a command sent before the connection is ready rejects at once.
+                options?.enableOfflineQueue === false
+                    ? new Promise<void>((resolve) => redis.once('ready', () => resolve()))
+                    : redis.info(),
                 new Promise<never>((_, reject) => {
                     timer = setTimeout(
                         () => reject(new Error(`${connectionId}Redis did not connect`)),

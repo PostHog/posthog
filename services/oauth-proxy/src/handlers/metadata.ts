@@ -105,6 +105,14 @@ export async function handleOpenIdConfiguration(request: Request): Promise<Respo
 }
 
 /**
+ * The grantable API scopes and what each one is for, built in posthog/api/oauth/scope_reference.py.
+ * posthog.com reads it at build time, so a cached copy here keeps those builds off the app servers.
+ */
+export async function handleScopes(request: Request): Promise<Response> {
+    return serveDocument(request, '/oauth/scopes/')
+}
+
+/**
  * The auth.md agent manifest, which the authorization server metadata points at through
  * `agent_auth.skill`. Markdown rather than JSON, so the rewrite is a plain substitution: every URL
  * in the document is built from the serving instance's base URL.

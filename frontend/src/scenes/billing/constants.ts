@@ -51,6 +51,7 @@ export const SPEND_TYPES = [
     { label: 'Rows exported', value: 'rows_exported_in_period' },
     { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
     { label: 'Self-driving inbox credits', value: 'signals_credits_used_in_period' },
+    { label: 'Self-driving spend credits', value: 'signals_spend_credits_used_in_period' },
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
     { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
@@ -62,7 +63,7 @@ export const SPEND_TYPES = [
 
 export const USAGE_ONLY_TYPES = [
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
-    { label: 'APM traces ingested (MB)', value: 'apm_tracing_mb_in_period' },
+    { label: 'Traces ingested (MB)', value: 'apm_tracing_mb_in_period' },
     { label: 'PostHog Desktop token spend (USD)', value: 'posthog_code_token_credits_used_in_period' },
     { label: 'Cloud compute spend (USD)', value: 'sandbox_compute_credits_used_in_period' },
     { label: 'Cloud compute CPU (core-seconds)', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
@@ -79,6 +80,10 @@ export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.va
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
+
+// Last day of PR-based pricing on the legacy Inbox product, in sync with billing_end_date of the
+// inbox plans in billing plans config. Self-driving inbox (usage-based) bills from the next day.
+export const INBOX_PR_PRICING_END_DATE = '2026-12-09'
 
 /** The label billing gives the series that folds the projects beyond the cap; a count follows it. */
 export const FOLDED_SERIES_LABEL = 'All other projects'

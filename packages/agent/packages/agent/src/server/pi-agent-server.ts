@@ -693,7 +693,7 @@ export class PiAgentServer {
     });
     seedRunUsage(this.runUsage, launch.tokenUsage);
     // Before the prompt: its skills-store section counts the stubs on disk.
-    const storeSkillsInstalledCount = await syncStoreSkills(
+    const storeSkills = await syncStoreSkills(
       launch.runState,
       { taskId: payload.task_id, runId: payload.run_id },
       this.logger,
@@ -707,9 +707,7 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
-    const storeSkillsInstructions = buildStoreSkillsInstructions(
-      storeSkillsInstalledCount,
-    );
+    const storeSkillsInstructions = buildStoreSkillsInstructions(storeSkills);
     const additionalInstructions =
       `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}` || undefined;
     // A repo-less run gets the tools to discover and clone a repository, and the

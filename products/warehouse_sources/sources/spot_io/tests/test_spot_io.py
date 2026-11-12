@@ -1,4 +1,8 @@
+from datetime import UTC, datetime
+from typing import Any
+
 import pytest
+import time_machine
 
 from parameterized import parameterized
 
@@ -19,7 +23,7 @@ from products.warehouse_sources.sources.spot_io.spot_io import (
 )
 
 
-def _items(*items: dict[str, str]) -> ScriptedResponse:
+def _items(*items: dict[str, Any]) -> ScriptedResponse:
     return ScriptedResponse(json={"response": {"items": list(items)}})
 
 
@@ -28,9 +32,10 @@ def _run(
     script: list[ScriptedResponse],
     resume_state: SpotIoResumeConfig | None = None,
     account_id: str | None = None,
+    **inputs: Any,
 ) -> DriveResult:
     config = SpotIoSourceConfig(api_token="token", account_id=account_id)
-    return SourceDriver(SpotIoSource(), config).run(endpoint, script, resume_state=resume_state)
+    return SourceDriver(SpotIoSource(), config).run(endpoint, script, resume_state=resume_state, **inputs)
 
 
 class TestSpotIoAccountParams:
@@ -74,6 +79,17 @@ class TestSpotIoSourceTopLevel:
         assert result.rows == [{"id": "g1"}, {"id": "g2"}]
         assert len(result.requests) == 1
         assert result.saved_states == []
+
+    @parameterized.expand(
+        [
+            ("account_scoped", "elastigroups", {"accountId": ("act-1",)}),
+            ("organization_level", "accounts", {}),
+        ]
+    )
+    def test_account_filter(self, _name, endpoint, expected_query) -> None:
+        result = _run(endpoint, [_items({"accountId": "act-1"})], account_id="act-1")
+
+        assert dict(result.requests[0].query) == expected_query
 
 
 class TestSpotIoFanoutWiring:
@@ -119,3 +135,68 @@ class TestSpotIoFanoutWiring:
 
         assert result.paths == ["/aws/ec2/group", "/aws/ec2/group/g2/costs/detailed"]
         assert result.rows == [{"groupId": "g2", "instanceId": "i2", "elastigroup_name": "n2"}]
+
+
+class TestSpotIoEventsAndNodes:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, "2026-08-10"),
+            ("first_incremental_sync", True, None, "2026-08-10"),
+            ("incremental_from_string_watermark", True, "2026-11-01T17:10:04.000+0000", "2026-11-01"),
+            ("incremental_from_datetime_watermark", True, datetime(2026, 10, 30, 23, 59, tzinfo=UTC), "2026-10-30"),
+        ]
+    )
+    def test_events_from_date(self, _name, incremental, watermark, expected_from_date) -> None:
+        with time_machine.travel(datetime(2026, 11, 8, 12, 0, tzinfo=UTC), tick=False):
+            result = _run(
+                "elastigroup_events",
+                [_items({"id": "g1", "name": "n1"}), _items()],
+                account_id="act-1",
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=watermark,
+                incremental_field="createdAt" if incremental else None,
+            )
+
+        child = result.requests[1]
+        assert child.path == "/aws/ec2/group/g1/events"
+        assert child.param("fromDate") == expected_from_date
+        assert child.param("accountId") == "act-1"
+
+    def test_events_get_a_stable_content_key(self) -> None:
+        event = {"groupId": "g1", "eventType": "Update", "createdAt": "2026-11-01T17:10:04.000+0000"}
+        script = [
+            _items({"id": "g1", "name": "n1"}),
+            _items(
+                {**event, "subEvents": {"type": "scaleUp", "newInstances": ["i-1"]}},
+                {**event, "subEvents": {"newInstances": ["i-1"], "type": "scaleUp"}},
+                {**event, "subEvents": {"type": "scaleDown"}},
+            ),
+        ]
+
+        rows = _run("elastigroup_events", script).rows
+
+        assert [row["elastigroup_name"] for row in rows] == ["n1", "n1", "n1"]
+        # Key order inside subEvents must not change the key, but different content must.
+        assert rows[0]["event_key"] == rows[1]["event_key"]
+        assert rows[0]["event_key"] != rows[2]["event_key"]
+        assert len(rows[0]["event_key"]) == 64
+
+    def test_nodes_carry_their_cluster_id(self) -> None:
+        script = [
+            _items({"id": "o-1"}, {"id": "o-2"}),
+            _items({"instanceId": "i-1"}),
+            _items({"instanceId": "i-2"}),
+        ]
+
+        result = _run("ocean_cluster_nodes", script, account_id="act-1")
+
+        assert result.paths == [
+            "/ocean/aws/k8s/cluster",
+            "/ocean/aws/k8s/cluster/o-1/nodes",
+            "/ocean/aws/k8s/cluster/o-2/nodes",
+        ]
+        assert result.rows == [
+            {"instanceId": "i-1", "ocean_cluster_id": "o-1"},
+            {"instanceId": "i-2", "ocean_cluster_id": "o-2"},
+        ]
+        assert all(request.param("accountId") == "act-1" for request in result.requests)

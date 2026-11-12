@@ -4,6 +4,8 @@ import { render } from '@testing-library/react'
 
 import { parseHogQLX, renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
+import { mcpCustomHarnessesLogic } from 'products/mcp_analytics/frontend/settings/mcpCustomHarnessesLogic'
+
 describe('HogQLX', () => {
     describe('parse', () => {
         it('should parse tags', () => {
@@ -148,6 +150,8 @@ describe('HogQLX', () => {
 
                 expect(container.textContent).toContain('Claude Code')
                 expect(container.querySelector('svg')).not.toBeNull()
+                // Any query can render this label, so it must not load MCP analytics data.
+                expect(mcpCustomHarnessesLogic.isMounted()).toBe(false)
             }
         )
 

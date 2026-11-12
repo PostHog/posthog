@@ -93,6 +93,7 @@ describe("clone_repo", () => {
     );
 
     expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain(`cwd: ${targetPath}`);
     expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], targetPath)).toBe(
       "feature",
     );

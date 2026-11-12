@@ -14,7 +14,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import type { RequestProperties } from '@/lib/request-properties'
+import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
@@ -22,6 +22,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { MCP_INBOX_FIRST_FLAG } from './constants'
 import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -105,6 +106,8 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             : undefined
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
+        const requestedFeatures = sanitizeToolFilterNames(requestContext.features)
+        const requestedTools = sanitizeToolFilterNames(requestContext.tools)
 
         // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
         // and `sessionId` → `$session_id`; everything else rides on `properties`.
@@ -124,6 +127,9 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
+                ...(requestedFeatures ? { requested_features: requestedFeatures } : {}),
+                ...(requestedTools ? { requested_tools: requestedTools } : {}),
+                ...(requestContext.excludeTools ? { requested_exclude_tools: requestContext.excludeTools } : {}),
             },
         })
     } catch {
@@ -156,6 +162,10 @@ export interface ToolCallAnalyticsMeta {
     /** Where the model identifier came from -> `$mcp_llm_model_source`. */
     llmModelSource?: MCPAnalyticsModelSource
     llmModelMissingReason?: ModelMissingReason
+    /** The arguments the tool ran with → `$mcp_parameters`. The SDK sanitizes and truncates them. */
+    parameters?: unknown
+    /** What the agent got back → `$mcp_response`. The SDK sanitizes and truncates it. */
+    response?: unknown
 }
 
 export async function trackToolCall(
@@ -219,6 +229,7 @@ export async function trackToolCall(
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
             ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
+            ...capturedPayload(toolName, isError, analyticsMeta),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -235,6 +246,7 @@ export async function trackToolCall(
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
+                [`$feature/${MCP_INBOX_FIRST_FLAG}`]: state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },
@@ -331,6 +343,30 @@ function isMetadataQuery(query: string): boolean {
 // way. `$mcp_tool_call` still records that the call happened.
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
+// Its args are raw Fivetran read responses, secrets included. PostHog strips them on
+// the server, after the span would capture them, and many Fivetran secret fields
+// (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
+const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
+
+const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
+    PRESIGNED_UPLOAD_TOOL_NAME,
+    FIVETRAN_UPLOAD_TOOL_NAME,
+])
+
+function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
+    if (UNCAPTURED_PAYLOAD_TOOL_NAMES.has(toolName)) {
+        return true
+    }
+    // Match the whole exec command, as for email sends: a call through exec, or one exec rejects, carries the same
+    // args in its command string and the same result in its output.
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        [...UNCAPTURED_PAYLOAD_TOOL_NAMES].some((name) => command.includes(name))
+    )
+}
+
 // Their output is another project's data, possibly from another region: a wrapped
 // execute-sql result or any API response. The execute-sql exemption below checks only
 // the outer tool name, so without this check the wrapped query's rows land in
@@ -340,8 +376,52 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
-function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+// A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
+// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+// The suppression and opt-out imports take a list of addresses, but their result holds only counts and entry
+// numbers, so it is still captured.
+type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
+
+const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
+    ['workflows-transactional-emails-list', 'arguments-and-result'],
+    ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-remove', 'arguments-and-result'],
+    ['opt-outs-add', 'arguments'],
+    ['suppressions-add', 'arguments'],
+])
+
+const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+function sendsEmailContent(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
+        return true
+    }
+    // Match the whole exec command, not its parsed inner tool: a send forwarded through
+    // posthog-connection-call, or a command exec rejects, still carries the email body.
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+}
+
+function emailRecipientExposure(toolName: string, input: unknown): EmailRecipientExposure | undefined {
+    const direct = EMAIL_RECIPIENT_TOOLS.get(toolName)
+    if (direct) {
+        return direct
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    if (toolName !== 'exec' || typeof command !== 'string') {
+        return undefined
+    }
+    const matched = [...EMAIL_RECIPIENT_TOOLS]
+        .filter(([name]) => command.includes(name))
+        .map(([, exposure]) => exposure)
+    return matched.includes('arguments-and-result') ? 'arguments-and-result' : matched[0]
+}
+
+function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
+        return false
+    }
+    if (sendsEmailContent(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
@@ -353,10 +433,25 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isGatewayToolName(toolName)) {
         return false
     }
-    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+    if (carriesUncapturedPayload(toolName, input)) {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    return emailRecipientExposure(toolName, input) !== 'arguments-and-result'
+}
+
+function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+    return shouldCaptureToolCall(toolName, input) && emailRecipientExposure(toolName, input) === undefined
+}
+
+function shouldCaptureToolOutput(toolName: string, input: unknown, isError: boolean): boolean {
+    if (!shouldCaptureToolCall(toolName, input)) {
+        return false
+    }
+    // A failed import's error text can quote the addresses from the command that exec rejected.
+    if (isError && emailRecipientExposure(toolName, input) !== undefined) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -396,6 +491,10 @@ const REDACTED_VALUE = '[redacted]'
 // private half, marked `secret: true` only because the UI groups it with the
 // real credentials.
 //
+// `webhook_url` is the whole credential of a Teams, Discord or generic webhook
+// destination: the secret token sits in its path or query, so the URL cannot
+// be shown with only its host.
+//
 // `app_id`/`api_id` and the trailing `username` case cover sources whose
 // credential is an identifier rather than a token: Open Exchange Rates'
 // `app_id` and Veracode's `api_id` are the whole usable credential, and
@@ -407,7 +506,7 @@ const REDACTED_VALUE = '[redacted]'
 // pattern can't tell those apart by name, and over-redacting a non-secret
 // identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|webhook[_-]?url|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -437,6 +536,47 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+// The SDK truncates what it receives, so walking more than this only costs time and memory.
+const MAX_CAPTURED_DEPTH = 8
+const MAX_CAPTURED_ITEMS = 50
+
+function redactForCapture(value: unknown, depth = 0): unknown {
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    if (depth >= MAX_CAPTURED_DEPTH) {
+        return '[truncated]'
+    }
+    if (Array.isArray(value)) {
+        return value.slice(0, MAX_CAPTURED_ITEMS).map((item) => redactForCapture(item, depth + 1))
+    }
+    return Object.fromEntries(
+        Object.entries(value)
+            .slice(0, MAX_CAPTURED_ITEMS)
+            .map(([key, val]) => [
+                key,
+                SENSITIVE_KEY_PATTERN.test(key) ? REDACTED_VALUE : redactForCapture(val, depth + 1),
+            ])
+    )
+}
+
+// Failed calls send no result: their text embeds upstream error bodies that `$mcp_error_message` sanitizes.
+function capturedPayload(
+    toolName: string,
+    isError: boolean,
+    analyticsMeta: ToolCallAnalyticsMeta | undefined
+): { parameters?: unknown; response?: unknown } {
+    const { parameters, response } = analyticsMeta ?? {}
+    return {
+        ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
+            ? { parameters: redactForCapture(parameters) }
+            : {}),
+        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters, isError)
+            ? { response: redactForCapture(omitAppData(response)) }
+            : {}),
+    }
+}
+
 function omitAppData(output: unknown): unknown {
     if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         return output
@@ -454,22 +594,22 @@ function omitAppData(output: unknown): unknown {
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
- * see a call's args AND result, neither of which `$mcp_tool_call` carries.
+ * see a call's args AND result. `$mcp_tool_call` carries them under the same policy.
  *
  * Every tool is captured by default. `execute-sql` is the one exception: its
  * payload is the query result and it serves the bulk of MCP volume, so only its
- * metadata queries are captured (see {@link shouldCaptureToolSpan}).
+ * metadata queries are captured (see {@link shouldCaptureToolOutput}).
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {
-        if (!shouldCaptureToolSpan(toolName, meta.input)) {
+        if (!shouldCaptureToolOutput(toolName, meta.input, meta.isError)) {
             return
         }
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
-        const inputState = serializeSpanState(meta.input)
+        const inputState = shouldCaptureToolInput(toolName, meta.input) ? serializeSpanState(meta.input) : undefined
         const outputState = serializeSpanState(
             state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
         )

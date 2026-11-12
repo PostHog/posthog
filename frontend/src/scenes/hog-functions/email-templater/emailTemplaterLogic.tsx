@@ -48,6 +48,7 @@ export type EmailTemplaterType =
     | 'native_email'
     | 'native_email_template'
     | 'native_email_transactional_template'
+    | 'native_email_sandbox'
 export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'cc' | 'bcc' | 'subject' | 'preheader'
 export type EmailMetaField = {
     key: EmailMetaFieldKey
@@ -105,6 +106,12 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
     // The sender and reply-to are edited from the sender summary above these fields.
     native_email_transactional_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+    native_email_sandbox: [
+        EMAIL_META_FIELDS.FROM,
+        EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.SUBJECT,
+        EMAIL_META_FIELDS.PREHEADER,
+    ],
 }
 
 // Helping kea-typegen navigate the exported type
@@ -169,9 +176,108 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
+const UNLAYER_BODY_CLASS = /\bu_body\b/
+const UNLAYER_LAYOUT_TAGS = new Set(['!doctype', 'html', 'body', 'table', 'tbody', 'tr', 'td', 'div'])
+const TAG_NAME = /<\/?\s*([a-z!][a-z0-9]*)/y
+const SKIPPED_ELEMENT_ENDS = new Map([
+    ['head', '</head>'],
+    ['style', '</style>'],
+])
+
+function tagNameAt(html: string, position: number): string | null {
+    TAG_NAME.lastIndex = position
+    return TAG_NAME.exec(html)?.[1] ?? null
+}
+
+const CONDITIONAL_COMMENT_START = '<!--[if'
+const CONDITIONAL_COMMENT_MARKERS = ['<![endif]-->', '<!-->']
+
+// Outlook renders what a conditional comment holds, so the scan skips only its markers.
+function positionAfterConditionalMarker(html: string, position: number): number | null {
+    if (html.startsWith(CONDITIONAL_COMMENT_START, position)) {
+        const end = html.indexOf(']>', position + CONDITIONAL_COMMENT_START.length)
+        return end === -1 ? -1 : end + 2
+    }
+    const marker = CONDITIONAL_COMMENT_MARKERS.find((candidate) => html.startsWith(candidate, position))
+    return marker === undefined ? null : position + marker.length
+}
+
+function positionAfterLayoutMarkup(html: string, position: number): number {
+    const afterMarker = positionAfterConditionalMarker(html, position)
+    if (afterMarker !== null) {
+        return afterMarker
+    }
+    if (html.startsWith('<!--', position)) {
+        const end = html.indexOf('-->', position + 4)
+        return end === -1 ? -1 : end + 3
+    }
+    const tag = tagNameAt(html, position)
+    const end = html.indexOf('>', position)
+    if (tag === null || end === -1) {
+        return -1
+    }
+    const closing = SKIPPED_ELEMENT_ENDS.get(tag)
+    if (closing !== undefined) {
+        const closingAt = html.indexOf(closing, end)
+        return closingAt === -1 ? -1 : closingAt + closing.length
+    }
+    return UNLAYER_LAYOUT_TAGS.has(tag) ? end + 1 : -1
+}
+
+function isOnlyUnlayerLayout(markup: string): boolean {
+    const html = markup.toLowerCase()
+    let position = 0
+    while (position < html.length) {
+        if (html[position] === '<') {
+            position = positionAfterLayoutMarkup(html, position)
+            if (position === -1) {
+                return false
+            }
+        } else if (html.startsWith('&nbsp;', position)) {
+            position += 6
+        } else if (/\s/.test(html[position])) {
+            position += 1
+        } else {
+            return false
+        }
+    }
+    return true
+}
+
+function isUnlayerRenderOf(html: string, blockHtml: string): boolean {
+    const start = html.indexOf(blockHtml)
+    if (start === -1) {
+        return false
+    }
+    const aroundBlock = html.slice(0, start) + html.slice(start + blockHtml.length)
+    return UNLAYER_BODY_CLASS.test(aroundBlock) && isOnlyUnlayerLayout(aroundBlock)
+}
+
+export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {
+    const { html, design } = value
+    if (!design) {
+        return html ? buildHtmlWrapDesign(html) : null
+    }
+    const wrappedHtml = design.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
+    if (
+        html &&
+        typeof wrappedHtml === 'string' &&
+        wrappedHtml !== html &&
+        objectsEqual(design, buildHtmlWrapDesign(wrappedHtml)) &&
+        !isUnlayerRenderOf(html, wrappedHtml)
+    ) {
+        return buildHtmlWrapDesign(html)
+    }
+    return design
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
+
+export function withEmailEditorOpen(searchParams: Record<string, any>): Record<string, any> {
+    return { ...searchParams, [EMAIL_EDITOR_URL_PARAM]: EMAIL_EDITOR_URL_VALUE }
+}
 
 // A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
 // else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
@@ -328,6 +434,9 @@ export interface emailTemplaterLogicActions {
     designUpdated: () => {
         value: true
     }
+    flushPendingDesignEdit: () => {
+        value: true
+    }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
         key: EmailMetaFieldKey
     }
@@ -476,6 +585,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        flushPendingDesignEdit: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
@@ -676,7 +786,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions, cache }) => ({
+    listeners(({ props, values, actions, asyncActions, cache }) => ({
         // Person properties load after the editor starts, and the editor only reads its options once.
         loadPersonPropertyDefinitionsSuccess: () => {
             const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
@@ -701,13 +811,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The editor read its merge tags when it started, so any added since then are pushed in.
             cache.lastMergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
             values.emailEditorRef?.editor?.setMergeTags?.(cache.lastMergeTags)
-            if (props.value?.design) {
-                cache.lastEditorDesign = props.value.design
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            } else if (props.value?.html) {
-                const wrapped = buildHtmlWrapDesign(props.value.html)
-                cache.lastEditorDesign = wrapped
-                values.emailEditorRef?.editor?.loadDesign(wrapped)
+            const design = props.value ? editorDesignForEmail(props.value) : null
+            if (design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -731,7 +838,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // While this is pending, the canvas may hold an edit the parent hasn't seen yet, so
             // propsChanged must not load an external design over it (the flag below guards that).
             cache.pendingDesignEdit = true
+            cache.designEdits = (cache.designEdits ?? 0) + 1
             await breakpoint(500)
+            if (!cache.pendingDesignEdit) {
+                return
+            }
 
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
@@ -812,10 +923,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 design: emailTemplateContent.design ?? null,
             })
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                cache.lastEditorDesign = emailTemplateContent.design
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            const design = editorDesignForEmail(emailTemplateContent)
+            if (values.isEmailEditorReady && design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -838,32 +949,37 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
-            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing
-            // unmounts the editor before it exports, silently dropping that edit. Flush it now,
-            // while the editor is still mounted. The debounced continuation then no-ops (or never
-            // resolves post-unmount), since lastEditorDesign already matches.
-            if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
-                const editor = values.emailEditorRef?.editor
-                if (editor) {
-                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                        await Promise.all([
-                            exportEditorHtml(editor),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
-                        ])
-                    cache.pendingDesignEdit = false
-                    if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
-                        cache.lastEditorDesign = htmlData.design
-                        cache.lastLoadedExternalDesign = null
-                        props.onChange({
-                            ...values.emailTemplate,
-                            html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        })
-                    }
+            await asyncActions.flushPendingDesignEdit()
+            actions.setIsModalOpen(false)
+        },
+
+        flushPendingDesignEdit: async () => {
+            const editor = values.emailEditorRef?.editor
+            if (!props.liveChanges || !values.isEmailEditorReady || !editor) {
+                return
+            }
+            while (cache.pendingDesignEdit) {
+                const editsBeforeExport = cache.designEdits
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        exportEditorHtml(editor),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
+                if (cache.designEdits !== editsBeforeExport) {
+                    continue
+                }
+                cache.pendingDesignEdit = false
+                if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    cache.lastEditorDesign = htmlData.design
+                    cache.lastLoadedExternalDesign = null
+                    props.onChange({
+                        ...values.emailTemplate,
+                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    })
                 }
             }
-            actions.setIsModalOpen(false)
         },
 
         saveAsTemplate: async ({ name, description }) => {
@@ -984,7 +1100,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.isEmailEditorReady &&
                 !cache.pendingDesignEdit
             ) {
-                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
+                const design = editorDesignForEmail(props.value)
                 if (
                     design &&
                     !objectsEqual(design, cache.lastEditorDesign) &&

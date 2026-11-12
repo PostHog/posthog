@@ -1,16 +1,17 @@
 import { parseBucketStart } from '@/lib/dates'
+import { asRecord } from '@/lib/records'
 import { breakdownLabel, isRankingQuery } from '@/model/adapters/breakdown'
 import { isDrawableFunnel } from '@/model/adapters/funnel'
 import { formatInsightValue } from '@/model/adapters/insightFormatting'
 import { capabilitiesOf, kindLabelOf, queryKindOf } from '@/model/adapters/insightSnapshot'
-import { asTrendsInsight, timeSeriesChartKind } from '@/model/adapters/metric'
+import { asTrendsInsight } from '@/model/adapters/metric'
 import { isDrawableRetention } from '@/model/adapters/retention'
 import { sqlQueryDisplay, sqlResultDisplay } from '@/model/adapters/sqlVisualization'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
 import { formatAxisDate } from '@/ui/chart/chartMath'
 import { seriesColor } from '@/ui/chart/palette'
-import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
+import type { BarLayout, ChartPoint, ChartSeries } from '@/ui/chart/types'
 
 import { hasGoodValue } from './freshness'
 import { formatRangeSpan, rangeLabel } from './rangePresets'
@@ -41,21 +42,24 @@ export function queryDisplay(query: unknown): InsightDisplay {
     if (isRankingQuery(query)) {
         return 'bars'
     }
-    if (timeSeriesChartKind(asTrendsInsight(query))) {
+    if (capabilitiesOf(query).chart) {
         return 'chart'
     }
     return 'web'
 }
 
 export function insightDisplay(snapshot: InsightSnapshot): InsightDisplay {
-    // The result settles a SQL display: Auto resolves on its columns, and a chart needs a date x axis.
+    // The result settles a SQL display: Auto resolves on its columns; saved charts also accept category labels.
     if (snapshot.sqlTable) {
         return sqlResultDisplay(snapshot.query, snapshot.sqlTable)
     }
     const display = queryDisplay(snapshot.query)
     // The adapters return null for a result they cannot draw, such as retention rows with breakdown values. That is
     // a kind for the web, not an empty range.
-    const rejected = (display === 'funnel' && !snapshot.funnel) || (display === 'retention' && !snapshot.retention)
+    const rejected =
+        (display === 'funnel' && !snapshot.funnel) ||
+        (display === 'retention' && !snapshot.retention) ||
+        (display === 'chart' && !snapshot.capabilities.chart)
     return rejected && hasGoodValue(snapshot) ? 'web' : display
 }
 
@@ -75,7 +79,7 @@ export function insightRenderState(snapshot: InsightSnapshot): InsightRenderStat
     }
     const empty = {
         number: snapshot.value === null,
-        chart: !snapshot.allSeries.some((series) => series.points.length > 0),
+        chart: !snapshot.allSeries.some((series) => series.points.some((point) => Number.isFinite(point.value))),
         funnel: !snapshot.funnel?.steps.length,
         retention: !snapshot.retention?.cohorts.length,
         bars: !snapshot.ranking?.rows.length,
@@ -105,7 +109,13 @@ function seriesLabel(series: InsightSeriesView): string {
 function chartPoints(series: InsightSeriesView, length: number): ChartPoint[] {
     return Array.from({ length }, (_, index) => {
         const point = series.points[index]
-        return point ? { at: parseBucketStart(point.at), value: point.value } : { at: Number.NaN, value: Number.NaN }
+        return point
+            ? {
+                  at: point.label === undefined ? parseBucketStart(point.at) : index,
+                  value: point.value,
+                  ...(point.label === undefined ? {} : { label: point.label }),
+              }
+            : { at: Number.NaN, value: Number.NaN }
     })
 }
 
@@ -126,7 +136,20 @@ export function snapshotChartSeries(snapshot: InsightSnapshot, palette: readonly
     const result: ChartSeries[] = current.map((series, index) => ({
         key: series.key,
         label: seriesLabel(series),
-        color: seriesColor(index, palette),
+        color: series.color ?? seriesColor(index, palette),
+        kind: series.chartKind,
+        axis: series.axis,
+        startAtZero: series.startAtZero,
+        area: series.area,
+        ...(series.format
+            ? {
+                  formatValue: (value: number): string =>
+                      formatInsightValue(value, {
+                          ...snapshot.format,
+                          presentation: series.format ?? snapshot.format.presentation,
+                      }),
+              }
+            : {}),
         points: chartPoints(series, length),
         ...(incompleteFrom !== undefined && incompleteFrom >= 0 ? { incompleteFrom } : {}),
     }))
@@ -148,6 +171,20 @@ export function snapshotChartSeries(snapshot: InsightSnapshot, palette: readonly
         })
     }
     return result
+}
+
+export function snapshotBarLayout(
+    snapshot: Pick<InsightSnapshot, 'query'>,
+    preferredLayout?: BarLayout | null
+): BarLayout {
+    if (preferredLayout) {
+        return preferredLayout
+    }
+    if (queryKindOf(snapshot.query) === 'HogQLQuery') {
+        return asRecord(snapshot.query)?.display === 'ActionsStackedBar' ? 'stacked' : 'grouped'
+    }
+    const filter = asRecord(asTrendsInsight(snapshot.query)?.source.trendsFilter)
+    return filter?.display === 'ActionsBar' || filter?.display === 'ActionsStackedBar' ? 'stacked' : 'grouped'
 }
 
 /** The series behind a chart key, for the actors query at a point. */

@@ -239,4 +239,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "default": "Whether this is the organization's default team.",
         },
     },
+    "audit_logs": {
+        "description": "An audit log entry recording an action a user took on a resource in the Squadcast organization.",
+        "docs_url": "https://developers.incidents.cloud.solarwinds.com/api-reference/audit-logs",
+        "columns": {
+            "id": "Unique identifier for the audit log entry.",
+            "resource": "Type of resource the action was taken on.",
+            "action": "Action that was taken on the resource.",
+            "actor": "User who took the action: user ID, username, email and full name.",
+            "client": "Client the action came from: web, mobile, or terraform.",
+            "timestamp": "Time at which the action was taken; the incremental cursor.",
+            "team": "Team the resource belongs to: team ID, name, and whether the team is deleted.",
+        },
+    },
 }

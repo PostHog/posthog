@@ -1,17 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { ReactNode, useMemo, useState } from 'react'
 
-import {
-    IconCheck,
-    IconGraph,
-    IconPencil,
-    IconPlay,
-    IconRefresh,
-    IconServer,
-    IconSparkles,
-    IconTrash,
-} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -24,12 +13,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,
@@ -40,21 +26,23 @@ import {
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
-import { InsightShortId, SidePanelTab } from '~/types'
+import { InsightShortId } from '~/types'
+
+import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
 import { MetricOwnerSelect } from './components/MetricOwnerSelect'
-import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
 import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
-    definitionField,
     MetricSceneTab,
 } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { MetricLineageTab } from './MetricLineageTab'
+import { buildMetricSceneActions, MAX_UNAVAILABLE_REASON } from './metricSceneActions'
+import { QuillDataCatalogMetricScene } from './QuillDataCatalogMetricScene'
 import { MetricTestsTab } from './tabs/MetricTestsTab'
 import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
 
@@ -64,23 +52,33 @@ export const scene: SceneExport<DataCatalogMetricSceneLogicProps> = {
     paramsToProps: ({ params: { name } }) => ({ name: name ?? '' }),
 }
 
-interface MetricAction {
-    key: string
-    label: string
-    icon: JSX.Element
-    onClick: () => void
-    disabledReason?: string
-    destructive?: boolean
-    opensFloatingUi?: boolean
-}
-
-const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
-
 function tabPanelClassName(tab: MetricSceneTab, activeTab: MetricSceneTab): string {
     return tab === activeTab ? 'flex flex-col gap-y-4' : 'hidden'
 }
 
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
+    const { metric, editingDefinition, draftMarkdown } = useValues(dataCatalogMetricSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const contextItems = useMemo(
+        () => buildDataCatalogMetricAgentContext(name, editingDefinition ? draftMarkdown : null),
+        [draftMarkdown, editingDefinition, name]
+    )
+
+    useSceneAgentPanel({
+        sceneKey: 'data-catalog',
+        contextItems,
+        headlines: DATA_CATALOG_METRIC_AGENT_HEADLINES,
+        active: !!metric,
+    })
+
+    return catalogRestructureEnabled(featureFlags) ? (
+        <QuillDataCatalogMetricScene name={name} />
+    ) : (
+        <LemonDataCatalogMetricScene name={name} />
+    )
+}
+
+function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
     const {
         metric,
         metricLoading,
@@ -103,37 +101,11 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         setDraftMarkdown,
         startEditingMarkdown,
         setActiveTab,
+        runMetricWithAI,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isMaxAvailable } = useValues(maxGlobalLogic)
-    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
-    const contextItems = useMemo(
-        () => buildDataCatalogMetricAgentContext(name, editingDefinition ? draftMarkdown : null),
-        [draftMarkdown, editingDefinition, name]
-    )
-
-    useSceneAgentPanel({
-        sceneKey: 'data-catalog',
-        contextItems,
-        headlines: DATA_CATALOG_METRIC_AGENT_HEADLINES,
-        active: !!metric,
-    })
-
-    const runMarkdownMetricWithAI = (): void => {
-        if (!metric) {
-            return
-        }
-        if (!sceneIntegrationEnabled) {
-            // Still record the run server-side so last run time and run analytics stay accurate.
-            loadRunResult()
-        }
-        openSidePanel(
-            SidePanelTab.Max,
-            autoRunMaxPrompt(buildMetricRunPrompt(metric.name, { metricAttached: sceneIntegrationEnabled }))
-        )
-    }
 
     if (metricLoading && !metric) {
         return <MetricSceneSkeleton />
@@ -143,9 +115,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     const sourceShortId = metric.source_insight_short_id
-    const definitionSql = definitionField(metric, 'query')
     const isApproved = metric.status === 'approved'
-    const isMarkdownMetric = metric.definition_kind === 'MarkdownDefinition'
 
     const confirmAndUpdate = (patch: Partial<DataCatalogMetricApi>): void => {
         if (!isApproved) {
@@ -212,87 +182,20 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         })
     }
 
-    const actions: MetricAction[] = [
-        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] && definitionSql
-            ? [
-                  {
-                      key: 'explore-bi',
-                      label: 'Explore in BI',
-                      icon: <IconGraph />,
-                      onClick: () => router.actions.push(urls.businessIntelligenceNew(), { metric: metric.name }),
-                  },
-              ]
-            : []),
-        ...(isApproved
-            ? []
-            : [
-                  {
-                      key: 'approve',
-                      label: 'Approve',
-                      icon: <IconCheck />,
-                      onClick: approveMetric,
-                      disabledReason: metric.is_drifted ? DRIFT_APPROVE_DISABLED : mutating ? 'Working' : undefined,
-                  },
-              ]),
-        ...(sourceShortId
-            ? [
-                  {
-                      key: 'refresh',
-                      label: 'Refresh from insight',
-                      icon: <IconRefresh />,
-                      onClick: refreshMetricFromInsight,
-                      disabledReason: mutating ? 'Working' : undefined,
-                  },
-                  {
-                      key: 'source-insight',
-                      label: 'View source insight',
-                      icon: <IconGraph />,
-                      onClick: () => router.actions.push(urls.insightView(sourceShortId as InsightShortId)),
-                  },
-              ]
-            : []),
-        isMarkdownMetric
-            ? {
-                  key: 'run',
-                  label: 'Run with AI',
-                  icon: <IconSparkles />,
-                  onClick: runMarkdownMetricWithAI,
-                  disabledReason: isMaxAvailable ? undefined : 'PostHog AI is not available on this instance',
-              }
-            : {
-                  key: 'run',
-                  label: 'Run metric',
-                  icon: <IconPlay />,
-                  onClick: loadRunResult,
-                  disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
-              },
-        {
-            key: 'rename',
-            label: 'Rename',
-            icon: <IconPencil />,
-            onClick: openRenameDialog,
-            disabledReason: mutating ? 'Working' : undefined,
-            opensFloatingUi: true,
+    const actions = buildMetricSceneActions({
+        metric,
+        mutating,
+        running: runResultLoading,
+        isMaxAvailable,
+        handlers: {
+            approve: approveMetric,
+            refreshFromInsight: refreshMetricFromInsight,
+            run: loadRunResult,
+            runWithAI: runMetricWithAI,
+            rename: openRenameDialog,
+            delete: confirmDelete,
         },
-        ...(definitionSql
-            ? [
-                  {
-                      key: 'open-sql',
-                      label: 'Open in SQL editor',
-                      icon: <IconServer />,
-                      onClick: () => router.actions.push(urls.sqlEditor({ source: 'metric', metricName: metric.name })),
-                  },
-              ]
-            : []),
-        {
-            key: 'delete',
-            label: 'Delete',
-            icon: <IconTrash />,
-            onClick: confirmDelete,
-            destructive: true,
-            opensFloatingUi: true,
-        },
-    ]
+    })
 
     const nonDestructive = actions.filter((action) => !action.destructive)
     const destructive = actions.filter((action) => action.destructive)
@@ -417,10 +320,8 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                                 confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                             }
                             onRun={loadRunResult}
-                            onRunWithAI={runMarkdownMetricWithAI}
-                            runWithAIDisabledReason={
-                                isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
-                            }
+                            onRunWithAI={runMetricWithAI}
+                            runWithAIDisabledReason={isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON}
                         />
                     </div>
                 )}
@@ -534,9 +435,6 @@ function MetricMetadata({
                             content: (
                                 <div className="flex flex-col gap-1 text-sm">
                                     {metric.ai_model && <span>Model: {metric.ai_model}</span>}
-                                    {metric.confidence != null && (
-                                        <span>Confidence: {Math.round(metric.confidence * 100)}%</span>
-                                    )}
                                     {metric.reasoning && <span>{metric.reasoning}</span>}
                                 </div>
                             ),

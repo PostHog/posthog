@@ -1,8 +1,8 @@
-"""Activity-log hooks for SignalScoutConfig and SignalTeamConfig changes.
+"""Activity-log hooks for SignalScoutConfig, SignalSourceConfig and SignalTeamConfig changes.
 
 `ModelActivityMixin.save()` only *emits* `model_activity_signal` — it does not persist
 anything. These receivers are the consumers that turn the emitted signal into a stored
-`ActivityLog` row. Without them, nothing about either model would ever appear in the
+`ActivityLog` row. Without them, nothing about these models would ever appear in the
 activity log. Imported from `SignalsConfig.ready()` so they register at startup.
 """
 
@@ -16,15 +16,18 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     Change,
     Detail,
+    LogActivityEntry,
+    bulk_log_activity,
     changes_between,
     field_name_overrides,
     log_activity,
 )
-from posthog.models.activity_logging.model_activity import get_current_trigger
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from .models import SignalScoutConfig, SignalTeamConfig
+from .enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from .models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -153,3 +156,82 @@ def handle_signal_team_config_change(
             trigger=get_current_trigger(),
         ),
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class SignalSourceConfigContext(ActivityContextBase):
+    source_product: str
+    source_type: str
+
+
+def _source_config_name(instance: SignalSourceConfig) -> str:
+    try:
+        product_label = SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(instance.source_product))
+    except ValueError:
+        product_label = None
+    return f"{product_label or instance.source_product}: {instance.get_source_type_display()}"
+
+
+def _source_config_detail(instance: SignalSourceConfig, changes: list[Change]) -> Detail:
+    return Detail(
+        changes=changes,
+        name=_source_config_name(instance),
+        trigger=get_current_trigger(),
+        context=SignalSourceConfigContext(source_product=instance.source_product, source_type=instance.source_type),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=SignalSourceConfig)
+def handle_signal_source_config_change(
+    sender: type[SignalSourceConfig],
+    scope: ActivityScope,
+    before_update: SignalSourceConfig | None,
+    after_update: SignalSourceConfig | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    instance: SignalSourceConfig | None = after_update or before_update
+    if instance is None:
+        return
+
+    # A create diffs against a default row, so a source created with a config, such as an issue
+    # filter, records what it held before the first edit.
+    previous = before_update if before_update is not None else SignalSourceConfig()
+    log_activity(
+        organization_id=None,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=_source_config_detail(instance, changes_between(scope, previous=previous, current=after_update)),
+    )
+
+
+def log_source_configs_disabled(rows: list[SignalSourceConfig]) -> None:
+    """Log rows that a bulk `update(enabled=False)` turned off, which `ModelActivityMixin` never sees.
+
+    Pass the rows as they were read before the update, and only those that were enabled.
+    """
+    user = get_current_user()
+    was_impersonated = get_was_impersonated()
+    entries: list[LogActivityEntry] = [
+        LogActivityEntry(
+            organization_id=None,
+            team_id=row.team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=row.id,
+            scope="SignalSourceConfig",
+            activity="updated",
+            detail=_source_config_detail(
+                row,
+                [Change(type="SignalSourceConfig", field="enabled", action="changed", before=True, after=False)],
+            ),
+        )
+        for row in rows
+    ]
+    bulk_log_activity(entries)

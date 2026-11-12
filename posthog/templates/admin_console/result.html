@@ -1,0 +1,40 @@
+{% extends "admin_console/base.html" %}
+{% block title %}
+    {% if result %}
+        {{ result.operation_label }} · {{ result.target.title }} · PostHog Admin
+    {% else %}
+        Result · PostHog Admin
+    {% endif %}
+{% endblock %}
+{% block content %}
+    {% if result %}
+        <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+            <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+            {% for crumb in result.target.breadcrumbs %}
+                ›
+                <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
+            {% endfor %}
+        </nav>
+        <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
+            <h1 class="m-0 text-[22px] font-extrabold">{{ result.operation_label }}: result</h1>
+            <a class="ml-auto quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+               href="{{ result.target.back_url }}">Back to {{ result.target.title }}</a>
+        </div>
+        {% include "admin_console/_blocks.html" with page=result.page %}
+    {% elif state == "key-missing" %}
+        <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result key missing</h1>
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            The key for this result is missing. The result stays available for a minute. Open it from the same browser that ran the operation.
+        </p>
+    {% elif state == "unreadable" %}
+        <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result could not be read</h1>
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            PostHog was updated while this result was stored, so it cannot be shown. The operation ran. Open the record or tool page to see the current state.
+        </p>
+    {% else %}
+        <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Result already shown</h1>
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            This result was already shown or has expired. Results are shown once, so a reload does not run the operation again. Open the record or tool page to see the current state.
+        </p>
+    {% endif %}
+{% endblock %}

@@ -25,7 +25,7 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 **The discriminator.** A finding is a _recent firing the team likely missed_. Because the user set the threshold themselves, a firing is presumptively meaningful — you triage, you don't re-detect. Rank each recent firing by **missed-ness × materiality × persistence**:
 
 - **Missed-ness** — _did anyone actually get told?_ A firing with no `notification_sent_at`, empty `targets_notified`, or no subscribed users, and a firing where `notification_suppressed_by_agent` is true (the investigation agent swallowed it — could be a false negative), are the **highest-value** signals: the normal alert pipeline stayed silent. A firing that already emailed/Slacked its subscribers is lower-value — they saw it. This is the whole reason you exist: **you catch what the notification path didn't.**
-- **Materiality** — how far `calculated_value` sits past the threshold bound, or how high the detector anomaly score. A 3× breach beats a marginal one sitting right on the bound.
+- **Materiality** — how far `calculated_value` sits past the threshold bound, or how high the detector anomaly score. A 3× breach beats a marginal one sitting right on the bound. An AI detector alert has no score, so judge it from its verdict and rationale instead (see Deep-read).
 - **Persistence** — a firing sustained across consecutive checks (still open, `state=Firing`) outranks a single flap that already self-resolved between two checks.
 
 Internalize that ordering; it's the whole game. An alert that's silently **Errored** (no longer evaluating) is a blind spot worth a low-severity callout, but it is _not_ a firing.
@@ -69,6 +69,14 @@ For each surviving candidate, pull the real firing episode — never trust `stat
 
 When in doubt about whether a breach is real, read the alert's `condition`/threshold bounds and compare them against the firing check's `calculated_value`, and pull the insight with `insight-get` to understand what the metric is.
 
+**AI detector alerts** (`detector_config.type` is `llm`) work differently.
+Each check asks a model whether the latest point is anomalous, so a `Firing` check is the model's verdict, and its `anomaly_scores` are empty.
+Read the reason from the check's `triggered_metadata`: `rationale` is the model's explanation, and `kind` is the shape it saw (`spike`, `drop`, `flatline`, `level_shift`, and so on).
+Judge materiality from that rationale and from the move in `calculated_value` against the insight's recent history.
+A missing score is not low materiality.
+Quote the rationale in the report's evidence, so a human can see why it fired.
+While a firing lasts, an AI alert can send a new notification on every check ([#128723](https://github.com/PostHog/posthog/issues/128723)), so repeated notifications alone do not show severity, and they do mean the team was told.
+
 ### Save memory as you go
 
 Write a scratchpad entry whenever a future run should change behavior. Encode the category in the key prefix; key per-alert entries on the **alert id** (stable across firings).
@@ -85,7 +93,7 @@ Write a scratchpad entry whenever a future run should change behavior. Encode th
 The generic report mechanics — search the inbox first (via the `report:insight_alerts:{alert_id}` pointer, else an `inbox-reports-list` search on the specific alert / insight name, not a broad word like `alert`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Classify each candidate firing against prior runs and the scratchpad (net-new / material-update / already-covered / addressed-or-noise), then apply only the insight-alerts judgment:
 
 - **Edit** when a still-live report already tracks the alert — a firing you surfaced that's still open, or a recurrence on the same alert. A persistent breach is one report across runs: add the fresh firing with `append_evidence` (`calculated_value` vs bound, the new fired-at, current notification status), not a fresh report per day.
-- **Author** when nothing live covers the firing. A report-worthy finding is an enabled, un-snoozed alert with a **material** firing (well past its bound or a high anomaly score) inside the window that was **under-notified** (silent / suppressed) or is **still open and unacted**, with the alert id, insight `short_id`, the firing `calculated_value` vs the threshold bound, the fired-at time, and the notification status in the `evidence`. This is a triage callout, not a code fix → `actionability=requires_human_input`. Priority: a material, silent firing on a clearly important metric is **P1**; a material firing that was notified but is still open/unacted is **P2**; Errored-alert blind spots and flapping-threshold hygiene are **P3**. Attach the firing insight as a report chart — a `SavedInsightNode` by its `short_id` only when its saved range is absolute and contains the firing (a relative range scrolls past it as days pass), else an ad-hoc node with pinned dates covering it — so the breach is visible next to the threshold numbers.
+- **Author** when nothing live covers the firing. A report-worthy finding is an enabled, un-snoozed alert with a **material** firing (well past its bound, a high anomaly score, or an AI verdict whose rationale names a material move) inside the window that was **under-notified** (silent / suppressed) or is **still open and unacted**, with the alert id, insight `short_id`, the firing `calculated_value` vs the threshold bound, the fired-at time, and the notification status in the `evidence`. This is a triage callout, not a code fix → `actionability=requires_human_input`. Priority: a material, silent firing on a clearly important metric is **P1**; a material firing that was notified but is still open/unacted is **P2**; Errored-alert blind spots and flapping-threshold hygiene are **P3**. Attach the firing insight as a report chart — a `SavedInsightNode` by its `short_id` only when its saved range is absolute and contains the firing (a relative range scrolls past it as days pass), else an ad-hoc node with pinned dates covering it — so the breach is visible next to the threshold numbers.
 - **Cap and rank.** File at most ~5 reports per run, worst-first by the discriminator. If more cleared the bar, say how many you dropped in the close-out — never silently truncate. One digest-style report that bundles several minor firings is fine when none individually warrants its own entry; bundle the flapping/Errored hygiene items this way rather than one report each.
 - **Remember** if it's suggestive but below the bar (a marginal breach, a single flap), or to refresh the baseline / record what you ruled out.
 - **Skip** if a `noise:` / `addressed:` / `allowlist:` / `dedupe:` entry, or an existing inbox report, already covers it.
@@ -112,7 +120,7 @@ When in doubt, refresh memory instead of filing a report.
 Direct (read-only):
 
 - `alerts-list` — the cheap triage layer over every alert (state, enabled, snoozed, last_notified/checked, last_value, threshold/detector). Your candidate funnel.
-- `alert-get` (`id`, `checks_date_from`, `checks_date_to`, `checks_limit`) — the real firing history for one candidate: per-check `state`, `calculated_value`, `targets_notified`, `notification_sent_at`, `notification_suppressed_by_agent`, `error`, anomaly scores.
+- `alert-get` (`id`, `checks_date_from`, `checks_date_to`, `checks_limit`) — the real firing history for one candidate: per-check `state`, `calculated_value`, `targets_notified`, `notification_sent_at`, `notification_suppressed_by_agent`, `error`, anomaly scores, and `triggered_metadata` (`rationale` and `kind` on an AI detector check).
 - `insight-get` — what the alerted metric actually is (read when judging materiality).
 
 Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):

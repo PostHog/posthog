@@ -292,7 +292,12 @@ async def test_insert_into_http_activity_preserves_mutation_properties_when_usin
         await activity_environment.run(insert_into_http_activity, insert_inputs)
 
     assert len(mock_server.records) == 1
-    assert mock_server.records[0]["properties"] == {**properties, "$geoip_disable": True}
+    assert mock_server.records[0]["properties"] == {
+        "$set": {"email": "person@example.com"},
+        "$unset": ["old_property"],
+        "$group_set": {"name": "Example"},
+        "$geoip_disable": True,
+    }
 
 
 @pytest.mark.parametrize("is_backfill", [False, True], ids=["scheduled", "backfill"])

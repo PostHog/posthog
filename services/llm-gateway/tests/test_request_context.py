@@ -38,7 +38,7 @@ class TestRecordCost:
 
         context = ThrottleContext(
             user=make_mock_user(),
-            product="llm_gateway",
+            product="django",
         )
 
         set_throttle_context(mock_runner, context)
@@ -64,7 +64,7 @@ class TestRecordCost:
 
         context = ThrottleContext(
             user=make_mock_user(),
-            product="llm_gateway",
+            product="django",
             end_user_id="authenticated-user-42",
         )
 
@@ -81,7 +81,7 @@ class TestRecordCost:
 
         context = ThrottleContext(
             user=make_mock_user(),
-            product="llm_gateway",
+            product="django",
             end_user_id=None,
         )
 

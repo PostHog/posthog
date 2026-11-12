@@ -203,6 +203,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    timeout_before_checking_execution_speed: Optional[int] = None
     # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
     # result is worse than an error (e.g. sampling queries whose output feeds further
     # computation), or "break" to accept partial results on timeout.
@@ -248,6 +249,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     use_uncompressed_cache: Optional[bool] = None
     merge_tree_max_rows_to_use_cache: Optional[int] = None
     merge_tree_max_bytes_to_use_cache: Optional[int] = None
+    move_primary_key_columns_to_end_of_prewhere: Optional[bool] = None
 
 
 def get_default_hogql_global_settings(

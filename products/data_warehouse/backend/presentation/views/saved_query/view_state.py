@@ -15,7 +15,14 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.api import get_incremental_config
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    ViewColumnSource,
+    ViewEngineDialect,
+    ViewEngineTarget,
+)
 
 from . import rendered_node_states, sync_cadence, view_description
 
@@ -29,6 +36,50 @@ class SavedQuerySuspensionSerializer(serializers.Serializer):
     at = serializers.DateTimeField(help_text="When materialization was suspended.")
     reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
     job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
+class ViewCapabilitySerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether the view supports this.")
+    reason = serializers.CharField(
+        allow_null=True, help_text="Why the view does not support this, written for the user. Null when available."
+    )
+
+
+class ViewEngineCapabilitiesSerializer(serializers.Serializer):
+    materialize = ViewCapabilitySerializer(
+        source="can_materialize", help_text="Whether the view can be materialized, run or scheduled."
+    )
+    lineage = ViewCapabilitySerializer(
+        source="has_lineage", help_text="Whether the view has lineage and a node in the data modeling DAG."
+    )
+    referenceable_from_clickhouse = ViewCapabilitySerializer(
+        help_text="Whether HogQL queries on ClickHouse can read from this view by name."
+    )
+    column_source = serializers.ChoiceField(
+        choices=ViewColumnSource.choices,
+        help_text="Where the view's column types come from: a ClickHouse probe of the query, or the types "
+        "the client sends from its last run.",
+    )
+
+
+class ViewEngineSerializer(serializers.Serializer):
+    target = serializers.ChoiceField(
+        choices=ViewEngineTarget.choices,
+        help_text="The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.",
+    )
+    dialect = serializers.ChoiceField(
+        choices=ViewEngineDialect.choices,
+        help_text="Whether the view stores HogQL or raw SQL for its engine.",
+    )
+    connection_id = serializers.CharField(
+        allow_null=True, help_text="The direct connection that runs this view. Null for any other engine."
+    )
+    capabilities = ViewEngineCapabilitiesSerializer(
+        source="*", help_text="What the rest of the product can do with this view."
+    )
+
+
+VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -169,10 +220,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
-    is_raw_managed_trino = serializers.SerializerMethodField(
-        read_only=True,
-        help_text="Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it.",
-    )
+    engine = ViewEngineSerializer(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -198,10 +246,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "is_test",
             "expires_at",
             "user_access_level",
-            "is_raw_managed_trino",
+            "engine",
         ]
         read_only_fields = fields
-
-    def get_is_raw_managed_trino(self, view: DataWarehouseSavedQuery) -> bool:
-        # The list defers `query`, so reading the model property here would load it once per view.
-        return bool(getattr(view, "raw_managed_trino", False))

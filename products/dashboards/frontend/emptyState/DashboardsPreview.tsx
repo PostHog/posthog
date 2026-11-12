@@ -2,7 +2,7 @@ import './DashboardsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored active-user series, one per date range. The 30-day line carries more
 // shape, so switching ranges visibly redraws the tile.
@@ -22,7 +22,7 @@ function areaPath(line: string): string {
  * skill. Range variants are stacked in `__swap` grids and crossfaded, so nothing shifts.
  */
 export function DashboardsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('DashboardPreview', isStatic && 'DashboardPreview--static')}>

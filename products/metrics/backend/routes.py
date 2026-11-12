@@ -1,9 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
-from products.metrics.backend.presentation.alert_destinations_api import MetricsAlertDestinationViewSet
 from products.metrics.backend.presentation.api import MetricsViewSet
 from products.metrics.backend.presentation.dashboard_import_api import MetricsDashboardImportViewSet
 from products.metrics.backend.presentation.prometheus_api import PrometheusQueryViewSet
+from products.metrics.backend.presentation.recording_rules_api import MetricsRecordingRuleViewSet
 from products.metrics.backend.presentation.suggested_dashboards_api import (
     MetricsDashboardTemplateViewSet,
     MetricsSuggestedDashboardViewSet,
@@ -31,4 +31,9 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_metrics_dashboard_templates",
         ["team_id"],
     )
-    routers.projects.register(r"metrics_alerts", MetricsAlertDestinationViewSet, "project_metrics_alerts", ["team_id"])
+    routers.projects.register(
+        r"metrics/recording_rules",
+        MetricsRecordingRuleViewSet,
+        "project_metrics_recording_rules",
+        ["team_id"],
+    )

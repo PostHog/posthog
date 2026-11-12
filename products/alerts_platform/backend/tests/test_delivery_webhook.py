@@ -15,7 +15,7 @@ from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
@@ -189,6 +189,22 @@ class TestWebhookTransport(SimpleTestCase):
                 WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert adapter.sent == []
+
+    @parameterized.expand(
+        [
+            ("bad request", 400, True),
+            ("gone", 410, True),
+            ("request timeout", 408, False),
+            ("rate limited", 429, False),
+            ("server error", 503, False),
+        ]
+    )
+    def test_only_a_client_error_a_retry_cannot_fix_is_a_refusal(self, _name: str, status: int, refused: bool) -> None:
+        with pinned_post(status):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert isinstance(raised.value, DestinationRefused) is refused
 
     @parameterized.expand(
         [

@@ -22,7 +22,8 @@ jobs:
     assign-reviewers:
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 5
-        if: github.event.pull_request.draft == false
+        # The repository variable pauses this job while Stamphog reviewer routing requests reviewers instead.
+        if: github.event.pull_request.draft == false && vars.AUTO_ASSIGN_REVIEWERS_PAUSED != 'true'
 
         steps:
             # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)

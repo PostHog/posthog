@@ -222,7 +222,12 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 

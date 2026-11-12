@@ -33,9 +33,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    apply_path_cleaning,
+    get_property_key,
+    get_property_type,
+    property_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -46,8 +54,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
     evaluate_team_rollout_flag,
@@ -370,6 +380,7 @@ WHERE and(
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                **self._hogql_context_kwargs(),
             )
             matching = response.results[0][0] if response.results else None
             if matching is None:
@@ -559,10 +570,8 @@ WHERE and(
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
             try:
-                action = Action.objects.get(
-                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
-                )
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(self.query.conversionGoal.actionId), project_id=self.team.project_id)
+            except ActionNotFound:
                 raise QueryError(
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )
@@ -761,6 +770,45 @@ WHERE and(
             return self.team.test_account_filters
         else:
             return []
+
+    @cached_property
+    def _reads_only_posthog_tables(self) -> bool:
+        # Building the full HogQL database loads every warehouse table, view and join, which costs
+        # seconds on teams with many warehouse sources. A query with only event and session filters
+        # and no goal or revenue never reads them. Person filters stay on the full database, because
+        # a person property can come from a warehouse join.
+        if getattr(self.query, "conversionGoal", None) is not None or getattr(self.query, "includeRevenue", False):
+            return False
+        filters = [*(getattr(self.query, "properties", None) or []), *self._test_account_filters]
+        session_fields = self._posthog_tables_database.get_table("sessions").fields
+        for prop in filters:
+            prop_type = get_property_type(prop)
+            if prop_type not in ("event", "session"):
+                return False
+            # A saved expression can add a custom field to sessions, and only the full database loads it.
+            if prop_type == "session" and get_property_key(prop) not in session_fields:
+                return False
+        # The built-in-only database carries no per-user access control.
+        return not team_has_property_access_rules(team_id=self.team.pk)
+
+    @cached_property
+    def _posthog_tables_database(self) -> Database:
+        with self.timings.measure("build_posthog_tables_database"):
+            return Database.create_for_posthog_tables(self.team, modifiers=self.modifiers, timings=self.timings)
+
+    def _hogql_context_kwargs(self) -> dict[str, HogQLContext]:
+        """`execute_hogql_query` kwargs that reuse one built-in-only database when the query allows it.
+        Empty otherwise, so the executor builds the full database as before."""
+        if not self._reads_only_posthog_tables:
+            return {}
+        return {
+            "context": HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                database=self._posthog_tables_database,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            )
+        }
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()

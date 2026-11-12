@@ -80,7 +80,7 @@ function StatusRow(): JSX.Element | null {
         return (
             <div className="flex items-center gap-2 text-sm text-muted">
                 <Spinner />
-                Embedding intents and clustering — usually 30 to 60 seconds.
+                Embedding intents and clustering. This usually takes 30 to 60 seconds.
             </div>
         )
     }
@@ -123,7 +123,8 @@ function EmptyState(): JSX.Element {
                 Compute intent clusters
             </Button>
             <span className="text-xs text-muted">
-                Needs sessions whose calls carried an intent — usually a few minutes after they are recorded.
+                Needs sessions whose calls carried an intent. Sessions are usually ready a few minutes after they are
+                recorded.
             </span>
         </div>
     )

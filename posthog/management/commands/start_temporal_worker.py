@@ -55,6 +55,7 @@ from posthog.temporal.cleanup_property_definitions import (
 )
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
@@ -81,10 +82,6 @@ from posthog.temporal.dlq_replay import (
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
-)
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
 )
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
@@ -238,7 +235,7 @@ from products.error_tracking.backend.facade.temporal import (
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
-from products.experiments.backend.temporal import (
+from products.experiments.backend.facade.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
@@ -247,11 +244,17 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    TIMESERIES_WORKFLOWS as EXPERIMENTS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
     WORKFLOWS as GROWTH_WORKFLOWS,
+)
+from products.knowledge_writer.backend.facade.temporal import (
+    ACTIVITIES as KNOWLEDGE_WRITER_ACTIVITIES,
+    WORKFLOWS as KNOWLEDGE_WRITER_WORKFLOWS,
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
@@ -337,6 +340,10 @@ from products.tasks.backend.facade.temporal import (
 from products.today.backend.facade.temporal import (
     ACTIVITIES as TODAY_ACTIVITIES,
     WORKFLOWS as TODAY_WORKFLOWS,
+)
+from products.tracing.backend.facade.temporal import (
+    TRACES_ALERT_EVALUATION_ACTIVITIES,
+    TRACES_ALERT_EVALUATION_WORKFLOWS,
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -508,6 +515,16 @@ _task_queue_specs = [
         EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
+        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
         settings.HEALTH_CHECK_TASK_QUEUE,
         HEALTH_CHECK_WORKFLOWS,
         HEALTH_CHECK_ACTIVITIES,
@@ -569,12 +586,14 @@ _task_queue_specs = [
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
         + CUSTOMER_ANALYTICS_WORKFLOWS
+        + KNOWLEDGE_WRITER_WORKFLOWS
         + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
         + CUSTOMER_ANALYTICS_ACTIVITIES
+        + KNOWLEDGE_WRITER_ACTIVITIES
         + REVIEW_HOG_ACTIVITIES,
     ),
     (
@@ -689,6 +708,7 @@ _task_queue_specs = [
         + BILLING_PLATFORM_EVALUATION_WORKFLOWS
         + WAREHOUSE_ALERT_EVALUATION_WORKFLOWS
         + METRICS_ALERT_EVALUATION_WORKFLOWS
+        + TRACES_ALERT_EVALUATION_WORKFLOWS
         + ALERTS_PLATFORM_APPEARANCE_EVALUATION_WORKFLOWS,
         ALERTS_PLATFORM_EVALUATION_ACTIVITIES
         + LOGS_SOURCE_EVALUATION_ACTIVITIES
@@ -696,6 +716,7 @@ _task_queue_specs = [
         + BILLING_PLATFORM_EVALUATION_ACTIVITIES
         + WAREHOUSE_ALERT_EVALUATION_ACTIVITIES
         + METRICS_ALERT_EVALUATION_ACTIVITIES
+        + TRACES_ALERT_EVALUATION_ACTIVITIES
         + ALERTS_PLATFORM_APPEARANCE_EVALUATION_ACTIVITIES,
     ),
     (
@@ -1013,7 +1034,10 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
+            internal_logs = InternalLogsSink.from_settings()
+            stop_log_producer = configure_logger(
+                loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=internal_logs
+            )
 
             logger = LOGGER.bind(
                 host=temporal_host,
@@ -1124,6 +1148,11 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                # The logger's own shutdown hook waits on an activity context, which this loop never has.
+                # Only workers that send internal logs run this, so other workers shut down as before.
+                if internal_logs is not None and stop_log_producer is not None:
+                    runner.run(stop_log_producer())
 
                 logger.info("Listing active threads at shutdown:")
                 for t in threading.enumerate():
