@@ -1,0 +1,101 @@
+[
+    {
+        "name": "16 Boolean inputs averaged",
+        "kind": "numeric",
+        "count": 16,
+        "inputKind": "boolean",
+        "inputConfig": {
+            "true_is_failure": false
+        },
+        "expression": "((((number(s0) + number(s1)) + (number(s2) + number(s3))) + ((number(s4) + number(s5)) + (number(s6) + number(s7)))) + (((number(s8) + number(s9)) + (number(s10) + number(s11))) + ((number(s12) + number(s13)) + (number(s14) + number(s15))))) / 16"
+    },
+    {
+        "name": "16 numeric inputs averaged",
+        "kind": "numeric",
+        "count": 16,
+        "inputKind": "numeric",
+        "inputConfig": {},
+        "expression": "((((s0 + s1) + (s2 + s3)) + ((s4 + s5) + (s6 + s7))) + (((s8 + s9) + (s10 + s11)) + ((s12 + s13) + (s14 + s15)))) / 16"
+    },
+    {
+        "name": "5 categorical inputs averaged",
+        "kind": "numeric",
+        "count": 5,
+        "inputKind": "categorical",
+        "inputConfig": {
+            "options": [
+                {
+                    "key": "good",
+                    "label": "good"
+                },
+                {
+                    "key": "partial",
+                    "label": "partial"
+                },
+                {
+                    "key": "bad",
+                    "label": "bad"
+                }
+            ],
+            "passing_rule": {
+                "categories": ["good"]
+            },
+            "selection_mode": "multiple"
+        },
+        "expression": "((number((\"good\" in s0) and not (\"partial\" in s0 or \"bad\" in s0)) + number((\"good\" in s1) and not (\"partial\" in s1 or \"bad\" in s1))) + (number((\"good\" in s2) and not (\"partial\" in s2 or \"bad\" in s2)) + (number((\"good\" in s3) and not (\"partial\" in s3 or \"bad\" in s3)) + number((\"good\" in s4) and not (\"partial\" in s4 or \"bad\" in s4))))) / 5"
+    },
+    {
+        "name": "8 categorical inputs averaged",
+        "kind": "numeric",
+        "count": 8,
+        "inputKind": "categorical",
+        "inputConfig": {
+            "options": [
+                {
+                    "key": "good",
+                    "label": "good"
+                },
+                {
+                    "key": "partial",
+                    "label": "partial"
+                },
+                {
+                    "key": "bad",
+                    "label": "bad"
+                }
+            ],
+            "passing_rule": {
+                "categories": ["good"]
+            },
+            "selection_mode": "multiple"
+        },
+        "expression": "(((number((\"good\" in s0) and not (\"partial\" in s0 or \"bad\" in s0)) + number((\"good\" in s1) and not (\"partial\" in s1 or \"bad\" in s1))) + (number((\"good\" in s2) and not (\"partial\" in s2 or \"bad\" in s2)) + number((\"good\" in s3) and not (\"partial\" in s3 or \"bad\" in s3)))) + ((number((\"good\" in s4) and not (\"partial\" in s4 or \"bad\" in s4)) + number((\"good\" in s5) and not (\"partial\" in s5 or \"bad\" in s5))) + (number((\"good\" in s6) and not (\"partial\" in s6 or \"bad\" in s6)) + number((\"good\" in s7) and not (\"partial\" in s7 or \"bad\" in s7))))) / 8"
+    },
+    {
+        "name": "16 categorical inputs combined",
+        "kind": "boolean",
+        "count": 16,
+        "inputKind": "categorical",
+        "inputConfig": {
+            "options": [
+                {
+                    "key": "good",
+                    "label": "good"
+                },
+                {
+                    "key": "partial",
+                    "label": "partial"
+                },
+                {
+                    "key": "bad",
+                    "label": "bad"
+                }
+            ],
+            "passing_rule": {
+                "categories": ["good"]
+            },
+            "selection_mode": "multiple"
+        },
+        "expression": "((\"good\" in s0) and not (\"partial\" in s0 or \"bad\" in s0)) and ((\"good\" in s1) and not (\"partial\" in s1 or \"bad\" in s1)) and ((\"good\" in s2) and not (\"partial\" in s2 or \"bad\" in s2)) and ((\"good\" in s3) and not (\"partial\" in s3 or \"bad\" in s3)) and ((\"good\" in s4) and not (\"partial\" in s4 or \"bad\" in s4)) and ((\"good\" in s5) and not (\"partial\" in s5 or \"bad\" in s5)) and ((\"good\" in s6) and not (\"partial\" in s6 or \"bad\" in s6)) and ((\"good\" in s7) and not (\"partial\" in s7 or \"bad\" in s7)) and ((\"good\" in s8) and not (\"partial\" in s8 or \"bad\" in s8)) and ((\"good\" in s9) and not (\"partial\" in s9 or \"bad\" in s9)) and ((\"good\" in s10) and not (\"partial\" in s10 or \"bad\" in s10)) and ((\"good\" in s11) and not (\"partial\" in s11 or \"bad\" in s11)) and ((\"good\" in s12) and not (\"partial\" in s12 or \"bad\" in s12)) and ((\"good\" in s13) and not (\"partial\" in s13 or \"bad\" in s13)) and ((\"good\" in s14) and not (\"partial\" in s14 or \"bad\" in s14)) and ((\"good\" in s15) and not (\"partial\" in s15 or \"bad\" in s15))"
+    }
+]

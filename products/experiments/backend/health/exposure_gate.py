@@ -52,9 +52,14 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.models.group_type_mapping import get_group_types_for_project
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
-from products.experiments.backend.health.bucketing_changes import BucketingChangeShape, bucketing_net_effect
+from products.experiments.backend.health.bucketing_changes import (
+    BucketingChangeShape,
+    GroupTypeNames,
+    bucketing_net_effect,
+)
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     conditions_change_from_activity,
@@ -485,6 +490,19 @@ def _settings_the_filters_compile_with(experiment: Experiment) -> list[object]:
     return [team.timezone, sorted((name, metadata.event_properties.get(name, {}).get("type")) for name in names)]
 
 
+def _group_type_names(project_id: int, changes: tuple[FlagChange, ...]) -> GroupTypeNames:
+    # Only the words of a "Match by" change that names a group type read the names, so the lookup runs only then.
+    if not any(
+        change.setting == BucketingSetting.AGGREGATION and (change.before is not None or change.after is not None)
+        for change in changes_of_kind(changes, BucketingChange)
+    ):
+        return {}
+    return {
+        group_type["group_type_index"]: group_type["name_plural"] or group_type["group_type"]
+        for group_type in get_group_types_for_project(project_id, caller_tag="experiment_health")
+    }
+
+
 class _ConditionAggregationMismatch(Exception):
     """A release condition aggregates by person while the flag-level aggregation names a group type."""
 
@@ -511,6 +529,7 @@ def _load_flag_history(
             start_date=start_date,
             team_timezone=team_timezone,
             changes=(),
+            group_type_names={},
         )
 
     edits = flag_edits_since(
@@ -518,7 +537,9 @@ def _load_flag_history(
     )
     too_large = _too_large(edits)
     if too_large is not None:
-        return FlagHistoryNotChecked(reason=too_large, start_date=start_date, team_timezone=team_timezone, changes=())
+        return FlagHistoryNotChecked(
+            reason=too_large, start_date=start_date, team_timezone=team_timezone, changes=(), group_type_names={}
+        )
     read = _flag_changes(edits, feature_flag_id=feature_flag_id)
     flag = experiment.feature_flag
     trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
@@ -545,10 +566,12 @@ def _load_flag_history(
     merged: list[FlagChange] = [change for change in read if not isinstance(change, BucketingChange)]
     merged.extend(applied)
     changes = tuple(sorted(merged, key=lambda change: change.changed_at))
+    group_type_names = _group_type_names(experiment.team.project_id, changes)
     history = FlagHistory(
         start_date=start_date,
         team_timezone=team_timezone,
         changes=changes,
+        group_type_names=group_type_names,
         counted_since=None,
         exposed_before_first=False,
         exposed_between={},
@@ -566,7 +589,13 @@ def _load_flag_history(
         return history
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
-        return FlagHistoryNotChecked(reason=reason, start_date=start_date, team_timezone=team_timezone, changes=changes)
+        return FlagHistoryNotChecked(
+            reason=reason,
+            start_date=start_date,
+            team_timezone=team_timezone,
+            changes=changes,
+            group_type_names=group_type_names,
+        )
     if after_the_end and split_changed_after_the_end(changes, experiment.end_date):
         return history
 

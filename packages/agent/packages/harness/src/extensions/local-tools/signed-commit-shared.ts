@@ -53,8 +53,9 @@ export const signedCommitToolSchema = {
     .string()
     .optional()
     .describe(
-      "Path to the git checkout to commit from; defaults to the session's working directory. " +
-        "Pass this when committing to a clone outside the session cwd (e.g. a sibling repo cloned during the run). " +
+      "Path to the git checkout to commit from; defaults to the session's working directory, " +
+        "or the only cloned repository when that is not a checkout. Pass this when committing to " +
+        "a clone outside the session cwd (e.g. a sibling repo cloned during the run). " +
         "Relative paths resolve against the session cwd.",
     ),
 };
@@ -95,8 +96,9 @@ export const signedRewriteToolSchema = {
     .string()
     .optional()
     .describe(
-      "Path to the git checkout to rewrite; defaults to the session's working directory. " +
-        "Relative paths resolve against the session cwd.",
+      "Path to the git checkout to rewrite; defaults to the session's working directory, " +
+        "or the only cloned repository when that is not a checkout. Relative paths resolve " +
+        "against the session cwd.",
     ),
 };
 
@@ -126,8 +128,9 @@ export const signedMergeToolSchema = {
     .string()
     .optional()
     .describe(
-      "Path to the git checkout to merge in; defaults to the session's working directory. " +
-        "Relative paths resolve against the session cwd.",
+      "Path to the git checkout to merge in; defaults to the session's working directory, " +
+        "or the only cloned repository when that is not a checkout. Relative paths resolve " +
+        "against the session cwd.",
     ),
 };
 

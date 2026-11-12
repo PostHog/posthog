@@ -7,10 +7,13 @@ import {
     DashboardWidgetPlacementMenus,
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import type { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
+
+import { QuillDashboardTileMenuItems } from '../components/QuillDashboardTileMenuItems'
 
 type BaseButtonTileCardProps = React.ComponentProps<typeof ButtonTileCard>
 
@@ -49,12 +52,32 @@ function DashboardButtonTileItemInternal(
         dashboard_tiles: tile.button_tile?.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <ButtonTileCard
             ref={ref}
             buttonTile={tile}
             placement={placement}
+            quillMenuItems={
+                todayRailNav ? (
+                    <QuillDashboardTileMenuItems
+                        editLabel="Edit button"
+                        editDataAttr="edit-button-tile"
+                        onEdit={onEdit}
+                        placement={{
+                            destinations: copyToDestinations,
+                            onMoveToDashboard,
+                            tileGroupMoveOptions,
+                            onMoveToTileGroup,
+                        }}
+                        onDuplicate={onDuplicate}
+                        duplicateDataAttr="duplicate-button-tile-from-dashboard"
+                        onRemove={onRemove}
+                        removeDataAttr="remove-button-tile-from-dashboard"
+                    />
+                ) : undefined
+            }
             moreButtonOverlay={
                 <>
                     <LemonButton fullWidth onClick={onEdit} data-attr="edit-button-tile">
