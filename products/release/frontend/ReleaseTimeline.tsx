@@ -1,6 +1,6 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useEffect, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
@@ -8,6 +8,12 @@ import { DataTable, Text, cn } from '@posthog/quill'
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import type {
+    ActivityLogEntryApi,
+    FeatureFlagApi,
+    ScheduledChangeApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
@@ -130,6 +136,13 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
     )
 }
 
+interface CachedSteps {
+    flag: FeatureFlagApi
+    activity: ActivityLogEntryApi[]
+    scheduled: ScheduledChangeApi[]
+    steps: RolloutStep[]
+}
+
 interface CalendarState {
     expanded: Record<string, true>
     stepsByFlag: Map<number, RolloutStep[]>
@@ -159,7 +172,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags, scheduledChanges } = useValues(releaseLogic)
     const { expanded, flagActivity } = useValues(releaseCalendarLogic)
-    const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
+    const { toggleExpanded, loadFlagActivity, refreshFlagActivity } = useActions(releaseCalendarLogic)
 
     useEffect(() => {
         const ids = [
@@ -177,17 +190,42 @@ export function ReleaseTimeline(): JSX.Element {
         }
     }, [expanded, filteredRows, loadFlagActivity])
 
+    const stepsCache = useRef(new Map<number, CachedSteps>())
     const stepsByFlag = useMemo(() => {
         const today = dayjs()
         const horizon = CALENDAR_SCALE().start.add(TOTAL, 'day')
         const steps = new Map<number, RolloutStep[]>()
         for (const flag of flags) {
-            if (flagActivity[flag.id]) {
-                steps.set(flag.id, rolloutSteps(flag, flagActivity[flag.id], scheduledChanges, today, horizon))
+            const activity = flagActivity[flag.id]
+            if (!activity) {
+                continue
             }
+            const cached = stepsCache.current.get(flag.id)
+            if (cached?.flag === flag && cached.activity === activity && cached.scheduled === scheduledChanges) {
+                steps.set(flag.id, cached.steps)
+                continue
+            }
+            const fresh = rolloutSteps(flag, activity, scheduledChanges, today, horizon)
+            stepsCache.current.set(flag.id, { flag, activity, scheduled: scheduledChanges, steps: fresh })
+            steps.set(flag.id, fresh)
         }
         return steps
     }, [flags, flagActivity, scheduledChanges])
+
+    const seenVersions = useRef(new Map<number, string | null>())
+    useEffect(() => {
+        const changed: number[] = []
+        for (const flag of flags) {
+            const seen = seenVersions.current.get(flag.id)
+            if (seen !== undefined && seen !== flag.updated_at && flagActivity[flag.id]) {
+                changed.push(flag.id)
+            }
+            seenVersions.current.set(flag.id, flag.updated_at)
+        }
+        if (changed.length) {
+            refreshFlagActivity(changed)
+        }
+    }, [flags, flagActivity, refreshFlagActivity])
 
     const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
 

@@ -38,6 +38,21 @@ describe('releaseCalendarLogic', () => {
         expect(logic.values.failedFlagIds).toEqual([])
     })
 
+    it('loads a flag again when its history is refreshed', async () => {
+        mockedRetrieve.mockResolvedValue(PAGE as never)
+        const logic = releaseCalendarLogic()
+        logic.mount()
+
+        logic.actions.loadFlagActivity([1])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadFlagActivity([1])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.refreshFlagActivity([1])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockedRetrieve).toHaveBeenCalledTimes(2)
+    })
+
     it('keeps at most six history requests in flight across loads', async () => {
         let inFlight = 0
         let peak = 0

@@ -30,6 +30,7 @@ interface ReleaseCalendarLogicActions {
         entries: ActivityLogEntryApi[]
     }
     setFlagActivityFailed: (flagId: number) => { flagId: number }
+    refreshFlagActivity: (flagIds: number[]) => { flagIds: number[] }
 }
 
 type releaseCalendarLogicType = MakeLogicType<ReleaseCalendarLogicValues, ReleaseCalendarLogicActions>
@@ -42,6 +43,7 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         loadFlagActivity: (flagIds: number[]) => ({ flagIds }),
         setFlagActivity: (flagId: number, entries: ActivityLogEntryApi[]) => ({ flagId, entries }),
         setFlagActivityFailed: (flagId: number) => ({ flagId }),
+        refreshFlagActivity: (flagIds: number[]) => ({ flagIds }),
     }),
     reducers({
         expanded: [
@@ -108,6 +110,12 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
             }
         }
         return {
+            refreshFlagActivity: ({ flagIds }) => {
+                for (const flagId of flagIds) {
+                    cache.requested?.delete(flagId)
+                }
+                actions.loadFlagActivity(flagIds)
+            },
             loadFlagActivity: ({ flagIds }) => {
                 cache.requested = cache.requested ?? new Set<number>()
                 cache.queue = cache.queue ?? []

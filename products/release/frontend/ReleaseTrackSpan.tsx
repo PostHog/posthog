@@ -1,5 +1,6 @@
 import { cn } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SPAN_LOOK, Scale, TONE_COLOR, x } from './releaseTracks'
@@ -22,7 +23,7 @@ export function ReleaseTrackSpan({
 }): JSX.Element | null {
     const left = x(span.from, scale)
     const width = Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
-    if (x(span.to, scale) === 0) {
+    if (dayjs(span.to).isBefore(scale.start, 'day')) {
         return null
     }
     const color = span.tone ? TONE_COLOR[span.tone] : SPAN_LOOK[span.kind].color
