@@ -94,6 +94,8 @@ Without open follow-up checks, the report resolves directly.
 - To end verification by hand, resolve the report with `verified_manually`, `no_action_needed` or `already_fixed`,
   and say in `dismissal_note` what you checked. This stops the remaining checks.
 - `state: "ready"` reopens a report in `monitoring` or `closed`, keeping its research, pull requests and checks.
-  Completing the implementation again starts a new Monitoring period.
+  Completing the implementation again starts a new Monitoring period only if the report still has open follow-up checks.
+  A report reopened from `closed` has none, because closing ends every check, so its next completion resolves it without verification.
+  Tell the user before promising that a new fix will be verified.
 - To measure a check better, replace it with a metric check through `inbox-report-checks-replace`.
   Replacing a check during Monitoring restarts the period for every open check.
