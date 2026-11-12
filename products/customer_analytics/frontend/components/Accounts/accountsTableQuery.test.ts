@@ -75,7 +75,6 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         tagsFilter: [],
         assignmentStatus: 'all',
         assignedToFilter: [],
-        accountIdFilter: null,
         tileFilter: null,
         accountFilters: [],
         accountFilterGroups: [],
@@ -277,21 +276,6 @@ describe('accountsTableQuery', () => {
             column: { kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID },
             direction: AccountsTableSortDirection.Ascending,
         })
-    })
-
-    it('uses only the account ID filter for deep-link state', () => {
-        const plan = buildAccountsTableQueryPlan(
-            queryInput({
-                accountIdFilter: RELATIONSHIP_ID,
-                searchQuery: 'ignored',
-                tagsFilter: ['ignored'],
-                assignmentStatus: 'unassigned',
-            })
-        )
-
-        expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
-        expect(plan?.query.includeChurned).toBe(true)
-        expect(plan?.query.includeIgnored).toBe(true)
     })
 
     it('drops unsupported columns instead of changing runners', () => {

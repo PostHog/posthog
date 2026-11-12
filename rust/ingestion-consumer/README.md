@@ -82,6 +82,28 @@ At the limit the loop stops reading Kafka until a commit frees room, and rebalan
 The budget and the limit each need both their events and bytes settings, or the consumer does not start. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them.
 `ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
+## Revoke drain
+
+A revoke waits for the in-flight requests that carry the revoked partitions, commits what they finished, and then hands the partitions to their new owner.
+The new owner then starts after the messages this consumer processed.
+The rebalance callback runs inside `recv()`, so it only reports the revoke, and the loop hands the partitions back when the drain ends.
+The batcher drops the queued messages of the revoked partitions at once, because the new owner replays them.
+
+`CONSUMER_REVOKE_DRAIN_TIMEOUT_MS` (default `25000`) bounds the wait, and the commit gets the same time again.
+A drain that times out commits only what finished, and the new owner processes the rest again.
+librdkafka fetches no partition while a revoke waits, so a drain pauses the fetch of the whole pod.
+Startup fails when the timeout is `0`, below twice `INGESTION_REQUEST_SOFT_BUDGET_MS`, or above half the smallest of the liveness deadline, the graceful shutdown, and `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
+
+Two revokes hand the partitions back at once, without a drain.
+The first is a lost assignment: another member already owns the partitions, so the commit would fail.
+The second is a revoke that arrives during a drain.
+
+Metrics:
+
+- `ingestion_consumer_revoke_drains_total{outcome=drained|timed_out|stopped}` counts drains by how they ended, and `ingestion_consumer_revoke_drain_seconds` records how long each one held its partitions.
+- `ingestion_consumer_revoke_commit_errors_total` counts drains whose commit did not land before the hand-back.
+- `ingestion_consumer_polls_dropped_on_revoke_total` counts the messages a revoke removed from the poll in progress, and `ingestion_consumer_batcher_messages_dropped_on_revoke_total` counts the queued messages the batcher dropped. Together they are the work the new owner replays.
+
 ## Batcher
 
 The batcher state machine in `src/batcher/` orders runs and places them on workers.
@@ -167,13 +189,18 @@ A message a worker permanently rejects (a nack on every delivery) has no dead-le
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
 Non-UTF-8 payloads — currently nulled when a poll adds the message, with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
-### 4. Revoke-aware partition handoff
+### 4. Stall deadline per partition
 
-The batcher's key queues are per-process.
-During a consumer-group rebalance another instance can start a partition from the last commit while this instance still has uncommitted in-flight work — duplicates and possible cross-pod interleaving per key (`second_consumer_joining_the_group_preserves_all_messages` asserts no loss only, deliberately).
-Fix: on partition revoke (cooperative-sticky callback, via the same `ConsumerContext` as item 2), finish and commit in-flight batches for the revoked partitions before acknowledging the revoke.
+The batcher's no-progress bound covers the pod, not a partition: it resets whenever a worker accepts a request.
+A partition whose frontier stops moving while other partitions make progress pauses at its budget and stays paused, and nothing fails.
+The signals are the partition's kminion lag and a paused-partitions gauge that stays above zero.
+A deadline per partition, reset when its frontier moves, would fail the process for such a partition.
+It needs a decision together with item 3, because a poison message would then restart the pod again and again instead of holding one partition.
 
 ### Smaller items
 
 - Probe timeout is hardcoded to `probe_interval / 2`; a slow-but-serving worker's `/_ready` can flap it unhealthy. Make it independently configurable.
 - Non-UTF-8 payload/header nulling has no metric — add a counter and a rate-limited warning even before the DLQ work lands.
+- An unkeyed message gets a synthetic key and its own group. A keyless lane per partition can remove that overhead.
+- Partition affinity can be a packing hint. Measure first how much one partition's frontier holds back another's.
+- A ledger violation stops the consumer, and the restart replays from the last commit. A seek back to the partition's last commit would keep the pod running. It needs the revoke path for one partition and the offset of the last submitted commit, which nothing tracks. It is worth building only if violations occur in practice.

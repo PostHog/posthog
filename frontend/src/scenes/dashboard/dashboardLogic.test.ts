@@ -1267,6 +1267,7 @@ describe('dashboardLogic', () => {
                     ])
 
                     const leftShortIds = leftTiles.map((tile) => tile.insight.short_id)
+                    const totalBeforeSwitch = logic.values.refreshMetrics.total
                     if (returnBeforeAbortsSettle) {
                         logic.actions.selectTileGroupTab('group-target')
                         refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
@@ -1317,6 +1318,8 @@ describe('dashboardLogic', () => {
                         expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
                     }
                     expect(logic.values.waitingTileRefresh).toBeNull()
+                    // Only the opened target tab's tile joins the batch. The left tiles are cancelled and reloaded, so they must not be counted a second time.
+                    expect(logic.values.refreshMetrics.total).toEqual(totalBeforeSwitch + 1)
 
                     // A hidden browser tab pauses disposables and reruns them on return, so a finished one must not stay.
                     await expectLogic(logic).delay(20).toFinishAllListeners()
@@ -1454,6 +1457,15 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('keeps "X out of Y" fixed when a tile load times out', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockRejectedValue({ status: 504 })
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+
+                expect(logic.values.refreshMetrics.total).toEqual(1)
             })
 
             it('keeps a group waiting when the viewer cancels its load, and loads it on the next open', async () => {
@@ -4192,6 +4204,156 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
         })
+
+        it.each(['success', 'disconnect', 'rate_limited', 'query_failed', 'abort'] as const)(
+            'delivers shared tiles progressively and handles %s independently',
+            async (outcome) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_QUERY_SHARING], {
+                    [FEATURE_FLAGS.HOGQL_QUERY_SHARING]: true,
+                })
+                const tiles = logic.values.insightTiles
+                let release!: () => void
+                let delivered!: () => void
+                const blocked = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                const firstDelivered = new Promise<void>((resolve) => {
+                    delivered = resolve
+                })
+                const individual = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+                const stream = jest.spyOn(api, 'stream').mockImplementation(async (_url, options) => {
+                    const send = (tile: DashboardTile): void =>
+                        options.onMessage({
+                            id: '',
+                            event: '',
+                            data: JSON.stringify({
+                                type: 'tile',
+                                debug: {
+                                    executions:
+                                        tile.id === tiles[0].id
+                                            ? [
+                                                  {
+                                                      outcome: 'shared',
+                                                      tile_ids: tiles.map((t) => t.id),
+                                                      rule: 'count_fusion',
+                                                      reason: '',
+                                                  },
+                                              ]
+                                            : [],
+                                    query_count: tile.id === tiles[0].id ? 1 : 0,
+                                    rows_read: tile.id === tiles[0].id ? 500 : 0,
+                                    duration_ms: tile.id === tiles[0].id ? 12 : 0,
+                                    truncated: false,
+                                },
+                                tile: {
+                                    ...tile,
+                                    insight: {
+                                        ...tile.insight,
+                                        result: tile.insight?.result === null ? null : [],
+                                        is_cached: true,
+                                        query_status: tile.insight?.query_status?.error
+                                            ? tile.insight.query_status
+                                            : { complete: true },
+                                    },
+                                },
+                            }),
+                        })
+                    send(tiles[0])
+                    delivered()
+                    await blocked
+                    if (outcome === 'disconnect') {
+                        throw new Error('stream disconnected')
+                    }
+                    for (const tile of tiles.slice(1)) {
+                        send(
+                            outcome === 'rate_limited'
+                                ? {
+                                      ...tile,
+                                      insight: {
+                                          ...tile.insight!,
+                                          query_status: {
+                                              id: 'test',
+                                              query_async: true,
+                                              team_id: 1,
+                                              complete: false,
+                                              error: true,
+                                              error_code: 'rate_limited',
+                                              error_message: 'concurrency_limit_exceeded',
+                                          },
+                                      },
+                                  }
+                                : outcome === 'query_failed'
+                                  ? {
+                                        ...tile,
+                                        insight: {
+                                            ...tile.insight!,
+                                            result: null,
+                                            query_status: {
+                                                id: 'test',
+                                                query_async: true,
+                                                team_id: 1,
+                                                complete: true,
+                                                error: true,
+                                                error_code: 'CHQueryErrorTimeoutExceeded',
+                                                error_message: 'Timeout exceeded',
+                                            },
+                                        },
+                                    }
+                                  : tile
+                        )
+                    }
+                    if (outcome === 'rate_limited') {
+                        await waitFor(() => expect(individual).toHaveBeenCalledTimes(tiles.length - 1))
+                    }
+                    options.onMessage({ id: '', event: '', data: JSON.stringify({ type: 'complete' }) })
+                })
+                try {
+                    logic.actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Refresh,
+                        forceRefresh: true,
+                    })
+                    await firstDelivered
+                    expect(logic.values.refreshStatus[tiles[0].insight!.short_id].refreshed).toBe(true)
+                    expect(individual).not.toHaveBeenCalled()
+                    expect(logic.values.querySharingDebug?.status).toBe('running')
+                    expect(logic.values.querySharingDebugSummary).toMatchObject({
+                        queryCount: 1,
+                        rowsRead: 500,
+                        durationMs: 12,
+                        sharedGroups: 1,
+                        receivedTiles: 1,
+                    })
+                    if (outcome === 'abort') {
+                        logic.actions.abortAnyRunningQuery()
+                    }
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
+                    const retry = outcome === 'disconnect' || outcome === 'rate_limited'
+                    expect(logic.values.querySharingDebug?.status).toBe(
+                        outcome === 'abort' ? 'aborted' : retry ? 'partial' : 'complete'
+                    )
+                    expect(logic.values.querySharingDebugSummary).toMatchObject({
+                        queryCount: 1,
+                        rowsRead: 500,
+                        sharedGroups: 1,
+                        receivedTiles: outcome === 'abort' || outcome === 'disconnect' ? 1 : tiles.length,
+                    })
+                    expect(individual).toHaveBeenCalledTimes(retry ? tiles.length - 1 : 0)
+                    if (outcome === 'query_failed') {
+                        for (const tile of tiles.slice(1)) {
+                            expect(logic.values.refreshStatus[tile.insight!.short_id]?.errored).toBe(true)
+                        }
+                    }
+                    if (retry) {
+                        expect(individual.mock.calls.every((call) => call[1].id !== tiles[0].insight!.id)).toBe(true)
+                    }
+                } finally {
+                    release()
+                    stream.mockRestore()
+                    individual.mockRestore()
+                }
+            }
+        )
 
         describe('on load', () => {
             it('mounts other logics', async () => {

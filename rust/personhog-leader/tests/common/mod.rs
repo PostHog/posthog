@@ -332,6 +332,7 @@ pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
             pod_name: "test-pod".to_string(),
             recv_timeout: Duration::from_secs(2),
             pool_size: 2,
+            cluster: None,
         })
         .expect("build recovery pool"),
     )

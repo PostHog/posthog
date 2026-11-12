@@ -26,6 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.schema import ChartDisplayType
 
@@ -53,11 +54,21 @@ MAX_REPORT_METRIC_REFRESH_REPORTS = 20
 MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST = 40
 REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS = 20.0
 REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
+# A query that gets less than this per source series mostly hits the ClickHouse execution limit and
+# still spends the budget. Such a metric keeps its previous snapshot until the next open instead.
+REPORT_METRIC_REFRESH_MIN_QUERY_TIMEOUT_SECONDS = 5
 
 CURRENT_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 # A Monitoring row draws its metric's trend across the fix, so its snapshots keep refreshing while the
 # outcome is checked. The request decides whether Monitoring is enabled for the caller.
 REFRESHABLE_REPORT_STATUSES = (*CURRENT_REPORT_STATUSES, SignalReport.Status.MONITORING)
+
+
+REPORT_METRIC_REFRESH_OUTCOMES = Counter(
+    "signals_report_metric_refresh_outcomes_total",
+    "Report metrics the read-time refresh considered, by outcome.",
+    labelnames=["outcome"],
+)
 
 
 class MetricQueryBudgetExhausted(TimeoutError):
@@ -148,13 +159,13 @@ def _run_metric_query(
     shaped_source["trendsFilter"] = shaped_filter
     remaining = deadline - time.monotonic()
     source_count = _source_count(query)
-    if remaining < source_count:
-        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     timeout = (
         REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
         if math.isinf(remaining)
         else min(REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS, int(remaining / source_count))
     )
+    if timeout < REPORT_METRIC_REFRESH_MIN_QUERY_TIMEOUT_SECONDS:
+        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     if require_full_timeout and timeout < REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS:
         raise MetricQueryBudgetExhausted("report metric query needs its full timeout allowance")
     tag_queries(trigger="signals_report_metric_refresh")
@@ -292,6 +303,8 @@ def measure_metric(
         return MetricMeasurement(value=value, measured_at=measured_at, series=None)
     try:
         series = longitudinal_values(query, team, deadline=deadline, ch_user=ch_user, workload=workload)
+    except MetricQueryBudgetExhausted:
+        series = None
     except Exception:
         # The buckets only decorate the row, so losing them must not cost the headline value.
         logger.exception("signals.report_metric_refresh.series_query_failed", team_id=team.id)
@@ -394,7 +407,7 @@ def refresh_report_metric_snapshots(
             (planned if row["metric_id"] == card_id else supporting).append((report, row["metric_id"]))
     planned.extend(supporting)
 
-    refreshed = skipped = failed = 0
+    refreshed = skipped = failed = out_of_budget = 0
     source_runs = 0
     for report, metric_id in planned:
         row = next((r for r in report.metrics if isinstance(r, dict) and r.get("metric_id") == metric_id), None)
@@ -420,6 +433,10 @@ def refresh_report_metric_snapshots(
                 metric_id=metric_id,
                 measurement=measurement,
             )
+        except MetricQueryBudgetExhausted:
+            skipped += 1
+            out_of_budget += 1
+            continue
         except Exception:
             failed += 1
             logger.exception(
@@ -435,4 +452,16 @@ def refresh_report_metric_snapshots(
         report.metrics = metrics
         refreshed += 1
 
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="refreshed").inc(refreshed)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="skipped").inc(skipped - out_of_budget)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="out_of_budget").inc(out_of_budget)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="failed").inc(failed)
+    logger.info(
+        "signals.report_metric_refresh.completed",
+        team_id=team.id,
+        refreshed=refreshed,
+        skipped=skipped,
+        out_of_budget=out_of_budget,
+        failed=failed,
+    )
     return ReportMetricRefreshSummary(refreshed=refreshed, skipped=skipped, failed=failed)
