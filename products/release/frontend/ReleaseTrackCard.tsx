@@ -32,7 +32,7 @@ function trackScale(track: Track, width: number): Scale {
         ...track.lanes.flatMap((lane) =>
             lane.kind === 'flag'
                 ? lane.steps.length
-                    ? lane.steps.map((step) => step.from)
+                    ? [lane.steps[0].from, lane.steps[lane.steps.length - 1].from]
                     : [lane.span.from]
                 : lane.kind === 'broadcast'
                   ? lane.events.map((event) => event.date)
