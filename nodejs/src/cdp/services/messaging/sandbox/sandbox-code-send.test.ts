@@ -248,28 +248,33 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         results.flatMap((result) => result.metrics ?? []).map((metric) => metric.metric_name)
 
     it.each([
-        ['', false],
-        [' when the replica does not have the new sandbox sender yet', true],
+        ['', false, null],
+        [' when the replica does not have the new sandbox sender yet', true, null],
+        [' once a send scheduled an hour ahead is due', false, 60 * 60 * 1000],
     ])(
         'queues the send on the sandbox sender and delivers the accepted content to the member%s',
-        async (_desc, lagging) => {
+        async (_desc, lagging, scheduledInMs) => {
             if (lagging) {
                 hideIntegrationsFromReplica(hub.postgres, [sandboxSenderId])
             }
+            const scheduledAt = scheduledInMs === null ? null : new Date(Date.now() + scheduledInMs).toISOString()
 
-            const res = await sendFromCode(request(sandboxSend()))
+            const res = await sendFromCode(request(sandboxSend(), scheduledAt ? { scheduled_at: scheduledAt } : {}))
 
             expect(res.status).toEqual(202)
             expect(res.body).toEqual({
-                status: 'queued',
+                status: scheduledAt ? 'scheduled' : 'queued',
                 invocation_id: expect.any(String),
                 replayed: false,
-                scheduled_at: null,
+                scheduled_at: scheduledAt,
                 sender_kind: 'email_sandbox',
                 attachment_count: 0,
                 attachment_bytes: 0,
             })
             expect(queued).toHaveLength(1)
+            if (scheduledAt) {
+                expect(new Date(String(queued[0].queueScheduledAt)).toISOString()).toEqual(scheduledAt)
+            }
 
             const results = await deliver(queued[0])
 
@@ -286,7 +291,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
             expect(metricNames(results)).toContain('email_sandbox_sent')
             expect(metricNames(results)).not.toContain('billable_invocation')
-            expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'sent', reason: '' }])
+            expect(deliveryStatuses(queued[0].id)).toEqual([
+                ...(scheduledAt ? [{ status: 'scheduled', reason: '' }] : []),
+                { status: 'sent', reason: '' },
+            ])
         }
     )
 
