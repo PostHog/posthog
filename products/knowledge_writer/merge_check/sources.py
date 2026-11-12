@@ -86,10 +86,9 @@ def read_github(
     endpoint: str,
     params: dict[str, str | int] | None = None,
     headers: dict[str, str] | None = None,
+    priority: Priority = Priority.NORMAL,
 ) -> requests.Response:
-    response = github.api_request(
-        "GET", path, endpoint=endpoint, params=params, headers=headers, priority=Priority.NORMAL
-    )
+    response = github.api_request("GET", path, endpoint=endpoint, params=params, headers=headers, priority=priority)
     response.raise_for_status()
     return response
 

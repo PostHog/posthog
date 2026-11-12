@@ -80,9 +80,24 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
                 effect=CriterionEffect.NEUTRAL,
             )
         )
+    if evidence.is_docs_pull_request_scan_partial:
+        rows.append(
+            CriterionResult(
+                criterion="docs_pull_request_scan",
+                value="partial",
+                source=GATHER_SOURCE,
+                evidence="",
+                effect=CriterionEffect.NEUTRAL,
+            )
+        )
     return GateResult(
         blocking_reason=first_blocking_criterion(rows),
-        low_confidence=evidence.is_docs_tree_truncated or has_undocumented_version or not has_docs_pages,
+        low_confidence=(
+            evidence.is_docs_tree_truncated
+            or evidence.is_docs_pull_request_scan_partial
+            or has_undocumented_version
+            or not has_docs_pages
+        ),
         rows=tuple(rows),
     )
 

@@ -89,6 +89,7 @@ def merge_reports_by_variant(
         github=github,
         http=http,
         writer_login=writer_login,
+        is_final_attempt=is_final_attempt,
         is_pinned_to_merge=is_pinned_to_merge,
     )
     gates = rule_gates(evidence)

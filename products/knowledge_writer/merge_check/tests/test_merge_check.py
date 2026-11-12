@@ -9,6 +9,9 @@ import httpx
 import requests
 from anthropic import Anthropic, APITimeoutError
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+
 from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START
@@ -73,6 +76,7 @@ class FakePostHogGitHub:
         docs_pull_requests: tuple[dict[str, object], ...] = (),
         docs_pull_request_comments: tuple[str, ...] = (),
         page_text_by_path: dict[str, str] | None = None,
+        sheds_batch_reads: bool = False,
     ) -> None:
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
@@ -83,6 +87,7 @@ class FakePostHogGitHub:
         self.docs_pull_requests = docs_pull_requests
         self.docs_pull_request_comments = docs_pull_request_comments
         self.page_text_by_path = page_text_by_path or {}
+        self.sheds_batch_reads = sheds_batch_reads
 
     def merged_pull_request(self) -> dict[str, object]:
         return {
@@ -94,7 +99,11 @@ class FakePostHogGitHub:
             "base": {"ref": "stack/parent-branch", "repo": {"default_branch": "master"}},
         }
 
-    def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
+    def api_request(
+        self, method: str, path: str, *, priority: Priority | None = None, **_options: object
+    ) -> requests.Response:
+        if self.sheds_batch_reads and priority == Priority.BATCH:
+            raise GitHubEgressBudgetExhausted("shed")
         if path.endswith("/pulls/7"):
             return github_response(json.dumps(self.merged_pull_request()))
         if path.endswith(f"/compare/master...{self.commit_sha}"):
@@ -306,7 +315,7 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
         pytest.param({"docs_page_paths": tuple(FLAGS_PATHS[:150])}, False, "50", id="head"),
         pytest.param(
             {
-                "pinned_docs_page_paths": tuple(FLAGS_PATHS[:150]),
+                "pinned_docs_page_paths": (*FLAGS_PATHS[:150], "feature-flags/retired-rollouts", "_snippets/flag-code"),
                 "docs_pull_requests": (
                     docs_pull_request(WRITER_LOGIN, LINK_BACK_START, created_at="2026-10-28T00:00:00Z"),
                 ),
@@ -333,6 +342,9 @@ def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
 
     judged_page_list = judge_requests[0]["system"][1]["text"]
     assert FLAGS_PATHS[149] in judged_page_list and FLAGS_PATHS[-1] not in judged_page_list
+    published_page_paths = [path for path in github.pinned_docs_page_paths if not path.startswith("_")]
+    assert all(page_path in judged_page_list for page_path in published_page_paths)
+    assert "_snippets" not in judged_page_list
     assert (report.change_kind, report.page_urls) == (DocsChangeKind.CREATE, ())
     assert ("not_editable_here", not_editable_count) in [(row.criterion, row.value) for row in report.criteria]
 
@@ -422,6 +434,30 @@ def test_release_facts_gate_only_on_quoted_evidence(
     report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_recording(verdict, judge_requests, facts))
 
     assert (report.reason, bool(judge_requests), report.low_confidence) == (expected_reason, is_judged, low_confidence)
+
+
+def test_a_docs_pull_request_scan_past_its_page_cap_lowers_confidence() -> None:
+    commit_sha = "4" * 40
+    verdict = JudgeVerdict(needs_docs=True, change_kind=DocsChangeKind.CREATE, page_urls=[], reason="new option")
+    unrelated_pull_requests = tuple(docs_pull_request("docs-person", "", source_reference="") for _ in range(100))
+    github = FakePostHogGitHub(commit_sha, docs_pull_requests=unrelated_pull_requests)
+
+    report = check_merge(commit_sha, github, judge_recording(verdict, []))
+
+    assert (report.needs_docs, report.low_confidence) == (True, True)
+    assert ("docs_pull_request_scan", "partial") in [(row.criterion, row.value) for row in report.criteria]
+
+
+def test_a_shed_docs_pull_request_scan_retries_then_lowers_confidence_on_the_final_attempt() -> None:
+    commit_sha = "3" * 40
+    verdict = JudgeVerdict(needs_docs=True, change_kind=DocsChangeKind.CREATE, page_urls=[], reason="new option")
+    github = FakePostHogGitHub(commit_sha, sheds_batch_reads=True)
+
+    with pytest.raises(GitHubEgressBudgetExhausted):
+        check_merge(commit_sha, github, judge_recording(verdict, []))
+    report = check_merge(commit_sha, github, judge_recording(verdict, []), is_final_attempt=True)
+
+    assert (report.needs_docs, report.low_confidence) == (True, True)
 
 
 def test_a_failed_fact_call_retries_then_judges_with_low_confidence_on_the_final_attempt() -> None:

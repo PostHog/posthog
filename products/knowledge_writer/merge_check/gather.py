@@ -1,5 +1,6 @@
 import re
 import gzip
+from collections import Counter
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -8,6 +9,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+import requests
+
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 
 from ..backend.logic.pull_requests import MAX_PULL_REQUEST_PAGES, PULL_REQUESTS_PER_PAGE, writer_pull_request
 from ..backend.settings import DocsSource
@@ -25,11 +30,13 @@ from .sources import (
 
 DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
 INDEX_FILE_STEMS = frozenset({"index", "readme"})
+PARTIAL_SEGMENT_PREFIX = "_"
 ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 VERSION_SEGMENT_PATTERN = re.compile(r"^v?(\d+)(\.\d+)*$")
 SITEMAP_LOCATION_PATTERN = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
 MAX_CHILD_SITEMAPS = 50
 DOCS_PULL_REQUEST_LOOKBACK = timedelta(days=14)
+MAX_REFERENCE_READS = 10
 MAX_RELEASES = 30
 RELEASES_PER_PAGE = 100
 MAX_RELEASE_PAGES = 20
@@ -81,6 +88,34 @@ class DocsPullRequest:
     is_opened_by_knowledge_writer: bool
 
 
+@dataclass
+class DocsPullRequestScan:
+    github: GitHubReader
+    is_final_attempt: bool
+    reference_reads_left: int = MAX_REFERENCE_READS
+    was_shed: bool = False
+    is_partial: bool = False
+
+    def read(self, path: str, *, endpoint: str, params: dict[str, str | int]) -> requests.Response | None:
+        if self.was_shed:
+            return None
+        try:
+            return read_github(self.github, path, endpoint=endpoint, params=params, priority=Priority.BATCH)
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+            if not self.is_final_attempt:
+                raise
+            self.was_shed = True
+            self.is_partial = True
+            return None
+
+    def read_reference(self, path: str, *, endpoint: str, params: dict[str, str | int]) -> requests.Response | None:
+        if self.reference_reads_left == 0:
+            self.is_partial = True
+            return None
+        self.reference_reads_left -= 1
+        return self.read(path, endpoint=endpoint, params=params)
+
+
 @dataclass(frozen=True)
 class ReleaseLine:
     latest_stable: str | None
@@ -106,6 +141,7 @@ class MergeEvidence:
     docs_commit_sha: str | None
     release_line: ReleaseLine | None
     docs_pull_requests: tuple[DocsPullRequest, ...]
+    is_docs_pull_request_scan_partial: bool
 
     @property
     def judged_diff(self) -> str:
@@ -164,6 +200,7 @@ def gather_merge(
     github: GitHubReader,
     http: httpx.Client,
     writer_login: str | None,
+    is_final_attempt: bool,
     is_pinned_to_merge: bool = False,
 ) -> MergeEvidence:
     merged_at = parse_github_time(listed.get("merged_at"))
@@ -179,7 +216,18 @@ def gather_merge(
         if url.startswith(source.docs_url_prefix)
     ]
     if docs_as_of is not None and not is_docs_tree_truncated:
-        pages = [page for page in pages if page.source_path is not None]
+        sitemap_pages = [page for page in pages if page.source_path is not None]
+        pages = [*sitemap_pages, *merge_time_tree_pages(sitemap_pages, docs_tree_paths, source.docs_url_prefix)]
+    docs_pull_requests, is_docs_pull_request_scan_partial = read_docs_pull_requests(
+        github,
+        source.docs_repository,
+        change,
+        merged_at=merged_at,
+        docs_as_of=docs_as_of,
+        docs_source_paths=frozenset(source_path_by_suffix.values()),
+        writer_login=writer_login,
+        is_final_attempt=is_final_attempt,
+    )
     return MergeEvidence(
         change=change,
         title=listed.get("title") or "",
@@ -195,15 +243,8 @@ def gather_merge(
         is_docs_tree_truncated=is_docs_tree_truncated,
         docs_commit_sha=docs_commit_sha,
         release_line=read_release_line(github, change.repository, published_by=docs_as_of),
-        docs_pull_requests=read_docs_pull_requests(
-            github,
-            source.docs_repository,
-            change,
-            merged_at=merged_at,
-            docs_as_of=docs_as_of,
-            docs_source_paths=frozenset(source_path_by_suffix.values()),
-            writer_login=writer_login,
-        ),
+        docs_pull_requests=docs_pull_requests,
+        is_docs_pull_request_scan_partial=is_docs_pull_request_scan_partial,
     )
 
 
@@ -254,14 +295,56 @@ def docs_source_path_by_suffix(tree_paths: list[str]) -> dict[str, str]:
     for path in tree_paths:
         if not path.endswith(DOCS_SOURCE_EXTENSIONS):
             continue
-        segments = [
-            segment for segment in path.rsplit(".", 1)[0].split("/") if not ROUTE_GROUP_SEGMENT_PATTERN.match(segment)
-        ]
-        if segments and segments[-1].lower() in INDEX_FILE_STEMS:
-            segments = segments[:-1]
+        segments = page_segments(path)
         for start in range(len(segments)):
             source_path_by_suffix.setdefault("/".join(segments[start:]), path)
     return source_path_by_suffix
+
+
+def page_segments(source_path: str) -> list[str]:
+    segments = [
+        segment
+        for segment in source_path.rsplit(".", 1)[0].split("/")
+        if not ROUTE_GROUP_SEGMENT_PATTERN.match(segment)
+    ]
+    if segments and segments[-1].lower() in INDEX_FILE_STEMS:
+        return segments[:-1]
+    return segments
+
+
+def merge_time_tree_pages(
+    sitemap_pages: list[DocsPage], docs_tree_paths: list[str], docs_url_prefix: str
+) -> list[DocsPage]:
+    content_roots = Counter(
+        content_root for page in sitemap_pages if (content_root := page_content_root(page)) is not None
+    )
+    if not content_roots:
+        return []
+    content_root = content_roots.most_common(1)[0][0]
+    known_page_keys = {page.key for page in sitemap_pages}
+    tree_pages: list[DocsPage] = []
+    for path in docs_tree_paths:
+        source_page_path = "/".join(page_segments(path))
+        page_key = source_page_path.removeprefix(content_root)
+        if not path.endswith(DOCS_SOURCE_EXTENSIONS) or not source_page_path.startswith(content_root):
+            continue
+        if any(segment.startswith(PARTIAL_SEGMENT_PREFIX) for segment in page_key.split("/")):
+            continue
+        if not page_key or page_key in known_page_keys:
+            continue
+        known_page_keys.add(page_key)
+        version = major_version(page_key.split("/", 1)[0])
+        tree_pages.append(DocsPage(url=f"{docs_url_prefix}{page_key}", key=page_key, source_path=path, version=version))
+    return tree_pages
+
+
+def page_content_root(page: DocsPage) -> str | None:
+    if page.source_path is None or not page.key:
+        return None
+    source_page_path = "/".join(page_segments(page.source_path))
+    if not source_page_path.endswith(f"/{page.key}"):
+        return None
+    return source_page_path.removesuffix(page.key)
 
 
 def docs_page(url: str, docs_url_prefix: str, source_path_by_suffix: Mapping[str, str]) -> DocsPage:
@@ -368,12 +451,14 @@ def read_docs_pull_requests(
     docs_as_of: datetime | None,
     docs_source_paths: frozenset[str],
     writer_login: str | None,
-) -> tuple[DocsPullRequest, ...]:
+    is_final_attempt: bool,
+) -> tuple[tuple[DocsPullRequest, ...], bool]:
+    scan = DocsPullRequestScan(github, is_final_attempt=is_final_attempt)
     reference_pattern = merged_pull_request_reference_pattern(change)
     is_same_repository = docs_repository.lower() == change.repository.lower()
     oldest_update = merged_at - DOCS_PULL_REQUEST_LOOKBACK if merged_at else None
     found_by_url: dict[str, DocsPullRequest] = {}
-    for listed in listed_pull_requests(github, docs_repository, state="all", oldest_update=oldest_update):
+    for listed in listed_pull_requests(scan, docs_repository, state="all", oldest_update=oldest_update):
         if docs_as_of is not None and not happened_by(listed.get("created_at"), docs_as_of):
             continue
         is_merged = happened_by(listed.get("merged_at"), docs_as_of)
@@ -390,28 +475,26 @@ def read_docs_pull_requests(
             continue
         if not reference_pattern.search(title_and_body(listed)):
             continue
-        if is_same_repository and not changes_docs_sources(
-            github, docs_repository, listed["number"], docs_source_paths
-        ):
+        if is_same_repository and not changes_docs_sources(scan, docs_repository, listed["number"], docs_source_paths):
             continue
         found_by_url[listed["html_url"]] = DocsPullRequest(
             url=listed["html_url"], is_opened_by_knowledge_writer=is_by_writer
         )
     if writer_login is None:
-        return tuple(found_by_url.values())
-    for listed in listed_pull_requests(github, docs_repository, state="open", oldest_update=None):
+        return tuple(found_by_url.values()), scan.is_partial
+    for listed in listed_pull_requests(scan, docs_repository, state="open", oldest_update=None):
         if listed["html_url"] in found_by_url or writer_pull_request(listed, docs_repository, writer_login) is None:
             continue
         if docs_as_of is not None and not happened_by(listed.get("created_at"), docs_as_of):
             continue
         is_referenced = reference_pattern.search(title_and_body(listed)) or is_referenced_in_comments(
-            github, docs_repository, listed["number"], reference_pattern
+            scan, docs_repository, listed["number"], reference_pattern
         )
         if is_referenced:
             found_by_url[listed["html_url"]] = DocsPullRequest(
                 url=listed["html_url"], is_opened_by_knowledge_writer=True
             )
-    return tuple(found_by_url.values())
+    return tuple(found_by_url.values()), scan.is_partial
 
 
 def title_and_body(listed: Mapping[str, Any]) -> str:
@@ -419,14 +502,15 @@ def title_and_body(listed: Mapping[str, Any]) -> str:
 
 
 def is_referenced_in_comments(
-    github: GitHubReader, repository: str, pull_request_number: int, reference_pattern: re.Pattern[str]
+    scan: DocsPullRequestScan, repository: str, pull_request_number: int, reference_pattern: re.Pattern[str]
 ) -> bool:
-    response = read_github(
-        github,
+    response = scan.read_reference(
         f"/repos/{repository}/issues/{pull_request_number}/comments",
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
         params={"per_page": PULL_REQUESTS_PER_PAGE},
     )
+    if response is None:
+        return False
     return any(reference_pattern.search(comment.get("body") or "") for comment in response.json())
 
 
@@ -437,11 +521,10 @@ def merged_pull_request_reference_pattern(change: LandedChange) -> re.Pattern[st
 
 
 def listed_pull_requests(
-    github: GitHubReader, repository: str, *, state: str, oldest_update: datetime | None
+    scan: DocsPullRequestScan, repository: str, *, state: str, oldest_update: datetime | None
 ) -> Iterator[dict[str, Any]]:
     for page in range(1, MAX_PULL_REQUEST_PAGES + 1):
-        response = read_github(
-            github,
+        response = scan.read(
             f"/repos/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             params={
@@ -452,6 +535,8 @@ def listed_pull_requests(
                 "page": page,
             },
         )
+        if response is None:
+            return
         listed_page = response.json()
         for listed in listed_page:
             updated_at = parse_github_time(listed.get("updated_at"))
@@ -460,17 +545,19 @@ def listed_pull_requests(
             yield listed
         if len(listed_page) < PULL_REQUESTS_PER_PAGE:
             return
+    scan.is_partial = True
 
 
 def changes_docs_sources(
-    github: GitHubReader, repository: str, pull_request_number: int, docs_source_paths: frozenset[str]
+    scan: DocsPullRequestScan, repository: str, pull_request_number: int, docs_source_paths: frozenset[str]
 ) -> bool:
-    response = read_github(
-        github,
+    response = scan.read_reference(
         f"/repos/{repository}/pulls/{pull_request_number}/files",
         endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
         params={"per_page": PULL_REQUESTS_PER_PAGE},
     )
+    if response is None:
+        return False
     return any(changed.get("filename") in docs_source_paths for changed in response.json())
 
 
