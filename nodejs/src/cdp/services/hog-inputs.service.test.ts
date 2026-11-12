@@ -848,7 +848,7 @@ describe('Hog Inputs', () => {
             hogFunction = createHogFunction({
                 ...hogFunction,
                 inputs: { oauth: { value: integrationId1 } },
-                inputs_schema: [{ key: 'oauth', type: 'integration', required: true, auth: { scheme: 'bearer' } }],
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true, auth: true }],
             })
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
@@ -876,7 +876,7 @@ describe('Hog Inputs', () => {
                 trick: 'a second input on the same connection',
                 key: 'copy',
                 schema: [
-                    { key: 'slack', type: 'integration', auth: { scheme: 'bearer' } },
+                    { key: 'slack', type: 'integration', auth: true },
                     { key: 'copy', type: 'integration' },
                 ],
                 inputs: (id: number) => ({ slack: { value: id }, copy: { value: id } }),
@@ -985,9 +985,7 @@ describe('Hog Inputs', () => {
             const id = 100000000 + team.id
             await insertUndecryptableIntegration(id)
             hogFunction.inputs = { slack: { value: id } }
-            hogFunction.inputs_schema = [
-                { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
-            ]
+            hogFunction.inputs_schema = [{ key: 'slack', type: 'integration', integration: 'slack', auth: true }]
 
             expect(await hogInputsService.resolveCredential(hogFunction, 'slack')).toEqual({
                 error: "The integration for input 'slack' could not be decrypted. Reconnect the integration.",
@@ -1296,7 +1294,7 @@ describe('Hog Inputs', () => {
             {
                 mode: 'a schema that declares auth',
                 enforced: false,
-                auth: { scheme: 'bearer' as const },
+                auth: true,
                 exposesToken: false,
             },
         ])('gives the function the same integration values as a fresh build in $mode', async (row) => {

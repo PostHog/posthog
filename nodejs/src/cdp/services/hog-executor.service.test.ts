@@ -2709,7 +2709,7 @@ describe('Hog Executor', () => {
                 invocation.hogFunction = { ...invocation.hogFunction, team_id: team.id }
                 invocation.hogFunction.inputs = { slack: { value: slack.id } }
                 invocation.hogFunction.inputs_schema = [
-                    { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
+                    { key: 'slack', type: 'integration', integration: 'slack', auth: true },
                 ]
                 return invocation
             }
@@ -2803,9 +2803,7 @@ describe('Hog Executor', () => {
                     team_id: team.id,
                     bytecode,
                     inputs: { slack: { value: slack.id } },
-                    inputs_schema: [
-                        { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
-                    ],
+                    inputs_schema: [{ key: 'slack', type: 'integration', integration: 'slack', auth: true }],
                 })
 
                 const executed = await executor.execute(invocation)
