@@ -25,7 +25,7 @@ use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
-use crate::router::BATCH_BODY_SIZE;
+use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
@@ -217,9 +217,11 @@ pub async fn build_components(
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => EVENT_PAYLOAD_MAX_BYTES,
         CaptureMode::Recordings => ingestion_message_max_bytes as usize,
     };
+    let (capture_v1_max_compressed_body_bytes, capture_v1_max_decompressed_body_bytes) =
+        capture_v1_body_limits(&config);
 
     // Build the overflow limiters here (not inside the sink) so routing
     // policy lives in `router::State` alongside every other pipeline-level
@@ -371,8 +373,8 @@ pub async fn build_components(
         config.ai_max_event_bytes,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
-        config.capture_v1_max_compressed_body_bytes,
-        config.capture_v1_max_decompressed_body_bytes,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
@@ -436,6 +438,35 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     // `0` disables the ceiling, so there is no ordering to be wrong about.
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
 }
+
+const EVENT_PAYLOAD_MAX_BYTES: usize = BATCH_BODY_SIZE * 5;
+
+const V1_MAX_COMPRESSED_BODY_BYTES: usize = 10 * 1024 * 1024;
+const V1_MAX_DECOMPRESSED_BODY_BYTES: usize = 50 * 1024 * 1024;
+
+/// A configured value always wins; only the defaults differ on capture-ai,
+/// where one v1 request has to carry an event at the shared ceiling.
+fn capture_v1_body_limits(config: &Config) -> (usize, usize) {
+    let (compressed, decompressed) = match config.capture_mode {
+        CaptureMode::Ai => (AI_BODY_SIZE, AI_BODY_SIZE),
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => {
+            (V1_MAX_COMPRESSED_BODY_BYTES, V1_MAX_DECOMPRESSED_BODY_BYTES)
+        }
+    };
+    (
+        config
+            .capture_v1_max_compressed_body_bytes
+            .unwrap_or(compressed),
+        config
+            .capture_v1_max_decompressed_body_bytes
+            .unwrap_or(decompressed),
+    )
+}
+
+const _: () = assert!(
+    EVENT_PAYLOAD_MAX_BYTES >= AI_BODY_SIZE,
+    "the AI batch route decompresses into the analytics budget"
+);
 
 fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: u32) {
     if ai_ceiling_exceeds_producer_cap(config, producer_message_max_bytes) {
@@ -1209,6 +1240,34 @@ mod tests {
         create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    #[rstest]
+    #[case::ai_defaults_carry_a_ceiling_sized_event("ai", None, (AI_BODY_SIZE, AI_BODY_SIZE))]
+    #[case::ai_keeps_a_configured_value("ai", Some(1_048_576), (1_048_576, 1_048_576))]
+    #[case::analytics_defaults_are_unchanged(
+        "events",
+        None,
+        (V1_MAX_COMPRESSED_BODY_BYTES, V1_MAX_DECOMPRESSED_BODY_BYTES)
+    )]
+    fn v1_body_limits_default_by_mode_and_keep_configured_values(
+        #[case] mode: &str,
+        #[case] configured: Option<usize>,
+        #[case] expected: (usize, usize),
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.capture_v1_max_compressed_body_bytes = configured;
+        config.capture_v1_max_decompressed_body_bytes = configured;
+
+        assert_eq!(capture_v1_body_limits(&config), expected);
     }
 
     /// The ceiling only guards anything while it sits under the producer's cap.

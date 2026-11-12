@@ -36,6 +36,7 @@ from products.messaging.backend.facade.contracts import (
     ContentTooLarge,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -55,6 +56,7 @@ from products.messaging.backend.facade.contracts import (
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
+    SensitiveTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
     TooManyKeys,
@@ -64,7 +66,9 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
@@ -448,9 +452,14 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
-def _code_email_workflow_id(team_id: int, key: str) -> UUID:
+def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
     if template is not None:
+        if sensitive is False and template.sensitive:
+            raise SensitiveTemplate(
+                "This email's template is marked sensitive, so `sensitive` can't be false. "
+                "Leave `sensitive` out, or unmark the template."
+            )
         return _transactional_workflow_id(team_id, template)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
@@ -484,8 +493,16 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
                 "reuse it for every recipient."
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+        key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
+        transaction.on_commit(lambda: _queue_source_detection(team_id, key_id), robust=True)
         return hog_flow_id
+
+
+def _queue_source_detection(team_id: int, key_id: str) -> None:
+    # After commit and local-only, so a send never waits on the flag service while it holds the team's key lock.
+    # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
+    if source_detection_enabled(team_id, only_locally=True):
+        detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 
 
 def _lock_team_keys(team_id: int) -> None:
@@ -564,7 +581,7 @@ def send_code_email(
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key)
+        hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
@@ -602,8 +619,10 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "tracking": _accepted_tracking(email.tracking),
     }
+    if email.sensitive is not None:
+        accepted["sensitive"] = email.sensitive
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
     if email.cc:
@@ -612,6 +631,15 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    return accepted
+
+
+def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
+    accepted = {"captureEngagement": tracking.engagement}
+    if not tracking.opens:
+        accepted["opens"] = False
+    if tracking.clicks is not None:
+        accepted["clicks"] = tracking.clicks
     return accepted
 
 
@@ -750,7 +778,11 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     except ValueError:
         return None
     for issue in issues if isinstance(issues, list) else []:
-        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+        if not isinstance(issue, dict) or issue.get("code") != "unrecognized_keys":
+            continue
+        if issue.get("path") == ["send", "tracking"]:
+            return "tracking"
+        if issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
                 return keys[0]

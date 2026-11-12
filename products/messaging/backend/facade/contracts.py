@@ -47,6 +47,11 @@ class TemplateNotSendable(TransactionalEmailError):
     code = "template_not_sendable"
 
 
+class SensitiveTemplate(TransactionalEmailError):
+    code = "sensitive_template"
+    attr = "sensitive"
+
+
 class MarketingTemplate(TransactionalEmailError):
     code = "marketing_template"
 
@@ -201,6 +206,13 @@ class InvalidRequest(TransactionalEmailError):
 
 
 @frozen
+class EmailTracking:
+    opens: bool = True
+    clicks: bool | None = None
+    engagement: bool = True
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -208,7 +220,8 @@ class CodeEmail:
     text: str
     sender: str | None
     reply_to: tuple[str, ...]
-    capture_engagement: bool
+    tracking: EmailTracking
+    sensitive: bool | None = None
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
@@ -404,6 +417,59 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+class CodeEmailSourceOrigin(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    DETECTED = "detected", "Detected from GitHub"
+
+
+@frozen
+class CodeManagedEmail:
+    """An email sent from code under a `template_key` with no template, as the Transactional emails list shows it."""
+
+    id: UUID
+    key: str
+    hog_flow_id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+    source_url: str | None
+    source_origin: CodeEmailSourceOrigin | None
+    created_at: datetime
+
+
+class CodeManagedEmailNotFound(Exception):
+    pass
+
+
+@frozen
+class CodeEmailSourceCandidate:
+    """A file in a connected GitHub repository that holds a code email's key."""
+
+    repository: str
+    path: str
+    line: int
+    url: str
+    call_site: bool
+
+
+@frozen
+class CodeEmailSourceCandidates:
+    candidates: tuple[CodeEmailSourceCandidate, ...]
+    complete: bool
+
+
+class CodeEmailSourceKeyUnsearchable(Exception):
+    """GitHub can't search for the key: it is blank, spans lines, or is longer than a search allows."""
+
+
+class CodeEmailSourceSearchUnavailable(Exception):
+    """No GitHub installation answered the search."""
+
+    def __init__(self, *, shed: bool) -> None:
+        super().__init__("budget shed" if shed else "GitHub error")
+        self.shed = shed
 
 
 @frozen

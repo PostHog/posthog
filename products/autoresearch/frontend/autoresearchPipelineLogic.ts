@@ -33,6 +33,12 @@ import {
     statusBrief,
 } from './agentSearch'
 import {
+    confirmTrainingWithoutCheck,
+    firstRunCheckProblem,
+    needsFirstRunCheck,
+    runFirstRunCheck,
+} from './firstRunCheck'
+import {
     autoresearchModelsList,
     autoresearchOnlinePerformanceRetrieve,
     autoresearchPartialUpdate,
@@ -47,6 +53,7 @@ import {
     autoresearchTrainingRunsArtifactsGetCreate,
     autoresearchTrainingRunsArtifactsRetrieve,
     autoresearchTrainingRunsList,
+    autoresearchTrainingRunsStopCreate,
     autoresearchTrainCreate,
 } from './generated/api'
 import {
@@ -338,6 +345,7 @@ export interface autoresearchPipelineLogicValues {
     experimentLogFilter: ExperimentLogFilter
     experimentLogGroups: ExperimentLogGroup[]
     firstCheck: dayjs.Dayjs | null
+    firstRunCheckRunning: boolean
     hasChallengerPerformance: boolean
     hasLiveTrainingRun: boolean
     hideLowestBucket: boolean | null
@@ -346,6 +354,7 @@ export interface autoresearchPipelineLogicValues {
     latestChampionPerformance: OnlinePerformanceRowApi | null
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
+    liveTrainingRun: AutoresearchTrainingRunApi | null
     lowCoveragePct: number | null
     lowestBucket: LowestBucket | null
     lowestBucketHidden: boolean
@@ -394,6 +403,7 @@ export interface autoresearchPipelineLogicValues {
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     statusBrief: StatusBrief | null
+    stoppingTraining: boolean
     suggestionDraft: string
     suggestionPriority: CreateSuggestionPriorityEnumApi
     suggestionSubmitResult: AutoresearchSuggestionApi | null
@@ -676,6 +686,9 @@ export interface autoresearchPipelineLogicActions {
     reportPredictionLinkClicked: (destination: PredictionLinkDestination) => {
         destination: PredictionLinkDestination
     }
+    requestTraining: () => {
+        value: true
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -736,6 +749,9 @@ export interface autoresearchPipelineLogicActions {
     }
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
+    }
+    setFirstRunCheckRunning: (running: boolean) => {
+        running: boolean
     }
     setHideLowestBucket: (hidden: boolean) => {
         hidden: boolean
@@ -802,6 +818,12 @@ export interface autoresearchPipelineLogicActions {
         payload?: any
     }
     steerOpened: () => {
+        value: true
+    }
+    stopTraining: () => {
+        value: true
+    }
+    stopTrainingFinished: () => {
         value: true
     }
     submitSuggestion: () => any
@@ -904,6 +926,7 @@ export interface autoresearchPipelineLogicMeta {
         lowestBucketHidden: (lowestBucket: LowestBucket | null, hideLowestBucket: boolean | null) => boolean
         lowCoveragePct: (coverageSummary: CoverageSummary | null) => number | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
+        liveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => AutoresearchTrainingRunApi | null
         scoredChallenger: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
         runRoles: (
             champion: AutoresearchModelApi | null,
@@ -992,10 +1015,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setHoveredSearchPoint: (point: SearchPoint | null) => ({ point }),
         steerOpened: true,
         fullNotesOpened: true,
+        requestTraining: true,
+        setFirstRunCheckRunning: (running: boolean) => ({ running }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
         setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
         setWritePersonPropertyFinished: true,
+        stopTraining: true,
+        stopTrainingFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
@@ -1003,6 +1030,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             false,
             {
                 loadDetail: () => true,
+            },
+        ],
+        firstRunCheckRunning: [
+            false,
+            {
+                setFirstRunCheckRunning: (_, { running }) => running,
             },
         ],
         selectedTab: [
@@ -1124,6 +1157,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 setWritePersonProperty: () => true,
                 setWritePersonPropertyFinished: () => false,
+            },
+        ],
+        stoppingTraining: [
+            false,
+            {
+                stopTraining: () => true,
+                stopTrainingFinished: () => false,
             },
         ],
         segmentThresholds: [
@@ -1641,6 +1681,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.trainingRuns],
             (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
         ],
+        liveTrainingRun: [
+            (s) => [s.trainingRuns],
+            (trainingRuns: AutoresearchTrainingRunApi[]): AutoresearchTrainingRunApi | null =>
+                trainingRuns.find(isTrainingRunLive) ?? null,
+        ],
         scoredChallenger: [
             (s) => [s.models],
             (models: AutoresearchModelApi[]): AutoresearchModelApi | null => scoredChallenger(models),
@@ -1783,6 +1828,31 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             })
             // A project at its daily training limit explains when the next run can start in `detail`.
             lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
+        },
+        stopTraining: async () => {
+            const run = values.liveTrainingRun
+            if (!values.currentTeamId || !run) {
+                actions.stopTrainingFinished()
+                return
+            }
+            try {
+                await autoresearchTrainingRunsStopCreate(String(values.currentTeamId), props.id, run.id)
+                // pinned: analytics event name and properties. Renaming breaks insights built on them.
+                posthog.capture('autoresearch model training stopped', { pipeline_id: props.id, run_id: run.id })
+                lemonToast.success('Training run stopped')
+                actions.loadTrainingRuns()
+                // A first run's stop puts the model back in draft.
+                actions.loadPipeline()
+            } catch (error: any) {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'stop_training',
+                    pipeline_id: props.id,
+                    status: error?.status,
+                })
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? "Couldn't stop the training run. Try again.")
+            } finally {
+                actions.stopTrainingFinished()
+            }
         },
         pausePipelineSuccess: () => {
             posthog.capture('autoresearch model paused', { pipeline_id: props.id })
@@ -1940,6 +2010,35 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             if (!values.artifactsByRun[point.runId]) {
                 actions.loadRunArtifacts({ runId: point.runId })
             }
+        },
+        requestTraining: async () => {
+            const pipeline = values.pipeline
+            if (!pipeline || !values.currentTeamId || !needsFirstRunCheck(pipeline)) {
+                actions.startTraining()
+                return
+            }
+            actions.setFirstRunCheckRunning(true)
+            let problem: string | null
+            let errorCode: string | null = null
+            try {
+                const validation = await runFirstRunCheck(String(values.currentTeamId), pipeline)
+                problem = firstRunCheckProblem(validation)
+                errorCode = validation.error_code
+            } catch {
+                problem = "Couldn't check this model."
+            } finally {
+                actions.setFirstRunCheckRunning(false)
+            }
+            if (!problem) {
+                actions.startTraining()
+                return
+            }
+            const checkProperties = { pipeline_id: props.id, source: 'model', error_code: errorCode }
+            posthog.capture('autoresearch model training check failed', checkProperties)
+            confirmTrainingWithoutCheck(problem, () => {
+                posthog.capture('autoresearch model training check overridden', checkProperties)
+                actions.startTraining()
+            })
         },
         steerOpened: () => {
             // pinned: analytics event name and properties. Renaming breaks insights built on them.
