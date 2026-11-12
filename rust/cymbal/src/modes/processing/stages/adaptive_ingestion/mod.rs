@@ -35,7 +35,6 @@ use crate::{
 
 use rule::{Reading, Thresholds};
 
-const VERSION: u32 = 1;
 const MAX_CONCURRENT_TEAMS: usize = 256;
 
 const RECENT: Window = Window {
@@ -163,7 +162,6 @@ impl AdaptiveIngestionRuntime {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Verdict {
-    history_days: usize,
     reading: Option<Reading>,
     over_issue_line: bool,
     over_project_line: bool,
@@ -178,7 +176,6 @@ fn decide_team(
 ) -> Vec<Verdict> {
     let (recent, hourly, daily) = (&counts[0], &counts[1], &counts[2]);
     let previous_days = &daily.team.counts[1..];
-    let history_days = previous_days.iter().filter(|n| **n > 0).count();
     let typical_day = rule::typical_day(previous_days);
     let mut project_day = hourly.team.rolling(now);
     let mut issue_hour: Vec<f64> = recent.issues.iter().map(|s| s.rolling(now)).collect();
@@ -200,7 +197,6 @@ fn decide_team(
             issue_hour[issue] -= 1.0;
             issue_day[issue] -= 1.0;
             Verdict {
-                history_days,
                 reading,
                 over_issue_line: reading.is_some_and(|r| thresholds.over_issue_line(&r)),
                 over_project_line: reading.is_some_and(|r| thresholds.over_project_line(&r)),
@@ -269,12 +265,6 @@ async fn apply_shadow(
                         .heal_gate
                         .spawn_heal(async move { redis.heal().await });
                 }
-                for (idx, _) in events {
-                    if let Ok(event) = &mut items[idx] {
-                        set(event, "version", VERSION);
-                        set(event, "error", true);
-                    }
-                }
                 continue;
             }
         };
@@ -288,8 +278,8 @@ async fn apply_shadow(
             for (outcome, _) in outcomes.into_iter().filter(|(_, holds)| *holds) {
                 *outcome_counts.entry(outcome).or_default() += 1;
             }
-            if let Ok(event) = &mut items[idx] {
-                stamp(event, &verdict);
+            if let (Ok(event), Some(reading)) = (&mut items[idx], verdict.reading) {
+                stamp(event, &reading);
             }
         }
     }
@@ -299,33 +289,19 @@ async fn apply_shadow(
     outcome_counts
 }
 
-fn set(event: &mut ExceptionEvent<RateChecked>, name: &str, value: impl Into<Value>) {
-    event
-        .props
-        .insert(format!("$adaptive_ingestion_{name}"), value.into());
-}
-
-fn stamp(event: &mut ExceptionEvent<RateChecked>, verdict: &Verdict) {
-    let rounded = |value: f64| (value * 100.0).round() / 100.0;
-    set(event, "version", VERSION);
-    set(event, "history_days", verdict.history_days);
-    let Some(reading) = verdict.reading else {
-        return;
-    };
-    set(event, "typical_day", rounded(reading.typical_day));
-    set(
-        event,
-        "issue_hour_ratio",
-        rounded(reading.issue_hour_ratio()),
-    );
-    set(event, "issue_day_ratio", rounded(reading.issue_day_ratio()));
-    set(
-        event,
-        "project_day_ratio",
-        rounded(reading.project_day_ratio()),
-    );
-    set(event, "over_issue_line", verdict.over_issue_line);
-    set(event, "over_project_line", verdict.over_project_line);
+/// The lines are not stored: a query applies any threshold to the ratios.
+fn stamp(event: &mut ExceptionEvent<RateChecked>, reading: &Reading) {
+    for (name, value) in [
+        ("typical_day", reading.typical_day),
+        ("issue_hour_ratio", reading.issue_hour_ratio()),
+        ("issue_day_ratio", reading.issue_day_ratio()),
+        ("project_day_ratio", reading.project_day_ratio()),
+    ] {
+        event.props.insert(
+            format!("$adaptive_ingestion_{name}"),
+            Value::from((value * 100.0).round() / 100.0),
+        );
+    }
 }
 
 #[derive(Clone)]
@@ -486,12 +462,11 @@ mod tests {
         assert_eq!(over_issue, [false, false, false, true, true, false]);
         let over_project: Vec<bool> = verdicts.iter().map(|v| v.over_project_line).collect();
         assert_eq!(over_project, [false, false, false, false, true, true]);
-        assert_eq!(verdicts[5].history_days, 29);
         assert_eq!(verdicts[5].reading.unwrap().issue_day, 2.0);
     }
 
     #[tokio::test]
-    async fn keeps_every_event_and_flags_the_error_when_redis_fails() {
+    async fn keeps_every_event_unmarked_when_redis_fails() {
         let issue = Uuid::now_v7();
         let mut items = vec![event(7, issue), event(8, issue)];
 
@@ -499,8 +474,9 @@ mod tests {
             apply_shadow(&runtime(FakeRunner::failing()), &enabled(), 0, &mut items).await;
 
         assert_eq!(outcomes, HashMap::from([(ERROR, 1)]));
-        assert_eq!(property(&items[0], "error"), Some(&Value::Bool(true)));
-        assert!(items[1].as_ref().unwrap().props.is_empty());
+        assert!(items
+            .iter()
+            .all(|item| item.as_ref().unwrap().props.is_empty()));
     }
 
     #[tokio::test]
@@ -512,9 +488,9 @@ mod tests {
         let day = 86_400;
 
         let mut first_day = vec![event(7, steady)];
-        apply_shadow(&runtime, &enabled(), 0, &mut first_day).await;
-        assert_eq!(property(&first_day[0], "history_days"), Some(&0.into()));
-        assert_eq!(property(&first_day[0], "over_issue_line"), None);
+        let outcomes = apply_shadow(&runtime, &enabled(), 0, &mut first_day).await;
+        assert_eq!(outcomes, HashMap::from([(SEEN, 1), (NO_BASELINE, 1)]));
+        assert!(first_day[0].as_ref().unwrap().props.is_empty());
 
         for past in 1..14 {
             let mut items: Vec<_> = (0..240).map(|_| event(7, steady)).collect();
@@ -529,21 +505,16 @@ mod tests {
         // 13 days of 240 and one day of 1 give a typical day of 240, so a typical hour of 10 and a line at 120.
         assert_eq!(property(&items[0], "typical_day"), Some(&240.0.into()));
         assert_eq!(
-            property(&items[119], "over_issue_line"),
-            Some(&false.into())
+            property(&items[119], "issue_hour_ratio"),
+            Some(&12.0.into())
         );
-        assert_eq!(property(&items[120], "over_issue_line"), Some(&true.into()));
         assert_eq!(
             property(&items[120], "issue_hour_ratio"),
             Some(&12.1.into())
         );
         assert_eq!(
-            property(&items[130], "over_issue_line"),
-            Some(&false.into())
-        );
-        assert_eq!(
-            property(&items[130], "over_project_line"),
-            Some(&false.into())
+            property(&items[130], "project_day_ratio"),
+            Some(&1.55.into())
         );
         assert!(items[131].as_ref().unwrap().props.is_empty());
         assert_eq!(

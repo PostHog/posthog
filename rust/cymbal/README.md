@@ -62,20 +62,18 @@ Within a batch, only the exceptions that arrive after a line is crossed are over
 | `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
 | `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
 
-Each exception of an included project gets these properties.
+Each exception of an included project that has a typical day gets these properties.
+The lines are not stored on the exception: a query applies any threshold to the ratios.
 Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so only processing sets them.
 
 | Property | Value |
 | --- | --- |
-| `$adaptive_ingestion_version` | `1` |
-| `$adaptive_ingestion_history_days` | days with exceptions among the previous 29 |
-| `$adaptive_ingestion_typical_day` | the typical day; absent, with the properties below, when the project has none |
+| `$adaptive_ingestion_typical_day` | the typical day |
 | `$adaptive_ingestion_issue_hour_ratio` | the issue's rolling hour divided by the typical hour |
 | `$adaptive_ingestion_issue_day_ratio` | the issue's rolling 24 hours divided by the typical day |
 | `$adaptive_ingestion_project_day_ratio` | the project's rolling 24 hours divided by the typical day |
-| `$adaptive_ingestion_over_issue_line`, `$adaptive_ingestion_over_project_line` | whether the exception is over each line |
-| `$adaptive_ingestion_error` | `true` when the counters failed; the exception is kept and gets no other property |
 
+When the counters fail, the exception is kept and gets no property.
 `cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
 
 ## Issue-created rate limit (notifications mode)
