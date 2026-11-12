@@ -1548,6 +1548,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
             ),
             ("mapping_rename", "mapping", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("unnormalized_rename", "unnormalized", {"name": "Renamed"}, status.HTTP_200_OK),
             ("mapping_code_change", "mapping", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
             (
                 "mapping_secret_removed_with_a_code_change",
@@ -1572,6 +1573,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if stored_in == "plaintext":
             HogFunction.objects.filter(id=function.id).update(
                 inputs={"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}}, encrypted_inputs=None
+            )
+        elif stored_in == "unnormalized":
+            # As older saves left a row: an unset optional input stored as null, and no templating copied from
+            # the schema onto the input.
+            HogFunction.objects.filter(id=function.id).update(
+                inputs_schema=[
+                    {**SENDER_SCHEMA[0], "templating": "liquid"},
+                    SENDER_SCHEMA[1],
+                    {"key": "note", "type": "string", "label": "Note", "required": False},
+                ],
+                inputs={"url": {"value": SENDER_URL}, "note": None},
             )
         elif stored_in == "mapping":
             HogFunction.objects.filter(id=function.id).update(
@@ -1628,6 +1640,22 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tested = mock_invocation.call_args.kwargs["payload"]["configuration"]["inputs"]["headers"]["value"]
         assert function.inputs is not None
         assert list(tested) == list(function.inputs["headers"]["value"]) != list(sent_headers)
+
+    def test_test_invocation_sends_the_code_its_secrets_were_checked_against(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function = HogFunction.objects.get(id=res.json()["id"])
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}/invocations/",
+                data={"configuration": {"filters": {}}},
+            )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        tested = mock_invocation.call_args.kwargs["payload"]["configuration"]
+        assert (tested["hog"], tested["bytecode"], tested["mappings"]) == (SENDER_HOG, function.bytecode, None)
 
     def test_internal_save_that_changes_code_is_counted_but_not_refused(self) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)

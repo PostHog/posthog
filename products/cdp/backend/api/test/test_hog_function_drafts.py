@@ -463,6 +463,34 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert staged_outcomes == expected_staged_outcomes
         assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == expected_live_token
 
+    def test_draft_edit_that_changes_one_secret_needs_the_others_entered_again(self):
+        url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
+        function_id = self._create(
+            hog=SENDER_HOG,
+            inputs_schema=[{**url_schema, "secret": True}, token_schema],
+            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+        )
+
+        with secret_reentry_flag(True):
+            self._stage(function_id, {"inputs": {"url": {"value": SENDER_URL}, "token": {"value": "live"}}})
+            self._stage(function_id, {"inputs": {"url": {"value": MOVED_URL}, "token": {"secret": True}}})
+            published = self._publish(function_id)
+
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        assert HogFunction.objects.get(id=function_id).encrypted_inputs["url"]["value"] == SENDER_URL
+
+    def test_secret_a_draft_added_must_be_entered_again_after_a_later_code_change(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}})
+
+        with secret_reentry_flag(True):
+            self._stage(function_id, {"inputs": sender_inputs(SENDER_URL, {"value": "draft-only"})})
+            self._stage(function_id, {"hog": MOVED_SENDER_HOG})
+            tested, _ = self._test_invoke(function_id, {"use_draft": True, "mock_async_functions": False})
+            published = self._publish(function_id)
+
+        assert (tested.status_code, published.status_code) == (status.HTTP_400_BAD_REQUEST,) * 2, published.json()
+        assert HogFunction.objects.get(id=function_id).hog == SENDER_HOG
+
     def test_draft_secret_recovered_before_a_live_rotation_does_not_count_as_entered(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
 
