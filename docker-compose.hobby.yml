@@ -477,22 +477,29 @@ services:
         # Django hands out keep working. Caddy forwards signed requests as well, so the
         # posthog identity uses the install's own keys from .env. SeaweedFS keeps identities
         # on the data volume, so each start also deletes the dev key that older installs
-        # registered, and the service reports ready only after that key is gone. There is no
-        # duckgres here, so there is no ducklake-dev bucket either. The loop holds no shell
-        # variables on purpose:
-        # bin/upgrade-hobby pipes this file through envsubst, which collapses a
-        # doubled-dollar variable reference to a bare dollar sign.
+        # registered. The service reports ready only when one identity read shows the
+        # install key and no dev key, so a failed read never counts as a deleted key. The
+        # keys reach the script through the environment, not through compose interpolation,
+        # because every account on the host can read a process's arguments. There is no
+        # duckgres here, so there is no ducklake-dev bucket either. bin/upgrade-hobby renders
+        # this file with envsubst for a fixed list of variables, so the doubled-dollar
+        # references below pass through unchanged.
+        environment:
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
         entrypoint:
             - /bin/sh
             - -c
             - |
                 (
                     while true; do
-                        printf 's3.configure -access_key=${OBJECT_STORAGE_ACCESS_KEY_ID:?} -secret_key=${OBJECT_STORAGE_SECRET_ACCESS_KEY:?} -user=posthog -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ai-blobs\ns3.configure -access_key=object_storage_root_user -user=posthog -delete -apply\n' \
+                        printf 's3.configure -access_key=%s -secret_key=%s -user=posthog -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ai-blobs\ns3.configure -access_key=object_storage_root_user -user=posthog -delete -apply\n' \
+                                "$$OBJECT_STORAGE_ACCESS_KEY_ID" "$$OBJECT_STORAGE_SECRET_ACCESS_KEY" \
                                 | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
+                        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
                         if echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q ai-blobs \
-                                && echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q '${OBJECT_STORAGE_ACCESS_KEY_ID:?}' \
-                                && ! echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q object_storage_root_user; then
+                                && echo "$$IDENTITIES" | grep -qF -- "$$OBJECT_STORAGE_ACCESS_KEY_ID" \
+                                && ! echo "$$IDENTITIES" | grep -q object_storage_root_user; then
                             touch /tmp/objectstorage-ready
                             echo "Objectstorage SeaweedFS ready with required buckets and identities"
                             break

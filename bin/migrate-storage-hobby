@@ -192,6 +192,11 @@ run_service() {
         exit 1
     fi
 
+    # Passed by name with -e, so the values stay out of the docker compose arguments, which
+    # every account on the host can read.
+    export SESSION_RECORDING_V2_S3_ACCESS_KEY_ID="$DEST_KEY"
+    export SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY="$DEST_SECRET"
+
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🔄 $service → $endpoint"
@@ -203,8 +208,8 @@ run_service() {
         -e OBJECT_STORAGE_ACCESS_KEY_ID="$S3_KEY" \
         -e OBJECT_STORAGE_SECRET_ACCESS_KEY="$S3_SECRET" \
         -e SESSION_RECORDING_V2_S3_ENDPOINT="$endpoint" \
-        -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID="$DEST_KEY" \
-        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY="$DEST_SECRET" \
+        -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID \
+        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY \
         plugins \
         node nodejs/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode migrate "${EXTRA_ARGS[@]}"
 }

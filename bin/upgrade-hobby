@@ -173,6 +173,8 @@ for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
         echo "Added missing $key to .env file"
     fi
 done
+# .env holds Django's SECRET_KEY and the object storage keys, so only its owner may read it.
+chmod 600 .env || echo "Could not restrict .env to its owner. Run: chmod 600 .env"
 
 # PostHog's AI features (the Max assistant, SQL/regex assist) run on your own LLM provider key.
 # If none is configured yet, offer to add one. Existing keys are never touched — we only append
