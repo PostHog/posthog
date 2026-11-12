@@ -47,7 +47,8 @@ describe('CrashGuard', () => {
 
     const storedKey = (partition: number, start: number) =>
         valkey.useClient({ name: 'test' }, async (client) => ({
-            attempts: await client.get(batchAttemptsKey(group, partition, start)),
+            attempts: await client.hget(batchAttemptsKey(group, partition, start), 'attempts'),
+            highestOffset: await client.hget(batchAttemptsKey(group, partition, start), 'highest_offset'),
             ttl: await client.ttl(batchAttemptsKey(group, partition, start)),
         }))
 
@@ -84,11 +85,13 @@ describe('CrashGuard', () => {
         expect(await diverted()).toEqual(1)
     })
 
-    it('expires a key it never cleared and deletes the key once the batch succeeds', async () => {
+    it('expires a key it never cleared, keeps the highest offset that crashed, and deletes the key once the batch succeeds', async () => {
         await expect(guard.run(messages(3, 0, 5), crash)).rejects.toThrow()
+        // A fetch right after a restart can return fewer messages than the fetch that crashed.
+        await expect(guard.run(messages(3, 0, 2), crash)).rejects.toThrow()
 
         const left = await storedKey(3, 0)
-        expect(left!.attempts).toEqual('1')
+        expect(left).toEqual({ attempts: '2', highestOffset: '4', ttl: expect.any(Number) })
         expect(left!.ttl).toBeGreaterThan(0)
         expect(left!.ttl).toBeLessThanOrEqual(60 * 60)
 

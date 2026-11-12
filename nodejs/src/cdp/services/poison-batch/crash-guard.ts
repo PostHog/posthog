@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import type { CommonConfig } from '~/common/config'
-import { RedisV2, createRedisV2PoolFromConfig, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
@@ -104,17 +104,38 @@ export type ConsumedBatch = { backgroundTask: Promise<unknown> }
 export const batchAttemptsKey = (group: string, partition: number, start: number): string =>
     `cdp:batch-attempts:${group}:${partition}:${start}`
 
-type BatchStart = { partition: number; start: number }
+type BatchStart = { partition: number; start: number; last: number }
 
-type CountedStart = BatchStart & { attempts: number }
+/** highestOffset is the highest offset that any attempt from this start fetched, this one included. */
+type CountedStart = BatchStart & { attempts: number; highestOffset: number }
 
 const batchStarts = (messages: Message[]): BatchStart[] => {
-    const starts = new Map<number, number>()
+    const starts = new Map<number, BatchStart>()
     for (const { partition, offset } of messages) {
-        starts.set(partition, Math.min(offset, starts.get(partition) ?? offset))
+        const batch = starts.get(partition)
+        starts.set(partition, {
+            partition,
+            start: Math.min(offset, batch?.start ?? offset),
+            last: Math.max(offset, batch?.last ?? offset),
+        })
     }
-    return [...starts].map(([partition, start]) => ({ partition, start }))
+    return [...starts.values()]
 }
+
+// One script per key keeps the count, the highest offset and the TTL in a single atomic step, so a key can
+// never exist without a TTL. A fetch after a restart can return fewer messages than the fetch that crashed,
+// so the highest offset keeps the end of the range that crashed.
+const COUNT_ATTEMPT_SCRIPT = `
+local attempts = redis.call('HINCRBY', KEYS[1], 'attempts', 1)
+local highest = tonumber(redis.call('HGET', KEYS[1], 'highest_offset'))
+local last = tonumber(ARGV[1])
+if highest == nil or last > highest then
+    highest = last
+    redis.call('HSET', KEYS[1], 'highest_offset', ARGV[1])
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return {attempts, highest}
+`
 
 /**
  * Counts how often each partition's batch of a consumer group started without finishing. A count above
@@ -169,7 +190,8 @@ export class CrashGuard {
     }
 
     /**
-     * Adds 1 to the attempt count of each partition in the fetch and refreshes its TTL. run calls this
+     * Adds 1 to the attempt count of each partition in the fetch, records the highest offset that any attempt
+     * fetched, and refreshes the TTL. run calls this
      * first, before any message runs, so a crash anywhere later still leaves the count. When Valkey is
      * unavailable, this returns null and run consumes the whole fetch without a count.
      */
@@ -177,17 +199,17 @@ export class CrashGuard {
         try {
             const { valkey, keyTtlSeconds } = this.settings
             const results = await valkey.usePipeline({ name: 'cdp-batch-attempts-count' }, (pipeline) => {
-                for (const key of this.keys(starts)) {
-                    pipeline.incr(key)
-                    pipeline.expire(key, keyTtlSeconds)
+                for (const batch of starts) {
+                    pipeline.eval(COUNT_ATTEMPT_SCRIPT, 1, this.keys([batch])[0], batch.last, keyTtlSeconds)
                 }
             })
             const counted = starts.map((batch, i) => {
-                const [[incrError, attempts], [expireError]] = getRedisPipelineResults(results!, i, 2)
-                if (incrError || expireError) {
-                    throw incrError ?? expireError
+                const [error, reply] = results![i]
+                if (error) {
+                    throw error
                 }
-                return { ...batch, attempts: attempts as number }
+                const [attempts, highestOffset] = reply as [number, number]
+                return { ...batch, attempts, highestOffset }
             })
             for (const { attempts } of counted) {
                 batchAttemptsMarked.labels(this.group, attempts === 1 ? 'new' : 'repeat').inc()
@@ -206,7 +228,9 @@ export class CrashGuard {
     /**
      * Deletes the attempt counts of the consumed partitions after their background task finishes. Without
      * this, a later fetch from the same start offset, for example after a rebalance, would start with a
-     * leftover attempt.
+     * leftover attempt. The delete does not check which pod owns the partition. After a rebalance, a revoked pod
+     * whose background task finishes late can delete the count that the new owner just added. That delays a
+     * divert by one attempt and does not lose a message.
      */
     private async clear(counted: CountedStart[]): Promise<void> {
         try {
