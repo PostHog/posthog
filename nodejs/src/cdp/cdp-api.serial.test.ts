@@ -3280,18 +3280,18 @@ describe('CDP API', () => {
                 ['goes out now', undefined, 0],
                 ['is scheduled, since a reschedule can move it to the last day it may go out', inDays(1), 1],
             ])('keeps the files of a send that %s', async (_desc, scheduledAt, copies) => {
+                const file = await uploadAttachment(team.id, {})
                 bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
-                const copiesBefore = bucket.copies
 
                 const res = await sendOnFilesApi({
                     ...body,
                     idempotency_key: newKey(),
-                    send: withFile({}),
+                    send: { ...codeSend, attachments: [reference(file)] },
                     ...(scheduledAt && { scheduled_at: scheduledAt }),
                 })
 
                 expect(res.status).toBe(202)
-                expect(bucket.copies - copiesBefore).toEqual(copies)
+                expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(copies)
             })
 
             it.each([
