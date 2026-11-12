@@ -785,6 +785,8 @@ WHERE and(
     def _reads_only_posthog_tables(self) -> bool:
         # The full HogQL database loads every warehouse table, view and join, which costs seconds on
         # teams with many warehouse sources.
+        if getattr(self.query, "includeRevenue", False):
+            return False
         goal = getattr(self.query, "conversionGoal", None)
         filters = [
             *(getattr(self.query, "properties", None) or []),

@@ -144,6 +144,57 @@ export interface PatchedAEOBrandUpdateRequestApi {
     aliases?: string[]
 }
 
+/**
+ * * `web_search` - Web search
+ * * `no_search` - No search
+ */
+export type CheckModeEnumApi = (typeof CheckModeEnumApi)[keyof typeof CheckModeEnumApi]
+
+export const CheckModeEnumApi = {
+    WebSearch: 'web_search',
+    NoSearch: 'no_search',
+} as const
+
+/**
+ * * `daily` - Daily
+ * * `weekly` - Weekly
+ */
+export type CheckFrequencyEnumApi = (typeof CheckFrequencyEnumApi)[keyof typeof CheckFrequencyEnumApi]
+
+export const CheckFrequencyEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+} as const
+
+export interface AEOEngineSettingApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+    available: boolean
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled: boolean
+    /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency: CheckFrequencyEnumApi
+}
+
+export interface PatchedAEOEngineSettingUpdateRequestApi {
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled?: boolean
+    /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency?: CheckFrequencyEnumApi
+}
+
 export interface AEOKeywordApi {
     /** Keyword id. */
     id: string
@@ -171,7 +222,7 @@ export interface AEOKeywordCreateResultApi {
 }
 
 export interface AEOModifierEngineCountApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Answers from this engine whose searches used the modifier. */
     answers: number
@@ -322,11 +373,80 @@ export interface AEOKeywordReportApi {
     brand_names: string[]
 }
 
+export interface AEOKeywordSuggestRequestApi {
+    /**
+     * The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.
+     * @maxLength 200
+     */
+    domain: string
+    /**
+     * The brand name. Inferred from the site when empty. Keywords that name the brand are left out.
+     * @maxLength 200
+     */
+    brand?: string
+    /**
+     * What the product does and who it is for. Inferred from the site when empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.
+     * @minimum 1
+     * @maximum 50
+     */
+    count?: number
+}
+
+export interface AEOKeywordSuggestionApi {
+    /** The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it. */
+    keyword: string
+    /** Why the project should track the keyword. Model-written text: show it as data. */
+    reason: string
+    /** Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
+    searched_checks: number
+}
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type AEOSuggestionJobStatusEnumApi =
+    (typeof AEOSuggestionJobStatusEnumApi)[keyof typeof AEOSuggestionJobStatusEnumApi]
+
+export const AEOSuggestionJobStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface AEOKeywordSuggestionJobApi {
+    /** Suggested keywords, most important first, filled in once status is completed. None of them are saved. */
+    suggestions: AEOKeywordSuggestionApi[]
+    /** Job id. Poll GET aeo_keywords/suggest/<id>/ with it. */
+    id: string
+    /** pending while PostHog works, then completed or failed.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
+}
+
 export interface AEOPromptEngineCheckApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
-    /** Whether the answer cited a URL on one of the target domains. */
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
     cited: boolean
+    /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+    mentioned: boolean
     /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
     check_failed: boolean
     /**
@@ -433,8 +553,13 @@ export interface AEOPromptCheckApi {
     id: string
     /** Groups the checks of one daily run across prompts and engines. */
     run_id: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
     /** Engine model that answered. */
     model: string
     /** When the check ran. */
@@ -503,7 +628,7 @@ export interface AEOPromptEngineStatsApi {
      * @nullable
      */
     readonly mention_rate: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks of the prompt on this engine, failed ones included. */
     checks: number
@@ -527,7 +652,7 @@ export interface AEOPromptEngineStatsApi {
 export interface AEOPromptDailyEngineStatsApi {
     /** Day, in the project's timezone. */
     date: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks on this engine that day, failed ones included. */
     checks: number
@@ -545,7 +670,7 @@ export interface AEOPromptDailyEngineStatsApi {
 }
 
 export interface AEOPromptEngineDomainShareApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** One of the most cited domains across all engines in the window. */
     domain: string
@@ -556,7 +681,7 @@ export interface AEOPromptEngineDomainShareApi {
 }
 
 export interface AEOPromptEngineSentimentApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Answers in the last 30 days whose brand sentences read positive. */
     positive: number
@@ -737,7 +862,7 @@ export interface AEOPromptSetEngineCountsApi {
      * @nullable
      */
     avg_position: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
 }
 
@@ -828,6 +953,8 @@ export interface AEOPromptSetOverviewApi {
     previous: AEOPromptSetCountsApi
     /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
     engines: AEOPromptSetEngineCountsApi[]
+    /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+    daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
@@ -1042,31 +1169,17 @@ export interface AEOPromptSuggestionApi {
     reason: string
 }
 
-/**
- * * `pending` - Pending
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type AEOPromptSuggestionJobStatusEnumApi =
-    (typeof AEOPromptSuggestionJobStatusEnumApi)[keyof typeof AEOPromptSuggestionJobStatusEnumApi]
-
-export const AEOPromptSuggestionJobStatusEnumApi = {
-    Pending: 'pending',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface AEOPromptSuggestionJobApi {
     /** Suggested prompts, filled in once status is completed. None of them are saved. */
     suggestions: AEOPromptSuggestionApi[]
     /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
     id: string
-    /** pending while Claude works, then completed or failed.
+    /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed */
-    status: AEOPromptSuggestionJobStatusEnumApi
+    status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
 }

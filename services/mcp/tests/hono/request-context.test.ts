@@ -6,6 +6,12 @@ const { mockMe, mockApiClientCtor, mockCapture } = vi.hoisted(() => {
         return {
             config,
             users: () => ({ me: mockMe }),
+            apiKeys: () => ({
+                current: async () => ({
+                    success: true,
+                    data: { scopes: ['*'], scoped_teams: [], scoped_organizations: [] },
+                }),
+            }),
         }
     })
     return { mockMe, mockApiClientCtor, mockCapture: vi.fn() }

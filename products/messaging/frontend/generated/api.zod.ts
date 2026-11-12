@@ -68,7 +68,7 @@ export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
  * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -110,7 +110,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -184,7 +184,39 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            "Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says."
+        ),
+    tracking: zod
+        .union([
+            zod.boolean(),
+            zod.object({
+                opens: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether PostHog adds its open pixel to the email. Defaults to true.'),
+                clicks: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                    ),
+                engagement: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true."
+                    ),
+            }),
+        ])
+        .optional()
+        .describe(
+            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+        ),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
     from: zod
         .string()
@@ -620,6 +652,34 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
         .string()
         .max(messagingSuppressionsAddSuppressionCreateBodyIdentifierMax)
         .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault = `manual`
+
+export const MessagingSuppressionsBulkAddSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    suppressions: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax)
+                    .describe('The email address to suppress. Matched case-insensitively.'),
+                reason: zod
+                    .enum(['bounce', 'complaint', 'manual'])
+                    .describe('\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual')
+                    .default(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault)
+                    .describe(
+                        "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual"
+                    ),
+            })
+        )
+        .describe('Addresses to suppress, at most 1000 per request.'),
 })
 
 /**
@@ -1537,4 +1597,42 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
+})
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdateBodyDescriptionMax = 1000
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsItemMax = 255
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsMax = 10
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax = 2048
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax = 0
+
+export const TransactionalCodeEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(transactionalCodeEmailsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('What the email is for.'),
+    tags: zod
+        .array(zod.string().max(transactionalCodeEmailsPartialUpdateBodyTagsItemMax))
+        .max(transactionalCodeEmailsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.'
+        ),
+    source_url: zod
+        .union([
+            zod.url().max(transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax).nullable(),
+            zod.string().max(transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:\/\/ or https:\/\/. Send null or an empty string to unlink it.'
+        ),
 })

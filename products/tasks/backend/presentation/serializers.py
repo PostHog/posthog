@@ -2500,8 +2500,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 

@@ -293,7 +293,7 @@ impl FeatureFlagList {
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier,
-                  -- Mirror the canonical Django predicate (live_experiment_exists in
+                  -- Mirror the canonical Django predicate (live_experiments_for_flag in
                   -- products/experiments/backend/models/experiment.py,
                   -- Experiment.objects.filter(feature_flag_id=..., deleted=False)). Keep this in lockstep with it.
                   EXISTS (
