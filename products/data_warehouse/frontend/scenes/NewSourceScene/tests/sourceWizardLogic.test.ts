@@ -1766,6 +1766,57 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        const createdAt: IncrementalField = {
+            field: 'created_at',
+            field_type: 'timestamp',
+            label: 'created_at',
+            type: 'timestamp',
+        }
+        const modelPick: IncrementalField = {
+            field: 'fecha_actualizacion',
+            field_type: 'timestamp',
+            label: 'fecha_actualizacion',
+            type: 'timestamp',
+            recommended: true,
+            picked_by_model: true,
+        }
+
+        it.each([
+            {
+                name: 'Postgres model pick',
+                source: postgresSource,
+                fields: [modelPick, createdAt],
+                expected: 'fecha_actualizacion',
+            },
+            {
+                name: 'Supabase model pick',
+                source: supabaseSource,
+                fields: [modelPick, createdAt],
+                expected: 'fecha_actualizacion',
+            },
+            {
+                name: 'recommended integer that is not an id',
+                source: postgresSource,
+                fields: [
+                    { field: 'score', field_type: 'integer', label: 'score', type: 'integer', recommended: true },
+                    createdAt,
+                ] as IncrementalField[],
+                expected: 'created_at',
+            },
+        ])('defaults to the recommended field: $name', async ({ source, fields, expected }) => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.orders', { incremental_fields: fields, incremental_field: fields[0].field }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(source)
+
+            try {
+                expect(logic.values.databaseSchema[0].incremental_field).toBe(expected)
+            } finally {
+                unmount()
+            }
+        })
+
         it('keeps the any-timestamp fallback for other database sources', async () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.users', {

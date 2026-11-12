@@ -351,7 +351,18 @@ const isTimestampType = (field: IncrementalField): boolean => {
     return type === 'timestamp' || type === 'datetime' || type === 'date'
 }
 
+const isIdField = (field: IncrementalField): boolean => /^(id|uuid)/i.test(field.label) && field.type === 'integer'
+
+// The backend ranks database-source candidates and marks its pick. Trust it only for the kinds of
+// field the name rules below would accept, so a recommended integer such as `score` is not a cursor.
+const recommendedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    fields.find((field) => field.recommended && (isTimestampType(field) || isIdField(field)))
+
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
+    const recommended = recommendedIncrementalField(fields)
+    if (recommended) {
+        return recommended
+    }
     // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
     const updatedAt = fields.find((field) => {
         const regex = /^updated/i
@@ -374,11 +385,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
         return timestamp
     }
     // fallback to numeric fields matching "id" or "uuid" case insensitive
-    const id = fields.find((field) => {
-        const idRegex = /^id/i
-        const uuidRegex = /^uuid/i
-        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
-    })
+    const id = fields.find(isIdField)
     if (id) {
         return id
     }
@@ -391,6 +398,8 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 // config integer). Such a cursor syncs each row once and then silently stops seeing
 // updates, so only trust update-tracking columns and otherwise default to full refresh.
 export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    // A model pick read the column names for one that changes on update, such as `fecha_actualizacion`.
+    fields.find((field) => field.picked_by_model && isTimestampType(field)) ??
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 

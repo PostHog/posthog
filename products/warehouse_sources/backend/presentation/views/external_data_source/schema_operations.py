@@ -22,6 +22,7 @@ from posthog.permissions import is_service_auth
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.incremental_field_model import recommend_incremental_fields
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -449,6 +450,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": error_message},
             )
+
+        recommend_incremental_fields(schemas, team=self.team)
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
         try:
