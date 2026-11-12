@@ -203,7 +203,7 @@ class CheckoutBranchInSandboxOutput:
     checkout_ms: int | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class CloneRepositoryInSandboxInput:
     context: TaskProcessingContext
     sandbox_id: str
