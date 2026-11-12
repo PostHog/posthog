@@ -99,6 +99,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.alerts.backend.facade.api import workflow_trigger_refusal
 from products.cdp.backend.presentation.hog_functions import (
     COHORT_NOT_READY_CODE,
     DATA_WAREHOUSE_SOURCES,
@@ -307,6 +308,7 @@ from products.workflows.backend.facade.tasks import schedule_batch_run_settle
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
+    INSIGHT_ALERT_FIRING_EVENT,
     duration_cap_error,
     duration_error,
     duration_minutes,
@@ -317,8 +319,10 @@ from products.workflows.backend.facade.validation import (
     find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
+    normalize_alert_id_filters,
     realtime_audience_cohort,
     realtime_cohort_cant_finish_error,
+    trigger_alert_ids,
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
@@ -813,6 +817,22 @@ def _replay_vision_missing_scopes(request: Request | None) -> list[str]:
 
 def _replay_vision_scope_message(scope: str) -> str:
     return f"The Replay Vision step needs a key with the {scope} scope."
+
+
+def _insight_alert_trigger_error(request: Request | None, team: Team, alert_ids: list[str]) -> str | None:
+    """Why the caller may not start a workflow from these insight alerts, or None.
+
+    The firing event carries the alert's insight data, and a workflow runs without the person who
+    saved it, so saving checks what reading each alert checks.
+    """
+    user = getattr(request, "user", None)
+    return workflow_trigger_refusal(
+        team=team,
+        alert_ids=alert_ids,
+        # A synthetic or anonymous caller has no access control of its own.
+        user=user if isinstance(user, User) else None,
+        token_scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+    )
 
 
 def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
@@ -2291,6 +2311,21 @@ class HogFlowActionSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"filters": "Pick at least one event, or the trigger will never fire."}
                         )
+                if _subscribes_to(INSIGHT_ALERT_FIRING_EVENT):
+                    normalize_alert_id_filters(filters)
+                    alert_ids = trigger_alert_ids(filters)
+                    if not alert_ids:
+                        if not is_draft:
+                            raise serializers.ValidationError(
+                                {
+                                    "filters": "Pick an alert for this trigger. Without one it runs on every alert in the project."
+                                }
+                            )
+                    # get_team is absent outside a request (internal re-saves), where no caller needs checking.
+                    elif (get_team := self.context.get("get_team")) is not None and (
+                        alert_error := _insight_alert_trigger_error(self.context.get("request"), get_team(), alert_ids)
+                    ):
+                        raise serializers.ValidationError({"filters": alert_error})
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                 serializer.is_valid(raise_exception=True)
                 data["config"]["filters"] = serializer.validated_data

@@ -37,6 +37,7 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
     insight_alert_message,
+    workflow_triggers,
 )
 from .contracts import (
     AlertInternalEvent,
@@ -388,3 +389,8 @@ def choose_delivery_path(
     return delivery_path.delivery_path(
         source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def register_workflow_trigger_lookup(lookup: workflow_triggers.WorkflowTriggerLookup) -> None:
+    """Workflows registers which of a team's insight alerts its live workflows start on, so delivery emits their firing event."""
+    workflow_triggers.register(lookup)

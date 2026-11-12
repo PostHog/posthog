@@ -102,6 +102,8 @@ class HogFunctionPathReason(StrEnum):
     LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
+    # A live workflow starts on the alert's firing event, which only the HogFunction path emits.
+    WORKFLOW_TRIGGER = "workflow_trigger"
 
 
 @frozen
