@@ -32,7 +32,6 @@ from products.messaging.backend.facade.transactional_email import (
     EmailNotFound,
     EmailSendStatus,
     EmailStatus,
-    OutcomePending,
     RescheduleTooFar,
     ScheduledEmailPage,
     TransactionalEmailError,
@@ -398,15 +397,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except RescheduleTooFar as e:
             report["outcome"] = "invalid_scheduled_at"
             raise _explained(e, str(e), status_code=status.HTTP_400_BAD_REQUEST) from None
-        except OutcomePending:
-            report["outcome"] = "pending"
-            raise ExplainedRefusal(
-                "PostHog hasn't recorded yet what happened to this email.",
-                code="delivery_unavailable",
-                why="The email left the queue a moment ago, and its status hasn't caught up.",
-                fix="Try again in a few seconds. A retry is safe.",
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            ) from None
         except DeliveryUnavailable:
             report["outcome"] = "unavailable"
             raise ExplainedRefusal(
