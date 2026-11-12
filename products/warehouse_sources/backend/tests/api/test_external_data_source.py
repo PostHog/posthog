@@ -6358,11 +6358,11 @@ class TestExternalDataSource(APIBaseTest):
     def test_database_schema_unknown_source_type(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
-            data={"source_type": "GoogleAds-"},
+            data={"source_type": "GoogleAdz"},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] == "Unknown source_type 'GoogleAds-'"
+        assert response.json()["message"] == "Unknown source_type 'GoogleAdz'"
 
     def test_database_schema_stripe_credentials(self):
         with (
@@ -9540,6 +9540,11 @@ class TestExternalDataSource(APIBaseTest):
             ("unfiltered", "", None),
             ("single_type", "?source_type=Stripe", {"Stripe"}),
             ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+            ("lowercase", "?source_type=postgres", {"Postgres"}),
+            ("separated_name", "?source_type=google%20ads", {"GoogleAds"}),
+            ("snake_case_name", "?source_type=google_ads", {"GoogleAds"}),
+            ("camel_case_name", "?source_type=BigQuery,GOOGLE-ADS", {"BigQuery", "GoogleAds"}),
+            ("mixed_exact_and_variant", "?source_type=Stripe,%20postgres,STRIPE", {"Stripe", "Postgres"}),
         ]
     )
     def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
@@ -9556,6 +9561,21 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == 400
         assert "NotARealSource" in response.json()["message"]
+        assert "Omit source_type" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("near_miss", "?source_type=Postgre", ["'Postgre' (did you mean Postgres"]),
+            ("one_bad_among_good", "?source_type=Stripe,Postgress", ["'Postgress' (did you mean Postgres"]),
+        ]
+    )
+    def test_get_wizard_sources_unknown_source_type_suggests_close_matches(self, _name, query, expected_fragments):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 400
+        message = response.json()["message"]
+        for fragment in expected_fragments:
+            assert fragment in message
+        assert message.endswith("Omit source_type to list every available type.")
 
     @parameterized.expand(
         [
@@ -13229,6 +13249,8 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
             # Stripe's OAuth option is nested inside the auth_method select alongside API key —
             # the page form offers both, so the user chooses how to authenticate.
             ("mixed_auth", "Stripe", "credentials"),
+            # A near-miss name resolves to the canonical key, which the link then carries.
+            ("lowercase_name", "postgres", "credentials"),
         ]
     )
     def test_connect_link_always_points_at_the_connect_page(self, _name, source_type, expected_auth_method):
@@ -13236,7 +13258,8 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["auth_method"] == expected_auth_method
-        assert f"/project/{self.team.pk}/data-warehouse/connect?kind={source_type}" in data["connect_url"]
+        canonical = {"postgres": "Postgres"}.get(source_type, source_type)
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind={canonical}" in data["connect_url"]
         # One discovery path for every source: the page stores a credential, the agent passes its id.
         assert "data-warehouse-stored-credentials-list" in data["instructions"]
         assert "credential_id" in data["instructions"]
@@ -13656,6 +13679,131 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
+
+    def _database_schema(self, payload: dict, source_type: str | None = "Stripe"):
+        data = {**payload} if source_type is None else {"source_type": source_type, **payload}
+        return self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/database_schema/", data=data)
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_database_schema_with_credential_id_uses_stored_payload_and_keeps_it_for_setup(
+        self, mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        credential = self._store_stripe_credential()
+
+        response = self._database_schema({"credential_id": str(credential.pk)})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "sk_test_stored" not in response.content.decode()
+        validated_config = mock_validate.call_args.args[0]
+        assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
+        setup_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+
+        assert setup_response.status_code == status.HTTP_201_CREATED, setup_response.json()
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_database_schema_form_encoded_body_keeps_scalar_values(self, mock_validate):
+        credential = self._store_stripe_credential()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "Stripe", "credential_id": str(credential.pk)},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_database_schema_stored_credential_overrides_inline_secret(self, mock_validate):
+        credential = self._store_stripe_credential()
+
+        response = self._database_schema(
+            {
+                "credential_id": str(credential.pk),
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_inline"},
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+
+    @parameterized.expand(
+        [
+            ("missing", "ba07775f-8eaf-4d09-aa6f-50e37f17f243", "not found or expired"),
+            ("not_a_uuid", "abc", "not found or expired"),
+            ("not_a_string", 999999, "not found or expired"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials"
+    )
+    def test_database_schema_with_unknown_credential_id_returns_400(
+        self, _name, credential_id, expected_message, mock_validate
+    ):
+        response = self._database_schema({"credential_id": credential_id})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_message in response.json()["message"]
+        assert "data-warehouse-stored-credentials-list" in response.json()["message"]
+        mock_validate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("expired", "expired", "not found or expired"),
+            ("other_team", "other_team", "not found or expired"),
+            ("other_user", "other_user", "not found or expired"),
+            ("wrong_source_type", "wrong_source_type", "is for 'Stripe', not 'Postgres'"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials"
+    )
+    def test_database_schema_with_unusable_stored_credential_returns_400_and_keeps_it(
+        self, _name, scenario, expected_message, mock_validate
+    ):
+        if scenario == "expired":
+            credential = self._store_stripe_credential(expires_at=timezone.now() - timedelta(minutes=1))
+        elif scenario == "other_team":
+            credential = self._store_stripe_credential(
+                team=Team.objects.create(organization=self.organization, name="o")
+            )
+        elif scenario == "other_user":
+            credential = self._store_stripe_credential(created_by=self._create_user("teammate@posthog.com"))
+        else:
+            credential = self._store_stripe_credential()
+        source_type = "Postgres" if scenario == "wrong_source_type" else "Stripe"
+
+        response = self._database_schema({"credential_id": str(credential.pk)}, source_type=source_type)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_message in response.json()["message"]
+        assert "sk_test_stored" not in response.content.decode()
+        mock_validate.assert_not_called()
+        assert PendingSourceCredential.objects.for_team(credential.team_id).filter(pk=credential.pk).exists()
+
+    def test_database_schema_without_source_type_points_at_the_wizard(self):
+        response = self._database_schema({"host": "localhost"}, source_type=None)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "source_type" in response.json()["message"]
+        assert "external-data-sources-wizard" in response.json()["message"]
 
     @parameterized.expand(
         [

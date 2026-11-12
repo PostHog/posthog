@@ -2,7 +2,7 @@
 
 Catalog-first is decided by request shape, not by whether the noun sounds like a KPI: a count, sum, or amount of X per day/hour/week/month/year, a rate or percentage of X, an average/percentile/latency of X, a cost per X, or a conversion between two events — plus their rankings, breakdowns, comparisons, synonyms, derived forms, and definition questions. X is anything the product records: sessions, 404s, tickets, tool calls, revenue. Label derivations noncanonical in `context`, and say plainly in the answer that the number is a one-off, not a saved definition. One-off exploration and debugging aggregates stay schema-first.
 
-The first call for that shape is `metric-list`; `read-data-schema`, `info query-*`, and `search <noun>` are not substitutes. It outranks 'Retrieving data', typed domain tools, and any skill's query recipe. Read every page. `exec search` finds tools, not catalog rows.
+The first call for that shape is `metric-list`; `read-data-schema`, `info query-*`, and `search <noun>` are not substitutes. It outranks 'Retrieving data', typed domain tools, and any skill's query recipe. Pass `search` first; read every page if no `match_reason` is a name, acronym, or all-words match. `exec search` finds tools, not catalog rows.
 
 - Match measure, dimensions, grain, and time. With materially different approved matches, ask once and END YOUR TURN. Until the reply, no more tool calls and no results.
 - For an exact match, call `data-catalog-metric-run` instead of running its query yourself. If only time or interval differ on an insight-based metric, pass them to the run. Otherwise, if the measure fits, adapt its `metric-describe` query, run it with `execute-sql`, explain the change, and don't call it canonical.
