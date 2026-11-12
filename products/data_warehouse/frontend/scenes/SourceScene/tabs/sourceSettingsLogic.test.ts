@@ -317,6 +317,8 @@ describe('live query selection', () => {
     const rowFilters = [
         { column: 'id', operator: '=', value: '1' },
     ] as unknown as ExternalDataSourceSchema['row_filters']
+    const liveSchema = (overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema =>
+        makeSchema({ source_column_metadata_available: true, ...overrides })
 
     it.each([
         ['a synced table is live', { should_sync: true }, true],
@@ -328,21 +330,27 @@ describe('live query selection', () => {
             { live_query_enabled: true, masked_columns: ['email'] },
             false,
         ],
+        [
+            'a synced table without column metadata is not live',
+            { should_sync: true, source_column_metadata_available: false },
+            false,
+        ],
     ])('%s', (_, overrides, expected) => {
-        expect(isQueryableLive(makeSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
+        expect(isQueryableLive(liveSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
     })
 
     const selection = [
-        makeSchema({ id: 'synced', should_sync: true }),
-        makeSchema({ id: 'filtered', row_filters: rowFilters }),
-        makeSchema({ id: 'masked', masked_columns: ['email'] }),
-        makeSchema({ id: 'off' }),
-        makeSchema({ id: 'on', live_query_enabled: true }),
+        liveSchema({ id: 'synced', should_sync: true }),
+        liveSchema({ id: 'filtered', row_filters: rowFilters }),
+        liveSchema({ id: 'masked', masked_columns: ['email'] }),
+        liveSchema({ id: 'no-metadata', source_column_metadata_available: false }),
+        liveSchema({ id: 'off' }),
+        liveSchema({ id: 'on', live_query_enabled: true }),
     ]
 
     it.each([
-        [true, { payloads: [{ id: 'off', live_query_enabled: true }], skipped: 3 }],
-        [false, { payloads: [{ id: 'on', live_query_enabled: false }], skipped: 3 }],
+        [true, { payloads: [{ id: 'off', live_query_enabled: true }], skipped: 4 }],
+        [false, { payloads: [{ id: 'on', live_query_enabled: false }], skipped: 4 }],
     ])('enabled=%s skips locked rows and rows already in that state', (enabled, expected) => {
         expect(buildLiveQueryPayloads(selection, enabled)).toEqual(expected)
     })

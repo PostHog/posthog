@@ -112,27 +112,27 @@ export function bulkSyncMethodDisabledReason(
     return undefined
 }
 
-// Why a table's live query switch is locked. Mirrors the backend: a live query reads the upstream
-// table directly, so it can't apply row filters or masks, even on a synced table.
-export function liveQueryDisabledReason(schema: ExternalDataSourceSchema): string | null {
+// Mirrors the backend's live catalog: a live query reads the upstream table directly, so it can't
+// apply row filters or masks, and it is built from the stored column metadata. Applies to synced tables too.
+function liveQueryExclusionReason(schema: ExternalDataSourceSchema): string | null {
     if (schema.row_filters?.length) {
         return "Tables with row filters can't be queried live, because a live query reads every row"
     }
     if (schema.masked_columns?.length) {
         return "Tables with masked columns can't be queried live, because a live query reads the original values"
     }
-    if (schema.should_sync) {
-        return 'Synced tables can always be queried live'
+    if (!schema.source_column_metadata_available) {
+        return 'This table has no column information yet. Run "Pull new schemas", then try again'
     }
     return null
 }
 
+export function liveQueryDisabledReason(schema: ExternalDataSourceSchema): string | null {
+    return liveQueryExclusionReason(schema) ?? (schema.should_sync ? 'Synced tables can always be queried live' : null)
+}
+
 export function isQueryableLive(schema: ExternalDataSourceSchema): boolean {
-    return (
-        !schema.row_filters?.length &&
-        !schema.masked_columns?.length &&
-        (schema.should_sync || !!schema.live_query_enabled)
-    )
+    return !liveQueryExclusionReason(schema) && (schema.should_sync || !!schema.live_query_enabled)
 }
 
 export function buildLiveQueryPayloads(
@@ -1477,8 +1477,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const skipNote =
                     skipped > 0
                         ? ` Skipped ${pluralize(skipped, 'table', 'tables')} that ${
-                              skipped === 1 ? 'is synced or has' : 'are synced or have'
-                          } row filters or masked columns.`
+                              skipped === 1 ? 'is synced, has' : 'are synced, have'
+                          } row filters or masked columns, or ${skipped === 1 ? 'has' : 'have'} no column information.`
                         : ''
                 if (payloads.length === 0) {
                     lemonToast.info(
