@@ -278,7 +278,10 @@ def _pulse_content(
 
 
 def _popular_within_row(slots: list[contracts.PulseSlot], pinned: set[str]) -> list[contracts.PulseSlot]:
-    popular = [slot for slot in slots if slot.reason == HighlightMetricReason.POPULAR]
+    popular = sorted(
+        (slot for slot in slots if slot.reason == HighlightMetricReason.POPULAR),
+        key=lambda slot: slot.status == PulseSlotStatus.ERROR,
+    )
     others = [slot for slot in slots if slot.reason != HighlightMetricReason.POPULAR]
     live = sum(slot.status != PulseSlotStatus.ERROR for slot in others)
     shown = {slot.key for slot in popular[: max(0, ROW_TILES - live)]}
