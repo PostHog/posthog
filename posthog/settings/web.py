@@ -186,6 +186,9 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
     "posthog.after_response.AfterResponseMiddleware",
+    # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
+    # so the build skew counter sees the status of each API response the client receives.
+    "posthog.client_build_middleware.ClientBuildSkewMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
