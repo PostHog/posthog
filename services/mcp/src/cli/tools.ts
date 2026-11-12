@@ -6,6 +6,7 @@ import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 interface CliToolOptions {
     aiConsentGiven?: boolean | undefined
+    catalogTools?: Record<string, () => ToolBase<ZodObjectAny>>
 }
 
 function materializeTool(
@@ -25,7 +26,7 @@ function materializeTool(
 export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] {
     // Hand-written TOOL_MAP wins on collision (same as tool-catalog / getToolsFromContext).
     const factories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories({
-        generated: GENERATED_TOOL_MAP,
+        generated: { ...GENERATED_TOOL_MAP, ...options.catalogTools },
         handwritten: TOOL_MAP,
     })
     const names = getToolsForFeatures({

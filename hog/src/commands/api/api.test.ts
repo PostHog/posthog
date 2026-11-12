@@ -46,6 +46,7 @@ function fakeLibrary(scopes: string[], options: FakeLibraryOptions = {}): FakeLi
     return {
         calls,
         tools: () => TOOLS,
+        catalog: () => ({ source: 'bundled', build: null, tools: 0, dropped: [], rejected: null }),
         search: async (query) => ({
             names: TOOLS.filter((t) => t.name.includes(query)).map((t) => t.name),
             truncated: false,

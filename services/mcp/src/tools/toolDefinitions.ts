@@ -82,6 +82,7 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
+let _catalogToolDefinitions: ToolDefinitions = {}
 
 const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
 
@@ -117,7 +118,10 @@ export function getToolDefinitions(): ToolDefinitions {
         if (!_toolDefinitions) {
             _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
         }
-        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
+        _mergedToolDefinitions = {
+            ...addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() }),
+            ..._catalogToolDefinitions,
+        }
     }
     return _mergedToolDefinitions
 }
@@ -144,6 +148,12 @@ export function getAdvertisedOAuthScopes(): readonly string[] {
         _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
     }
     return _advertisedOAuthScopes
+}
+
+export function setCatalogToolDefinitions(definitions: ToolDefinitions): void {
+    _catalogToolDefinitions = definitions
+    _mergedToolDefinitions = undefined
+    _advertisedOAuthScopes = undefined
 }
 
 export function getToolDefinition(toolName: string): ToolDefinition {

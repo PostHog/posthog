@@ -1,0 +1,571 @@
+{
+    "planSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "kind": {
+                "type": "string",
+                "const": "http"
+            },
+            "requires": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "hooks": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            },
+            "uiApp": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            },
+            "request": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "enum": [
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "PATCH",
+                            "DELETE"
+                        ]
+                    },
+                    "path": {
+                        "type": "string",
+                        "pattern": "^\\/api\\/.*"
+                    },
+                    "pathParams": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "fallbacks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "param": {
+                                    "type": "string"
+                                },
+                                "scope": {
+                                    "type": "string",
+                                    "enum": [
+                                        "projectId",
+                                        "orgId"
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "param",
+                                "scope"
+                            ],
+                            "additionalProperties": false
+                        }
+                    },
+                    "query": {
+                        "anyOf": [
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "param": {
+                                            "type": "string"
+                                        },
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "csv": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": [
+                                        "param",
+                                        "key",
+                                        "csv"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "body": {
+                        "anyOf": [
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "param": {
+                                            "type": "string"
+                                        },
+                                        "key": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "param",
+                                        "key"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "injectBody": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    },
+                    "softDelete": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "transformBody": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "method",
+                    "path",
+                    "pathParams",
+                    "fallbacks",
+                    "query",
+                    "body",
+                    "injectBody",
+                    "softDelete",
+                    "transformBody"
+                ],
+                "additionalProperties": false
+            },
+            "response": {
+                "type": "object",
+                "properties": {
+                    "list": {
+                        "type": "boolean"
+                    },
+                    "filter": {
+                        "anyOf": [
+                            {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "kind": {
+                                                "type": "string",
+                                                "const": "pick"
+                                            },
+                                            "fields": {
+                                                "minItems": 1,
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "selectable": {
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        "required": [
+                                            "kind",
+                                            "fields",
+                                            "selectable"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "kind": {
+                                                "type": "string",
+                                                "const": "omit"
+                                            },
+                                            "fields": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "expandable": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "kind",
+                                            "fields",
+                                            "expandable"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "stripNulls": {
+                        "type": "boolean"
+                    },
+                    "enrich": {
+                        "anyOf": [
+                            {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "kind": {
+                                                "type": "string",
+                                                "const": "list"
+                                            },
+                                            "baseUrl": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "kind",
+                                            "baseUrl"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "baseUrl": {
+                                                "type": "string"
+                                            },
+                                            "joiner": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "",
+                                                    "/"
+                                                ]
+                                            },
+                                            "prefix": {
+                                                "type": "string"
+                                            },
+                                            "field": {
+                                                "type": "string"
+                                            },
+                                            "suffix": {
+                                                "type": "string"
+                                            },
+                                            "kind": {
+                                                "type": "string",
+                                                "const": "list_items"
+                                            }
+                                        },
+                                        "required": [
+                                            "baseUrl",
+                                            "joiner",
+                                            "prefix",
+                                            "field",
+                                            "suffix",
+                                            "kind"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "baseUrl": {
+                                                "type": "string"
+                                            },
+                                            "joiner": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "",
+                                                    "/"
+                                                ]
+                                            },
+                                            "prefix": {
+                                                "type": "string"
+                                            },
+                                            "field": {
+                                                "type": "string"
+                                            },
+                                            "suffix": {
+                                                "type": "string"
+                                            },
+                                            "kind": {
+                                                "type": "string",
+                                                "const": "item"
+                                            },
+                                            "source": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "result",
+                                                    "params"
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "baseUrl",
+                                            "joiner",
+                                            "prefix",
+                                            "field",
+                                            "suffix",
+                                            "kind",
+                                            "source"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "agentNote": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "informational": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "tag": {
+                                        "type": "string"
+                                    },
+                                    "purpose": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "tag",
+                                    "purpose"
+                                ],
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "textInclude": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "list",
+                    "filter",
+                    "stripNulls",
+                    "enrich",
+                    "agentNote",
+                    "informational",
+                    "textInclude"
+                ],
+                "additionalProperties": false
+            },
+            "input": {
+                "type": "object",
+                "properties": {
+                    "aliases": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "casts": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {
+                            "type": "string",
+                            "enum": [
+                                "castStringToInt",
+                                "castBooleanToString",
+                                "castObjectToJsonString"
+                            ]
+                        }
+                    },
+                    "validators": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "aliases",
+                    "casts",
+                    "validators"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "required": [
+            "name",
+            "kind",
+            "requires",
+            "hooks",
+            "uiApp",
+            "request",
+            "response",
+            "input"
+        ],
+        "additionalProperties": false
+    },
+    "runs": [
+        {
+            "name": "list-with-csv-query",
+            "requests": [
+                {
+                    "method": "GET",
+                    "path": "/api/projects/7/things/",
+                    "query": {
+                        "tag": "a,b",
+                        "limit": 50
+                    }
+                }
+            ],
+            "result": {
+                "id": 1,
+                "name": "Thing",
+                "secret": "s",
+                "detail": "d",
+                "empty": null,
+                "results": [
+                    {
+                        "id": 1,
+                        "detail": "d"
+                    }
+                ],
+                "_posthogUrl": "https://us.posthog.com/project/7/things"
+            }
+        },
+        {
+            "name": "create-with-body-and-aliases",
+            "requests": [
+                {
+                    "method": "POST",
+                    "path": "/api/projects/7/things/",
+                    "body": {
+                        "name": "Thing",
+                        "display_label": "a",
+                        "source": "cli"
+                    }
+                }
+            ],
+            "result": {
+                "id": 1,
+                "_posthogUrl": "https://us.posthog.com/project/7/things/1",
+                "_agentNote": "Note."
+            }
+        },
+        {
+            "name": "soft-delete-with-path-and-fallback",
+            "requests": [
+                {
+                    "method": "PATCH",
+                    "path": "/api/organizations/org-1/things/x%2Fy/",
+                    "body": {
+                        "archived": true
+                    }
+                }
+            ],
+            "result": {
+                "id": 1,
+                "name": "Thing",
+                "secret": "s",
+                "detail": "d",
+                "empty": null,
+                "results": [
+                    {
+                        "id": 1,
+                        "secret": "s",
+                        "detail": "d"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "list-with-item-links",
+            "requests": [
+                {
+                    "method": "GET",
+                    "path": "/api/projects/7/things/"
+                }
+            ],
+            "result": {
+                "id": 1,
+                "name": "Thing",
+                "secret": "s",
+                "detail": "d",
+                "empty": null,
+                "results": [
+                    {
+                        "id": 1,
+                        "secret": "s",
+                        "detail": "d",
+                        "_posthogUrl": "https://us.posthog.com/project/7/things?id=1#top"
+                    }
+                ],
+                "_posthogUrl": "https://us.posthog.com/project/7/things"
+            }
+        }
+    ]
+}
