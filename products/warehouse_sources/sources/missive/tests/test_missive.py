@@ -254,7 +254,7 @@ class TestContactBookFanOut:
             ["true", "true"] if incremental else [None, None]
         )
         # A deleted contact comes back with only its id, so the book is filled in from the parent.
-        assert result.rows[-1] == {"id": "gone", "deleted": True, "contact_book": "book1"}
+        assert result.rows[-1] == {"id": "gone", "deleted": True, "modified_at": None, "contact_book": "book1"}
 
     def test_contact_groups_read_each_kind_and_record_it_on_the_row(self) -> None:
         result = _run(

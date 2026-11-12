@@ -168,6 +168,8 @@ def _pages(
 
             if config.variant_columns:
                 raw_rows = [{**row, **variant_params} for row in raw_rows]
+            if config.nullable_columns:
+                raw_rows = [{**dict.fromkeys(config.nullable_columns), **row} for row in raw_rows]
 
             next_position: PagePosition | None
             if config.pagination is Pagination.OFFSET:

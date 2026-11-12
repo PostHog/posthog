@@ -34,6 +34,9 @@ class MissiveEndpointConfig:
     parent_id_column: str | None = None
     # Copy the variant params onto each row, so the row records which pass read it.
     variant_columns: bool = False
+    # Columns set to None on rows that lack them. A deleted contact comes back with only `id` and
+    # `deleted`, and a batch without the cursor column fails the incremental sync.
+    nullable_columns: tuple[str, ...] = ()
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Rows change after creation, or an incremental walk reads boundary rows again, so append would duplicate them.
     merge_only: bool = False
@@ -139,6 +142,7 @@ MISSIVE_ENDPOINTS: dict[str, MissiveEndpointConfig] = {
             page_size=200,
             parent=Parent.CONTACT_BOOKS,
             parent_id_column="contact_book",
+            nullable_columns=("modified_at",),
             incremental_fields=[_unix_field("modified_at")],
             merge_only=True,
         ),
