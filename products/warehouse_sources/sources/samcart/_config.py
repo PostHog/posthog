@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class SamCartSourceConfig(config.Config):
-    pass
+    api_key: str

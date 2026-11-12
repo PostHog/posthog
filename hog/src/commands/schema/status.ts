@@ -52,7 +52,7 @@ export default defineCommand({
     human({ result, out }) {
         if (result.languages.length === 0) {
             out.line(out.style('No typed SDKs yet.', 'yellow', 'bold'))
-            out.line(`Run ${out.style('hog schema pull --language typescript', 'bold')} to generate one.`)
+            out.notes({ notes: [`Run ${out.style('hog schema pull --language typescript', 'bold')} to generate one.`] })
             return
         }
         const labels = {
@@ -72,9 +72,12 @@ export default defineCommand({
             ])
         )
         const stale = result.languages.filter((entry) => entry.status === 'outdated' || entry.status === 'missing')
-        if (stale.length > 0) {
-            out.line(`${plural(stale.length, 'module')} to update. Run ${out.style('hog schema pull', 'bold')}.`)
-        }
+        out.notes({
+            warnings:
+                stale.length > 0
+                    ? [`${plural(stale.length, 'module')} to update. Run ${out.style('hog schema pull', 'bold')}.`]
+                    : [],
+        })
     },
 
     agent({ result, out }) {

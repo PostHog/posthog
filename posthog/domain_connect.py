@@ -32,6 +32,9 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from posthog.integrations import IntegrationRecord
 
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
+
 logger = logging.getLogger(__name__)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -401,6 +404,10 @@ def _txt_value(rdata: TXTBase) -> str:
 
 
 def _dmarc_absence_confirmed(domain: str) -> bool:
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
+        # Same answer as a lookup that failed: absence is not confirmed, so no caller claims it.
+        return False
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
         return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
@@ -416,6 +423,9 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
 
     Returns the first TXT record value or None if not found.
     """
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
+        return None
     try:
         answers = dns.resolver.resolve(f"_domainconnect.{domain}", "TXT")
         for rdata in answers:
