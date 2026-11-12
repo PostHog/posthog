@@ -31,7 +31,7 @@ export interface BroadcastPerformanceStats {
     bounced: number
     markedAsSpam: number
     failed: number
-    /** Sent with no delivery, bounce or failure reported yet. */
+    /** Sent with no delivery or bounce reported yet. */
     awaitingResult: number
     unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
@@ -412,8 +412,8 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,
                     failed,
-                    // A spam complaint arrives after the delivery, so it does not settle a send on its own.
-                    awaitingResult: Math.max(sent - delivered - bounced - failed, 0),
+                    // email_failed mostly counts sends that never reached the provider, and a spam complaint follows a delivery.
+                    awaitingResult: Math.max(sent - delivered - bounced, 0),
                     unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,

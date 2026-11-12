@@ -277,15 +277,16 @@ describe('broadcastPerformanceLogic', () => {
             expected: { delivered: 22, awaitingResult: 2 },
         },
         {
-            name: 'a send where a delivered email was later marked as spam',
+            name: 'a send with spam complaints and emails that never reached the provider',
             runStartedAt: '2026-11-10T22:28:56Z',
             totals: [
                 [10, 'email_sent'],
-                [8, 'email_delivered'],
+                [7, 'email_delivered'],
                 [1, 'email_bounced'],
                 [1, 'email_blocked'],
+                [2, 'email_failed'],
             ],
-            expected: { markedAsSpam: 1, awaitingResult: 1 },
+            expected: { markedAsSpam: 1, failed: 2, awaitingResult: 2 },
         },
     ])('reports what happened to the emails for $name', async ({ name, runStartedAt, totals, expected }) => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(

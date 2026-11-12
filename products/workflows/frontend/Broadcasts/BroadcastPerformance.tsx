@@ -86,7 +86,7 @@ export function BroadcastPerformance({
                       value: share(stats.awaitingResult, stats.sent),
                       detail: stats.awaitingResult,
                       tooltip:
-                          "Your email provider accepted these emails but hasn't reported a delivery, bounce or failure for them yet. This often means the receiving mail server asked to try again later. The number goes down as results come in.",
+                          "Your email provider accepted these emails but hasn't reported a delivery or bounce for them yet. This often means the receiving mail server asked to try again later. The number goes down as results come in.",
                   },
               ]
             : []),
