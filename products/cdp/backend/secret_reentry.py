@@ -30,10 +30,10 @@ def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encryp
     }
 
 
-def mapping_secret_values(mappings: Any) -> set[tuple[str, str]]:
-    """Secrets saved in plaintext mapping inputs before mappings refused secret inputs, as (key, value) pairs. The
-    worker lays each mapping's inputs over the function's, so the code reads them by name."""
-    values: set[tuple[str, str]] = set()
+def mapping_secret_values(mappings: Any) -> dict[str, set[str]]:
+    """Secrets saved in plaintext mapping inputs before mappings refused secret inputs, as the JSON values stored under
+    each key. The worker lays each mapping's inputs over the function's, so the code reads them by name."""
+    values: dict[str, set[str]] = {}
     for mapping in mappings or []:
         if not isinstance(mapping, dict) or not isinstance(mapping.get("inputs"), dict):
             continue
@@ -42,17 +42,18 @@ def mapping_secret_values(mappings: Any) -> set[tuple[str, str]]:
                 key = str(schema.get("key"))
                 entry = mapping["inputs"].get(key)
                 if isinstance(entry, dict) and entry.get("value") not in (None, "", {}):
-                    values.add((key, json.dumps(entry["value"], default=str, sort_keys=True)))
+                    values.setdefault(key, set()).add(json.dumps(entry["value"], default=str, sort_keys=True))
     return values
 
 
-def carried_mapping_secrets(stored: set[tuple[str, str]], mappings: Any) -> set[str]:
+def carried_mapping_secrets(stored: dict[str, set[str]], mappings: Any) -> set[str]:
     return {
         key
         for mapping in mappings or []
         if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict)
         for key, entry in mapping["inputs"].items()
-        if isinstance(entry, dict) and (str(key), json.dumps(entry.get("value"), default=str, sort_keys=True)) in stored
+        if isinstance(entry, dict)
+        and json.dumps(entry.get("value"), default=str, sort_keys=True) in stored.get(str(key), set())
     }
 
 
