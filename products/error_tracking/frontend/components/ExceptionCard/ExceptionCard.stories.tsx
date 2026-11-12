@@ -866,21 +866,6 @@ export function ExceptionCardTrace(): JSX.Element {
         </div>
     )
 }
-export function ExceptionCardTraceWithoutTraceId(): JSX.Element {
-    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
-
-    return (
-        <div className="w-[1000px] h-[500px]">
-            <OpenTab tab="trace" issueId="issue-no-trace">
-                <ExceptionCard issueId="issue-no-trace" issueName="Test Issue" loading={false} event={event} />
-            </OpenTab>
-        </div>
-    )
-}
-ExceptionCardTraceWithoutTraceId.parameters = {
-    featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
-    testOptions: { snapshotBrowsers: [] },
-}
 
 ExceptionCardTrace.parameters = {
     featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
@@ -901,4 +886,20 @@ ExceptionCardTrace.parameters = {
             },
         },
     },
+}
+
+export function ExceptionCardTraceWithoutTraceId(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
+
+    return (
+        <div className="w-[1000px] h-[500px]">
+            <OpenTab tab="trace" issueId="issue-no-trace">
+                <ExceptionCard issueId="issue-no-trace" issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
+        </div>
+    )
+}
+ExceptionCardTraceWithoutTraceId.parameters = {
+    featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+    testOptions: { snapshotBrowsers: [] },
 }

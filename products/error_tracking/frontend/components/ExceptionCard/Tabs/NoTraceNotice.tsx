@@ -5,12 +5,14 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { TRACING_DOCS_URL } from 'products/tracing/frontend/traceLinks'
+
 import { exceptionCardLogic } from '../exceptionCardLogic'
 
 export function NoTraceNotice(): JSX.Element {
     const { issueId } = useValues(exceptionCardLogic)
 
-    // Pinned: analytics event name. Renaming it breaks the dashboards that count upsell views.
+    // pinned: analytics event name, renaming it breaks insights built on it
     useOnMountEffect(() => {
         posthog.capture('error_tracking_trace_tab_no_trace_id', { issue_id: issueId })
     })
@@ -23,11 +25,7 @@ export function NoTraceNotice(): JSX.Element {
                 traced request and sends that trace to PostHog.
             </p>
             <div className="text-xs">
-                <Link
-                    to="https://posthog.com/docs/tracing"
-                    target="_blank"
-                    data-attr="error-tracking-trace-tab-no-trace-docs"
-                >
+                <Link to={TRACING_DOCS_URL} target="_blank" data-attr="error-tracking-trace-tab-no-trace-docs">
                     Send traces to PostHog
                 </Link>
             </div>
