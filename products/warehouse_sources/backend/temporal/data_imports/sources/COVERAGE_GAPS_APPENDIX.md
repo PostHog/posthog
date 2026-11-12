@@ -12514,11 +12514,11 @@ Today (6): `batches`, `endpoints`, `evaluations`, `files`, `fine_tunes`, `models
 
 Diffed against: <https://docs.together.ai/llms.txt>
 
-- [ ] `fine-tunes/{id}/events` — per-job state/transition history for fine-tune runs, the only way to chart training progress and failure points (high)
-- [ ] `fine-tunes/{id}/checkpoints` — checkpoint list resolves which artifact a deployed model came from (medium)
+- [x] `fine-tunes/{id}/events` — per-job state/transition history for fine-tune runs, the only way to chart training progress and failure points (high)
+- [x] `fine-tunes/{id}/checkpoints` — checkpoint list resolves which artifact a deployed model came from (medium)
 - [ ] `deployments (list)` — dedicated-inference deployments under each endpoint; the compute rows behind endpoint spend (medium)
-- [ ] `clusters (list)` — GPU cluster inventory, the main non-inference cost driver (medium)
-- [ ] `instance-types (list)` — lookup table resolving GPU/instance ids and prices carried on deployments and clusters (medium)
+- [x] `clusters (list)` — GPU cluster inventory, the main non-inference cost driver (medium)
+- [x] `instance-types (list)` — lookup table resolving GPU/instance ids and prices carried on deployments and clusters (medium)
 - [ ] `endpoints/{id}/events` — endpoint provisioning, scaling and readiness event feed (low)
 - [ ] `code-interpreter sessions (list)` — session inventory for TCI usage analysis (low)
 
