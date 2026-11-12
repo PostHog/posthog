@@ -146,8 +146,8 @@ export class FaultList {
         this.faults = []
     }
 
-    applied(id: string): number | undefined {
-        return this.faults.find((fault) => fault.id === id)?.applied
+    applied(id: string): number {
+        return this.faults.find((fault) => fault.id === id)?.applied ?? 0
     }
 
     takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {

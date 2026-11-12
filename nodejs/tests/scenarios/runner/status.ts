@@ -25,7 +25,9 @@ const appliedDuring = (entry: ValveTimelineEntry, at: string): boolean =>
     entry.appliedAt !== undefined && entry.appliedAt <= at && (entry.releasedAt === undefined || at <= entry.releasedAt)
 
 function unexpectedExit({ role, at, code, signal }: RoleExit, timeline: ValveTimelineEntry[]): string {
-    const applied = timeline.filter((entry) => entry.target === role && appliedDuring(entry, at))
+    const applied = timeline.filter(
+        (entry) => (entry.target === role || entry.target === 'postgres') && appliedDuring(entry, at)
+    )
     return [
         `${role} exited (${signal ?? `code ${code}`}) without a valve causing it`,
         ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),

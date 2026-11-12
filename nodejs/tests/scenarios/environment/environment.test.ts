@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
@@ -22,16 +23,27 @@ import { isPortFree } from '~/tests/helpers/service-process'
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
-import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import {
+    ProcEntry,
+    holdRunLock,
+    lockAddress,
+    planCleanup,
+    processState,
+    readProcs,
+    strangerConflict,
+    terminate,
+} from './processes'
+import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
     STACK,
     downServices,
     forgetSesBucket,
     membersOf,
     pingRedis,
+    postgresServersOf,
     scratchSchema,
     seekFailures,
+    terminateRoleConnections,
     withPostgres,
 } from './stack'
 import { createSupervisor } from './supervisor'
@@ -64,13 +76,37 @@ const proc = (
 
 const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
 
-const stateOf = (pid: number): string => {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
-}
-
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const startPostgresRelay = async (
+    upstreamUrl: string
+): Promise<{ url: string; received(): string; close(): Promise<void> }> => {
+    const upstream = new URL(upstreamUrl)
+    let received = ''
+    const sockets = new Set<net.Socket>()
+    const server = net.createServer((client) => {
+        sockets.add(client)
+        const relay = net.connect(Number(upstream.port || 5432), upstream.hostname)
+        sockets.add(relay)
+        client.on('data', (chunk: Buffer) => (received += chunk.toString('latin1')))
+        client.pipe(relay).pipe(client)
+        relay.on('error', () => client.destroy())
+        client.on('error', () => relay.destroy())
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const url = new URL(upstreamUrl)
+    url.hostname = '127.0.0.1'
+    url.port = String((server.address() as net.AddressInfo).port)
+    return {
+        url: url.toString(),
+        received: () => received,
+        close: async () => {
+            sockets.forEach((socket) => socket.destroy())
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        },
+    }
 }
 
 const sendThrough = async (edgeUrl: string): Promise<string> => {
@@ -338,6 +374,58 @@ describe('scenario environment', () => {
             EXTERNAL_REQUEST_PROXY_TEAMS: '2',
         }
         const specs = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR)
+
+        const POSTHOG = 'postgres://posthog:posthog@localhost:5432/posthog'
+
+        it.each<[string, Record<string, string>, string[]]>([
+            [
+                'one server when Cyclotron shares it',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when Cyclotron spells the same server another way',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when a setting holds the word postgres rather than a URL',
+                { POSTHOG_DB_USER: 'postgres' },
+                [POSTHOG],
+            ],
+            [
+                'both servers when a profile moves Cyclotron to another',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
+                [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],
+            ],
+            [
+                'both servers when a profile moves the read replica to another',
+                { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
+                [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
+            ],
+        ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
+        })
+
+        const hogflowWorker = (settings: Record<string, string>) =>
+            roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
+                ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
+            )!
+
+        it.each<[string, Record<string, string>, number]>([
+            ['the default', {}, 3],
+            ['a profile setting', { CDP_FETCH_RETRIES: '5' }, 5],
+        ])('reads the fetch retries of the hogflow worker from %s', (_story, settings, retries) => {
+            expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
+        })
+
+        it('refuses fetch retries that are not a number', () => {
+            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'many' }))).toThrow(
+                'CDP_FETCH_RETRIES many is not a number of retries'
+            )
+        })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
@@ -764,7 +852,7 @@ describe('scenario environment', () => {
         it('resumes a frozen group so it stops on SIGTERM instead of waiting for SIGKILL', async () => {
             const frozen = await launch(process.env)
             process.kill(-frozen.pid!, 'SIGSTOP')
-            while (stateOf(frozen.pid!) !== 'T') {
+            while (processState(frozen.pid!) !== 'T') {
                 await new Promise(setImmediate)
             }
             const exited = once(frozen, 'exit')
@@ -819,6 +907,23 @@ describe('scenario environment', () => {
             await nextTimers(0)
 
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
+
+        it('keeps a role stopped until the last of two overlapping freezes releases', async () => {
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
+            const [{ pid }] = tagged()
+            const first = supervisor.freeze(spec.role, 5000)
+            const second = supervisor.freeze(spec.role, 5000)
+            expect(await second.observed()).toBe(true)
+
+            await first.release()
+            await first.release()
+            const afterFirst = processState(pid)
+            await second.release()
+            await waitForExpect(() => expect(processState(pid)).not.toBe('T'), 5000, 20)
+
+            expect(afterFirst).toBe('T')
         }, 15_000)
 
         it('records a role whose first start fails and retries it, instead of failing the start', async () => {
@@ -1350,6 +1455,100 @@ describe('scenario environment', () => {
             }, 15_000)
             await actuation.release()
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
+        }, 30_000)
+
+        it("drops the roles' Postgres connections on every server they use and spares every other one", async () => {
+            const secondServer = await startPostgresRelay(cyclotronUrl)
+            try {
+                process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
+                environment = environmentOf()
+                await environment.up()
+                const connect = async (
+                    applicationName: string
+                ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
+                    const client = new Client({ connectionString: templatesUrl, application_name: applicationName })
+                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                    await client.connect()
+                    const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
+                    return { client, ended, backend }
+                }
+                const tag = `${process.pid}-${Date.now()}`
+                const pool = await connect('cdp-cyclotron-worker-hogflow')
+                const cyclotron = await connect(`scenario-${tag}`)
+                const bystander = await connect(`bystander-${tag}`)
+                try {
+                    const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
+
+                    expect(await actuation.observed()).toBe(true)
+                    expect(secondServer.received()).toContain('pg_terminate_backend')
+                    await Promise.all([pool.ended, cyclotron.ended])
+                    const alive = await withPostgres(
+                        async (client) =>
+                            (
+                                await client.query<{ pid: number }>(
+                                    'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[])',
+                                    [[pool, cyclotron, bystander].map(({ backend }) => backend)]
+                                )
+                            ).rows.map(({ pid }) => pid),
+                        templatesUrl
+                    )
+                    expect(alive).toEqual([bystander.backend])
+                    await actuation.release()
+                } finally {
+                    await Promise.all(
+                        [pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined))
+                    )
+                }
+            } finally {
+                await secondServer.close()
+            }
+        }, 30_000)
+
+        it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
+            environment = environmentOf()
+            await environment.up()
+            const tag = `${process.pid}-${Date.now()}`
+            const sessions = await Promise.all(
+                [1, 2, 3].map(async (n) => {
+                    const client = new Client({
+                        connectionString: templatesUrl,
+                        application_name: `scenario-${tag}-${n}`,
+                    })
+                    let ended = false
+                    client.on('error', () => (ended = true))
+                    await client.connect()
+                    return { client, ended: () => ended }
+                })
+            )
+            try {
+                const terminated = await terminateRoleConnections(templatesUrl, 0.5)
+
+                await waitForExpect(() => expect(sessions.filter(({ ended }) => ended())).toHaveLength(2))
+                const answered = await Promise.all(
+                    sessions
+                        .filter(({ ended }) => !ended())
+                        .map(async ({ client }) => (await client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one)
+                )
+                expect({ terminated, answered }).toEqual({ terminated: 2, answered: [1] })
+            } finally {
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+            }
+        })
+
+        it('freezes a role on a valve, sees it stopped, and resumes the same process on release', async () => {
+            const role = 'cdp-cyclotron-worker-hogflow'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const frozen = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'freeze', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(processState(frozen)).toBe('T')
+            await actuation.release()
+            expect(Number(await (await internalFetch(health)).text())).toBe(frozen)
+            expect(environment.exits()).toEqual([])
         }, 30_000)
 
         it('brings every role up healthy', async () => {

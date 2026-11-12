@@ -30,6 +30,7 @@ describe('judge', () => {
         judge = createJudge({
             edgeUrl: edge.url,
             probe: { unfinishedJobs: () => Promise.resolve(unfinishedJobs) },
+            fetchRetries: 3,
             pollMs: 10,
         })
         await judge.open(SEED)
@@ -190,24 +191,33 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
     })
 
-    it.each<[string, number, boolean]>([
-        ['a status fetch does not retry', 400, true],
-        ['a request timeout, which fetch retries', 408, false],
-        ['a server error, which fetch retries', 503, false],
-    ])('at_least_once for a webhook whose only attempt a fault answered with %s', (_story, status, passed) => {
-        const webhook: TruthRecord = {
-            seq: 1,
-            at: new Date().toISOString(),
-            kind: 'webhook',
-            status,
-            fault: 'dest.status',
-            unitId: UNIT,
-            actionId: 'webhook',
-            detail: {},
-        }
+    it.each<[string, number[], boolean]>([
+        ['a status fetch does not retry, on the only attempt', [400], true],
+        ['a request timeout, which fetch retries, on the only attempt', [408], false],
+        ['a server error, which fetch retries, on the only attempt', [503], false],
+        ['a server error on fewer attempts than fetch makes', [503, 503], false],
+        ['a server error on every attempt fetch makes', [503, 503, 503], true],
+        ['too many requests on every attempt fetch makes', [429, 503, 429], true],
+    ])('at_least_once for a webhook a fault answered with %s', (_story, statuses, passed) => {
+        const attempts = statuses.map(
+            (status, i): TruthRecord => ({
+                seq: i + 1,
+                at: new Date().toISOString(),
+                kind: 'webhook',
+                status,
+                fault: 'dest.status',
+                unitId: UNIT,
+                actionId: 'webhook',
+                detail: {},
+            })
+        )
 
         const result = atLeastOnce.check(
-            { journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }], truth: [webhook] },
+            {
+                journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
+                truth: attempts,
+                fetchRetries: 3,
+            },
             undefined
         )
 
