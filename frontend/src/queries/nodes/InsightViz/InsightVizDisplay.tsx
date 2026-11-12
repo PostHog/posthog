@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { Heading } from '@posthog/quill'
 
 import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -70,6 +69,7 @@ import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/tren
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
+import { DetailedResultsHeading } from './DetailedResultsHeading'
 import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -513,10 +513,7 @@ export function InsightVizDisplay({
 
             if (funnelTable) {
                 return (
-                    <SceneSection
-                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                        className="mt-4"
-                    >
+                    <SceneSection title={<DetailedResultsHeading as="span" />} className="mt-4">
                         {funnelTable}
                     </SceneSection>
                 )
@@ -526,7 +523,7 @@ export function InsightVizDisplay({
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
             return (
                 <div className="mt-4">
-                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    <DetailedResultsHeading className="mb-2" />
                     <BoxPlotResultsTable />
                 </div>
             )
@@ -538,14 +535,12 @@ export function InsightVizDisplay({
                     {exportContext &&
                         (quillSurface ? (
                             <div className="flex items-center justify-between gap-2 my-4">
-                                <Heading size="base" render={<h2 className="m-0" />}>
-                                    Detailed results
-                                </Heading>
+                                <DetailedResultsHeading />
                                 <QuillExportButton tooltip="Export this table" items={exportItems(exportContext)} />
                             </div>
                         ) : (
                             <div className="flex items-center justify-between my-4 mx-0">
-                                <h2 className="font-semibold text-lg m-0">Detailed results</h2>
+                                <DetailedResultsHeading />
                                 <Tooltip title="Export this table" placement="left">
                                     <ExportButton type="secondary" items={exportItems(exportContext)} />
                                 </Tooltip>
