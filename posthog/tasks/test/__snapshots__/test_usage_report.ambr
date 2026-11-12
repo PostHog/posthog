@@ -45,7 +45,8 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='hog_function'
-    AND metric_name IN ('fetch')
+    AND metric_name IN ('succeeded',
+                        'failed')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id,
@@ -53,6 +54,20 @@
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.101
+  '''
+  
+  SELECT team_id,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE app_source='hog_function'
+    AND metric_name IN ('fetch')
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           metric_name
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.102
   '''
   
   SELECT team_id,
@@ -67,7 +82,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.102
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.103
   '''
   
   SELECT team_id,
@@ -84,7 +99,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.103
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.104
   '''
   
   SELECT team_id,
@@ -1815,6 +1830,18 @@
   '''
   
   SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
+  AND timestamp < '2022-01-10 23:59:59'
+  AND startsWith(event, '$mcp_')
+  WHERE replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.84
+  '''
+  
+  SELECT team_id,
          count() as count
   FROM heatmaps
   WHERE timestamp >= '2022-01-10 00:00:00'
@@ -1822,7 +1849,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.84
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.85
   '''
   
   SELECT team_id,
@@ -1835,30 +1862,6 @@
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
-     AND max(is_deleted) = 0)
-  WHERE session_id NOT IN
-      (SELECT DISTINCT session_id
-       FROM session_replay_events
-       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
-         AND min_first_timestamp < '2022-01-10 00:00:00'
-       GROUP BY session_id)
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.85
-  '''
-  
-  SELECT team_id,
-         sum(total_size) as bytes
-  FROM
-    (SELECT any(team_id) as team_id,
-            session_id,
-            sum(size) as total_size
-     FROM session_replay_events
-     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
-       AND min_first_timestamp < '2022-01-10 23:59:59'
-     GROUP BY session_id
-     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 0
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -1882,7 +1885,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 0
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -1894,6 +1897,30 @@
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.87
+  '''
+  
+  SELECT team_id,
+         sum(total_size) as bytes
+  FROM
+    (SELECT any(team_id) as team_id,
+            session_id,
+            sum(size) as total_size
+     FROM session_replay_events
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
+     GROUP BY session_id
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
+     AND max(is_deleted) = 0)
+  WHERE session_id NOT IN
+      (SELECT DISTINCT session_id
+       FROM session_replay_events
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
+       GROUP BY session_id)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.88
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -1912,32 +1939,13 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.88
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
-         sum(read_rows) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND event_time >= 'today 00:00:00'
-    AND event_time < '2022-01-11 05:59:59'
-    AND query_start_time >= '2022-01-10 00:00:00'
-    AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
-  GROUP BY team_id
-  '''
-# ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.89
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -1969,7 +1977,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -1978,7 +1986,7 @@
     AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -1988,7 +1996,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2007,7 +2015,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2026,17 +2034,16 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
     AND event_time >= 'today 00:00:00'
     AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -2046,7 +2053,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2066,7 +2073,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2086,7 +2093,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2096,7 +2103,7 @@
     AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -2106,7 +2113,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2126,7 +2133,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2142,16 +2149,21 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.99
   '''
-  
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         SUM(count) as count
-  FROM app_metrics2
-  WHERE app_source='hog_function'
-    AND metric_name IN ('succeeded',
-                        'failed')
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id,
-           metric_name
+         sum(query_duration_ms) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
+    AND access_method = 'personal_api_key'
+  GROUP BY team_id
   '''
 # ---

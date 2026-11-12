@@ -1890,6 +1890,19 @@
   
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
+  AND timestamp < '2022-01-10 23:59:59'
+  AND startsWith(event, '$mcp_')
+  WHERE ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$mcp_interface`), '\\/', '/'), toJSONString(properties.^`$mcp_interface`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$mcp_interface`), '\\/', '/'), toJSONString(properties.^`$mcp_interface`)), if(ascii(toString(properties.`$mcp_interface`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                       AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$mcp_interface`), '\\/', '/'), toJSONString(properties.`$mcp_interface`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$mcp_interface`), '\\/', '/'), toJSONString(properties.`$mcp_interface`)), '[]'), '{}'), toString(properties.`$mcp_interface`))), '') = 'webmcp'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.67]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events_json
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'

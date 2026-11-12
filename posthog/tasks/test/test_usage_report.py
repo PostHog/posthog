@@ -17,6 +17,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    materialized,
     run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
 )
@@ -739,6 +740,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_mcp_events_count_in_period": 0,
                     "godot_events_count_in_period": 0,
                     "unreal_events_count_in_period": 0,
+                    "web_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -846,6 +848,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -947,6 +950,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -1071,6 +1075,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_mcp_events_count_in_period": 0,
                     "godot_events_count_in_period": 0,
                     "unreal_events_count_in_period": 0,
+                    "web_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -1178,6 +1183,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -6516,6 +6522,69 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
+
+    @parameterized.expand([(False,), (True,)])
+    def test_web_mcp_events_are_filtered_deduplicated_and_reported_per_team(self, materialize_interface: bool) -> None:
+        if materialize_interface:
+            self.enterContext(materialized("events", "$mcp_interface"))
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        for lib in ("web", "js", "custom-browser"):
+            event_uuid = _create_event(
+                event="$mcp_tool_call",
+                team=self.team,
+                distinct_id="webmcp_user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$lib": lib, "$mcp_interface": "webmcp"},
+            )
+            if lib == "web":
+                _create_event(
+                    event="$mcp_tool_call",
+                    team=self.team,
+                    distinct_id="webmcp_user",
+                    event_uuid=event_uuid,
+                    timestamp=self.begin + relativedelta(hours=5),
+                    properties={"$lib": lib, "$mcp_interface": "webmcp"},
+                )
+
+        for event, interface, hours in [
+            ("$pageview", "webmcp", 2),
+            ("$exception", "webmcp", 2),
+            ("$mcp_tool_call", "mcp", 2),
+            ("$mcp_tool_call", None, 2),
+            ("$mcp_tool_call", "webmcp", -1),
+            ("$mcp_tool_call", "webmcp", 24),
+        ]:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="other_event_user",
+                timestamp=self.begin + relativedelta(hours=hours),
+                properties={"$lib": "web", "$mcp_interface": interface},
+            )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.analytics_team,
+            distinct_id="other_team_webmcp_user",
+            timestamp=self.begin,
+            properties={"$lib": "web", "$mcp_interface": "webmcp"},
+        )
+        flush_persons_and_events()
+
+        key = "teams_with_web_mcp_events_count_in_period"
+        rows = QUERY_INDEX[key].fn(self.begin, self.end)
+        assert dict(rows) == {self.team.id: 3, self.analytics_team.id: 1}
+
+        all_data: dict[str, dict[int, int]] = {
+            destination: {}
+            for spec in QUERY_INDEX.values()
+            for destination in (spec.multi_keys_mapping.values() if spec.output == "multi" else [spec.name])
+        }
+        all_data[key] = dict(rows)
+        for team, expected_count in [(self.team, 3), (self.analytics_team, 1)]:
+            report = dataclasses.asdict(_get_team_report(all_data, team))
+            assert report["web_mcp_events_count_in_period"] == expected_count
 
     def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
         # make sure we don't collapse duplicate rows

@@ -368,6 +368,7 @@ class UsageReportCounters:
     ruby_mcp_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
+    web_mcp_events_count_in_period: int
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int
@@ -914,6 +915,33 @@ def get_teams_with_mcp_event_count_in_period(begin: datetime, end: datetime) -> 
             end,
             query_template,
             {"mcp_event_prefix": MCP_EVENT_NAME_PREFIX},
+            num_splits=12,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_web_mcp_event_count_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
+    use_new = use_new_events_schema(None)
+    interface_expression, _ = get_property_string_expr(
+        "events", "$mcp_interface", "'$mcp_interface'", "properties", use_new_events_schema=use_new
+    )
+    # nosemgrep: clickhouse-fstring-param-audit - table and property expressions come from internal helpers
+    query_template = f"""
+        SELECT team_id, count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+        FROM {events_read_table(use_new)}
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND startsWith(event, %(mcp_event_prefix)s)
+        WHERE {interface_expression} = %(mcp_interface)s
+        GROUP BY team_id
+    """
+
+    with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        return _execute_calendar_aligned_split_query(
+            begin,
+            end,
+            query_template,
+            {"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "mcp_interface": "webmcp"},
             num_splits=12,
         )
 
@@ -3256,6 +3284,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_rust_mcp_events_count_in_period": all_metrics["rust_mcp_events"],
         "teams_with_go_mcp_events_count_in_period": all_metrics["go_mcp_events"],
         "teams_with_ruby_mcp_events_count_in_period": all_metrics["ruby_mcp_events"],
+        "teams_with_web_mcp_events_count_in_period": get_teams_with_web_mcp_event_count_in_period(
+            period_start, period_end
+        ),
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
@@ -3643,6 +3674,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_mcp_events_count_in_period=all_data["teams_with_rust_mcp_events_count_in_period"].get(team.id, 0),
         go_mcp_events_count_in_period=all_data["teams_with_go_mcp_events_count_in_period"].get(team.id, 0),
         ruby_mcp_events_count_in_period=all_data["teams_with_ruby_mcp_events_count_in_period"].get(team.id, 0),
+        web_mcp_events_count_in_period=all_data["teams_with_web_mcp_events_count_in_period"].get(team.id, 0),
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
