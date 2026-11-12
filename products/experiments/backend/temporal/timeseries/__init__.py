@@ -1,4 +1,4 @@
-from posthog.temporal.experiments.activities import (
+from products.experiments.backend.temporal.timeseries.activities import (
     backfill_experiment_metric,
     calculate_experiment_regular_metric,
     calculate_experiment_saved_metric,
@@ -6,7 +6,7 @@ from posthog.temporal.experiments.activities import (
     get_experiment_regular_metrics_for_hour,
     get_experiment_saved_metrics_for_hour,
 )
-from posthog.temporal.experiments.workflows import (
+from products.experiments.backend.temporal.timeseries.workflows import (
     ExperimentRegularMetricsWorkflow,
     ExperimentSavedMetricsWorkflow,
     ExperimentTimeseriesRecalculationWorkflow,
