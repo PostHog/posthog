@@ -545,24 +545,51 @@ class AdjustedRunSerializer(serializers.Serializer):
     sql = serializers.CharField(help_text="The SQL the agent ran.")
     reasoning = serializers.CharField(help_text="Why the judge matched the query to the metric.")
     occurred_at = serializers.DateTimeField(help_text="When the agent ran the query.")
-    session_id = serializers.CharField(allow_null=True, help_text="Agent session of the query, when known.")
+    session_id = serializers.CharField(
+        allow_null=True,
+        help_text="Agent conversation of the query, when known: the session id of the conversation's first piece. "
+        "Every query in one conversation carries the same id.",
+    )
     is_scout = serializers.BooleanField(help_text="True when a scout (scheduled agent) ran the query.")
 
 
 class TopicCoverageSerializer(serializers.Serializer):
-    canonical = serializers.IntegerField(help_text="Sessions that ran a catalog metric directly.")
-    adapted = serializers.IntegerField(help_text="Sessions that read a catalog metric, then changed it.")
-    silent = serializers.IntegerField(help_text="Sessions that re-derived a catalog metric without consulting it.")
-    raw_sql_only = serializers.IntegerField(help_text="Sessions that ran SQL that matches no catalog metric.")
-    no_sql = serializers.IntegerField(help_text="Sessions that ran no query.")
+    metric = serializers.IntegerField(help_text="Sessions that asked for a metric and found one that fits.")
+    table = serializers.IntegerField(
+        help_text="Sessions that asked for a metric, found none, and found a table or view description that fits."
+    )
+    nothing = serializers.IntegerField(help_text="Sessions that asked for a metric and found neither.")
 
 
 class TopicClusterSerializer(serializers.Serializer):
-    title = serializers.CharField(help_text="Short name of the topic, written by a model from sample intents.")
-    session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not clustered.")
-    coverage = TopicCoverageSerializer(help_text="How the topic's sessions got their numbers.")
-    sample_intents = serializers.ListField(
-        child=serializers.CharField(), help_text="A few intents from the topic's sessions."
+    title = serializers.CharField(help_text="Short name of the subject. 'Other' holds the sessions that fit no topic.")
+    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
+    session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not included.")
+    people = serializers.IntegerField(help_text="Distinct people behind the topic's sessions.")
+    coverage = TopicCoverageSerializer(help_text="What the sessions that asked for a metric ended up with.")
+
+
+class TopicDefinitionSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Short name of the subject.")
+    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
+
+
+class TableSourceSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the table or view, as the agent's search returned it.")
+    sessions = serializers.IntegerField(
+        help_text="Sessions in the window that found its description and then queried it."
+    )
+    people = serializers.IntegerField(help_text="Distinct people behind those sessions.")
+
+
+class TopicSessionCountsSerializer(serializers.Serializer):
+    analysis = serializers.IntegerField(help_text="Sampled sessions that calculated or compared data.")
+    lookup = serializers.IntegerField(help_text="Sampled sessions that read or checked specific things.")
+    automation = serializers.IntegerField(help_text="Sampled sessions from a scheduled or repeated job.")
+    unclear = serializers.IntegerField(help_text="Sampled sessions whose intents did not show what they did with data.")
+    unread = serializers.IntegerField(help_text="Sampled sessions that the model failed to read.")
+    coverage_unchecked = serializers.IntegerField(
+        help_text="Analysis sessions whose coverage check failed. They count as a metric only after a direct run."
     )
 
 
@@ -593,7 +620,21 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
     adjusted_runs = AdjustedRunSerializer(
         many=True, allow_null=True, help_text="Agent queries that re-derived a metric. Null until judged."
     )
-    topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until clustered.")
+    topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until grouped.")
+    topic_definitions = TopicDefinitionSerializer(
+        many=True,
+        allow_null=True,
+        help_text="The whole topic list that the next scan keeps, including topics with no sessions in this scan. "
+        "Null until grouped.",
+    )
+    topic_sessions = TopicSessionCountsSerializer(
+        allow_null=True, help_text="What the sampled sessions were about, by kind. Null until grouped."
+    )
+    table_sources = TableSourceSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Tables and views that agents found by description and then queried. Null until counted.",
+    )
     uncovered = UncoveredGroupSerializer(
         many=True, allow_null=True, help_text="Recurring query shapes and their catalog outcome. Null until grouped."
     )
