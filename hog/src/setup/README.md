@@ -120,5 +120,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, and hog mcp add when the server is missing
+    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, a reverse proxy for a posthog-js app, and hog mcp add when the server is missing
 ```

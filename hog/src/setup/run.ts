@@ -62,10 +62,13 @@ async function recentEvents(run: SetupRun): Promise<EventsContext | undefined> {
     )
 }
 
+const READ_PROXY = 'hog skills read instrument-reverse-proxy'
+
 const CONNECTED =
     'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.'
 const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
 const TELL_USER = `At the end of your turn, tell the user what else PostHog can do, from \`context.products\`, and which skills named in \`context.skills\` they can add with \`${ADD_SKILLS}\`. \`hog skills search <words>\` describes the skills that match.`
+const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that \`${READ_PROXY}\` sets one up. Don't set one up unless they ask: it can need a DNS change and an organization admin.`
 
 // Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
 function doneInstructions(run: SetupRun, events: EventsContext | undefined): string {
@@ -79,7 +82,13 @@ function doneInstructions(run: SetupRun, events: EventsContext | undefined): str
               ? `Also tell the user that the \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, and that \`${mcp.command}\` replaces it with PostHog's.`
               : `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
 
-    return [CONNECTED, events?.count === 0 ? NO_EVENTS : '', finishedForAgent ? TELL_USER : '', tellMcp]
+    return [
+        CONNECTED,
+        events?.count === 0 ? NO_EVENTS : '',
+        finishedForAgent ? TELL_USER : '',
+        finishedForAgent ? SUGGEST_PROXY : '',
+        tellMcp,
+    ]
         .filter(Boolean)
         .join(' ')
 }

@@ -310,6 +310,7 @@ describe('hog setup', () => {
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')
+        expect(instructions).toContain('`hog skills read instrument-reverse-proxy` sets one up')
         expect(instructions).toContain("connect PostHog's MCP server with `hog mcp add --agent claude-code`")
         expect((reviewed.json() as any).context.mcp).toEqual({
             agent: 'claude-code',
@@ -332,6 +333,7 @@ describe('hog setup', () => {
         expect(agentsMd).toContain(
             '- Logs, metrics, and tracing (APM): `hog skills search logs`, `hog skills read instrument-metrics`'
         )
+        expect(agentsMd).toContain('(reverse proxy): `hog skills read instrument-reverse-proxy`')
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
         machine.events.push(START + 60_000)
