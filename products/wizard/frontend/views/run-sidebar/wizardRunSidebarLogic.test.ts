@@ -124,6 +124,65 @@ describe('wizardRunSidebarLogic', () => {
         expect(await tick()).toBe(0)
     })
 
+    test.each([
+        { name: 'no runs', runs: [], dismissedBeforeLoad: [], visible: false },
+        {
+            name: 'a running run',
+            runs: [{ ...run('a'), status: 'running', finished_at: null }],
+            dismissedBeforeLoad: [],
+            visible: true,
+        },
+        {
+            name: 'a run that finished 23 hours ago',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissedBeforeLoad: [],
+            visible: true,
+        },
+        {
+            name: 'a run that finished 25 hours ago',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T09:00:00Z' }],
+            dismissedBeforeLoad: [],
+            visible: false,
+        },
+        {
+            name: 'a recent run dismissed in an earlier session',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissedBeforeLoad: ['a'],
+            visible: false,
+        },
+    ])('shows the rail tile with $name: $visible', async ({ runs, dismissedBeforeLoad, visible }) => {
+        const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-20T10:00:00Z'))
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.dismissRuns(dismissedBeforeLoad)
+            wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded(runs as WizardRunApi[])
+
+            expect(logic.values.railVisible).toBe(visible)
+        } finally {
+            now.mockRestore()
+        }
+    })
+
+    it('keeps the rail tile until a reload once it shows', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const runs = [{ ...run('a'), status: 'running' as const }]
+        wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded(runs)
+
+        logic.actions.dismissRuns(['a'])
+
+        expect(logic.values.railVisible).toBe(true)
+        logic.unmount()
+
+        initKeaTests()
+        logic = wizardRunSidebarLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded(runs)
+
+        expect(logic.values.railVisible).toBe(false)
+    })
+
     it('scopes dismissals to the current project and user', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.dismissRuns(['first'])

@@ -120,6 +120,7 @@ from products.legal_documents.backend.facade.tasks import reconcile_pending_lega
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
+from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
@@ -173,6 +174,7 @@ from products.workflows.backend.facade.tasks import (
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
+    sync_sandbox_sender_tenant_state,
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -827,6 +829,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
+        crontab(hour="3", minute="43"),
+        expire_agent_insight_reads.s(),
+        name="expire agent insight reads past their window",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
         crontab(hour="2", minute="17"),
         cleanup_widget_snapshots.s(),
         name="remove unreferenced notebook widget snapshots",
@@ -1049,6 +1058,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sync_sandbox_sender_tenant_state.s(),
+        name="workflows sandbox sender tenant state",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13

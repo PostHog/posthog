@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 
+from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
@@ -33,10 +34,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 SCHEDULED_RECALCULATION_FEATURE_FLAG = "experiments-scheduled-recalculation"
-
-# Matches the daily timeseries discovery in posthog/temporal/experiments/activities.py, so both
-# systems agree on which experiments are worth computing.
-EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 # An experiment younger than this has too little data for the queries to be worth their cost.
 MIN_EXPERIMENT_AGE = timedelta(hours=12)
@@ -156,7 +153,7 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
             # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
             # status alone would select one that collects no new data.
             feature_flag__active=True,
-            start_date__gte=now - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+            start_date__gte=daily_calculation_start_cutoff(now),
             start_date__lte=now - MIN_EXPERIMENT_AGE,
         )
         .values_list("id", "team_id", "team__organization_id")

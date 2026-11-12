@@ -298,6 +298,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
+    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases/list': ['Releases', 'releaseList'],
+    '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
@@ -1169,6 +1172,13 @@ export const productConfiguration: Record<string, any> = {
             'Your always-on product manager: spots growth opportunities and shows how to move the numbers that matter.',
         iconType: 'activity',
     },
+    ReleaseCalendar: {
+        name: 'Release calendar',
+        projectBased: true,
+        description: 'One row for each release, with its flags, experiments and early access.',
+    },
+    Releases: { name: 'Releases', projectBased: true },
+    Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -1926,6 +1936,9 @@ export const productUrls = {
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
+    releases: (): string => '/releases',
+    releaseList: (): string => '/releases/list',
+    release: (id: string): string => `/releases/${id}`,
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -2160,7 +2173,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         href: (ref: string) => urls.workflow(ref, 'workflow'),
         listHref: () => urls.workflows(),
-        filterKey: 'hog_flow',
     },
     insight: {
         name: 'Insight',
@@ -2184,7 +2196,6 @@ export const fileSystemTypes = {
         iconType: 'broadcasts',
         href: (ref: string) => urls.workflowsLibraryTemplate(ref),
         listHref: () => urls.workflows('library'),
-        filterKey: 'message_template',
     },
     notebook: {
         name: 'Notebook',

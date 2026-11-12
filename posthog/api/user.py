@@ -47,7 +47,7 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
+from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
 from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
@@ -733,6 +733,9 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         try:
             UserUIConfiguration.model_validate(value)
+            # The check above coerces "false" to a boolean, but the raw JSON is what gets stored.
+            if value.get("session_replay") is not None:
+                SessionReplayListConfiguration.model_validate(value["session_replay"], strict=True)
         except pydantic.ValidationError as e:
             errors = "; ".join(
                 f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()

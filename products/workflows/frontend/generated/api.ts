@@ -91,6 +91,8 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowEmailSandboxProvisionApi,
+    WorkflowEmailSandboxStatusApi,
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
@@ -1525,7 +1527,7 @@ export const getHogFlowsSummariesListUrl = (projectId: string, params?: HogFlows
 }
 
 /**
- * Workflow rows without the step graph, for loading a whole project's list page by page. Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`.
+ * Workflow rows without the step graph, for loading a whole project's list page by page. Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`. With `search`, `count` is not a total: it counts the rows through this page, plus one when another page follows. Follow `next` to read every match.
  * @summary List workflow summaries
  */
 export const hogFlowsSummariesList = async (
@@ -1767,6 +1769,40 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/provision/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxProvision = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxProvisionApi> => {
+    return apiMutator<WorkflowEmailSandboxProvisionApi>(getWorkflowEmailSandboxProvisionUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/status/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxStatusApi> => {
+    return apiMutator<WorkflowEmailSandboxStatusApi>(getWorkflowEmailSandboxStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -4,7 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { makeFeedback, makeTraceResource } from './adapter/testFixtures'
+import { makeFeedback, makeTraceResource } from './testFixtures'
 import { traceFeedbackLogic } from './traceFeedbackLogic'
 import { traceViewLogic } from './traceViewLogic'
 

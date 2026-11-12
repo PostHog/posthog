@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -80,12 +80,14 @@ class RestoreContext:
     organization: Any | None
 
 
+PrepareDeleteHook = Callable[[Any | None, int, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
 PreRestoreHook = Callable[[RestoreContext, Any], None]
 PostRestoreHook = Callable[[RestoreContext, Any], None]
 
 _MODEL_REGISTRY: dict[str, ModelRegistration] = {}
+_PREPARE_DELETE_HOOKS: dict[str, PrepareDeleteHook] = {}
 _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
@@ -135,6 +137,10 @@ def register_file_system_type(
     )
 
 
+def register_prepare_delete_hook(type_string: str, hook: PrepareDeleteHook) -> None:
+    _PREPARE_DELETE_HOOKS[type_string] = hook
+
+
 def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
     _PRE_DELETE_HOOKS[type_string] = hook
 
@@ -149,6 +155,22 @@ def register_pre_restore_hook(type_string: str, hook: PreRestoreHook) -> None:
 
 def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
     _POST_RESTORE_HOOKS[type_string] = hook
+
+
+# Runs before any pre-delete hook locks an object, so a type can load its checks' data in one query.
+def prepare_file_system_deletes(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
+    for (team_id, type_string), refs in sorted(refs_by_type.items()):
+        hook = _PREPARE_DELETE_HOOKS.get(type_string)
+        registration = _MODEL_REGISTRY.get(type_string)
+        if hook is None or registration is None:
+            continue
+        try:
+            objects = _get_queryset(registration).filter(
+                **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": sorted(refs)}
+            )
+        except (ValueError, DjangoValidationError):
+            continue
+        hook(request, team_id, objects)
 
 
 def is_file_system_type_registered(type_string: str) -> bool:

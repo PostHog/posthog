@@ -706,3 +706,20 @@ The check uses the effective runtime and model access after defaults are applied
 The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
 Other funding modes keep their existing runtime and model access rules.
 First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.
+
+## Restarting the first-report scout
+
+After deploying a fix, an operator can restart a finished first-report investigation by resetting its `signals-scout-onboarding-...` Temporal workflow to the first `WorkflowTaskCompleted` event, before `run_signals_scout_activity`.
+The reset preserves the workflow input and creates a new scout run and task with a `first-report:<workflow_run_id>` key.
+Repeated activity delivery within the same Temporal execution returns the existing run; a reset supplies a new execution ID.
+Existing tasks and scout runs stay in the history, including attempts created with the legacy `first-report` key; no database edits are needed.
+The normal onboarding trigger still starts only once per project.
+First-report dispatch locks the canonical project's Signals config and checks for a live queued or in-progress run in the task creation transaction.
+A competing dispatch rolls back its task and run before any sandbox starts.
+Restarts re-evaluate the current experiment assignment and quota gates.
+
+Check the new scout run and its task outcome after resetting.
+A Temporal workflow marked `Completed` can have returned a failed or skipped scout result; that status alone does not mean the investigation succeeded.
+The onboarding UI reads the latest scout run, so a restart replaces the failed state with progress and then the new result.
+Reload a page that still shows the previous failure once after restarting; terminal states stop polling.
+While the new investigation is pending or running, the page polls every ten seconds and refreshes the report list when a report appears.

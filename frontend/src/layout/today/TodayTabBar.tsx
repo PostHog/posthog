@@ -6,18 +6,18 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES } from './todayRailItems'
-import { TODAY_RAIL_PANES, todayShellLogic } from './todayShellLogic'
+import { todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 
 export function TodayTabBar(): JSX.Element {
-    const { activePane } = useValues(todayShellLogic)
+    const { activePane, railPanes } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {TODAY_RAIL_PANES.map((pane) => {
+                {railPanes.map((pane) => {
                     const active = activePane === pane
                     return (
                         <TodayTabBarTab

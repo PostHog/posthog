@@ -15,6 +15,7 @@ from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
 from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -77,6 +78,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
+    INCOMPLETE_AUDIENCE_CONDITION,
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -506,6 +508,28 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries?search=march")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"March campaign", "Billing"}
+
+    def test_summaries_search_scans_step_content_once_per_page_and_pages_by_next(self):
+        for name in ("Alpha", "Beta", "Gamma"):
+            HogFlow.objects.create(
+                team=self.team,
+                name=name,
+                created_by=self.user,
+                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
+            )
+        HogFlow.objects.create(team=self.team, name="Unrelated", created_by=self.user)
+
+        names: list[str] = []
+        url: str | None = f"/api/projects/{self.team.id}/hog_flows/summaries?search=seat is confirmed&limit=2"
+        while url is not None:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(url)
+            assert response.status_code == 200, response.json()
+            assert sum("jsonb_array_elements" in query["sql"] for query in queries.captured_queries) == 1
+            names.extend(flow["name"] for flow in response.json()["results"])
+            url = response.json()["next"]
+
+        assert names == ["Gamma", "Beta", "Alpha"]
 
     def test_list_search_step_tier_counts_every_match_across_pages(self):
         for name in ("Alpha", "Beta"):
@@ -4059,6 +4083,106 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "missing_value_on_create",
+                {"key": "email", "type": "person", "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_create",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "missing_value_on_activate",
+                {"key": "email", "type": "person", "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_activate",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "malformed_cohort_id_on_create",
+                {"key": "id", "type": "cohort", "value": "invalid"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "flag_on_create",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                False,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "flag_on_activate",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                True,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_unusable_audience_condition(
+        self, _name, condition, save_as_draft_first, message
+    ):
+        hog_flow = self._batch_audience_flow([condition])
+
+        if save_as_draft_first:
+            draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+            assert draft.status_code == 201, draft.json()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"}, format="json"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json()["detail"]
+
+    def test_hog_flow_keeps_saving_an_active_flow_with_an_unchanged_unfinished_audience(self):
+        stored = self._batch_audience_flow([{"key": "email", "type": "person", "operator": "exact"}])
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name=stored["name"],
+            status=HogFlow.State.ACTIVE,
+            actions=stored["actions"],
+            trigger=stored["actions"][0]["config"],
+            created_by=self.user,
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow.id}"
+        stored_actions = self.client.get(url).json()["actions"]
+
+        resave = self.client.patch(url, {"name": "renamed", "actions": stored_actions}, format="json")
+        assert resave.status_code == 200, resave.json()
+
+        edited_actions = deepcopy(stored_actions)
+        edited_actions[0]["config"]["filters"]["properties"] = [{"key": "plan", "type": "person", "operator": "exact"}]
+        edited = self.client.patch(url, {"actions": edited_actions}, format="json")
+        assert edited.status_code == 400, edited.json()
+        assert INCOMPLETE_AUDIENCE_CONDITION in edited.json()["detail"]
+
+    def _batch_audience_flow(self, properties: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "name": "Test Batch Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": "batch", "filters": {"properties": properties}},
+                }
+            ],
+        }
+
+    @parameterized.expand(
+        [
             ("data-warehouse-table", "postgres.table_1"),
             ("data-warehouse-view", "daily_revenue"),
         ]
@@ -5300,62 +5424,154 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_only",
+                [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
             (
                 "flag_mixed_with_person",
                 [
                     {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
                     {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
                 ],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_in_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                                {"key": "plan", "type": "person", "operator": "exact"},
+                            ],
+                        }
+                    ],
+                },
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_in_lowercase_group",
+                {"type": "and", "values": [{"key": "email", "type": "person", "operator": "exact"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_as_json_string",
+                json.dumps([{"key": "email", "type": "person", "operator": "exact"}]),
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "person_filter_without_key_in_group",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "person", "operator": "exact"}]}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "emptied_multi_select",
+                [{"key": "email", "type": "person", "value": [], "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "emptied_negated_multi_select_in_group",
+                {"type": "AND", "values": [{"key": "plan", "type": "person", "value": [], "operator": "is_not"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "group_without_a_list_of_values",
+                [{"type": "AND", "values": {"key": "email", "type": "person", "value": "a@b.com"}}],
+                "An audience filter is incomplete. Finish it or remove it.",
             ),
         ]
     )
-    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
-        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
-        # the condition reaches the blast-radius query (where it would otherwise 500).
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": properties}},
-            )
+    def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+        )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
-        mock_get_person_audience_count.assert_not_called()
+        assert message in response.json().get("detail", "")
 
+    @parameterized.expand(
+        [
+            ("is_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_set"}),
+            ("is_not_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_not_set"}),
+            ("hogql_expression", {"key": "properties.email = 'a@b.com'", "type": "hogql"}),
+            (
+                "hogql_expression_with_empty_value",
+                {"key": "properties.email = 'a@b.com'", "type": "hogql", "value": []},
+            ),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_counts_a_finished_condition_without_a_value(self, _name, condition):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": [condition]}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "affected" in response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_rejects_flag_condition(self):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
+    def test_internal_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_person_audience_count.assert_not_called()
+        assert message in response.json().get("error", "")
 
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids"
-        ) as mock_get_batch_audience_person_ids:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
+    def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_batch_audience_person_ids.assert_not_called()
+        assert message in response.json().get("error", "")
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):

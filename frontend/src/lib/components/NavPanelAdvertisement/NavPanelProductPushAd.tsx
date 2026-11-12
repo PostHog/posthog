@@ -6,12 +6,12 @@ import { isExternalLink } from 'lib/utils/url'
 
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
-import { AdvertisementCard } from './navPanelAdShared'
+import { AdvertisementCard, NAV_PANEL_PLACEMENT } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-import { navPanelProductPushAdLogic } from './navPanelProductPushAdLogic'
+import { navPanelProductPushAdLogic, productPushDismissKey } from './navPanelProductPushAdLogic'
 
 export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampaignApi }): JSX.Element | null {
-    const logic = navPanelProductPushAdLogic({ campaign })
+    const logic = navPanelProductPushAdLogic({ campaign, placement: NAV_PANEL_PLACEMENT.SIDEBAR })
     const { display, shouldRender, destination, label } = useValues(logic)
     const { reportAdClicked, reportAdDismissed } = useActions(logic)
 
@@ -27,7 +27,7 @@ export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampa
                 className="text-primary"
                 onClick={() => reportAdClicked()}
             >
-                <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: `product-push-${campaign.id}` }}>
+                <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: productPushDismissKey(campaign) }}>
                     <AdvertisementCard
                         title={label ?? ''}
                         text={campaign.reason_text || display.tagline}

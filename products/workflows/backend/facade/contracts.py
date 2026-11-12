@@ -525,6 +525,10 @@ class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
 
 
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -1235,3 +1239,12 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

@@ -54,6 +54,11 @@ RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service.mjs ./credentials-service.mjs
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service.mjs.map ./credentials-service.mjs.map
+# The migration Job runs `node credentials-service-migrate.mjs` from this image. It reads
+# ./migrations relative to the working directory.
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs ./credentials-service-migrate.mjs
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs.map ./credentials-service-migrate.mjs.map
+COPY --from=build --chown=node:node /code/services/credentials-service/migrations ./migrations
 
 ENV NODE_ENV=production \
     PORT=8004

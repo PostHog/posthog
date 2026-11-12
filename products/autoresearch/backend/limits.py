@@ -59,8 +59,9 @@ LIVE_PIPELINE_STATUSES = (
 )
 
 # The daily cap counts runs over a rolling window, so a burst just after midnight UTC cannot
-# spend two days of runs in one sitting.
-TRAINING_RUN_WINDOW = timedelta(hours=24)
+# spend two days of runs in one sitting. Shorter than a day, so the runs one daily sweep starts
+# have left the window when the next sweep reaches kickoff, even up to two hours earlier in the day.
+TRAINING_RUN_WINDOW = timedelta(hours=22)
 
 # Namespace for the per-team advisory lock, so it cannot collide with another product's key.
 _TRAINING_CAP_LOCK_NAMESPACE = 0x41525452  # "ARTR"
