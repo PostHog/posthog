@@ -78,7 +78,7 @@ describe('insertIntakeBatch', () => {
         }) as Message
 
     const send = (
-        overrides: { id?: string; fingerprint?: string; sendBy?: Date; to?: string } = {}
+        overrides: { id?: string; fingerprint?: string; to?: string } = {}
     ): { id: string; message: Message } => {
         const id = overrides.id ?? new UUIDT().toString()
         const state = {
@@ -89,7 +89,6 @@ describe('insertIntakeBatch', () => {
                     properties: { to: overrides.to ?? 'ada@example.com' },
                 },
                 actionStepCount: 0,
-                ...(overrides.sendBy && { sendBy: overrides.sendBy.toISOString() }),
             },
         }
         const encoded = encodeIntakeMessage({
@@ -110,8 +109,6 @@ describe('insertIntakeBatch', () => {
         }
         return { id, message: kafkaMessage(encoded.message.value) }
     }
-
-    const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * 60_000)
 
     beforeAll(() => {
         pool = new Pool({ connectionString: DB_URL })
@@ -208,31 +205,6 @@ describe('insertIntakeBatch', () => {
         expect(recorded).toEqual([])
     })
 
-    it('fails a send that arrives past its send-by deadline instead of queueing it', async () => {
-        const late = send({ sendBy: minutesFromNow(-1) })
-
-        await insertIntakeBatch([late.message], services, OPTIONS)
-
-        expect(await storedJobs([late.id])).toEqual([])
-        expect(lifecycleRows()).toEqual([
-            expect.objectContaining({ invocation_id: late.id, status: 'failed', error_kind: 'send_deadline_exceeded' }),
-        ])
-        expect(emailStatuses()).toEqual([
-            expect.objectContaining({ message_id: late.id, status: 'failed', reason: 'send_deadline_exceeded' }),
-        ])
-    })
-
-    it('leaves a run alone when it arrives past its deadline but was claimed already', async () => {
-        const id = new UUIDT().toString()
-        await insertIntakeBatch([send({ id, sendBy: minutesFromNow(15) }).message], services, OPTIONS)
-        recorded = []
-
-        await insertIntakeBatch([send({ id, sendBy: minutesFromNow(-1) }).message], services, OPTIONS)
-
-        expect(await storedJobs([id])).toHaveLength(1)
-        expect(recorded).toEqual([])
-    })
-
     it('retries a claim that hits a Postgres error, then queues the run', async () => {
         const run = send()
         let failures = 1
@@ -241,7 +213,6 @@ describe('insertIntakeBatch', () => {
                 failures-- > 0
                     ? Promise.reject(new Error('Connection terminated'))
                     : manager.createJobsIdempotently(inputs),
-            findLiveIdempotencyKeys: (ids) => manager.findLiveIdempotencyKeys(ids),
         }
 
         await insertIntakeBatch(
@@ -261,7 +232,6 @@ describe('insertIntakeBatch', () => {
         const invalid = kafkaMessage(Buffer.from('not json'))
         const down: IntakeBatchServices['cyclotron'] = {
             createJobsIdempotently: () => Promise.reject(new Error('Connection terminated')),
-            findLiveIdempotencyKeys: () => Promise.reject(new Error('Connection terminated')),
         }
 
         await expect(
@@ -298,7 +268,6 @@ describe('insertIntakeBatch', () => {
         ]
         const down: IntakeBatchServices['cyclotron'] = {
             createJobsIdempotently: () => Promise.reject(new Error('Connection terminated')),
-            findLiveIdempotencyKeys: () => Promise.reject(new Error('Connection terminated')),
         }
         await expect(insertIntakeBatch(batch, { ...services, cyclotron: down }, OPTIONS)).rejects.toThrow()
 

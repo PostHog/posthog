@@ -22,8 +22,6 @@ import {
     intakeJobInit,
 } from './message'
 
-export const SEND_DEADLINE_EXCEEDED = 'send_deadline_exceeded'
-
 const claimsCounter = new Counter({
     name: 'cdp_intake_claims_total',
     help: 'Intake runs by claim outcome: created inserted the job, replayed found the run already claimed (a redelivery, a duplicate in the batch, or a run the route claimed), mismatch found its key claimed by a different request.',
@@ -34,12 +32,6 @@ const deadLettersCounter = new Counter({
     name: 'cdp_intake_dead_letters_total',
     help: 'Intake messages that can never insert, parked on the intake dead-letter topic, by reason.',
     labelNames: ['kind', 'reason'] as const,
-})
-
-const deadlineFailuresCounter = new Counter({
-    name: 'cdp_intake_deadline_failures_total',
-    help: 'Intake runs that reached the consumer past their send-by deadline and failed without a job.',
-    labelNames: ['kind'] as const,
 })
 
 const claimErrorsCounter = new Counter({
@@ -55,13 +47,13 @@ const breakerTripsCounter = new Counter({
 })
 
 export type IntakeBatchServices = {
-    cyclotron: Pick<CyclotronV2Manager, 'createJobsIdempotently' | 'findLiveIdempotencyKeys'>
+    cyclotron: Pick<CyclotronV2Manager, 'createJobsIdempotently'>
     deadLetters: Pick<CdpDeadLetterService, 'recordMessageFailure' | 'produceForBatch'>
     invocationResults: Pick<
         HogInvocationResultsService,
         'queueLifecycleRow' | 'dropQueuedRowsFor' | 'handOffQueuedRows'
     >
-    emailStatus: Pick<EmailStatusService, 'queue' | 'queueFailedJob' | 'flush'>
+    emailStatus: Pick<EmailStatusService, 'queue' | 'flush'>
 }
 
 export type IntakeBatchOptions = {
@@ -84,14 +76,10 @@ export async function insertIntakeBatch(
 ): Promise<void> {
     const { runs: parsed, unparseable } = parse(messages)
     const runs = firstOfEachRun(parsed, options.kind)
-    const now = Date.now()
-    const late = runs.filter((run) => isPastSendBy(run.message, now))
-    const onTime = runs.filter((run) => !isPastSendBy(run.message, now))
 
-    // Nothing is buffered until the claim commits, so a batch that fails before it leaves nothing for its retry to repeat.
-    const unclaimedLate = await withoutLiveClaims(late, services.cyclotron, options.kind)
-    await claimRuns(onTime, services, options)
-    failLateRuns(unclaimedLate, services, options.kind)
+    // Dead letters are recorded only after the claim commits, so a batch that fails at the claim leaves nothing for its
+    // retry to park twice.
+    await claimRuns(runs, services, options)
     // Before the dead letters, so a failure there cannot leave the rows of committed runs queued for a redelivery to drop.
     const { produced } = await services.invocationResults.handOffQueuedRows()
     await Promise.all([produced, services.emailStatus.flush()])
@@ -157,42 +145,6 @@ function firstOfEachRun(runs: IntakeRun[], kind: RunKind): IntakeRun[] {
         seen.add(id)
         return true
     })
-}
-
-function isPastSendBy(message: IntakeMessage, now: number): boolean {
-    const sendBy = message.job.state?.state?.sendBy
-    return sendBy !== undefined && Date.parse(sendBy) <= now
-}
-
-// A late run that is already claimed belongs to a job that exists, such as one the route claimed in shadow mode.
-// Its rows share that job's id, so a failed row here would replace the job's own status.
-async function withoutLiveClaims(
-    late: IntakeRun[],
-    cyclotron: IntakeBatchServices['cyclotron'],
-    kind: RunKind
-): Promise<IntakeRun[]> {
-    if (late.length === 0) {
-        return []
-    }
-    const claimed = await cyclotron.findLiveIdempotencyKeys(late.map((run) => run.message.job.id))
-    return late.filter((run) => {
-        const isClaimed = claimed.has(run.message.job.id.toLowerCase())
-        if (isClaimed) {
-            claimsCounter.labels({ kind, outcome: 'replayed' }).inc()
-        }
-        return !isClaimed
-    })
-}
-
-function failLateRuns(late: IntakeRun[], services: IntakeBatchServices, kind: RunKind): void {
-    for (const run of late) {
-        deadlineFailuresCounter.labels({ kind }).inc()
-        services.invocationResults.queueLifecycleRow(run.invocation, 'failed', {
-            error: 'The run passed its send-by deadline before it was queued',
-            errorKind: SEND_DEADLINE_EXCEEDED,
-        })
-        services.emailStatus.queueFailedJob(run.invocation, SEND_DEADLINE_EXCEEDED)
-    }
 }
 
 async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, options: IntakeBatchOptions): Promise<void> {
