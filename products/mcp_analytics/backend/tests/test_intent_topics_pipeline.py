@@ -344,6 +344,25 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestFitSampleWindow(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_candidates_without_a_vector_are_replaced_from_the_next_page(self) -> None:
+        names = ["a", "b", "c", "d", "e"]
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [
+                HourlyCalls(hour=NOW - timedelta(days=1), hash=name, tool="query-trends", calls=2, conversations=(1,))
+                for name in names
+            ],
+            now=NOW,
+        )
+        # Only two of the five called intents have a vector, so a page of two candidates can come up short.
+        insert_intent_embedding(self.team.pk, "b", "b", at=NOW - timedelta(days=1))
+        insert_intent_embedding(self.team.pk, "e", "e", at=NOW - timedelta(days=1))
+
+        sample = pipeline.fetch_fit_sample(self.team, since=NOW - timedelta(days=7), until=NOW, limit=2)
+
+        assert sorted(sample.hashes) == ["b", "e"]
+        assert sample.weights.tolist() == [2.0, 2.0]
+
     def test_sample_follows_calls_in_the_window_not_embedding_time(self) -> None:
         insert_intent_embedding(self.team.pk, "old-but-hot", "old but hot", at=NOW - timedelta(days=20), calls=1)
         insert_intent_embedding(self.team.pk, "fresh-but-cold", "fresh but cold", at=NOW - timedelta(days=1), calls=99)

@@ -234,26 +234,23 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
 # The sample is drawn from intents *called* in the window (the hourly rollup), not from intents
 # *embedded* in the window: an intent embedded three weeks ago but called every day must still
 # shape the topics. Weights are the calls in the window for the same reason.
-_FIT_SAMPLE_SQL = """
-SELECT e.document_id AS document_id, e.embedding AS embedding, e.content AS content, s.calls AS calls
-FROM {sample} AS s
-INNER JOIN (
-    SELECT document_id, argMax(embedding, inserted_at) AS embedding, argMax(content, inserted_at) AS content
-    FROM document_embeddings
-    WHERE {embedded} AND document_id IN (SELECT intent_hash FROM {sample_hashes})
-    GROUP BY document_id
-) AS e ON s.intent_hash = e.document_id
-ORDER BY cityHash64(concat(e.document_id, {salt}))
+#
+# Candidates come from the rollup alone, in a salted hash order; vectors are then read for one page of candidates
+# by their ids. Neither query holds a set of every intent embedded in the retention window (41M at the largest
+# team), and the candidate aggregation runs once per page instead of twice per query.
+_FIT_CANDIDATES_SQL = """
+SELECT intent_hash, calls, cityHash64(concat(intent_hash, {salt})) AS sample_key
+FROM (SELECT intent_hash, sum(calls) AS calls FROM {hourly} GROUP BY intent_hash)
+WHERE sample_key > {after}
+ORDER BY sample_key
 LIMIT {limit}
 """
 
-# The sample is chosen from hashes alone; vectors are read only for the sampled hashes, so the query never
-# holds a vector for every intent embedded in the retention window.
-_FIT_SAMPLE_HASHES_SQL = """
-SELECT intent_hash, calls
-FROM (SELECT intent_hash, sum(calls) AS calls FROM {hourly} GROUP BY intent_hash)
-WHERE intent_hash IN (SELECT document_id FROM document_embeddings WHERE {embedded})
-ORDER BY cityHash64(concat(intent_hash, {salt}))
+_FIT_VECTORS_SQL = """
+SELECT document_id, argMax(embedding, inserted_at) AS embedding, argMax(content, inserted_at) AS content
+FROM document_embeddings
+WHERE {embedded} AND document_id IN {hashes}
+GROUP BY document_id
 LIMIT {limit}
 """
 
@@ -269,49 +266,66 @@ class FitSample:
 
 
 def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int = FIT_SAMPLE_SIZE) -> FitSample:
-    """A deterministic random sample of the window's embedded intents, with call counts as weights."""
+    """A deterministic random sample of the window's called and embedded intents, with call counts as weights."""
     salt = ast.Constant(value=until.strftime("%Y%m%d"))
-
-    def embedded() -> ast.Expr:
-        return parse_expr(
-            _EMBEDDED_FILTER,
-            placeholders={
-                "model": ast.Constant(value=EMBEDDING_MODEL),
-                "product": ast.Constant(value=EMBEDDING_PRODUCT),
-                "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-                "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
-            },
-        )
-
-    def sample() -> ast.SelectQuery | ast.SelectSetQuery:
-        return parse_select(
-            _FIT_SAMPLE_HASHES_SQL,
-            placeholders={
-                "hourly": rollups.hourly_calls_source(since=since, until=until),
-                "embedded": embedded(),
-                "salt": salt,
-                "limit": ast.Constant(value=limit),
-            },
-        )
-
-    query = parse_select(
-        _FIT_SAMPLE_SQL,
+    embedded = parse_expr(
+        _EMBEDDED_FILTER,
         placeholders={
-            "sample": sample(),
-            "sample_hashes": sample(),
-            "embedded": embedded(),
-            "salt": salt,
-            "limit": ast.Constant(value=limit),
+            "model": ast.Constant(value=EMBEDDING_MODEL),
+            "product": ast.Constant(value=EMBEDDING_PRODUCT),
+            "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
+            "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
         },
     )
-    rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results
-    if not rows:
+    # Almost every intent called in the window has a vector, so one page usually fills the sample. A page that comes
+    # up short (vectors expired or not synced yet) is followed by the next candidates in the same order.
+    page_size = min(limit, MAX_SELECT_RETURNED_ROWS)
+    picked: list[tuple[str, list[float], str, int]] = []
+    after = 0
+    while len(picked) < limit:
+        candidates = execute_hogql_query(
+            query=parse_select(
+                _FIT_CANDIDATES_SQL,
+                placeholders={
+                    "hourly": rollups.hourly_calls_source(since=since, until=until),
+                    "salt": salt,
+                    "after": ast.Constant(value=after),
+                    "limit": ast.Constant(value=page_size),
+                },
+            ),
+            team=team,
+            workload=Workload.OFFLINE,
+        ).results
+        if not candidates:
+            break
+        vectors = {
+            row[0]: row
+            for row in execute_hogql_query(
+                query=parse_select(
+                    _FIT_VECTORS_SQL,
+                    placeholders={
+                        "embedded": embedded,
+                        "hashes": ast.Constant(value=[c[0] for c in candidates]),
+                        "limit": ast.Constant(value=len(candidates)),
+                    },
+                ),
+                team=team,
+                workload=Workload.OFFLINE,
+            ).results
+        }
+        for intent_hash, calls, _ in candidates:
+            if intent_hash in vectors and len(picked) < limit:
+                picked.append((intent_hash, vectors[intent_hash][1], vectors[intent_hash][2], int(calls or 0)))
+        if len(candidates) < page_size:
+            break
+        after = int(candidates[-1][2])
+    if not picked:
         return FitSample(hashes=[], vectors=np.zeros((0, 0), dtype=np.float32), weights=np.zeros(0), texts=[])
     return FitSample(
-        hashes=[row[0] for row in rows],
-        vectors=np.asarray([row[1] for row in rows], dtype=np.float32),
-        weights=np.asarray([max(int(row[3] or 0), 1) for row in rows], dtype=np.float32),
-        texts=[row[2] for row in rows],
+        hashes=[row[0] for row in picked],
+        vectors=np.asarray([row[1] for row in picked], dtype=np.float32),
+        weights=np.asarray([max(row[3], 1) for row in picked], dtype=np.float32),
+        texts=[row[2] for row in picked],
     )
 
 
