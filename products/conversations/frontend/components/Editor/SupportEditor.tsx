@@ -358,20 +358,30 @@ function escapeAltText(text: string): string {
 }
 
 /**
- * Join serialized siblings, and escape a `!` that would reach a link's `[`.
+ * Join serialized siblings, and escape a `!` that ends one where the next opens a generated link.
  *
- * A link's `[` is written after the node before it was escaped, so a `!` that ends that node would
- * read as an image opener and swallow the link. Every `[` the text itself held is escaped.
+ * A link's `[` is written after the node before it was escaped, so the `!` would read as an image
+ * opener and take the link's label as alt text. Every `[` the text itself held is already escaped,
+ * so an unescaped one is always the serializer's own. An empty part, such as an image with no
+ * source, leaves the `!` next to the link and is skipped rather than treated as a gap.
+ *
+ * Reading the accumulated string instead would flatten it on every part, which is quadratic on a
+ * long link-heavy draft. Each part is inspected on its own, and the join happens once.
  */
 function joinSerialized(parts: string[]): string {
-    let joined = ''
-    for (const part of parts) {
-        if (part.startsWith('[') && joined.endsWith('!')) {
-            joined = `${joined.slice(0, -1)}\\!`
+    const chunks = [...parts]
+    let previous = -1
+    for (let index = 0; index < chunks.length; index++) {
+        const chunk = chunks[index]
+        if (!chunk) {
+            continue
         }
-        joined += part
+        if (previous >= 0 && chunk.startsWith('[') && chunks[previous].endsWith('!')) {
+            chunks[previous] = `${chunks[previous].slice(0, -1)}\\!`
+        }
+        previous = index
     }
-    return joined
+    return chunks.join('')
 }
 
 /**

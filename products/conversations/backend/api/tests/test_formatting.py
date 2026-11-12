@@ -747,7 +747,13 @@ class TestRichContentBlockNodes(SimpleTestCase):
     def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
         assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
 
-    def test_bang_before_a_link_node_stays_text(self) -> None:
+    @parameterized.expand(
+        [
+            ("link_directly_after_the_bang", []),
+            ("empty_sibling_between_them", [{"type": "image", "attrs": {"src": ""}}]),
+        ]
+    )
+    def test_bang_before_a_link_node_stays_text(self, _name: str, between: list[dict]) -> None:
         doc = {
             "type": "doc",
             "content": [
@@ -755,6 +761,7 @@ class TestRichContentBlockNodes(SimpleTestCase):
                     "type": "paragraph",
                     "content": [
                         {"type": "text", "text": "Read this!"},
+                        *between,
                         {
                             "type": "text",
                             "text": "guide",

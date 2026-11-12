@@ -708,12 +708,22 @@ def _serialize_text_node_to_markdown(node: JSON) -> str:
     return text
 
 
-def _append_inline_chunk(chunks: list[str], chunk: str) -> None:
-    # A link's `[` is written after the node before it was escaped, so a `!` that ends that node
-    # would read as an image opener and swallow the link. Every `[` the text itself held is escaped.
-    if chunk.startswith("[") and chunks and chunks[-1].endswith("!"):
-        chunks[-1] = f"{chunks[-1][:-1]}\\!"
-    chunks.append(chunk)
+def _escape_bang_before_links(chunks: list[str]) -> None:
+    """
+    Escape a ``!`` that ends one chunk where the next chunk opens a generated link.
+
+    A link's ``[`` is written after the node before it was escaped, so the ``!`` would read as an
+    image opener and take the link's label as alt text. Every ``[`` the text itself held is already
+    escaped, so an unescaped one is always the serializer's own. An empty chunk, such as an image
+    with no source, leaves the ``!`` next to the link and is skipped rather than treated as a gap.
+    """
+    previous = -1
+    for index, chunk in enumerate(chunks):
+        if not chunk:
+            continue
+        if previous >= 0 and chunk.startswith("[") and chunks[previous].endswith("!"):
+            chunks[previous] = f"{chunks[previous][:-1]}\\!"
+        previous = index
 
 
 def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
@@ -721,7 +731,7 @@ def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool 
     for node in nodes:
         node_type = node.get("type")
         if node_type == "text":
-            _append_inline_chunk(chunks, _serialize_text_node_to_markdown(node))
+            chunks.append(_serialize_text_node_to_markdown(node))
         elif node_type == "hardBreak":
             chunks.append("  \n")
         elif node_type == "image" and include_images:
@@ -729,6 +739,7 @@ def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool 
             if src:
                 alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
                 chunks.append(f"![{alt}]({src})")
+    _escape_bang_before_links(chunks)
     return "".join(chunks)
 
 

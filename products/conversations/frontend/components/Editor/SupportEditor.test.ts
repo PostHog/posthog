@@ -99,6 +99,27 @@ describe('SupportEditor serialization and preview schema', () => {
             'Read this\\![guide](https://example.com/g)',
         ],
         [
+            'a bang still reaches a link across a sibling that serializes to nothing',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'Read this!' },
+                            { type: 'image', attrs: { src: '' } },
+                            {
+                                type: 'text',
+                                text: 'guide',
+                                marks: [{ type: 'link', attrs: { href: 'https://example.com/g' } }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            'Read this\\![guide](https://example.com/g)',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',
