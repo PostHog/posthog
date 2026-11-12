@@ -14,6 +14,7 @@ from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
@@ -22,7 +23,6 @@ from products.dashboards.backend.facade.contracts import DashboardInsightTileSum
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
@@ -211,6 +211,21 @@ async def _persist_content_snapshot(
     return snapshot_bytes
 
 
+SCHEDULED_SLOT_DEDUPE_FLAG_KEY = "subscriptions-scheduled-slot-dedupe"
+_SCHEDULER_FLAG_DISTINCT_ID = "subscriptions-scheduler"
+
+
+def _scheduled_slot_dedupe_enabled() -> bool:
+    # Fail closed: a flag error must not stop the scheduler pass, and off is the pre-dedupe behavior.
+    try:
+        return feature_enabled_or_false(
+            SCHEDULED_SLOT_DEDUPE_FLAG_KEY, _SCHEDULER_FLAG_DISTINCT_ID, send_feature_flag_events=False
+        )
+    except Exception:
+        LOGGER.exception("fetch_due_subscriptions.dedupe_flag_failed")
+        return False
+
+
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
@@ -218,6 +233,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 
     @database_sync_to_async(thread_sensitive=False)
     def get_subscriptions() -> list[DueSubscription]:
+        dedupe_scheduled_slot = _scheduled_slot_dedupe_enabled()
         return [
             DueSubscription(
                 subscription_id=sub["id"],
@@ -227,6 +243,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 else str(sub["team_id"]),
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
                 resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+                dedupe_scheduled_slot=dedupe_scheduled_slot,
             )
             for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
@@ -256,8 +273,6 @@ async def validate_subscription_for_delivery(
         thread_sensitive=False,
     )(pk=subscription_id)
 
-    # A finished delivery record means an earlier run already handled this scheduled slot.
-    # See `_delivery_idempotency_key`.
     if (
         delivery_id is not None
         and await database_sync_to_async(
@@ -668,15 +683,6 @@ async def _send_to_target(
     return result
 
 
-def _delivery_idempotency_key(inputs: CreateDeliveryRecordInputs, scheduled_at: datetime | None) -> str:
-    # A scheduled slot gets one record, whichever workflow run delivers it. The child workflow
-    # ID only blocks a second run while the first run is open, so a run that starts after the
-    # first run closes must find the same record and not deliver the slot again.
-    if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and scheduled_at is not None:
-        return f"scheduled:{inputs.subscription_id}:{scheduled_at.isoformat()}"
-    return inputs.idempotency_key
-
-
 @temporalio.activity.defn
 async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUID:
     scheduled_at = datetime.fromisoformat(inputs.scheduled_at) if inputs.scheduled_at else None
@@ -696,7 +702,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
         )
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
-            idempotency_key=_delivery_idempotency_key(inputs, scheduled_at),
+            idempotency_key=inputs.idempotency_key,
             defaults={
                 "subscription": subscription,
                 "team_id": inputs.team_id,
@@ -731,7 +737,6 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         if delivery is None:
             LOGGER.info("update_delivery_record.missing_skipping", delivery_id=inputs.delivery_id)
             return
-        # A finished row belongs to an earlier run of the same scheduled slot. Keep its outcome.
         if delivery.finished_at is not None:
             LOGGER.info("update_delivery_record.already_finished_skipping", delivery_id=inputs.delivery_id)
             return

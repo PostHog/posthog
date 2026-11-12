@@ -32,6 +32,7 @@ from products.subscriptions.backend.temporal.ai_subscription.activities import g
 from products.subscriptions.backend.temporal.delivery_common import deliver_slack
 from products.subscriptions.backend.temporal.snapshot_activities import snapshot_subscription_insights
 from products.subscriptions.backend.temporal.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
@@ -344,3 +345,71 @@ async def test_schedule_update_failure_preserves_primary_failure(
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["failure_stage"] == "delivery"
     assert inputs.slo.completion_properties["failure_component"] == "subscription_delivery"
+
+
+@pytest.mark.parametrize(
+    ("workflow_type", "dedupe", "over_budget_skip", "expect_slot_advance"),
+    [
+        (ProcessSubscriptionWorkflow, False, False, False),
+        (ProcessSubscriptionWorkflow, True, False, True),
+        (ProcessAISubscriptionWorkflow, False, False, False),
+        (ProcessAISubscriptionWorkflow, True, False, True),
+        (ProcessAISubscriptionWorkflow, True, True, False),
+    ],
+    ids=["standard_off", "standard_on", "ai_off", "ai_on", "ai_on_over_budget"],
+)
+async def test_scheduled_slot_dedupe_activity_payloads(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+    dedupe: bool,
+    over_budget_skip: bool,
+    expect_slot_advance: bool,
+) -> None:
+    slot = "2022-02-02T09:00:00+00:00"
+    delivery_id = uuid.uuid4()
+    run_uuid = uuid.uuid4()
+    payloads: dict[object, object] = {}
+
+    async def fake_execute_activity(activity: object, inputs: object = None, **kwargs: object) -> object:
+        payloads[activity] = kwargs.get("args", inputs)
+        if activity is create_delivery_record:
+            return delivery_id
+        if activity is validate_subscription_for_delivery:
+            return None
+        if activity is create_export_assets:
+            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1)
+        if activity is export_asset_activity:
+            return ExportAssetResult(exported_asset_id=1, success=True)
+        if activity is snapshot_subscription_insights:
+            return SnapshotInsightsResult()
+        if activity is generate_ai_subscription_report:
+            return GenerateAIReportResult(skipped=over_budget_skip, target_type="email")
+        if activity in (deliver_subscription, deliver_subscription_v2):
+            return DeliverSubscriptionResult()
+        if activity in (update_delivery_record, advance_next_delivery_date):
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.patched", return_value=False),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=run_uuid),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-test")
+        await workflow_type().run(
+            TrackedSubscriptionInputs(
+                subscription_id=1,
+                team_id=1,
+                distinct_id="u1",
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
+                scheduled_at=slot,
+                dedupe_scheduled_slot=dedupe,
+            )
+        )
+
+    record_inputs = payloads[create_delivery_record]
+    assert isinstance(record_inputs, CreateDeliveryRecordInputs)
+    assert record_inputs.idempotency_key == (f"scheduled:1:{slot}" if dedupe else str(run_uuid))
+    assert payloads[validate_subscription_for_delivery] == ([1, delivery_id] if dedupe else [1])
+    assert payloads[advance_next_delivery_date] == ([1, slot] if expect_slot_advance else [1])

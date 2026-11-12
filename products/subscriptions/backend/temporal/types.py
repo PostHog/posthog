@@ -131,6 +131,7 @@ class DueSubscription:
     # Lets the scheduler fan out AI-prompt subscriptions to ProcessAISubscriptionWorkflow
     # and everything else to ProcessSubscriptionWorkflow.
     resource_type: str = ""
+    dedupe_scheduled_slot: bool = False
 
 
 @dataclasses.dataclass
@@ -216,6 +217,10 @@ class TrackedSubscriptionInputs:
     trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
+    # Sends the extra activity arguments that make a repeat run of one scheduled slot a no-op.
+    # Workers from before those arguments existed fail on them, so the flag stays off until
+    # every worker runs the new activity code. See `fetch_due_subscriptions_activity`.
+    dedupe_scheduled_slot: bool = False
 
 
 RecipientResultStatus = typing.Literal["success", "failed", "partial"]

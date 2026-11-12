@@ -279,6 +279,7 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
+@patch("products.subscriptions.backend.temporal.activities.feature_enabled_or_false", return_value=True)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.subscriptions.backend.logic.get_metric_meter")
@@ -290,6 +291,7 @@ async def test_subscription_delivery_scheduling(
     mock_metric_meter: MagicMock,
     mock_analytics: MagicMock,
     mock_exporter: MagicMock,
+    mock_dedupe_flag: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -353,6 +355,21 @@ async def test_subscription_delivery_scheduling(
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
+
+    keys = await sync_to_async(
+        lambda: set(
+            SubscriptionDelivery.objects.filter(subscription__in=subscriptions).values_list(
+                "idempotency_key", flat=True
+            )
+        )
+    )()
+    assert (
+        keys
+        == {
+            f"scheduled:{sub.id}:{sub.next_delivery_date.isoformat()}"  # type: ignore[union-attr]
+            for sub in subscriptions[:2]
+        }
+    )
 
 
 @patch("posthog.temporal.exports.activities.exporter")
@@ -1299,8 +1316,7 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     assert row.subscription_id == subscription.id
     assert row.team_id == team.id
     assert row.status == SubscriptionDelivery.Status.STARTING
-    slot_key = f"scheduled:{subscription.id}:2022-02-02T08:55:00+00:00"
-    assert row.idempotency_key == slot_key
+    assert row.idempotency_key == "idem-dedupe"
     assert row.temporal_workflow_id == "wf-delivery-1"
     assert row.trigger_type == SubscriptionTriggerType.SCHEDULED
     assert row.scheduled_at is not None
@@ -1314,12 +1330,12 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
         team_id=team.id,
         trigger_type=SubscriptionTriggerType.SCHEDULED,
         temporal_workflow_id="wf-delivery-retry",
-        idempotency_key="idem-other-run",
+        idempotency_key="idem-dedupe",
         scheduled_at="2022-02-02T08:55:00+00:00",
     )
     delivery_id_again = await env.run(create_delivery_record, inputs_retry)
     assert delivery_id_again == delivery_id
-    assert await sync_to_async(SubscriptionDelivery.objects.filter(subscription=subscription).count)() == 1
+    assert await sync_to_async(SubscriptionDelivery.objects.filter(idempotency_key="idem-dedupe").count)() == 1
     row_after = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
     assert row_after.temporal_workflow_id == "wf-delivery-1"
 
@@ -1997,6 +2013,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="sched1", name="Sched Test")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(subscription.refresh_from_db)(fields=["next_delivery_date"])
     original_next_delivery = subscription.next_delivery_date
     assert original_next_delivery is not None
 
@@ -2017,8 +2034,6 @@ async def test_scheduled_delivery_updates_next_delivery_date(
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
-            # The second run is a stale-due-list duplicate: it starts after the first run closed,
-            # for the same slot, so it must neither send again nor advance the schedule again.
             for _ in range(2):
                 await env.client.execute_workflow(
                     ProcessSubscriptionWorkflow.run,
@@ -2028,6 +2043,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
                         distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
                         trigger_type=SubscriptionTriggerType.SCHEDULED,
                         scheduled_at=original_next_delivery.isoformat(),
+                        dedupe_scheduled_slot=True,
                         slo=SloConfig(
                             operation=SloOperation.SUBSCRIPTION_DELIVERY,
                             area=SloArea.ANALYTIC_PLATFORM,
@@ -2849,7 +2865,7 @@ async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
     mock_email.return_value.send.assert_called_once()  # owner notified once
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is True, "an over-budget sub stays enabled — it resumes when credits reset"
-    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
 
 
 async def test_generate_ai_report_credit_check_fails_open(team, user):
@@ -2953,7 +2969,7 @@ async def test_skip_helper_reschedules_past_credit_reset_and_emails_owner(team, 
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     assert sub.enabled, "an over-limit sub stays enabled — it resumes when credits reset"
     mock_email.return_value.send.assert_called_once()
     # campaign_key carries sub id + billing-period date so MessagingRecord dedups to one notice per cycle.
@@ -2973,7 +2989,7 @@ async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     mock_email.assert_not_called()
 
 
@@ -2989,7 +3005,7 @@ async def test_skip_helper_no_email_when_creator_left_org(team, user):
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == sub.rrule.after(reset_date, inc=False), "still reschedules past reset"
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), "still reschedules past reset"
     mock_email.assert_not_called()
 
 

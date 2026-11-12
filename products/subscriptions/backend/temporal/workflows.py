@@ -159,6 +159,38 @@ def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, st
     }
 
 
+def _deduped_slot(inputs: TrackedSubscriptionInputs) -> str | None:
+    """The scheduled slot this run dedupes on, or None to send the pre-dedupe activity arguments."""
+    if inputs.dedupe_scheduled_slot and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+        return inputs.scheduled_at
+    return None
+
+
+def _delivery_idempotency_key(inputs: TrackedSubscriptionInputs) -> str:
+    # All runs for one scheduled slot share one delivery record. The child workflow ID blocks a
+    # second run only while the first run is open, so a run that starts after the first run
+    # closes must find the finished record and skip the slot.
+    slot = _deduped_slot(inputs)
+    if slot is None:
+        return str(temporalio.workflow.uuid4())
+    return f"scheduled:{inputs.subscription_id}:{slot}"
+
+
+def _validate_args(inputs: TrackedSubscriptionInputs, delivery_id: uuid.UUID) -> list[object]:
+    if _deduped_slot(inputs) is None:
+        return [inputs.subscription_id]
+    return [inputs.subscription_id, delivery_id]
+
+
+def _advance_args(inputs: TrackedSubscriptionInputs, *, over_budget_skip: bool = False) -> list[object]:
+    slot = _deduped_slot(inputs)
+    # An over-budget skip moves next_delivery_date to the credit reset. Without a slot, the
+    # activity recomputes the next date from the reset, which is the intended resume point.
+    if slot is None or over_budget_skip:
+        return [inputs.subscription_id]
+    return [inputs.subscription_id, slot]
+
+
 def _record_subscription_failure(
     slo: SloConfig | None,
     stage: SubscriptionFailureStage,
@@ -215,8 +247,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
         # schedule runs overlap: Temporal guarantees no two open workflows can
         # share the same ID, so a still-running child rejects the duplicate start.
-        # A duplicate that starts after the first child closes reuses the slot's delivery
-        # record, so the activities skip the send and the schedule advance.
         tasks = []
         for sub in subscription_infos:
             tracked = TrackedSubscriptionInputs(
@@ -226,6 +256,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 trigger_type=SubscriptionTriggerType.SCHEDULED,
                 scheduled_at=sub.next_delivery_date,
                 resource_type=sub.resource_type,
+                dedupe_scheduled_slot=sub.dedupe_scheduled_slot,
                 slo=SloConfig(
                     operation=SloOperation.SUBSCRIPTION_DELIVERY,
                     area=SloArea.ANALYTIC_PLATFORM,
@@ -329,7 +360,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     trigger_type=inputs.trigger_type,
                     scheduled_at=inputs.scheduled_at,
                     temporal_workflow_id=temporalio.workflow.info().workflow_id,
-                    idempotency_key=str(temporalio.workflow.uuid4()),
+                    idempotency_key=_delivery_idempotency_key(inputs),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
@@ -341,7 +372,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             failure_stage = SubscriptionFailureStage.VALIDATION
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
-                args=[inputs.subscription_id, delivery_id],
+                args=_validate_args(inputs, delivery_id),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=SUBSCRIPTION_VALIDATE_RETRY_POLICY,
             )
@@ -598,7 +629,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 try:
                     await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,
-                        args=[inputs.subscription_id, inputs.scheduled_at],
+                        args=_advance_args(inputs),
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
@@ -663,6 +694,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         # Set when a delivered-but-degraded report should record a reason without an exception
         # (every generated query failed). Falls through to update_delivery_record's error column.
         generation_error: dict | None = None
+        over_budget_skip = False
 
         try:
             delivery_id = await temporalio.workflow.execute_activity(
@@ -673,7 +705,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     trigger_type=inputs.trigger_type,
                     scheduled_at=inputs.scheduled_at,
                     temporal_workflow_id=temporalio.workflow.info().workflow_id,
-                    idempotency_key=str(temporalio.workflow.uuid4()),
+                    idempotency_key=_delivery_idempotency_key(inputs),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
@@ -685,7 +717,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             failure_stage = SubscriptionFailureStage.VALIDATION
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
-                args=[inputs.subscription_id, delivery_id],
+                args=_validate_args(inputs, delivery_id),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=SUBSCRIPTION_VALIDATE_RETRY_POLICY,
             )
@@ -722,8 +754,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             if generate_result.skipped:
                 # Over AI-credit budget — generation rescheduled the sub past the credit reset and
                 # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
-                # credits reset; generation already moved next_delivery_date past the reset.
+                # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
                 final_status = DeliveryStatus.SKIPPED
+                over_budget_skip = True
                 return
 
             # Phase 2: ship the persisted report.
@@ -824,7 +857,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 try:
                     await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,
-                        args=[inputs.subscription_id, inputs.scheduled_at],
+                        args=_advance_args(inputs, over_budget_skip=over_budget_skip),
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )

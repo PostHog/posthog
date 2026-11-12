@@ -689,9 +689,9 @@ class SubscriptionDelivery(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
-    # Scheduled runs key on subscription + scheduled_at, so every run for one slot shares a row.
-    # Other runs use temporalio.workflow.uuid4(), which is deterministic across activity
-    # retries (replay) but different across workflow retries.
+    # With scheduled-slot dedupe on, scheduled runs key on subscription + scheduled_at, so every
+    # run for one slot shares a row. Other runs use temporalio.workflow.uuid4(), which is
+    # deterministic across activity retries (replay) but different across workflow retries.
     temporal_workflow_id = models.CharField(max_length=255)
     idempotency_key = models.CharField(max_length=255, unique=True)
 
