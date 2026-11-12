@@ -35,9 +35,17 @@ def sweep_scanner_tick_activity(inputs: SweepScannerInputs) -> SweepScannerTickO
             "replay_vision.scanner_budget_check_failed", extra={"scanner_id": str(inputs.scanner_id)}, exc_info=True
         )
 
-    in_flight = count_in_flight_applies(
-        CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
-    )
+    try:
+        in_flight = count_in_flight_applies(
+            CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
+        )
+    except Exception:
+        # Ends the tick rather than retrying it or dispatching against an unknown load; the next tick counts again.
+        record_sweep_outcome("in_flight_count_failed")
+        activity.logger.warning(
+            "replay_vision.in_flight_count_failed", extra={"scanner_id": str(inputs.scanner_id)}, exc_info=True
+        )
+        return SweepScannerTickOutput()
     headroom = in_flight_headroom(in_flight.scanner, in_flight.team)
     if headroom <= 0:
         # At a cap, so drain before fetching more. The watermark holds and the next tick resumes from it.

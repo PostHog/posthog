@@ -57,7 +57,10 @@ from products.replay_vision.backend.temporal.activities.check_scanner_budget imp
     check_scanner_budget,
     check_scanner_budget_activity,
 )
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
+    count_in_flight_applies,
+    count_in_flight_by_team_activity,
+)
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.sweep_scanner_tick import sweep_scanner_tick_activity
 from products.replay_vision.backend.temporal.constants import (
@@ -1667,7 +1670,7 @@ def test_sweep_tick_advances_the_watermark_only_when_it_has_nothing_to_dispatch(
         assert scanner.last_swept_at == before + dt.timedelta(minutes=5)
 
 
-@pytest.mark.parametrize("gate", ["capped", "in_flight_full", "budget_check_fails"])
+@pytest.mark.parametrize("gate", ["capped", "in_flight_full", "budget_check_fails", "in_flight_count_fails"])
 @pytest.mark.django_db(transaction=True)
 def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
     scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
@@ -1682,6 +1685,10 @@ def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
         patch(
             "products.replay_vision.backend.temporal.activities.sweep_scanner_tick.check_scanner_budget",
             side_effect=RuntimeError("db down") if gate == "budget_check_fails" else check_scanner_budget,
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.sweep_scanner_tick.count_in_flight_applies",
+            side_effect=RuntimeError("db down") if gate == "in_flight_count_fails" else count_in_flight_applies,
         ),
     ):
         output = sweep_scanner_tick_activity(SweepScannerInputs(scanner_id=scanner.id, team_id=scanner.team_id))
