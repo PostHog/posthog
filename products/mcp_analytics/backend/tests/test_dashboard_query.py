@@ -433,6 +433,17 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert harness in json.dumps(lean[MCPDashboardSection.HARNESS_ROWS])
         assert lean == full
 
+    def test_a_batch_reports_its_database_build_on_the_section_that_built_it(self) -> None:
+        self._seed()
+        sections = [MCPDashboardSection.TOOL_ROWS, MCPDashboardSection.KPIS, MCPDashboardSection.HARNESS_ROWS]
+
+        with patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            self._run(sections, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        builds = [args[1]["build_database_ms"] for args, _ in report.call_args_list if args[0] == "query executed"]
+        assert len(builds) == len(sections)
+        assert sum(build is not None for build in builds) == 1
+
     def test_the_lean_database_keeps_its_own_cache_entries(self) -> None:
         sections = [MCPDashboardSection.TOOL_ROWS]
         full_key = self._runner(sections).get_cache_key()

@@ -346,8 +346,15 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
 
     @property
     def shared_database(self) -> Database:
-        # A batch's sections build the database once between them, and only when one misses the cache.
-        return self._batch.shared_database if self._batch else super().shared_database
+        batch = self._batch
+        if batch is None or not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            return super().shared_database
+        # A batch's sections build the database once between them, and only when one misses the cache. The batch
+        # emits no `query executed` of its own, so the section that builds it measures the build.
+        with batch._shared_database_build_lock:
+            if batch._shared_database is None:
+                batch._shared_database = super().shared_database
+        return batch._shared_database
 
     def _on_user_changed(self) -> None:
         self.__dict__.pop("_lean_database", None)
