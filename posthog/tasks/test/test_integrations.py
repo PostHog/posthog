@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import CrossTeamFilter
+from posthog.integrations.accessors import IntegrationReader
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.integrations import (
@@ -223,6 +225,29 @@ class TestIntegrationsTasks(APIBaseTest):
         remaining = Integration.objects.filter(kind="email").values_list("integration_id", flat=True)
         assert sorted(remaining) == ["b@fresh.com", "c@verified.com"]
         assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_keeps_a_sender_that_verifies_during_the_sweep(
+        self, mock_delete_identity
+    ) -> None:
+        config = {"email": "a@late.com", "domain": "late.com", "provider": "ses", "verified": False}
+        sender = Integration.objects.create(team=self.team, kind="email", integration_id="a@late.com", config=config)
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=15))
+        list_across_teams = IntegrationReader.list_across_teams
+
+        def list_then_verify(reader: IntegrationReader, cross_team_filter: CrossTeamFilter) -> list:
+            senders = list_across_teams(reader, cross_team_filter)
+            Integration.objects.filter(id=sender.id).update(config={**config, "verified": True})
+            return senders
+
+        with (
+            patch.object(IntegrationReader, "list_across_teams", list_then_verify),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            expire_unverified_email_senders()
+
+        assert Integration.objects.filter(id=sender.id).exists()
+        mock_delete_identity.assert_not_called()
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})
