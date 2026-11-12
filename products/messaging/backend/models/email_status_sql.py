@@ -14,9 +14,6 @@ EMAIL_STATUS_RETENTION_DAYS = 30
 # Parts drop by whole day of `created_at`, so one more day keeps an email created late in a day
 # for its full retention.
 EMAIL_STATUS_TTL_DAYS = EMAIL_STATUS_RETENTION_DAYS + 1
-# A send can wait up to 30 days before it goes out, so the latest status outlives the full timeline by 30 days. Changing
-# this value sets the TTL only when the table is created. An existing table takes a migration, such as
-# 0381_email_status_ttl_61_days.
 EMAIL_STATUS_READ_DAYS = 60
 EMAIL_STATUS_READ_TTL_DAYS = EMAIL_STATUS_READ_DAYS + 1
 
@@ -221,9 +218,6 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 
 
-# The mutation recalculates the TTL of every existing part, so sends from before the change also stay for the new
-# retention. The table has only a row TTL and ttl_only_drop_parts = 1, so it reads only `created_at` and rewrites only
-# each part's TTL metadata. With alter_sync = 0 the deploy doesn't wait for every replica to run it.
 EMAIL_STATUS_DATA_TTL_SQL = lambda: (
     f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY TTL toDate(created_at) + INTERVAL {EMAIL_STATUS_READ_TTL_DAYS} DAY "
     "SETTINGS materialize_ttl_after_modify = 1, alter_sync = 0"
