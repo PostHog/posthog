@@ -438,7 +438,7 @@ Faire,api_key,,,,,faire
 FarosAi,,,,,,faros-ai
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
-Fathom,,,,,,fathom
+Fathom,api_key,,,,,fathom
 Fauna,,,,,,fauna
 Featurebase,api_key,,,,,featurebase
 Feishu,,,,,,feishu
@@ -943,7 +943,7 @@ Paymongo,api_key,,,,,paymongo
 Paystack,secret_api_key,,,,,paystack
 PeecAI,api_key project_id,,,start_date,,peec-ai
 Pendo,integration_key region,,,,,pendo
-Pennylane,,,,,,pennylane
+Pennylane,api_key,,,,,pennylane
 Perigon,api_key,,,,,perigon
 Perk,,,,,,perk
 PersistIq,api_key,,,,,persist-iq
@@ -1321,7 +1321,7 @@ UsBls,,,,,,us-bls
 UsEia,api_key,,,,,us-eia
 UsTreasuryFiscalData,,,,,,us-treasury-fiscal-data
 UserCom,,,,,,user-com
-Userback,,,,,,userback
+Userback,api_token,,,,,userback
 Usersnap,jwt_secret jwt_id,,,,,usersnap
 Uservoice,subdomain api_key,,,,,uservoice
 VWO,api_token account_id,,,,,vwo
@@ -1335,7 +1335,7 @@ Veracode,api_id api_secret region,,,,,veracode
 Vercel,access_token team_id,,,,,vercel
 Vespa,,,,,,vespa
 Vimeo,access_token,,,,,vimeo
-Virtuous,,,,,,virtuous
+Virtuous,api_key,,,,,virtuous
 VismaEconomic,,,,,,visma-economic
 Vitally,secret_token region,,,,,vitally
 Vonage,,,,,,vonage
