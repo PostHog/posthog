@@ -10133,6 +10133,7 @@ export namespace Schemas {
       Stripe: 'stripe',
       Intercom: 'intercom',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Twilio: 'twilio',
       Linear: 'linear',
       Github: 'github',
@@ -17954,6 +17955,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable
+     */
+    export type AutoresearchValidationErrorCodeEnum = typeof AutoresearchValidationErrorCodeEnum[keyof typeof AutoresearchValidationErrorCodeEnum];
+
+
+    export const AutoresearchValidationErrorCodeEnum = {
+      InvalidDefinition: 'invalid_definition',
+      TooExpensive: 'too_expensive',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -25707,6 +25722,32 @@ export namespace Schemas {
       schedules_ready: boolean;
     }
 
+    /**
+     * Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards.
+     */
+    export type CdcPrerequisitesRequestPayload = { [key: string]: unknown };
+
+    export interface CdcPrerequisitesRequest {
+      /** A CDC-capable source type, for example 'Postgres'. Other source types are rejected. */
+      source_type: string;
+      /** Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards. */
+      payload?: CdcPrerequisitesRequestPayload;
+      /** Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them). */
+      cdc_management_mode?: string;
+      /** Tables to check against the publication. Omit to check the database-level prerequisites only. */
+      tables?: string[];
+      /**
+         * Self-managed replication slot name to check. Ignored in 'posthog' mode.
+         * @nullable
+         */
+      cdc_slot_name?: string | null;
+      /**
+         * Self-managed publication name to check. Ignored in 'posthog' mode.
+         * @nullable
+         */
+      cdc_publication_name?: string | null;
+    }
+
     export interface CdcPrerequisitesResponse {
       /** Whether the source satisfies every CDC prerequisite. */
       valid: boolean;
@@ -28757,6 +28798,134 @@ export namespace Schemas {
       id: string;
       /** Human-readable ticket number. */
       ticket_number: number;
+    }
+
+    export interface CompositeInput {
+      /**
+         * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
+         * @maxLength 32
+         * @pattern ^[a-z][a-z0-9_]{0,31}$
+         */
+      alias: string;
+      /** Exact immutable version of an ordinary input scorer. */
+      scorer_version_id: string;
+    }
+
+    export interface CompositeConfig {
+      /**
+         * Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; "good" if correct else "bad". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.
+         * @maxLength 1024
+         */
+      expression: string;
+      /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+      inputs: CompositeInput[];
+    }
+
+    /**
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean
+     */
+    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+
+
+    export const ScoreDefinitionKindEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
+    /**
+     * * `gte` - At or above
+     * * `lte` - At or below
+     */
+    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
+
+
+    export const NumericScorePassingRuleSerializerOperatorEnum = {
+      Gte: 'gte',
+      Lte: 'lte',
+    } as const;
+
+    export interface NumericScorePassingRule {
+      /** Pass at or above (gte), or at or below (lte), the threshold.
+       *
+       * * `gte` - At or above
+       * * `lte` - At or below */
+      operator: NumericScorePassingRuleSerializerOperatorEnum;
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    }
+
+    export interface NumericScoreDefinitionConfig {
+      /**
+         * Optional inclusive minimum score.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Optional inclusive maximum score.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional increment step for numeric input, for example 1 or 0.5.
+         * @nullable
+         */
+      step?: number | null;
+      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: NumericScorePassingRule | null;
+    }
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface CompositeInputRead {
+      /** Input name in the formula. */
+      alias: string;
+      /** Pinned immutable input version. */
+      scorer_version_id: string;
+      /** Input scorer definition. */
+      definition_id: string;
+      /** Input scorer name. */
+      name: string;
+      /** Input value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Pinned input version number. */
+      version: number;
+      /** Scoring rules of the pinned input version. */
+      readonly config: ScoreDefinitionConfig;
+      /**
+         * Current input version. Updating requires a new composite version.
+         * @nullable
+         */
+      latest_version_id: string | null;
+      /**
+         * Current input version number.
+         * @nullable
+         */
+      latest_version: number | null;
+    }
+
+    export interface CompositeValidation {
+      /** Expected formula output kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Formula and pinned input versions to validate without saving. */
+      composition: CompositeConfig;
+      /** Output configuration to check literal categories and composite scoring rules. */
+      config?: ScoreDefinitionConfig;
+    }
+
+    export interface CompositeValidationResponse {
+      /** Whether the formula and any supplied output configuration are valid. */
+      valid: boolean;
     }
 
     export interface ComputeRateCard {
@@ -39603,6 +39772,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `sandbox` - sandbox
+     * * `own` - own
+     */
+    export type EmailStepSenderEnum = typeof EmailStepSenderEnum[keyof typeof EmailStepSenderEnum];
+
+
+    export const EmailStepSenderEnum = {
+      Sandbox: 'sandbox',
+      Own: 'own',
+    } as const;
+
+    /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
     export type EmailTemplateDesignCounters = { [key: string]: unknown };
@@ -46013,6 +46194,19 @@ export namespace Schemas {
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -46061,6 +46255,19 @@ export namespace Schemas {
       TrafficSinceAt: 'traffic_since_at',
       ChangedAt: 'changed_at',
       BeforeExposure: 'before_exposure',
+      ChangedSetting: 'changed_setting',
+      Before: 'before',
+      After: 'after',
+      FlagServiceCallPercentage: 'flag_service_call_percentage',
+      Event: 'event',
+      EventReceived: 'event_received',
+      InvalidMetricCount: 'invalid_metric_count',
+      UncheckedMetricCount: 'unchecked_metric_count',
+      FlagSplit: 'flag_split',
+      BaselineVariant: 'baseline_variant',
+      OtherRunningExperimentCount: 'other_running_experiment_count',
+      AssignedOutsideCount: 'assigned_outside_count',
+      OtherDraftExperimentCount: 'other_draft_experiment_count',
     } as const;
 
     /**
@@ -46130,7 +46337,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46181,7 +46401,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -46771,6 +47004,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureQuery {
+      /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+      as_of?: string | null;
       end_date?: string | null;
       experiment_id?: number | null;
       experiment_name: string;
@@ -50711,6 +50946,82 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    /**
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed
+     */
+    export type SourceSetupErrorCodeEnum = typeof SourceSetupErrorCodeEnum[keyof typeof SourceSetupErrorCodeEnum];
+
+
+    export const SourceSetupErrorCodeEnum = {
+      UnresolvedSecretRef: 'unresolved_secret_ref',
+      CredentialNotFound: 'credential_not_found',
+      CredentialExpired: 'credential_expired',
+      CredentialSourceTypeMismatch: 'credential_source_type_mismatch',
+      ReservedName: 'reserved_name',
+      DirectQueryUnsupported: 'direct_query_unsupported',
+      DirectQueryNameRequired: 'direct_query_name_required',
+      DuplicateSource: 'duplicate_source',
+      DuplicatePrefix: 'duplicate_prefix',
+      BillingLimitReached: 'billing_limit_reached',
+      MaxInstancesReached: 'max_instances_reached',
+      SourceUnavailable: 'source_unavailable',
+      InvalidConfig: 'invalid_config',
+      CredentialValidationFailed: 'credential_validation_failed',
+      SchemaDiscoveryFailed: 'schema_discovery_failed',
+      NoTablesFound: 'no_tables_found',
+      CdcUnsupportedSourceType: 'cdc_unsupported_source_type',
+      InvalidCdcManagementMode: 'invalid_cdc_management_mode',
+      HostNotAllowed: 'host_not_allowed',
+      ConnectionFailed: 'connection_failed',
+    } as const;
+
+    export interface ExternalDataSourceErrorResponse {
+      /** Human-readable explanation of why the request failed and what to do next. */
+      message: string;
+      /** Stable machine-readable failure cause, for example 'credential_expired', 'invalid_config' or 'credential_validation_failed'. Branch on this instead of parsing the message. Absent on errors that have no dedicated code.
+       *
+       * * `unresolved_secret_ref` - Unresolved secret reference
+       * * `credential_not_found` - Stored credential not found
+       * * `credential_expired` - Stored credential expired
+       * * `credential_source_type_mismatch` - Stored credential is for another source type
+       * * `reserved_name` - Reserved source name
+       * * `direct_query_unsupported` - Direct query not supported for this source type
+       * * `direct_query_name_required` - Direct query sources need a name
+       * * `duplicate_source` - A source of this type already exists without a prefix
+       * * `duplicate_prefix` - Prefix already used by another source of this type
+       * * `billing_limit_reached` - Monthly sync limit reached
+       * * `max_instances_reached` - Too many sources of this type
+       * * `source_unavailable` - Source cannot be set up this way
+       * * `invalid_config` - Invalid source config
+       * * `credential_validation_failed` - Credential validation failed
+       * * `schema_discovery_failed` - Table discovery failed
+       * * `no_tables_found` - No tables found
+       * * `cdc_unsupported_source_type` - Source type does not support CDC
+       * * `invalid_cdc_management_mode` - Invalid CDC management mode
+       * * `host_not_allowed` - Host not allowed
+       * * `connection_failed` - Connection failed */
+      code?: SourceSetupErrorCodeEnum;
+    }
+
     export interface ExternalDataSourceExists {
       /** Whether the project has any accessible external data sources. */
       exists: boolean;
@@ -50722,6 +51033,11 @@ export namespace Schemas {
     }
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
+
+    export interface SourceUpdatePayload {
+      /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+      credential_id: string;
+    }
 
     /**
      * Mixin for serializers to add user access control fields
@@ -50811,6 +51127,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface ExternalDataSourceSyncState {
@@ -57751,13 +58069,13 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationCpa {
-      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
+      /** CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search scale, budget, spend without conversions and content gap. */
       benchmark: number | null;
       /** Where the benchmark comes from. Null when there is no benchmark. */
       benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;
       /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
       bestCampaign: number | null;
-      /** Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet. */
+      /** Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA. Null when it has no conversions. */
       value: number | null;
       /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
       worstCampaign: number | null;
@@ -63093,6 +63411,84 @@ export namespace Schemas {
       Recording: 'recording',
     } as const;
 
+    export interface IntercomImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    export type IntercomImportJobRegionEnum = typeof IntercomImportJobRegionEnum[keyof typeof IntercomImportJobRegionEnum];
+
+
+    export const IntercomImportJobRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+      Au: 'au',
+    } as const;
+
+    export interface IntercomImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /** Intercom region used for this import job. */
+      readonly region: IntercomImportJobRegionEnum | null;
+      /** Whether a stored Intercom access token exists for this job (the token is never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of conversations discovered for import. */
+      readonly total_conversations: number;
+      /** Number of conversations processed so far. */
+      readonly processed_conversations: number;
+      /** Number of conversations imported as tickets. */
+      readonly imported_conversations: number;
+      /** Number of conversations skipped because they were already imported. */
+      readonly skipped_conversations: number;
+      /** Number of conversations that failed to import. */
+      readonly failed_conversations: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface IntercomImportStart {
+      /** Region where the Intercom workspace is hosted: us, eu, or au.
+       *
+       * * `us` - United States
+       * * `eu` - Europe
+       * * `au` - Australia */
+      region?: IntercomImportJobRegionEnum;
+      /**
+         * Intercom access token with permission to read conversations and contacts.
+         * @maxLength 500
+         */
+      access_token: string;
+      /**
+         * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface IntercomTicketSignalExtra {
       state: string | null;
       priority: string | null;
@@ -65284,6 +65680,8 @@ export namespace Schemas {
       readonly suspended: NodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching: boolean;
     }
 
     export interface LineageResponse {
@@ -65379,6 +65777,8 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
+      /** When the file download batch export run was created. */
+      created_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
@@ -71172,6 +71572,11 @@ export namespace Schemas {
       node_ids: string[];
     }
 
+    export interface NodeWatching {
+      /** Whether you now get failure notifications for this node. */
+      watching: boolean;
+    }
+
     /**
      * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
      * @nullable
@@ -72007,48 +72412,6 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
-    /**
-     * * `gte` - At or above
-     * * `lte` - At or below
-     */
-    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
-
-
-    export const NumericScorePassingRuleSerializerOperatorEnum = {
-      Gte: 'gte',
-      Lte: 'lte',
-    } as const;
-
-    export interface NumericScorePassingRule {
-      /** Pass at or above (gte), or at or below (lte), the threshold.
-       *
-       * * `gte` - At or above
-       * * `lte` - At or below */
-      operator: NumericScorePassingRuleSerializerOperatorEnum;
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    }
-
-    export interface NumericScoreDefinitionConfig {
-      /**
-         * Optional inclusive minimum score.
-         * @nullable
-         */
-      min?: number | null;
-      /**
-         * Optional inclusive maximum score.
-         * @nullable
-         */
-      max?: number | null;
-      /**
-         * Optional increment step for numeric input, for example 1 or 0.5.
-         * @nullable
-         */
-      step?: number | null;
-      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
-      passing_rule?: NumericScorePassingRule | null;
-    }
-
     export interface OAuthRedirectResponse {
       redirect_url: string;
     }
@@ -72633,22 +72996,25 @@ export namespace Schemas {
     }
 
     /**
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean
+     * * `reported` - Reported
+     * * `composite` - Composite
      */
-    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+    export type ScoreDefinitionCalculationEnum = typeof ScoreDefinitionCalculationEnum[keyof typeof ScoreDefinitionCalculationEnum];
 
 
-    export const ScoreDefinitionKindEnum = {
-      Categorical: 'categorical',
-      Numeric: 'numeric',
-      Boolean: 'boolean',
+    export const ScoreDefinitionCalculationEnum = {
+      Reported: 'reported',
+      Composite: 'composite',
     } as const;
 
-    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
-
     export interface OfflineScorerVersionRead {
+      /** Reported or computed from other item scores.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      calculation: ScoreDefinitionCalculationEnum;
+      /** Immutable formula and exact input versions for a composite. */
+      composition: CompositeConfig | null;
       /** Exact immutable scorer-version UUID. */
       id: string;
       /** Stable scorer definition UUID. */
@@ -72685,6 +73051,8 @@ export namespace Schemas {
     }
 
     export interface OfflineScorerSummary {
+      /** Items without a composite request. These are excluded from missing results and pass rates. */
+      not_requested_count: number;
       /** Exact scorer version summarized. */
       scorer: OfflineScorerVersionRead;
       /** All observed experiment items, independent of scorer selection or item pagination. */
@@ -72796,6 +73164,11 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineResultCell {
+      /**
+         * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+         * @nullable
+         */
+      input_result_ids: string[] | null;
       /** Stable result UUID. */
       id: string;
       /** Item evaluated by this result. */
@@ -72953,6 +73326,11 @@ export namespace Schemas {
     }
 
     export interface OfflineResultRead {
+      /**
+         * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+         * @nullable
+         */
+      input_result_ids: string[] | null;
       /** Stable result UUID. */
       id: string;
       /** Item evaluated by this result. */
@@ -77557,6 +77935,17 @@ export namespace Schemas {
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
       readonly kind: ScoreDefinitionKindEnum;
+      /** Whether results are reported by the caller or calculated from other item scores.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      readonly calculation: ScoreDefinitionCalculationEnum;
+      /** Formula and exact input versions for a composite scorer. */
+      readonly composition: CompositeConfig | null;
+      /** Pinned inputs and their latest versions. Empty for reported scorers. */
+      readonly input_scorers: readonly CompositeInputRead[];
+      /** Accessible active composite scorers whose current version depends on a version of this scorer. */
+      readonly dependent_composite_count: number;
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
@@ -80963,6 +81352,11 @@ export namespace Schemas {
       readonly github_issue_number: number | null;
       /** @nullable */
       readonly zendesk_ticket_id: number | null;
+      /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         * @nullable
+         */
+      readonly intercom_conversation_id: string | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -87007,6 +87401,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning?: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -87389,8 +87785,15 @@ export namespace Schemas {
       base_updated_at?: string;
       /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
       operations?: DesignOperation[];
-      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
       email_patch?: unknown;
+      /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+       *
+       * * `sandbox` - sandbox
+       * * `own` - own */
+      sender?: EmailStepSenderEnum;
+      /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+      drop_own_sender_settings?: boolean;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -88926,6 +89329,8 @@ export namespace Schemas {
       readonly suspended?: PatchedNodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint?: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching?: boolean;
     }
 
     /**
@@ -104090,6 +104495,18 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `authored` - Authored
+     * * `edited` - Edited
+     */
+    export type ReportInvolvementEnum = typeof ReportInvolvementEnum[keyof typeof ReportInvolvementEnum];
+
+
+    export const ReportInvolvementEnum = {
+      Authored: 'authored',
+      Edited: 'edited',
+    } as const;
+
     export interface ReportKeyClauses {
       /** The clauses that state the problem or its cause in the lead. */
       lead: KeyClause[];
@@ -105583,6 +106000,18 @@ export namespace Schemas {
       item_id: string;
       /** Pinned scorer version used by this result. */
       scorer_version_id: string;
+      /** Stored result status, including calculation failures.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /**
+         * Error code for a failed result, otherwise null.
+         * @nullable
+         */
+      error_code: string | null;
     }
 
     export interface ResultSubmission {
@@ -105590,14 +106019,16 @@ export namespace Schemas {
       item_id: string;
       /** Exact UUID of an existing scorer version in this project. */
       scorer_version_id: string;
+      /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+      calculate?: boolean;
       /** Outcome of this scorer execution.
        *
        * * `ok` - OK
        * * `error` - Error
        * * `skipped` - Skipped
        * * `not_applicable` - Not applicable */
-      status: OfflineEvaluationResultStatusEnum;
-      /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+      status?: OfflineEvaluationResultStatusEnum;
+      /** Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true. */
       value?: number | boolean | string[] | null;
       /**
          * Optional stable error code, permitted only for error outcomes.
@@ -108649,6 +109080,13 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+      /** Reported or composite. This cannot be changed after creation.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      calculation?: ScoreDefinitionCalculationEnum;
+      /** Required for composite scorers: expression and exact input versions. */
+      composition?: CompositeConfig | null;
       /**
          * Human-readable scorer name.
          * @maxLength 255
@@ -108677,6 +109115,8 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /** Required for a composite scorer. Creates a new immutable formula and input selection. */
+      composition?: CompositeConfig | null;
       /**
          * Updated compact label, saved with this version.
          * @maxLength 40
@@ -108714,6 +109154,13 @@ export namespace Schemas {
        * * `numeric` - numeric
        * * `boolean` - boolean */
       readonly kind: ScoreDefinitionKindEnum;
+      /** How this scorer's results are produced.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      readonly calculation: ScoreDefinitionCalculationEnum;
+      /** Immutable formula and input versions, or null for reported scores. */
+      readonly composition: CompositeConfig | null;
       /** Immutable configuration for this exact version. */
       readonly config: ScoreDefinitionConfig;
       /** Time this version was created. */
@@ -109190,6 +109637,37 @@ export namespace Schemas {
       summary: string;
       /** Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body. */
       charts: ReportChart[];
+    }
+
+    /**
+     * One discussion a person opened on a report your scout emitted or edited.
+     */
+    export interface ScoutReportDiscussion {
+      /** The report the discussion is about. */
+      report_id: string;
+      /** The report's title, truncated. */
+      report_title: string;
+      /** `authored` when your scout emitted the report, `edited` when it only edited it.
+       *
+       * * `authored` - Authored
+       * * `edited` - Edited */
+      involvement: ReportInvolvementEnum;
+      /** The discussion task. */
+      task_id: string;
+      /** When the discussion started. */
+      created_at: string;
+      /** When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first. */
+      active_at: string;
+      /**
+         * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+         * @nullable
+         */
+      task_summary: string | null;
     }
 
     /**
@@ -110698,6 +111176,18 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+     */
+    export type SendEmailTracking = boolean | {
+      /** Whether PostHog adds its open pixel to the email. Defaults to true. */
+      opens?: boolean;
+      /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+      clicks?: boolean;
+      /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
+      engagement?: boolean;
+    };
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
@@ -110738,8 +111228,15 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /**
+         * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
+         * @deprecated
+         */
       capture_engagement?: boolean;
+      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+      tracking?: SendEmailTracking;
+      /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+      sensitive?: boolean;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
          * @maxLength 1024
@@ -113624,7 +114121,7 @@ export namespace Schemas {
     }
 
     export interface SourceCredential {
-      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
       credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
@@ -113742,14 +114239,14 @@ export namespace Schemas {
     }
 
     /**
-     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
     export interface SourceSetup {
       /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot'). */
       source_type: string;
-      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
          * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.
@@ -114986,11 +115483,11 @@ export namespace Schemas {
     } as const;
 
     export interface SurfaceMoreWarehouseSuggestions {
-      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+      /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
        *
        * * `models` - Models
        * * `catalog` - Data catalog */
-      surface: WarehouseSuggestionSurfaceEnum;
+      surface?: WarehouseSuggestionSurfaceEnum;
     }
 
     /**
@@ -120803,6 +121300,12 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+       *
+       * * `invalid_definition` - Invalid definition
+       * * `too_expensive` - Too expensive
+       * * `unavailable` - Unavailable */
+      error_code: AutoresearchValidationErrorCodeEnum | null;
     }
 
     /**
@@ -124705,7 +125208,7 @@ export namespace Schemas {
       service?: string;
       /** Number of log entries in the bucket. */
       count: number;
-      /** Sum of uncompressed bytes for the bucket. */
+      /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
       bytes_uncompressed?: number;
     }
 
@@ -137186,9 +137689,20 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
+     * Filter reported or composite scorers.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite
+     */
+    calculation?: LlmAnalyticsScoreDefinitionsListCalculation;
+    /**
      * Filter by the creator's user ID.
      */
     created_by?: number;
+    /**
+     * Find current composite scorers that depend on this input scorer.
+     */
+    input_definition_id?: string;
     /**
      * Filter by scorer kind.
      */
@@ -137222,6 +137736,14 @@ export namespace Schemas {
      */
     tags?: string;
     };
+
+    export type LlmAnalyticsScoreDefinitionsListCalculation = typeof LlmAnalyticsScoreDefinitionsListCalculation[keyof typeof LlmAnalyticsScoreDefinitionsListCalculation];
+
+
+    export const LlmAnalyticsScoreDefinitionsListCalculation = {
+      Composite: 'composite',
+      Reported: 'reported',
+    } as const;
 
     export type LlmAnalyticsScoreDefinitionsListTagMatch = typeof LlmAnalyticsScoreDefinitionsListTagMatch[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch];
 
@@ -139607,7 +140129,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
@@ -140738,6 +141260,23 @@ export namespace Schemas {
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean;
+    };
+
+    export type SignalsScoutReportDiscussionsListParams = {
+    /**
+     * Maximum rows to return, newest first. Defaults to 20.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.
+     */
+    report_id?: string;
+    /**
+     * Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.
+     */
+    since?: string;
     };
 
     export type SignalsScoutRunsListParams = {
@@ -143826,7 +144365,7 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog

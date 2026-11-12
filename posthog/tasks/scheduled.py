@@ -91,7 +91,7 @@ from products.approvals.backend.tasks import (
     validate_pending_change_requests,
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.email import cleanup_mailgun_domains, flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
@@ -160,6 +160,7 @@ from products.tasks.backend.facade.tasks import (
 )
 from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
+    reconcile_visual_review_baseline_ledgers,
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
     sweep_visual_review_runs,
@@ -930,6 +931,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flush pending conversation email replies",
     )
 
+    # Mailgun caps the account's domain count. Free the slots that unused support domains hold.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="45"),
+        cleanup_mailgun_domains.s(),
+        name="cleanup unused conversation mailgun domains",
+    )
+
     # Re-drive due Slack ingress receipts. Celery on_commit is only a wake-up hint.
     add_periodic_task_with_expiry(
         sender,
@@ -1012,6 +1021,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         send_visual_review_debt_digests.s(),
         name="send visual review debt digests",
         expires_seconds=60 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        reconcile_visual_review_baseline_ledgers.s(),
+        name="advance visual review baseline ledgers",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="17"),
+        reconcile_visual_review_baseline_ledgers.s(reconcile_approvals=True),
+        name="reconcile visual review baseline approvals",
     )
 
     sender.add_periodic_task(

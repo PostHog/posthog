@@ -705,6 +705,11 @@ export const OfflineEvaluationResultStatusEnumApi = {
 } as const
 
 export interface OfflineResultCellApi {
+    /**
+     * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+     * @nullable
+     */
+    input_result_ids: string[] | null
     /** Stable result UUID. */
     id: string
     /** Item evaluated by this result. */
@@ -805,6 +810,39 @@ export interface OfflineItemReadApi {
     payload_expires_at: string | null
     /** Cells for explicitly selected scorer versions; empty when none selected. */
     results: OfflineResultCellApi[]
+}
+
+/**
+ * * `reported` - Reported
+ * * `composite` - Composite
+ */
+export type ScoreDefinitionCalculationEnumApi =
+    (typeof ScoreDefinitionCalculationEnumApi)[keyof typeof ScoreDefinitionCalculationEnumApi]
+
+export const ScoreDefinitionCalculationEnumApi = {
+    Reported: 'reported',
+    Composite: 'composite',
+} as const
+
+export interface CompositeInputApi {
+    /**
+     * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
+     * @maxLength 32
+     * @pattern ^[a-z][a-z0-9_]{0,31}$
+     */
+    alias: string
+    /** Exact immutable version of an ordinary input scorer. */
+    scorer_version_id: string
+}
+
+export interface CompositeConfigApi {
+    /**
+     * Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; "good" if correct else "bad". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.
+     * @maxLength 1024
+     */
+    expression: string
+    /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+    inputs: CompositeInputApi[]
 }
 
 /**
@@ -936,6 +974,13 @@ export type ScoreDefinitionConfigApi =
     | BooleanScoreDefinitionConfigApi
 
 export interface OfflineScorerVersionReadApi {
+    /** Reported or computed from other item scores.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    calculation: ScoreDefinitionCalculationEnumApi
+    /** Immutable formula and exact input versions for a composite. */
+    composition: CompositeConfigApi | null
     /** Exact immutable scorer-version UUID. */
     id: string
     /** Stable scorer definition UUID. */
@@ -1045,6 +1090,11 @@ export interface OfflineItemPayloadReadApi {
 }
 
 export interface OfflineResultReadApi {
+    /**
+     * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+     * @nullable
+     */
+    input_result_ids: string[] | null
     /** Stable result UUID. */
     id: string
     /** Item evaluated by this result. */
@@ -1182,6 +1232,8 @@ export interface OfflineCategorySummaryApi {
 }
 
 export interface OfflineScorerSummaryApi {
+    /** Items without a composite request. These are excluded from missing results and pass rates. */
+    not_requested_count: number
     /** Exact scorer version summarized. */
     scorer: OfflineScorerVersionReadApi
     /** All observed experiment items, independent of scorer selection or item pagination. */
@@ -1319,14 +1371,16 @@ export interface ResultSubmissionApi {
     item_id: string
     /** Exact UUID of an existing scorer version in this project. */
     scorer_version_id: string
+    /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+    calculate?: boolean
     /** Outcome of this scorer execution.
      *
      * * `ok` - OK
      * * `error` - Error
      * * `skipped` - Skipped
      * * `not_applicable` - Not applicable */
-    status: OfflineEvaluationResultStatusEnumApi
-    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    status?: OfflineEvaluationResultStatusEnumApi
+    /** Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true. */
     value?: number | boolean | string[] | null
     /**
      * Optional stable error code, permitted only for error outcomes.
@@ -1383,6 +1437,18 @@ export interface ResultReceiptApi {
     item_id: string
     /** Pinned scorer version used by this result. */
     scorer_version_id: string
+    /** Stored result status, including calculation failures.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /**
+     * Error code for a failed result, otherwise null.
+     * @nullable
+     */
+    error_code: string | null
 }
 
 export interface UploadReceiptApi {
@@ -5060,6 +5126,37 @@ export interface PatchedReviewQueueUpdateApi {
     name?: string
 }
 
+export interface CompositeInputReadApi {
+    /** Input name in the formula. */
+    alias: string
+    /** Pinned immutable input version. */
+    scorer_version_id: string
+    /** Input scorer definition. */
+    definition_id: string
+    /** Input scorer name. */
+    name: string
+    /** Input value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Pinned input version number. */
+    version: number
+    /** Scoring rules of the pinned input version. */
+    readonly config: ScoreDefinitionConfigApi
+    /**
+     * Current input version. Updating requires a new composite version.
+     * @nullable
+     */
+    latest_version_id: string | null
+    /**
+     * Current input version number.
+     * @nullable
+     */
+    latest_version: number | null
+}
+
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
@@ -5069,6 +5166,17 @@ export interface ScoreDefinitionApi {
     /** Project tag names assigned to this resource. */
     readonly tags: readonly string[]
     readonly kind: ScoreDefinitionKindEnumApi
+    /** Whether results are reported by the caller or calculated from other item scores.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    readonly calculation: ScoreDefinitionCalculationEnumApi
+    /** Formula and exact input versions for a composite scorer. */
+    readonly composition: CompositeConfigApi | null
+    /** Pinned inputs and their latest versions. Empty for reported scorers. */
+    readonly input_scorers: readonly CompositeInputReadApi[]
+    /** Accessible active composite scorers whose current version depends on a version of this scorer. */
+    readonly dependent_composite_count: number
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -5105,6 +5213,13 @@ export interface ScoreDefinitionCreateApi {
      * @items.maxLength 255
      */
     tags?: string[]
+    /** Reported or composite. This cannot be changed after creation.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    calculation?: ScoreDefinitionCalculationEnumApi
+    /** Required for composite scorers: expression and exact input versions. */
+    composition?: CompositeConfigApi | null
     /**
      * Human-readable scorer name.
      * @maxLength 255
@@ -5159,6 +5274,8 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /** Required for a composite scorer. Creates a new immutable formula and input selection. */
+    composition?: CompositeConfigApi | null
     /**
      * Updated compact label, saved with this version.
      * @maxLength 40
@@ -5196,6 +5313,13 @@ export interface ScoreDefinitionVersionApi {
      * * `numeric` - numeric
      * * `boolean` - boolean */
     readonly kind: ScoreDefinitionKindEnumApi
+    /** How this scorer's results are produced.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    readonly calculation: ScoreDefinitionCalculationEnumApi
+    /** Immutable formula and input versions, or null for reported scores. */
+    readonly composition: CompositeConfigApi | null
     /** Immutable configuration for this exact version. */
     readonly config: ScoreDefinitionConfigApi
     /** Time this version was created. */
@@ -5227,6 +5351,24 @@ export interface ScoreDefinitionVersionPageApi {
     next_cursor: string | null
     /** Versions on this page, newest first. */
     results: ScoreDefinitionVersionApi[]
+}
+
+export interface CompositeValidationApi {
+    /** Expected formula output kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Formula and pinned input versions to validate without saving. */
+    composition: CompositeConfigApi
+    /** Output configuration to check literal categories and composite scoring rules. */
+    config?: ScoreDefinitionConfigApi
+}
+
+export interface CompositeValidationResponseApi {
+    /** Whether the formula and any supplied output configuration are valid. */
+    valid: boolean
 }
 
 /**
@@ -7060,9 +7202,20 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     archived?: boolean
     /**
+     * Filter reported or composite scorers.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite
+     */
+    calculation?: LlmAnalyticsScoreDefinitionsListCalculation
+    /**
      * Filter by the creator's user ID.
      */
     created_by?: number
+    /**
+     * Find current composite scorers that depend on this input scorer.
+     */
+    input_definition_id?: string
     /**
      * Filter by scorer kind.
      */
@@ -7096,6 +7249,14 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     tags?: string
 }
+
+export type LlmAnalyticsScoreDefinitionsListCalculation =
+    (typeof LlmAnalyticsScoreDefinitionsListCalculation)[keyof typeof LlmAnalyticsScoreDefinitionsListCalculation]
+
+export const LlmAnalyticsScoreDefinitionsListCalculation = {
+    Composite: 'composite',
+    Reported: 'reported',
+} as const
 
 export type LlmAnalyticsScoreDefinitionsListTagMatch =
     (typeof LlmAnalyticsScoreDefinitionsListTagMatch)[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch]

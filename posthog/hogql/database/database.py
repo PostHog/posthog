@@ -172,6 +172,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.ph_client import feature_enabled_or_false
@@ -916,6 +917,7 @@ class Database(BaseModel):
     _first_sync_lookup_team_id: int | None = None
     # Name -> whether the first sync failed. None until loaded.
     _tables_awaiting_first_sync: dict[str, bool] | None = None
+    _warehouse_table_models: Optional[list[DataWarehouseTable]] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -1521,6 +1523,62 @@ class Database(BaseModel):
             and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
         )
 
+    def _warehouse_table_ids_for(self, include_only: set[str]) -> set[str]:
+        table_ids: set[str] = set()
+        for name in include_only:
+            try:
+                schema_table = self.get_table_node(name).get()
+            except ResolutionError:
+                continue
+            if isinstance(schema_table, S3Table) and schema_table.table_id is not None:
+                table_ids.add(str(schema_table.table_id))
+        return table_ids
+
+    def _query_warehouse_tables_to_serialize(
+        self, team_id: int, warehouse_table_names: list[str], include_only: set[str] | None
+    ) -> list[DataWarehouseTable]:
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+
+        warehouse_tables_query = (
+            DataWarehouseTable.raw_objects.select_related("external_data_source")
+            .defer("external_data_source__job_inputs")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
+        )
+        if self._is_direct_query():
+            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
+        elif warehouse_table_names:
+            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names).exclude(
+                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
+            )
+        else:
+            warehouse_tables_query = warehouse_tables_query.none()
+
+        if include_only:
+            table_ids = self._warehouse_table_ids_for(include_only)
+            warehouse_tables_query = warehouse_tables_query.filter(Q(name__in=include_only) | Q(id__in=table_ids))
+
+        warehouse_tables = list(warehouse_tables_query.all())
+        _preload_active_external_data_schemas(warehouse_tables)
+        return warehouse_tables
+
+    def _built_warehouse_tables_to_serialize(
+        self, built_tables: list[DataWarehouseTable], warehouse_table_names: list[str], include_only: set[str] | None
+    ) -> list[DataWarehouseTable]:
+        names = set(warehouse_table_names)
+        table_ids = self._warehouse_table_ids_for(include_only) if include_only else set()
+        selected = [
+            table
+            for table in built_tables
+            if table.name in names and (not include_only or table.name in include_only or str(table.id) in table_ids)
+        ]
+        return sorted(selected, key=_serialization_order)
+
     def serialize(
         self,
         context: HogQLContext,
@@ -1548,7 +1606,6 @@ class Database(BaseModel):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-            DataWarehouseTable,
             ExternalDataSource,
             latest_completed_job_prefetch,
         )
@@ -1617,38 +1674,14 @@ class Database(BaseModel):
         if include_only:
             views = [name for name in views if name in include_only]
 
-        warehouse_tables_query = (
-            DataWarehouseTable.raw_objects.select_related("external_data_source")
-            .defer("external_data_source__job_inputs")
-            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
-            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
-            .queryable()
-            .filter(team_id=context.team_id)
-            # The catalog is built last-write-wins per table key, so order created_at ascending to
-            # land the newest row last when two live tables share a name — matching tree resolution.
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
-        )
-        if self._is_direct_query():
-            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
-        elif warehouse_table_names:
-            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names).exclude(
-                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
+        if self._warehouse_table_models is None:
+            warehouse_tables_with_data = self._query_warehouse_tables_to_serialize(
+                context.team_id, warehouse_table_names, include_only
             )
         else:
-            warehouse_tables_query = warehouse_tables_query.none()
-
-        if include_only:
-            table_ids = set()
-            for name in include_only:
-                try:
-                    schema_table = self.get_table_node(name).get()
-                except ResolutionError:
-                    continue
-                if isinstance(schema_table, S3Table) and schema_table.table_id is not None:
-                    table_ids.add(schema_table.table_id)
-            warehouse_tables_query = warehouse_tables_query.filter(Q(name__in=include_only) | Q(id__in=table_ids))
-
-        warehouse_tables_with_data = list(warehouse_tables_query.all())
+            warehouse_tables_with_data = self._built_warehouse_tables_to_serialize(
+                self._warehouse_table_models, warehouse_table_names, include_only
+            )
         prefetch_related_objects(
             warehouse_tables_with_data,
             latest_completed_job_prefetch(
@@ -1662,7 +1695,6 @@ class Database(BaseModel):
                 },
             ),
         )
-        _preload_active_external_data_schemas(warehouse_tables_with_data)
         if self._is_direct_query():
             warehouse_tables_with_data = [
                 warehouse_table
@@ -1988,6 +2020,8 @@ class Database(BaseModel):
             database = Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+        if cache_key is None and connection_id is None:
+            database._warehouse_table_models = sources.warehouse_tables
 
         total_seconds = time.perf_counter() - build_started
         HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
@@ -3544,6 +3578,30 @@ def _attach_external_data_sources(
         source = sources_by_id.get(table.external_data_source_id)
         if source is not None:
             table.external_data_source = source
+
+
+@frozen(order=True)
+class _WarehouseTableSortKey:
+    prefix_missing: bool
+    prefix: str
+    source_type_missing: bool
+    source_type: str
+    name: str
+    created_at: datetime
+
+
+def _serialization_order(table: DataWarehouseTable) -> _WarehouseTableSortKey:
+    source = table.external_data_source
+    prefix = source.prefix if source else None
+    source_type = source.source_type if source else None
+    return _WarehouseTableSortKey(
+        prefix_missing=prefix is None,
+        prefix=prefix or "",
+        source_type_missing=source_type is None,
+        source_type=source_type or "",
+        name=table.name,
+        created_at=table.created_at,
+    )
 
 
 def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
