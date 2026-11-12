@@ -259,7 +259,7 @@ function DashboardWidgetItemContent({
                 : undefined,
         onRemove,
         refresh:
-            onRefresh && headerLayout === 'dashboard_tile' && !isUnknownWidgetType
+            headerLayout === 'dashboard_tile' && !isUnknownWidgetType
                 ? { onRefresh, disabledReason: refreshDisabledReason, lastRefresh: lastFetchedAt }
                 : undefined,
     })
