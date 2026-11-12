@@ -136,6 +136,11 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+class _UnreachableCache(LocMemCache):
+    def add(self, *args, **kwargs):
+        raise ConnectionError("cache unreachable")
+
+
 @pytest.mark.usefixtures("postgres_connection", "postgres_config")
 class TestExternalDataSchema(APIBaseTest):
     @pytest.fixture(autouse=True)
@@ -806,14 +811,22 @@ class TestExternalDataSchema(APIBaseTest):
             with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
                 assert self._open_sync_form(schema) == "created_at"
 
-    @parameterized.expand([("broker_up", None, 1), ("broker_down", OSError("broker unreachable"), 3)])
-    def test_incremental_fields_queues_one_question_per_column_set(self, _name, dispatch_error, expected_dispatches):
+    @parameterized.expand(
+        [
+            ("broker_up", LocMemCache, None, 1),
+            ("broker_down", LocMemCache, OSError("broker unreachable"), 3),
+            ("cache_down", _UnreachableCache, None, 0),
+        ]
+    )
+    def test_incremental_fields_queues_one_question_per_column_set(
+        self, _name, cache_class, dispatch_error, expected_dispatches
+    ):
         schema = self._orders_schema_without_cursor()
         recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
         with (
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
-            mock.patch(f"{recommender}.cache", LocMemCache(f"incremental-field-queue-{_name}", {})),
+            mock.patch(f"{recommender}.cache", cache_class(f"incremental-field-queue-{_name}", {})),
             mock.patch(
                 "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async",
                 side_effect=dispatch_error,
