@@ -262,5 +262,7 @@ function countPendingTrigger(result: CyclotronJobInvocationResult): void {
         metric_kind: 'other',
         metric_name: 'triggered',
         count: 1,
+        // A send can wait past the hour it was queued, and `conversion_by_start` files the run under that hour.
+        timestamp: result.invocation.queueCreatedAt,
     })
 }
