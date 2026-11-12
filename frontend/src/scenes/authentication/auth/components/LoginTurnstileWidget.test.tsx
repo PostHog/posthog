@@ -52,6 +52,15 @@ describe('LoginTurnstileWidget', () => {
         expect(container).toHaveTextContent('')
     })
 
+    it('takes no space in the form until Cloudflare shows an interactive check', () => {
+        const { container } = renderWidget()
+        expect(container.firstElementChild).toHaveClass('-mt-4')
+
+        act(() => mockTurnstileProps.onBeforeInteractive())
+
+        expect(container.firstElementChild).not.toHaveClass('-mt-4')
+    })
+
     it('marks script_failed when the script has not loaded after 10 seconds', () => {
         renderWidget()
 

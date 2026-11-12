@@ -1,10 +1,11 @@
+import logging
 from typing import Literal
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.http import HttpRequest
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -225,3 +226,14 @@ class TestLoginChallenge(BaseTest):
 
         assert capture.call_args.kwargs["distinct_id"].startswith("pre_login_")
         assert capture.call_args.kwargs["properties"]["has_account"] is False
+
+
+class TestLoginChallengeLogLevel(SimpleTestCase):
+    def test_decision_log_line_survives_the_sdk_warning_clamp_on_the_posthog_logger(self):
+        posthog_logger = logging.getLogger("posthog")
+        previous_level = posthog_logger.level
+        posthog_logger.setLevel(logging.WARNING)
+        try:
+            assert logging.getLogger("posthog.login_challenge").isEnabledFor(logging.INFO)
+        finally:
+            posthog_logger.setLevel(previous_level)

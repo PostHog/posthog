@@ -1,6 +1,6 @@
 import { Turnstile } from '@marsidev/react-turnstile'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { loginLogic } from '../loginLogic'
 
@@ -9,6 +9,7 @@ const SCRIPT_LOAD_TIMEOUT_MS = 10_000
 export function LoginTurnstileWidget({ siteKey }: { siteKey: string }): JSX.Element {
     const { turnstileScriptFailed } = useValues(loginLogic)
     const { setTurnstileToken, setTurnstileClientStatus } = useActions(loginLogic)
+    const [isInteractive, setIsInteractive] = useState(false)
 
     useEffect(() => {
         setTurnstileToken(null)
@@ -34,18 +35,22 @@ export function LoginTurnstileWidget({ siteKey }: { siteKey: string }): JSX.Elem
     }
 
     return (
-        <Turnstile
-            siteKey={siteKey}
-            options={{ action: 'login', appearance: 'interaction-only', theme: 'auto' }}
-            scriptOptions={{ onError: () => setTurnstileClientStatus('script_failed') }}
-            onSuccess={(token) => {
-                setTurnstileToken(token)
-                setTurnstileClientStatus('token')
-            }}
-            onError={() => dropToken('error')}
-            onTimeout={() => dropToken('error')}
-            onExpire={() => dropToken('expired')}
-            onUnsupported={() => dropToken('unsupported')}
-        />
+        // The widget is invisible until Cloudflare asks for a click, so cancel the form's gap until then
+        <div className={isInteractive ? undefined : '-mt-4'}>
+            <Turnstile
+                siteKey={siteKey}
+                options={{ action: 'login', appearance: 'interaction-only', theme: 'auto' }}
+                scriptOptions={{ onError: () => setTurnstileClientStatus('script_failed') }}
+                onSuccess={(token) => {
+                    setTurnstileToken(token)
+                    setTurnstileClientStatus('token')
+                }}
+                onError={() => dropToken('error')}
+                onTimeout={() => dropToken('error')}
+                onExpire={() => dropToken('expired')}
+                onUnsupported={() => dropToken('unsupported')}
+                onBeforeInteractive={() => setIsInteractive(true)}
+            />
+        </div>
     )
 }
