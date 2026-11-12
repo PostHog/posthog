@@ -361,13 +361,19 @@ class EmailIntegration:
     def _organization_proof_token(self) -> str:
         if token := self.integration.config.get(ORGANIZATION_PROOF_TOKEN_KEY):
             return token
-        # Senders added before the record existed have no token, so the first contested check stores one.
-        token = _organization_proof_token_for(self.integration.config["domain"], self._organization_id())
-        self.integration = model.integration_model(
-            row_writes.update_row(
-                self.integration, IntegrationPatch(config_patch={ORGANIZATION_PROOF_TOKEN_KEY: token})
-            )
-        )
+        # Senders added before the record existed have no token, so the first contested check stores one. The domain
+        # lock and the reread make two checks that start together store one token, not one each.
+        domain = self.integration.config["domain"]
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                lock_sender_domain(cursor, domain)
+            current = row_writes.reread_row(self.integration)
+            if not (token := current.config.get(ORGANIZATION_PROOF_TOKEN_KEY)):
+                token = _organization_proof_token_for(domain, self._organization_id())
+                current = row_writes.update_row(
+                    current, IntegrationPatch(config_patch={ORGANIZATION_PROOF_TOKEN_KEY: token})
+                )
+        self.integration = model.integration_model(current)
         return token
 
     def status(

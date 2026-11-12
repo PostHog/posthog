@@ -494,6 +494,19 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
         assert not Integration.objects.filter(id=self.other_sender.id).exists()
         self.create_sender(f"news@{DOMAIN}")
 
+    def test_a_sender_added_before_the_record_existed_gets_one_lasting_record(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        config = Integration.objects.get(id=sender).config
+        Integration.objects.filter(id=sender).update(
+            config={key: value for key, value in config.items() if key != "organization_proof_token"}
+        )
+
+        first = self._organization_record(self.status_body(sender)["records"])
+        second = self._organization_record(self.status_body(sender)["records"])
+
+        assert first["value"] == second["value"]
+        assert first["value"].endswith(Integration.objects.get(id=sender).config["organization_proof_token"])
+
     def test_a_domain_another_organization_verified_does_not_verify_again(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         records = self.records_to_publish(sender)
