@@ -564,7 +564,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 findUnavailableSection({
                     sectionId: selectedSectionId,
                     visibleSections: sections,
-                    allSections: SETTINGS_MAP,
+                    allSections: SETTINGS_MAP.filter((section) => section.id !== 'environment-ai-subscriptions'),
                     gatesResolved: receivedFeatureFlags && !!currentOrganization?.membership_level,
                     doesMatchFlags,
                     isAdminOrOwner,

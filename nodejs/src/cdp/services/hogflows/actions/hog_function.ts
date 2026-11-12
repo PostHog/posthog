@@ -192,6 +192,9 @@ export class HogFunctionHandler implements ActionHandler {
             observeMissingVariableReferences(invocation, action, result)
         }
 
+        const wokeFromHold =
+            !!invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.hogFunctionState
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         if (functionResult.emailSendResult) {
@@ -221,6 +224,18 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.state.currentAction!.frequencyCapHoldDeadlineAt =
                 functionResult.frequencyCapHold.deadlineAt
             return { scheduledAt: functionResult.frequencyCapHold.until }
+        }
+
+        // Pairs with message_frequency_cap_held, so a run can tell how many people are still held.
+        if (wokeFromHold) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                instance_id: action.id,
+                metric_kind: 'other',
+                metric_name: 'message_frequency_cap_hold_ended',
+                count: 1,
+            })
         }
 
         if (!functionResult.finished) {
@@ -492,19 +507,17 @@ export class HogFunctionHandler implements ActionHandler {
                 skipReason === 'suppressed'
                     ? `Skipping send: recipient is on the suppression list.`
                     : `Recipient has opted out, skipping message delivery.`
-            const metrics =
-                skipReason === 'suppressed'
-                    ? [
-                          {
-                              team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
-                              instance_id: action.id,
-                              metric_kind: 'email' as const,
-                              metric_name: 'email_suppressed' as const,
-                              count: 1,
-                          },
-                      ]
-                    : []
+            const metrics = [
+                {
+                    team_id: hogFunctionInvocation.teamId,
+                    app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                    instance_id: action.id,
+                    metric_kind: 'email' as const,
+                    metric_name:
+                        skipReason === 'suppressed' ? ('email_suppressed' as const) : ('email_opted_out' as const),
+                    count: 1,
+                },
+            ]
             this.recordSkippedEmail(
                 hogFunctionInvocation,
                 action,
