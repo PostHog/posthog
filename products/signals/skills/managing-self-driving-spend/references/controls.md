@@ -83,26 +83,10 @@ It suits a scout poorly when a query cannot tell whether a run would matter, suc
 - The dry run reads as you, and a scheduled check reads as the scout's acting user. A query that passes the dry run can still fail on schedule, so read `last_precheck_outcome` after the next scheduled tick. It holds only the latest result.
 - Add a backstop when the scout should still run from time to time.
 
-How to write one:
-
-- The query is one HogQL `SELECT`. It stops after 10 seconds and reads at most 50 rows.
-- No rows, or one row with one false value such as a zero `count()`, skips the run. Any other result starts it.
-  A row with two columns never skips, so use `GROUP BY` or `HAVING` when you select more than one column.
-- `{since}` is the start of the last run that started, `{now}` is the current time, and `{interval_minutes}` is the gap between two scheduled runs.
-- Test the thing the scout reads, not a proxy for it. A scout that triages new exceptions tests for new `$exception` events, not for any event.
-
-This query runs the scout when new exceptions arrived, and at least once a week:
-
-```sql
-SELECT count() > 0 OR {since} < {now} - INTERVAL 7 DAY
-FROM events
-WHERE event = '$exception' AND timestamp > {since}
-```
-
 After you save a pre-check, read `last_precheck_outcome` after the next scheduled tick, and compare the scout's runs and spend after one week.
 Many `skip` outcomes with the same number of reports mean it works. No reports at all means the query is too strict.
 
-The `authoring-scouts` skill has the full query rules in `references/scheduled-precheck.md`. Read it before you write a query.
+The `authoring-scouts` skill has the query rules, the placeholders, and a backstop example in `references/scheduled-precheck.md`. Read it before you write a query.
 
 ### Schedules
 
@@ -120,7 +104,6 @@ Use a workflow trigger when a known event says there is work, for example a new 
 The scout then runs when the event arrives, and its schedule only has to catch what the event misses.
 
 1. Build a workflow whose trigger is the event, with a "Run scout" step that names the scout. The `building-workflows` skill has the steps.
-   Write the step's note from identifiers, for example `Issue #{event.properties.issue_number}`, so the run handles that subject first.
 2. Slow the scout's schedule to a backstop with `posthog:scout-config-update`, for example once a day or once a week.
    Do not pause the scout. A paused scout rejects workflow triggers.
 3. After a week, compare the scout's runs and spend with the week before, using "Spend by scout" in [queries-spend.md](queries-spend.md).
@@ -128,10 +111,10 @@ The scout then runs when the event arrives, and its schedule only has to catch w
 What to know before you recommend it:
 
 - A workflow run always starts. The pre-check does not gate it, so the workflow's trigger filters are the only gate. A trigger on a frequent event can cost more than the schedule it replaced.
-- A scout starts at most one workflow run every 30 minutes. Triggers that arrive sooner, or during a run, wait and are handled together by the next run. At most 20 wait.
-- A run with a note handles the named subject and skips the scout's routine unless the scout's skill says otherwise. Keep a scheduled backstop so the routine still runs.
+- A scout starts at most one workflow run every 30 minutes. Triggers that arrive sooner wait for the next run.
 - The spend limit stops workflow runs too.
-- The scout's skill may need a section for workflow-triggered runs. The `authoring-scouts` skill covers it under "Workflow-triggered runs".
+
+The `authoring-scouts` skill covers the step's note, the queue of waiting triggers, and what the scout's skill must say, under "Workflow-triggered runs". Read it before you set one up.
 
 Which control to choose:
 
