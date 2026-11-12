@@ -44,13 +44,6 @@ const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         description: 'Send a Webhook to the user.',
         config: { template_id: 'template-webhook', inputs: {} },
     },
-    {
-        type: 'function',
-        name: 'HTTP request',
-        description: 'Call a URL and store the status, timing and body. Branch on the result with a condition step.',
-        config: { template_id: 'template-posthog-http-request', inputs: {} },
-        output_variable: { key: 'http', result_path: null, spread: true, label: 'HTTP request' },
-    },
 ]
 
 const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {

@@ -128,4 +128,52 @@ describe('webhook template', () => {
             ]
         `)
     })
+
+    describe('with continue_on_error', () => {
+        const respond = async (response: { status: number; body: unknown; error?: string }) => {
+            const invocation = (await tester.invoke({ url: 'https://example.com', continue_on_error: true })).invocation
+            invocation.state.vmState!.stack.push({ ...response, duration_ms: 12 })
+            return tester.resumeInvocation(invocation)
+        }
+
+        it('makes one attempt that cannot fail the step, with the timeout it was given', async () => {
+            const response = await tester.invoke({
+                url: 'https://example.com',
+                method: 'HEAD',
+                continue_on_error: true,
+                timeout_ms: 2500,
+            })
+
+            expect(response.invocation.queueParameters).toMatchObject({
+                method: 'HEAD',
+                fail_on_error: false,
+                max_tries: 1,
+                timeout_ms: 2500,
+            })
+        })
+
+        it.each([
+            [
+                'an error status',
+                { status: 503, body: 'down' },
+                { status: 503, body: 'down', duration_ms: 12, error: null },
+            ],
+            [
+                'no response',
+                { status: 500, body: 'TypeError: fetch failed', error: 'TypeError: fetch failed' },
+                { status: 0, body: null, duration_ms: 12, error: 'TypeError: fetch failed' },
+            ],
+            [
+                'a long JSON body',
+                { status: 200, body: { page: 'a'.repeat(2000) } },
+                { status: 200, body: `{"page":"${'a'.repeat(991)}`, duration_ms: 12, error: null },
+            ],
+        ])('stores %s instead of failing', async (_name, fetchResponse, expected) => {
+            const result = await respond(fetchResponse)
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.execResult).toEqual(expected)
+        })
+    })
 })

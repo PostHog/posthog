@@ -102,7 +102,7 @@ Notes:
 
 Action nodes shown in the “Build” toolbar come from:
 
-- Built-ins in products/workflows/frontend/Workflows/hogflows/workflowStepCatalog.ts
+- Built-ins in products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx
 - Registered categories from products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry.ts
 
 Each category contains one or more `CreateActionType` nodes (see type in products/workflows/frontend/Workflows/hogflows/hogFlowEditorLogic.tsx).
