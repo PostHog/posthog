@@ -2757,6 +2757,74 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             )
             return bool(cursor.fetchone()[0])
 
+    def _restore_and_commit_once_the_send_waits(
+        self, category_id: Any, restored: threading.Event, other: dict[str, Any]
+    ) -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        [f"{send_categories.SEND_CATEGORY_LOCK}:{self.team.id}"],
+                    )
+                MessageCategory.objects.filter(id=category_id).update(deleted=False)
+                restored.set()
+                other["send_waited"] = self._send_waits(self._send_is_waiting_on_the_category_lock)
+        except Exception as error:
+            other["error"] = error
+        finally:
+            restored.set()
+            connection.close()
+
+    def _send_waits(self, waiting: Callable[[], bool]) -> bool:
+        try:
+            wait_until(waiting, timeout=30, interval=0.05)
+        except AssertionError:
+            return False
+        return True
+
+    def _send_is_waiting_on_the_category_lock(self) -> bool:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_stat_clear_snapshot()")
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                "AND wait_event_type = 'Lock' AND wait_event = 'advisory'"
+            )
+            return bool(cursor.fetchone()[0])
+
+    def test_a_category_another_send_restores_at_the_limit_is_used(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        archived = MessageCategory.objects.create(
+            team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
+        )
+        restored = threading.Event()
+        other: dict[str, Any] = {}
+        worker = threading.Thread(
+            target=self._restore_and_commit_once_the_send_waits, args=(archived.id, restored, other)
+        )
+        worker.start()
+        assert restored.wait(timeout=30)
+
+        with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {
+                    "to": "user@example.com",
+                    "template_key": "welcome",
+                    "subject": "Welcome",
+                    "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+                },
+                format="json",
+            )
+        worker.join(timeout=30)
+
+        assert not worker.is_alive()
+        assert "error" not in other, other.get("error")
+        assert other["send_waited"], "the send never waited on the other restore, so the two did not race"
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert cdp.categories() == [{"id": str(archived.id), "type": "marketing"}]
+
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         inserted = threading.Event()
