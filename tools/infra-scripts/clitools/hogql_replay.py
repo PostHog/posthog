@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from toolbox.kubernetes import ensure_context_access, get_available_contexts, kubectl_cmd
-from toolbox.pod import claim_pod, delete_pod, get_toolbox_pod
+from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
 from toolbox.tailscale import ensure_tailscale_connected
 from toolbox.user import get_current_user
 
@@ -28,6 +28,8 @@ ACCESS_SUFFIXES = ("eks", "write", "admin")
 PR_IMAGE_REPOSITORY = "posthog-cloud-prs"
 CLAIM_SECONDS = 2 * 60 * 60
 WORK_DIR = "/tmp/hogql-replay"
+CONTAINER = "posthog-hogql-replay"
+MAX_CLAIM_RETRIES = 3
 
 
 def kubectl(context: str, *args: str) -> str:
@@ -46,45 +48,53 @@ def select_context() -> str:
 
 
 def pull_request(number: str | None) -> dict:
-    command = ["gh", "pr", "view", *([number] if number else []), "--json", "number,headRefOid,baseRefOid"]
+    command = ["gh", "pr", "view", *([number] if number else []), "--json", "number"]
     return json.loads(subprocess.run(command, check=True, capture_output=True, text=True).stdout)
 
 
-def claim(context: str, user_labels: dict) -> str:
-    pod, _, resource_version = get_toolbox_pod(
-        user_labels[CLAIMED_LABEL_KEY],
-        check_claimed=False,
-        app_label=APP_LABEL,
-        claimed_label_key=CLAIMED_LABEL_KEY,
-        namespace=NAMESPACE,
-        context=context,
-    )
-    claim_pod(
-        pod,
-        user_labels,
-        int(time.time()) + CLAIM_SECONDS,
-        namespace=NAMESPACE,
-        context=context,
-        resource_version=resource_version,
-    )
-    return pod
+def claim(context: str, user_labels: dict, pods: list[str]) -> str:
+    for _ in range(MAX_CLAIM_RETRIES):
+        pod, _, resource_version = get_toolbox_pod(
+            user_labels[CLAIMED_LABEL_KEY],
+            check_claimed=False,
+            app_label=APP_LABEL,
+            claimed_label_key=CLAIMED_LABEL_KEY,
+            namespace=NAMESPACE,
+            context=context,
+        )
+        pods.append(pod)
+        try:
+            claim_pod(
+                pod,
+                user_labels,
+                int(time.time()) + CLAIM_SECONDS,
+                namespace=NAMESPACE,
+                context=context,
+                resource_version=resource_version,
+            )
+            return pod
+        except ClaimRaceError:
+            pods.remove(pod)
+    sys.exit("Could not claim a hogql-replay pod. Try again.")
+
+
+def container_field(context: str, pod: str, field: str) -> str:
+    path = f'{{.status.containerStatuses[?(@.name=="{CONTAINER}")].{field}}}'
+    return kubectl(context, "get", "pod", "-n", NAMESPACE, pod, "-o", f"jsonpath={path}")
 
 
 def pr_image(context: str, pod: str, pr_number: int) -> str:
-    pool_image = kubectl(context, "get", "pod", "-n", NAMESPACE, pod, "-o", "jsonpath={.spec.containers[0].image}")
-    registry = pool_image.split("/", 1)[0]
+    registry = container_field(context, pod, "image").split("/", 1)[0]
     return f"{registry}/{PR_IMAGE_REPOSITORY}:pr-{pr_number}"
 
 
 def set_image(context: str, pod: str, image: str) -> None:
-    def container(field: str) -> str:
-        return kubectl(context, "get", "pod", "-n", NAMESPACE, pod, "-o", f"jsonpath={{{field}}}")
-
-    name = container(".spec.containers[0].name")
-    restarts = container(".status.containerStatuses[0].restartCount")
-    kubectl(context, "set", "image", "-n", NAMESPACE, f"pod/{pod}", f"{name}={image}")
+    if container_field(context, pod, "image") == image:
+        return
+    restarts = container_field(context, pod, "restartCount")
+    kubectl(context, "set", "image", "-n", NAMESPACE, f"pod/{pod}", f"{CONTAINER}={image}")
     deadline = time.time() + 600
-    while container(".status.containerStatuses[0].restartCount") == restarts:
+    while container_field(context, pod, "restartCount") == restarts:
         if time.time() > deadline:
             sys.exit(f"Could not start {image}. Check that Container Images CI built and pushed it for this PR.")
         time.sleep(5)
@@ -99,7 +109,7 @@ def copy(context: str, source: str, target: str) -> None:
     kubectl(context, "cp", source, target)
 
 
-def replay(context: str, base_pod: str, head_pod: str, pr: dict, args: argparse.Namespace, local: Path) -> None:
+def replay(context: str, base_pod: str, head_pod: str, args: argparse.Namespace, local: Path) -> None:
     base_remote, head_remote = f"{NAMESPACE}/{base_pod}:{WORK_DIR}", f"{NAMESPACE}/{head_pod}:{WORK_DIR}"
     selection = [arg for query_id in args.query_id for arg in ("--query-id", query_id)]
     selection = selection or ["--sample", str(args.sample)]
@@ -121,8 +131,8 @@ def replay(context: str, base_pod: str, head_pod: str, pr: dict, args: argparse.
         *("--base", f"{WORK_DIR}/base.jsonl"),
         *("--head", f"{WORK_DIR}/head.jsonl"),
         *("--out-dir", f"{WORK_DIR}/report"),
-        *("--base-sha", pr["baseRefOid"]),
-        *("--head-sha", pr["headRefOid"]),
+        *("--base-label", container_field(context, base_pod, "imageID")),
+        *("--head-label", container_field(context, head_pod, "imageID")),
     )
     copy(context, f"{base_remote}/report", str(args.out_dir))
 
@@ -143,15 +153,13 @@ def run(args: argparse.Namespace) -> None:
     user_labels = get_current_user(claimed_label_key=CLAIMED_LABEL_KEY, context=context)
     pods: list[str] = []
     try:
-        base_pod = claim(context, user_labels)
-        pods.append(base_pod)
-        head_pod = claim(context, user_labels)
-        pods.append(head_pod)
+        base_pod = claim(context, user_labels, pods)
+        head_pod = claim(context, user_labels, pods)
         set_image(context, head_pod, args.head_image or pr_image(context, head_pod, pr["number"]))
         if args.base_image:
             set_image(context, base_pod, args.base_image)
         with tempfile.TemporaryDirectory() as local:
-            replay(context, base_pod, head_pod, pr, args, Path(local))
+            replay(context, base_pod, head_pod, args, Path(local))
     finally:
         for pod in pods:
             delete_pod(

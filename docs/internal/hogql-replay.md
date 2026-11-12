@@ -42,10 +42,14 @@ Do not paste it into a pull request, an issue, or any public place.
 
 A query is a cost regression when the head reads more than 1.5 times the bytes of the base.
 
+The report names the exact image each pod ran.
+The pull request image tag moves with every push, so check that the head image is the build you expect.
+
 ## What it does not check
 
 - Changes to how a query runner shapes its response in Python. Only ClickHouse rows are compared.
 - Query runners that send more than one statement to ClickHouse. These show as `could_not_model`.
+- Requests that sent more than one statement in production, and queries logged without a client query ID. These are left out of the sample.
 - Row order. Results are compared as a set of rows with a row count.
 - The EU region.
 

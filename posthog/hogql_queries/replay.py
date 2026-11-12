@@ -5,7 +5,8 @@ import uuid
 import difflib
 import dataclasses
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -17,6 +18,7 @@ from unittest.mock import patch
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.clickhouse.workload import Workload
@@ -27,12 +29,16 @@ from posthog.models import Team
 SAMPLE_DAYS = 7
 SAMPLE_ONE_IN = 100
 LOOKUP_DAYS = 30
+OVERSAMPLE = 3
+SAMPLE_SETTINGS = {"max_execution_time": 120}
+_LOGGED = "type = 'QueryFinish' AND is_initial_query AND lc_query__kind != '' AND team_id > 0"
 MAX_EXECUTED = 200
 REGRESSION_FACTOR = 1.5
 EXECUTION_SETTINGS = {"use_query_condition_cache": 0, "max_execution_time": 60}
 
 _LEADING_COMMENTS = re.compile(r"^(\s*/\*.*?\*/)+", re.DOTALL)
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?")
+_MAX_EXECUTION_TIME = re.compile(r"max_execution_time=\d+")
 _TAG = re.compile(r"replay-[0-9a-f]+-\d+-[a-z0-9]+")
 
 
@@ -67,6 +73,7 @@ class CompiledQuery:
 class RunResult:
     row_count: int | None = None
     fingerprint: int | None = None
+    columns: tuple[tuple[str, str], ...] = ()
     error: str | None = None
 
 
@@ -103,28 +110,29 @@ def read_compiled_queries(path: Path) -> dict[str, CompiledQuery]:
 
 
 def load_logged_queries(query_ids: Sequence[str] = (), sample_size: int = 0) -> list[LoggedQuery]:
-    logged = "type = 'QueryFinish' AND is_initial_query AND lc_query__kind != '' AND team_id > 0"
     if query_ids:
         selection = f"event_date >= today() - {LOOKUP_DAYS} AND query_id IN %(query_ids)s"
     else:
         selection = f"""event_date >= today() - {SAMPLE_DAYS} AND query_id IN (
             SELECT query_id FROM query_log_archive
-            WHERE event_date >= today() - {SAMPLE_DAYS} AND {logged} AND rand() %% {SAMPLE_ONE_IN} = 0
+            WHERE event_date >= today() - {SAMPLE_DAYS} AND {_LOGGED} AND rand() %% {SAMPLE_ONE_IN} = 0
         )"""
     rows = sync_execute(
         f"""
-        SELECT query_id, team_id, lc_query__kind, lc_query, query, query_start_time
+        SELECT query_id, team_id, lc_query__kind, lc_query, query, query_start_time, lc_client_query_id
         FROM query_log_archive
-        WHERE {selection} AND {logged}
+        WHERE {selection} AND {_LOGGED}
         ORDER BY rand()
         LIMIT 1 BY team_id, cityHash64(lc_query)
         LIMIT %(limit)s
         """,
-        {"query_ids": list(query_ids), "limit": len(query_ids) or sample_size},
+        {"query_ids": list(query_ids), "limit": len(query_ids) or sample_size * OVERSAMPLE},
+        settings=SAMPLE_SETTINGS,
         workload=Workload.OFFLINE,
         readonly=True,
     )
-    return [
+    single_statement = _single_statement_requests([row[6] for row in rows])
+    logged = [
         LoggedQuery(
             query_id=query_id,
             team_id=team_id,
@@ -133,42 +141,86 @@ def load_logged_queries(query_ids: Sequence[str] = (), sample_size: int = 0) -> 
             prod_sql=prod_sql,
             started_at=started_at.replace(tzinfo=UTC),
         )
-        for query_id, team_id, kind, query_json, prod_sql, started_at in rows
+        for query_id, team_id, kind, query_json, prod_sql, started_at, client_query_id in rows
+        if (team_id, client_query_id) in single_statement
     ]
+    return logged[: len(query_ids) or sample_size]
+
+
+def _single_statement_requests(client_query_ids: Sequence[str]) -> set[tuple[int, str]]:
+    rows = sync_execute(
+        f"""
+        SELECT team_id, lc_client_query_id
+        FROM query_log_archive
+        WHERE event_date >= today() - {LOOKUP_DAYS} AND {_LOGGED} AND lc_client_query_id IN %(client_query_ids)s
+        GROUP BY team_id, lc_client_query_id
+        HAVING count() = 1
+        """,
+        {"client_query_ids": [client_query_id for client_query_id in client_query_ids if client_query_id]},
+        settings=SAMPLE_SETTINGS,
+        workload=Workload.OFFLINE,
+        readonly=True,
+    )
+    return {(team_id, client_query_id) for team_id, client_query_id in rows}
+
+
+class _MetadataOnlyClient:
+    def __init__(self, client: Any, blocked: list[str]) -> None:
+        self._client = client
+        self._blocked = blocked
+
+    def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+        if "system." not in sql:
+            self._blocked.append(sql)
+            raise RuntimeError("Replay compile does not run queries")
+        return self._client.execute(sql, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
 
 
 def compile_logged_query(logged: LoggedQuery) -> CompiledQuery:
     captured: list[str] = []
+    blocked: list[str] = []
 
     def record(sql: str, values: Mapping[str, Any] | None = None, **_: Any) -> tuple[list[Any], list[Any]]:
         captured.append(substitute_params(sql, dict(values or {})))
         return [], []
+
+    @contextmanager
+    def metadata_only_pool(*args: Any, **kwargs: Any) -> Iterator[_MetadataOnlyClient]:
+        with get_client_from_pool(*args, **kwargs) as client:
+            yield _MetadataOnlyClient(client, blocked)
 
     failure: Exception | None = None
     try:
         with (
             time_machine.travel(logged.started_at, tick=False),
             patch("posthog.hogql.query.sync_execute", side_effect=record),
+            patch("posthog.clickhouse.client.execute.get_client_from_pool", metadata_only_pool),
         ):
             team = Team.objects.get(pk=logged.team_id)
             get_query_runner(query=json.loads(logged.query_json), team=team).calculate()
     except Exception as e:
         failure = e
 
-    if len(captured) == 1:
+    statements = len(captured) + len(blocked)
+    if statements == 1 and captured:
         return CompiledQuery(query_id=logged.query_id, sql=captured[0])
-    if captured:
-        return CompiledQuery(query_id=logged.query_id, error=f"Runner issued {len(captured)} statements")
+    if statements:
+        return CompiledQuery(query_id=logged.query_id, error=f"Runner issued {statements} statements")
     return CompiledQuery(query_id=logged.query_id, error=repr(failure) if failure else "Runner issued no statement")
 
 
 def normalize_sql(sql: str) -> str:
     without_comments = _LEADING_COMMENTS.sub("", sql)
-    return _TIMESTAMP.sub("<ts>", " ".join(without_comments.split()))
+    without_timestamps = _TIMESTAMP.sub("<ts>", " ".join(without_comments.split()))
+    return _MAX_EXECUTION_TIME.sub("max_execution_time=<n>", without_timestamps)
 
 
 def execute_on_clickhouse(sql: str, team_id: int, tag: str) -> RunResult:
     try:
+        described = sync_execute(f"DESCRIBE ({sql})", workload=Workload.OFFLINE, team_id=team_id, readonly=True)
         with tags_context(client_query_id=tag, team_id=team_id):
             rows = sync_execute(
                 f"SELECT count(), sum(cityHash64(toString(tuple(*)))) FROM ({sql})",
@@ -179,7 +231,8 @@ def execute_on_clickhouse(sql: str, team_id: int, tag: str) -> RunResult:
             )
     except Exception as e:
         return RunResult(error=repr(e))
-    return RunResult(row_count=rows[0][0], fingerprint=rows[0][1])
+    columns = tuple((row[0], row[1]) for row in described)
+    return RunResult(row_count=rows[0][0], fingerprint=rows[0][1], columns=columns)
 
 
 def load_read_bytes(run_id: str) -> dict[str, int]:
@@ -268,7 +321,7 @@ def _judge(
     return outcome(verdict, head_rows=result.row_count, **tags)
 
 
-def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base_sha: str, head_sha: str) -> dict:
+def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: str, head: str) -> dict:
     queries = []
     for o in outcomes:
         base_bytes = read_bytes.get(o.base_tag or "")
@@ -294,8 +347,8 @@ def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base_s
         )
     counts = Counter(q["verdict"] for q in queries)
     return {
-        "base_sha": base_sha,
-        "head_sha": head_sha,
+        "base": base,
+        "head": head,
         "counts": {verdict.value: counts.get(verdict.value, 0) for verdict in Verdict},
         "regressions": sum(1 for q in queries if q["regression"]),
         "queries": queries,
@@ -324,7 +377,7 @@ def _render_html(summary: dict) -> str:
 <style>body{{font-family:sans-serif;margin:2rem}}pre{{background:#f4f4f4;padding:1rem;overflow-x:auto}}
 td,th{{border:1px solid #ccc;padding:.25rem .5rem;text-align:left}}table{{border-collapse:collapse}}</style></head><body>
 <h1>HogQL replay</h1>
-<p>Base {html.escape(summary["base_sha"])}, head {html.escape(summary["head_sha"])}.
+<p>Base {html.escape(summary["base"])}, head {html.escape(summary["head"])}.
 Queries with identical SQL were not run. Changes to how a query runner shapes its response in Python are not checked.</p>
 <table><tr><th>Verdict</th><th>Queries</th></tr>{counts}
 <tr>{cell("Reads over " + str(REGRESSION_FACTOR) + " times the bytes")}{cell(summary["regressions"])}</tr></table>

@@ -29,8 +29,8 @@ class Command(BaseCommand):
         run.add_argument("--base", type=Path, required=True)
         run.add_argument("--head", type=Path, required=True)
         run.add_argument("--out-dir", type=Path, required=True)
-        run.add_argument("--base-sha", default="")
-        run.add_argument("--head-sha", default="")
+        run.add_argument("--base-label", default="")
+        run.add_argument("--head-label", default="")
         run.add_argument("--max-executed", type=int, default=replay.MAX_EXECUTED)
         run.add_argument("--query-log-wait-seconds", type=int, default=15)
 
@@ -60,6 +60,8 @@ class Command(BaseCommand):
             max_executed=options["max_executed"],
         )
         time.sleep(options["query_log_wait_seconds"])
-        summary = replay.summarize(outcomes, replay.load_read_bytes(run_id), options["base_sha"], options["head_sha"])
+        summary = replay.summarize(
+            outcomes, replay.load_read_bytes(run_id), options["base_label"], options["head_label"]
+        )
         replay.write_report(summary, options["out_dir"])
         self.stdout.write(f"{summary['counts']} regressions={summary['regressions']}")

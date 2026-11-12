@@ -4,11 +4,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.core.management import call_command
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries import replay
 from posthog.hogql_queries.replay import CompiledQuery, LoggedQuery, RunResult, Verdict
 
@@ -71,6 +73,7 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
             ("whitespace", "SELECT\n  1   FROM  t", "SELECT 1 FROM t"),
             ("timestamp", "toDateTime64('2026-01-02 03:04:05.678901', 6, 'UTC')", "toDateTime64('<ts>', 6, 'UTC')"),
             ("date_kept", "toDate('2026-01-02')", "toDate('2026-01-02')"),
+            ("execution_cap", "SETTINGS max_execution_time=600, x=1", "SETTINGS max_execution_time=<n>, x=1"),
         ]
     )
     def test_normalize_sql(self, _name, raw, expected):
@@ -133,6 +136,32 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
 
         assert regressions(151) == 1
         assert regressions(150) == 0
+
+    @parameterized.expand(
+        [
+            ("renamed_column", "SELECT 1 AS a", "SELECT 1 AS b"),
+            ("changed_type", "SELECT 1 AS a", "SELECT 1.0 AS a"),
+            ("changed_value", "SELECT 1 AS a", "SELECT 2 AS a"),
+        ]
+    )
+    def test_fingerprint_tells_results_apart(self, _name, base_sql, head_sql):
+        base = replay.execute_on_clickhouse(base_sql, self.team.pk, "replay-a-0-base")
+        head = replay.execute_on_clickhouse(head_sql, self.team.pk, "replay-a-0-head")
+
+        assert base.error is None
+        assert base != head
+
+    def test_compile_does_not_run_statements_sent_outside_hogql(self):
+        query = {"kind": "HogQLQuery", "query": "select 1"}
+
+        def calculate_with_a_side_query(runner):
+            sync_execute("SELECT 1")
+
+        with patch("posthog.hogql_queries.hogql_query_runner.HogQLQueryRunner.calculate", calculate_with_a_side_query):
+            compiled = replay.compile_logged_query(self._logged(query))
+
+        assert compiled.sql is None
+        assert compiled.error == "Runner issued 1 statements"
 
     def test_sample_query_matches_the_archive_schema(self):
         assert len(replay.load_logged_queries(sample_size=5)) <= 5
