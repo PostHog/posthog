@@ -419,6 +419,12 @@ def clamp_targets_to_plan_floor() -> int:
         for dag in dags:
             try:
                 clamped += _clamp_dag_targets_to_plan_floor(dag)
+            except TimeoutError as error:
+                logger.exception(
+                    "Plan floor clamp stopped on a reconcile timeout", dag_id=str(dag.id), team_id=dag.team_id
+                )
+                capture_exception(error)
+                return clamped
             except Exception as error:
                 logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)

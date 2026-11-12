@@ -624,9 +624,20 @@ class TestMaybeReconcileDag(BaseTest):
             )
 
     @parameterized.expand(
-        [("creating_the_floor_tier", "a_create_schedule"), ("deleting_the_faster_tier", "a_delete_schedule")]
+        [
+            ("creating_the_floor_tier_fails", "a_create_schedule", RuntimeError("temporal down"), (0, M15)),
+            ("deleting_the_faster_tier_fails", "a_delete_schedule", RuntimeError("temporal down"), (0, M15)),
+            (
+                "the_faster_tier_is_already_gone",
+                "a_delete_schedule",
+                RPCError("gone", RPCStatusCode.NOT_FOUND, b""),
+                (1, H6),
+            ),
+        ]
     )
-    def test_plan_floor_sweep_keeps_the_cadence_when_its_reconcile_fails(self, _name, failing_call):
+    def test_plan_floor_sweep_keeps_the_cadence_until_its_reconcile_succeeds(
+        self, _name, failing_call, error, expected
+    ):
         _grant_refresh_interval(self.organization, 360)
         dag = DAG.get_or_create_default(self.team)
         node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
@@ -646,14 +657,30 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
-            mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=error)),
             mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
         ):
             rewritten = clamp_targets_to_plan_floor()
 
         node.refresh_from_db()
-        self.assertEqual((rewritten, get_declared_target(node)), (0, M15))
-        capture.assert_not_called()
+        self.assertEqual((rewritten, get_declared_target(node)), expected)
+        self.assertEqual(capture.call_count, expected[0])
+
+    def test_plan_floor_sweep_stops_when_a_reconcile_times_out(self):
+        _grant_refresh_interval(self.organization, 360)
+        for name in ("first", "second"):
+            node = _saved_query_node(
+                self.team, DAG.objects.create(team=self.team, name=name), f"mv_{name}", NodeType.MAT_VIEW
+            )
+            set_declared_target(node, M15)
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=TimeoutError) as reconcile,
+        ):
+            rewritten = clamp_targets_to_plan_floor()
+
+        self.assertEqual((rewritten, reconcile.call_count), (0, 1))
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
