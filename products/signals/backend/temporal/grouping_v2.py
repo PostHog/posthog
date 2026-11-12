@@ -43,7 +43,6 @@ PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
-# A batch that fails this many rounds is dropped, so one bad batch cannot block the team's grouping.
 MAX_BATCH_ATTEMPTS = 5
 
 # Patch ID for the multi-batch collection change. Once all in-flight workflows
@@ -63,7 +62,6 @@ class CollectedBatch:
     # Processing attempt of each signal, aligned with `signals`. A failed batch is retried up to
     # MAX_BATCH_ATTEMPTS, so the attempt lets drop telemetry tell retries apart from new lost signals.
     attempts: list[int] = field(default_factory=list)
-    # Object key each signal came from, aligned with `signals`.
     signal_object_keys: list[str] = field(default_factory=list)
 
 

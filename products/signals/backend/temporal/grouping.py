@@ -860,7 +860,6 @@ class AssignAndEmitDbResult:
     report_signals_researched: int = 0
     report_title: Optional[str] = None
     triggering_signal_id: str | None = None
-    # True when an earlier attempt already assigned the signal and this one changed nothing.
     replayed: bool = False
 
 
@@ -946,12 +945,10 @@ def _replay_assignment(
 ) -> AssignAndEmitDbResult:
     report = SignalReport.objects.get(id=record.report_id, team_id=input.team_id)
     report_id = str(report.id)
-    # The earlier failure can mean the document never reached ClickHouse. The same timestamp lets ClickHouse deduplicate it.
     _emit_signal_document(input, report_id=report_id, spend=spend, timestamp=record.emitted_at)
     return AssignAndEmitDbResult(
         report_id=report_id,
-        # The batch spawns research only after the ClickHouse wait, so a promotion from a failed attempt
-        # never started. Promote again only while the report still waits on this signal.
+        # Research spawns only after the ClickHouse wait, so a failed attempt's promotion never started.
         promoted=report.status == SignalReport.Status.CANDIDATE and str(report.triggering_signal_id) == input.signal_id,
         triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
         timestamp=record.emitted_at,

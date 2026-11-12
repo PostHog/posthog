@@ -139,7 +139,6 @@ async def test_failed_batch_retries_until_attempt_limit(
                     break
                 await env.sleep(timedelta(seconds=10))
             assert rounds_done.is_set()
-            # Step past another backoff and collection window to show that the dropped batches are not read again.
             for _ in range(6):
                 await env.sleep(timedelta(seconds=10))
             with suppress(RPCError):
