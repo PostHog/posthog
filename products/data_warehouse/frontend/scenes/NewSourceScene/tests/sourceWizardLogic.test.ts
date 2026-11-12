@@ -1995,7 +1995,19 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('stops sending batches once the confirmation opens', async () => {
+        it.each([
+            {
+                name: 'the confirmation opens',
+                interrupt: (logic: ReturnType<typeof sourceWizardLogic.build>, _unmount: () => void) => {
+                    logic.actions.setStep(3)
+                    logic.actions.onSubmit()
+                },
+            },
+            {
+                name: 'the wizard unmounts',
+                interrupt: (_logic: ReturnType<typeof sourceWizardLogic.build>, unmount: () => void) => unmount(),
+            },
+        ])('stops sending batches once $name', async ({ interrupt }) => {
             const fields = [
                 { ...createdAt, recommended: true },
                 { ...eventTs, recommended: false },
@@ -2013,6 +2025,11 @@ describe('sourceWizardLogic', () => {
                     })
                 )
                 .mockResolvedValue({ tables: [] } as unknown as RecommendationsResponse)
+            const rejections: unknown[] = []
+            const onRejection = (error: unknown): void => {
+                rejections.push(error)
+            }
+            process.on('unhandledRejection', onRejection)
 
             const logic = sourceWizardLogic({ availableSources: { [postgresSource.name]: postgresSource } })
             const unmount = logic.mount()
@@ -2022,15 +2039,17 @@ describe('sourceWizardLogic', () => {
                 await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toDispatchActions([
                     'loadIncrementalFieldRecommendations',
                 ])
-                logic.actions.setStep(3)
-                logic.actions.onSubmit()
-                await expectLogic(logic, () =>
-                    resolveFirst({ tables: [] } as unknown as RecommendationsResponse)
-                ).toFinishAllListeners()
+                interrupt(logic, unmount)
+                resolveFirst({ tables: [] } as unknown as RecommendationsResponse)
+                await new Promise((resolve) => setImmediate(resolve))
 
                 expect(recommend).toHaveBeenCalledTimes(1)
+                expect(rejections).toEqual([])
             } finally {
-                unmount()
+                process.off('unhandledRejection', onRejection)
+                if (logic.isMounted()) {
+                    unmount()
+                }
             }
         })
 
