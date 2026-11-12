@@ -105,3 +105,15 @@ deny_exceptions:
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
+# CI checks that may lift a deny category for the files they vouch for. A check run counts only
+# when the App named here published it.
+attestations:
+    - name: migration_risk
+      # Posted by ci-backend's check-migrations job with a tests-posthog token, after
+      # analyze_migration_risk classified every Django migration in the PR as Safe.
+      check: 'Migration risk'
+      app_id: 2492437
+      lifts: [migrations]
+      paths:
+          - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
+      sibling_files: [max_migration.txt]

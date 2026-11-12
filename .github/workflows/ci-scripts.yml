@@ -103,10 +103,11 @@ jobs:
             # The preinstalled python3 runs these standalone tests, so no
             # setup-python step. defusedxml + opentelemetry + the owners resolver are
             # report_test_timings.py's script deps; coverage is coverage_report.py's.
+            # pyyaml is dependency_proof's.
             - name: Install pytest
               run: |
                   uv --no-config venv --python python3 "$RUNNER_TEMP/script-tests-venv"
-                  uv --no-config pip install --python "$RUNNER_TEMP/script-tests-venv/bin/python" --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
+                  uv --no-config pip install --python "$RUNNER_TEMP/script-tests-venv/bin/python" --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 pyyaml==6.0.3 ./packages/owners-yaml
                   echo "$RUNNER_TEMP/script-tests-venv/bin" >> "$GITHUB_PATH"
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs

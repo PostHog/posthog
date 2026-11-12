@@ -117,6 +117,15 @@ describe('loadConfig kms', () => {
             },
             'not allowed in prod-staging',
         ],
+        [
+            'the local provider in a production env with a typo in its case',
+            {
+                CREDENTIALS_SERVICE_ENV: 'PRODUCTION',
+                CREDENTIALS_SERVICE_KMS_PROVIDER: 'local',
+                CREDENTIALS_SERVICE_KMS_LOCAL_KEYS: KEY_A,
+            },
+            'not allowed in PRODUCTION',
+        ],
     ])('refuses to boot with %s', (_label, env, message) => {
         withEnv(env)
 

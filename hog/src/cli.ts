@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
+import { inCIWithoutAPerson } from '@/core/approval'
 import {
     argumentSyntax,
     longFlag,
@@ -227,6 +228,13 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             }
 
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
+            if (node.refusesCI && inCIWithoutAPerson(ctx)) {
+                throw new HogError(
+                    'not_in_ci',
+                    `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
+                    node.refusesCI.hint
+                )
+            }
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
@@ -256,6 +264,9 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child, path)
+                }
+                if (node.guide) {
+                    addRunnable(command, node.guide, path)
                 }
                 return
             case 'legacy':
@@ -396,6 +407,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         hint: 'The experimental commands are top level in hog, as in `hog endpoints pull` for `posthog-cli exp endpoints pull`.',
     },
     update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
+    skill: {
+        to: 'skills list|add',
+        hint: '`hog skills list` lists the skills, and `hog skills add <skill...>` replaces `posthog-cli api skill install`.',
+    },
 }
 
 function toHogError(caught: unknown): HogError {

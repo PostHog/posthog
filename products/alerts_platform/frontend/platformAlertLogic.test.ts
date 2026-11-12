@@ -60,6 +60,11 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     alerts: [GROUP, OTHER_GROUP],
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
 }
 
 describe('platformAlertLogic', () => {
