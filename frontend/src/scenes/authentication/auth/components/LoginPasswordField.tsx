@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { authLogic, hasSingleSignOn } from '../authLogic'
 import { loginLogic } from '../loginLogic'
+import { LoginTurnstileWidget } from './LoginTurnstileWidget'
 
 export function LoginPasswordField(): JSX.Element {
     const { accountExists, isLoginPasswordHidden } = useValues(authLogic)
@@ -20,6 +21,7 @@ export function LoginPasswordField(): JSX.Element {
         autoRedirectingToProvider,
         setPasswordLinkSentTo,
         preflight,
+        turnstileWidgetKey,
     } = useValues(loginLogic)
     const { setLoginValue } = useActions(loginLogic)
 
@@ -57,6 +59,12 @@ export function LoginPasswordField(): JSX.Element {
                         fullWidth
                     />
                 </LemonField.Pure>
+            )}
+            {!isLoginPasswordHidden && precheckResponse.turnstile_site_key && (
+                <LoginTurnstileWidget
+                    key={`${precheckResponse.email}-${turnstileWidgetKey}`}
+                    siteKey={precheckResponse.turnstile_site_key}
+                />
             )}
             {accountExists === false && !hasSingleSignOn(precheckResponse) && (
                 <AuthBanner variant="note">

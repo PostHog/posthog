@@ -786,4 +786,76 @@ describe('loginLogic', () => {
             expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
     })
+
+    describe('turnstile shadow fields', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let loginBodies: Record<string, any>[]
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            loginBodies = []
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, turnstile_site_key: 'site' }],
+                    // 400 so the submit handler never redirects; the body is captured first
+                    '/api/login': async ({ request }) => {
+                        loginBodies.push((await request.clone().json()) as Record<string, any>)
+                        return [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }]
+                    },
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+        })
+
+        async function submit(): Promise<Record<string, any>> {
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+            return loginBodies[loginBodies.length - 1]
+        }
+
+        it('sends the token and the widget status with the login', async () => {
+            logic.actions.setTurnstileToken('tok')
+            logic.actions.setTurnstileClientStatus('token')
+
+            expect(await submit()).toMatchObject({ turnstile_token: 'tok', turnstile_client_status: 'token' })
+        })
+
+        it('submits at once while the widget is still pending', async () => {
+            logic.actions.setTurnstileClientStatus('pending')
+
+            const body = await submit()
+
+            expect(body.turnstile_client_status).toEqual('pending')
+            expect(body).not.toHaveProperty('turnstile_token')
+        })
+
+        it('sends not_rendered when no widget ran, for example after a failed precheck', async () => {
+            useMocks({ post: { '/api/login/precheck': () => [429, {}] } })
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+
+            expect((await submit()).turnstile_client_status).toEqual('not_rendered')
+        })
+
+        it('drops the spent token and remounts the widget after a failed login', async () => {
+            logic.actions.setTurnstileToken('tok')
+            const widgetKeyBefore = logic.values.turnstileWidgetKey
+
+            await submit()
+
+            expect(logic.values.turnstileToken).toBeNull()
+            expect(logic.values.turnstileWidgetKey).toEqual(widgetKeyBefore + 1)
+        })
+    })
 })

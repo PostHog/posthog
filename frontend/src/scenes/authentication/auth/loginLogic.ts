@@ -67,7 +67,19 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // Sent only to a browser with no known-device cookie for this email, while the server runs the login Turnstile check
+    turnstile_site_key?: string
 }
+
+// What the login Turnstile widget reported at submit, sent so the server can tell a blocked widget from a script
+export type TurnstileClientStatus =
+    | 'token'
+    | 'pending'
+    | 'error'
+    | 'expired'
+    | 'unsupported'
+    | 'script_failed'
+    | 'not_rendered'
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
 // would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
@@ -156,6 +168,9 @@ export interface loginLogicValues {
     setPasswordLinkSentToLoading: boolean
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    turnstileClientStatus: TurnstileClientStatus
+    turnstileToken: string | null
+    turnstileWidgetKey: number
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -224,6 +239,9 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetTurnstile: () => {
+        value: true
+    }
     sendSetPasswordLink: (email: string) => string
     sendSetPasswordLinkFailure: (
         error: string,
@@ -274,6 +292,12 @@ export interface loginLogicActions {
     }
     setLoginValues: (values: DeepPartial<LoginForm>) => {
         values: DeepPartial<LoginForm>
+    }
+    setTurnstileClientStatus: (status: TurnstileClientStatus) => {
+        status: TurnstileClientStatus
+    }
+    setTurnstileToken: (token: string | null) => {
+        token: string | null
     }
     startAutoRedirectToProvider: (
         provider: SSOProvider,
@@ -365,6 +389,9 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        setTurnstileClientStatus: (status: TurnstileClientStatus) => ({ status }),
+        resetTurnstile: true,
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -428,6 +455,26 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 markPasskeyPrompted: (_, { email }) => email,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetTurnstile: () => null,
+            },
+        ],
+        turnstileClientStatus: [
+            'not_rendered' as TurnstileClientStatus,
+            {
+                setTurnstileClientStatus: (_, { status }) => status,
+            },
+        ],
+        // A Turnstile token is single use, so the widget remounts under a new key after each submit
+        turnstileWidgetKey: [
+            0,
+            {
+                resetTurnstile: (key) => key + 1,
             },
         ],
     }),
@@ -542,7 +589,12 @@ export const loginLogic = kea<loginLogicType>([
                 actions.clearGeneralError()
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', {
+                        email,
+                        password,
+                        turnstile_client_status: values.turnstileClientStatus,
+                        ...(values.turnstileToken ? { turnstile_token: values.turnstileToken } : {}),
+                    })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
@@ -690,9 +742,13 @@ export const loginLogic = kea<loginLogicType>([
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
+            actions.resetTurnstile()
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
             redirectAfterLogin()
+        },
+        submitLoginFailure: () => {
+            actions.resetTurnstile()
         },
         submitCodeVerificationSuccess: () => {
             clearPendingVerificationEmail()
