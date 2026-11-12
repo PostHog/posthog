@@ -233,6 +233,17 @@ def list_configurations(
     )
 
 
+def owned_copies_by_legacy_id(
+    *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies of the named source rows that the platform owns, by source row id, so a source can
+    show their settings as the platform holds them. The views carry no instances. A row with no such
+    copy is left out."""
+    return platform_reads.owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
 def native_configuration_keys(
     *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
 ) -> tuple[tuple[datetime, UUID], ...]:
@@ -262,11 +273,15 @@ def enabled_native_configurations(
     values: Collection[Any] = (),
     limit: int | None = None,
     firing_at: datetime | None = None,
+    errored_at: datetime | None = None,
+    owned_copies: bool = False,
 ) -> tuple[EnabledNativeConfiguration, ...]:
-    """The enabled alerts of a kind with no source row in these teams, newest first. With
+    """The enabled alerts of a kind with no source row in these teams, and with `owned_copies` also the
+    copies the platform owns, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
-    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds."""
+    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
+    `errored_at`, only the ones a reader sees errored then: the last check failed, and no mute holds."""
     return platform_reads.enabled_native_configurations(
         team_ids=team_ids,
         source_kind=source_kind.value,
@@ -275,6 +290,8 @@ def enabled_native_configurations(
         values=values,
         limit=limit,
         firing_at=firing_at,
+        errored_at=errored_at,
+        owned_copies=owned_copies,
     )
 
 
