@@ -7443,13 +7443,13 @@ snapshots:
     products-dashboards-tiles-tile-group--styles--light:
         hash: v1.k794b7964.1ea4c4743d7380fe85985e50795f9a6dd4dc1909f37a926800aa316aebb26a31.-z1Igyir2gbb9kVTuxP9EAoUX1Dg5J1fKGFJINxzh7g
     products-dashboards-tiles-tile-group-tabs--group-tab-menu-open--dark:
-        hash: v1.k794b7964.74a3396379d3d124eb2eb2cc72a469d8462ce171165520f4eac53445e66048d1.I7daZuPAmrvBSy07AIboVszhemm6aFqeNXjhv0aYa_Q
+        hash: v1.k794b7964.dd754eee256382dc4bbaf431e5c4115bd09a99649c5efcfb4b8e62c1592dbb4f.tyBB6bBBAM5gMm1NG7AMYVX8fQliDEdQtcesLNvGGzo
     products-dashboards-tiles-tile-group-tabs--group-tab-menu-open--light:
-        hash: v1.k794b7964.e2d706d982b2d73de2eaf3825b5d45107bb20144e87565a6f1001edb4d8828ee.jKnJZmiOw1m_zZWbKz9z-kxyqS2E7NHfriwumEodCjs
+        hash: v1.k794b7964.ab7909bf4b15622941a68b75bdf4369c8ad70b898eda618f869642abcc568dc7.IG0sgtXg2G19vtBw9zEf2VDYZyCMgCpR7fKJSGk5f1o
     products-dashboards-tiles-tile-group-tabs--overview-tab-menu-open--dark:
-        hash: v1.k794b7964.5bb3321201cfd932ad8b4678f85ccb1c14d998ded1e2be520aed4fb5f78b4228.Jecda0GeagvkWplgFZiTQQr70fOzZhc3BAWFL3lRJek
+        hash: v1.k794b7964.5dce3faa0c0aaf6092f2dceb8805f1677eed2370090648631d8591302f2a0aab.60ESvpnegsXDfaq8q9yVH33ZfTo0xjYt8PkKxhtQK80
     products-dashboards-tiles-tile-group-tabs--overview-tab-menu-open--light:
-        hash: v1.k794b7964.486a78f0edf06ff69cd66fb993eab897868162b540c5c618809d40f7e311c284.KCS4__SBZK414hHJ_S8IjGrkmCkpn8bIMsIHl0DUKtA
+        hash: v1.k794b7964.4f218c55830d7b468657d8777ae4abe955bedd2cd83a394b6c9f47436e63f833.PLKBOzFagqMmYgMHm8pF2g9npaH9VJ3GPbQ5TYk6PTc
     products-data-catalog-metric-lineage--being-prepared--dark:
         hash: v1.k794b7964.9b3dd08fa1426e0715daefdf347f20d3e251483c787dd3a9f3ad02fca88ae00b.N85-92zGL68U5fyXpoWHYbbTGLRVTOw42k7LxJ3HZHw
     products-data-catalog-metric-lineage--being-prepared--light:
@@ -15031,7 +15031,7 @@ snapshots:
     scenes-app-notebooks-widget-views--recording-playlist-views--light:
         hash: v1.k794b7964.89c3ed888d890828bb4e8edb03a0d364f4cc4b4251e2ddb682334357344dc1bb.zDgR1DlbnvlDpqFoxrh4-tPnbNpw8E-XLNXm_luHydE
     scenes-app-notebooks-widget-views--recording-views--dark:
-        hash: v1.k794b7964.71e4b0c3bd6348927d9c646568bde5fe0a73ad696e8aef84a1f93d9b60d6a5d1.8HpioHKOMmJiZTBI_appXHlYG4Jxx3Q0FbnetB4xWVU
+        hash: v1.k794b7964.6896d1c21d533dddcbceb5f08b6577f749425ea0bc747348ddb190fb6c9d1db6.RmcRFWxTbv4-ga6hssL5viGJm17vldYZIfaf5mlOtJM
     scenes-app-notebooks-widget-views--recording-views--light:
         hash: v1.k794b7964.19d9c2501b03bda0f86224495f6795d47245048a60eae1622fdddc1bbd7b849f.LgiWqwOa5-AITTZwiVBt18fyIriR6H6rgiEhEYcKKqs
     scenes-app-notebooks-widget-views--survey-views--dark:
