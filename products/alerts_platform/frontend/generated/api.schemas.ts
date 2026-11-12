@@ -2558,6 +2558,7 @@ export type PlatformAlertsListParams = {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind
@@ -2573,6 +2574,7 @@ export const PlatformAlertsListSourceKind = {
     WarehouseDestination: 'warehouse_destination',
     Metrics: 'metrics',
     Traces: 'traces',
+    ErrorTracking: 'error_tracking',
 } as const
 
 export type PlatformAlertsEventsListParams = {
