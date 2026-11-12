@@ -48,6 +48,7 @@ export function experimentMenuItems(experiment: ExperimentApi, handlers: Experim
     switch (experimentStatusOf(experiment)) {
         case 'running':
         case 'frozen':
+            if (experiment.feature_flag_rule_id != null) break
             items.push({
                 key: 'pause',
                 label: 'Pause experiment',
@@ -56,6 +57,7 @@ export function experimentMenuItems(experiment: ExperimentApi, handlers: Experim
             })
             break
         case 'paused':
+            if (experiment.feature_flag_rule_id != null) break
             items.push({
                 key: 'resume',
                 label: 'Resume experiment',

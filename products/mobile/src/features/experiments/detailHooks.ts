@@ -227,7 +227,11 @@ export function useRecalculation(
     })
 
     const reread = useCallback(
-        () => queryClient.invalidateQueries({ queryKey: experimentKeys.experimentAll(scope, id) }),
+        () =>
+            queryClient.invalidateQueries(
+                { queryKey: experimentKeys.experimentAll(scope, id) },
+                { throwOnError: true }
+            ),
         [queryClient, scope, id]
     )
 
@@ -267,7 +271,9 @@ export function useRecalculation(
             if (polled.status === 'failed') {
                 onNotice("Couldn't recalculate the results. These are the last ones.")
             }
-            void reread()
+            void reread().catch(() => {
+                onNotice("Couldn't load the updated results. Pull to refresh and try again.")
+            })
         }
     }, [run, polled, detach, reread, onNotice])
 

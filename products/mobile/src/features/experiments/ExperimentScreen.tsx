@@ -197,7 +197,7 @@ function ExperimentContent({
                 message={
                     missing
                         ? 'It may have been deleted, or it belongs to another project.'
-                        : 'Check your connection and try again.'
+                        : (experiment.error?.message ?? 'Check your connection and try again.')
                 }
                 actionLabel={missing ? 'Go back' : 'Try again'}
                 onAction={missing ? onBack : () => experiment.refetch()}
@@ -286,7 +286,7 @@ function ExperimentLoaded({
     const watch = useWatching(experiment, exposures, { watching: watchingNow, active })
     const showToast = toasts.show
     const recalculation = useRecalculation(experiment, latestData, status, showToast)
-    const now = useNow(recalculation.phase.kind === 'window' || watchingNow ? 1000 : 30_000)
+    const now = useNow(active ? (recalculation.phase.kind === 'window' || watchingNow ? 1000 : 30_000) : null)
     const nowMs = now.getTime()
     const watching = isWatching(experiment, status, nowMs)
 
@@ -609,7 +609,7 @@ function ExperimentLoaded({
                         }}
                     />
                 ) : null}
-                {live ? <PendingApprovalBanner experiment={experiment} /> : null}
+                {live ? <PendingApprovalBanner experiment={experiment} onResume={() => actions.open('ship')} /> : null}
                 {body}
             </ScrollView>
             <ViewChrome title={scrollTitle.title} onBack={onBack} onMore={() => setMenuOpen(true)} />

@@ -13,7 +13,7 @@ import { CONCLUSION_COPY } from './conclusionCopy'
 import { type ChangeUnit, changeUnitOf, formatDelta, metricDefsOf } from './detailModel'
 import {
     type ExperimentMethod,
-    leaderOf,
+    methodOf,
     type PrimaryResult,
     shippedVariantOf,
     suggestedConclusion,
@@ -52,6 +52,7 @@ export interface FinishContext {
     /** The variant the web's `isSingleVariantShipped` finds at 100% for everyone, or null. */
     rolledOut: string | null
     frozen: boolean
+    canShip: boolean
     /** `users`, or `groups` for a group-aggregated flag. */
     noun: string
     leader: string | null
@@ -119,15 +120,48 @@ export function audienceNoun(experiment: ExperimentApi): string {
     return index === null || index === undefined ? 'users' : 'groups'
 }
 
-export function finishContextOf(experiment: ExperimentApi, primary: PrimaryResult | null): FinishContext {
-    const leader = primary ? leaderOf(primary) : null
+/**
+ * Negative when `a` is the better pick to ship. A p-value has no direction, so the Frequentist order puts variants that
+ * move the metric the right way first: better and significant, better, worse, then worse and significant. Inside a
+ * group a lower p-value is stronger evidence, which goes first for a better variant and last for a worse one. Chance
+ * to win already includes the direction. A variant without results goes last.
+ */
+function compareForShipping(
+    a: VariantResult | undefined,
+    b: VariantResult | undefined,
+    method: ExperimentMethod
+): number {
+    if (!a || !b) {
+        return (a ? 0 : 1) - (b ? 0 : 1)
+    }
+    if (method !== 'freq') {
+        return (b.chanceToWin ?? 0) - (a.chanceToWin ?? 0)
+    }
+    const rank = (result: VariantResult): number =>
+        result.better ? (result.significant ? 0 : 1) : result.significant ? 3 : 2
+    const byP = (a.pValue ?? 1) - (b.pValue ?? 1)
+    return rank(a) - rank(b) || (a.better ? byP : -byP)
+}
+
+export function finishContextOf(
+    experiment: ExperimentApi,
+    primary: PrimaryResult | null,
+    method: ExperimentMethod = methodOf(experiment)
+): FinishContext {
+    const variants = variantKeysOf(experiment)
+    const leader = primary
+        ? ([...primary.variants]
+              .filter((variant) => variants.includes(variant.key))
+              .sort((a, b) => compareForShipping(a, b, method))[0] ?? null)
+        : null
     return {
         name: experiment.name,
         flagKey: experiment.feature_flag?.key ?? experiment.feature_flag_key,
-        variants: variantKeysOf(experiment),
+        variants,
         controlKey: primary?.baseline.key ?? 'control',
         rolledOut: rolledOutVariantOf(experiment),
         frozen: hasFrozenExposure(experiment),
+        canShip: experiment.feature_flag_rule_id == null,
         noun: audienceNoun(experiment),
         leader: leader?.key ?? null,
         leaderAhead: leader?.better === true,
@@ -141,7 +175,7 @@ export function finishContextOf(experiment: ExperimentApi, primary: PrimaryResul
 
 /** Ship: the leader, the experiment population and Won. End: no variant and the conclusion the results suggest. */
 export function initialFinishForm(preset: FinishPreset, context: FinishContext): FinishForm {
-    const ships = preset === 'ship' && !context.rolledOut
+    const ships = preset === 'ship' && context.canShip && !context.rolledOut
     const firstTest = context.variants.find((key) => key !== context.controlKey) ?? null
     return {
         preset,
@@ -246,7 +280,7 @@ export function cleanupNoteOf(form: FinishForm, cleanup: CleanupTargetState): Cl
 
 /** True when the primary button ships a variant rather than only ending. */
 export function finishShips(form: FinishForm, context: FinishContext): boolean {
-    return form.variant !== null && !context.rolledOut
+    return context.canShip && form.variant !== null && !context.rolledOut
 }
 
 export type FinishRequest =
@@ -268,7 +302,7 @@ export function finishRequestOf(form: FinishForm, context: FinishContext, cleanu
         open_cleanup_pr: openCleanupPr,
         ...(repository ? { repository } : {}),
     }
-    if (form.variant !== null && !context.rolledOut) {
+    if (context.canShip && form.variant !== null && !context.rolledOut) {
         return {
             kind: 'ship',
             variant: form.variant,
@@ -286,14 +320,14 @@ export interface CodeLine {
 }
 
 export function finishTitle(form: FinishForm, context: FinishContext): string {
-    return form.preset === 'ship' && !context.rolledOut ? 'Ship a variant' : 'End experiment'
+    return form.preset === 'ship' && context.canShip && !context.rolledOut ? 'Ship a variant' : 'End experiment'
 }
 
 export function finishDescription(form: FinishForm, context: FinishContext): CodeLine {
     if (context.rolledOut) {
         return { before: `Ends ${context.name}.`, code: null, after: '' }
     }
-    if (form.variant !== null) {
+    if (finishShips(form, context)) {
         return {
             before: `Ends ${context.name} and rolls `,
             code: form.variant,
@@ -351,29 +385,6 @@ function percent(fraction: number): string {
 
 function pValueText(value: number): string {
     return value < 0.001 ? 'p < 0.001' : `p = ${value.toFixed(3)}`
-}
-
-/**
- * Negative when `a` is the better pick to ship. A p-value has no direction, so the Frequentist order puts variants that
- * move the metric the right way first: better and significant, better, worse, then worse and significant. Inside a
- * group a lower p-value is stronger evidence, which goes first for a better variant and last for a worse one. Chance
- * to win already includes the direction. A variant without results goes last.
- */
-function compareForShipping(
-    a: VariantResult | undefined,
-    b: VariantResult | undefined,
-    method: ExperimentMethod
-): number {
-    if (!a || !b) {
-        return (a ? 0 : 1) - (b ? 0 : 1)
-    }
-    if (method !== 'freq') {
-        return (b.chanceToWin ?? 0) - (a.chanceToWin ?? 0)
-    }
-    const rank = (result: VariantResult): number =>
-        result.better ? (result.significant ? 0 : 1) : result.significant ? 3 : 2
-    const byP = (a.pValue ?? 1) - (b.pValue ?? 1)
-    return rank(a) - rank(b) || (a.better ? byP : -byP)
 }
 
 export interface VariantOption {

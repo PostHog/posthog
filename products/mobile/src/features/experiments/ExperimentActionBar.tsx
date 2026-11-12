@@ -84,6 +84,7 @@ export function ExperimentActionBar({
     const primary = useMemo(() => primaryResultOf(experiment, latest), [experiment, latest])
     const method = methodOf(experiment, latest)
     const flag = experiment.feature_flag
+    const ruleLinked = experiment.feature_flag_rule_id != null
 
     // The closing sheet keeps its preset and mode while it animates out.
     const lastPreset = useRef<FinishPreset>('ship')
@@ -95,7 +96,9 @@ export function ExperimentActionBar({
         lastPauseMode.current = actions.sheet
     }
     const finishOpen = actions.sheet === 'ship' || actions.sheet === 'end'
-    const [approval, setApproval] = useState<PendingApproval | null>(null)
+    const [localApproval, setApproval] = useState<PendingApproval | null>(null)
+    const savedApproval = usePendingApproval(experiment)
+    const approval = localApproval ?? (finishOpen ? savedApproval : null)
 
     const cleanup = useCleanupTarget(id, finishOpen)
     const finish = useFinishAction(id)
@@ -118,17 +121,23 @@ export function ExperimentActionBar({
     let buttons: PillButton[] = []
     if (status === 'running' || status === 'frozen') {
         buttons = [
-            { key: 'ship', label: 'Ship', Icon: RocketIcon, onPress: () => openFinish('ship') },
+            ...(!ruleLinked
+                ? [{ key: 'ship', label: 'Ship', Icon: RocketIcon, onPress: () => openFinish('ship') }]
+                : []),
             { key: 'end', label: 'End', Icon: StopCircleIcon, onPress: () => openFinish('end') },
         ]
     } else if (status === 'paused') {
         buttons = [
-            {
-                key: 'resume',
-                label: 'Resume',
-                Icon: InkPlayIcon,
-                onPress: () => actions.open('resume'),
-            },
+            ...(!ruleLinked
+                ? [
+                      {
+                          key: 'resume',
+                          label: 'Resume',
+                          Icon: InkPlayIcon,
+                          onPress: () => actions.open('resume'),
+                      },
+                  ]
+                : []),
             { key: 'end', label: 'End', Icon: StopCircleIcon, onPress: () => openFinish('end') },
         ]
     } else if (status === 'draft') {
@@ -210,7 +219,7 @@ export function ExperimentActionBar({
                 onConfirm={(request) =>
                     finish.run({
                         request,
-                        preset: lastPreset.current,
+                        preset: approval?.preset ?? lastPreset.current,
                         onFinished: (toast) => done(toast)(),
                         onNeedsApproval: setApproval,
                     })
@@ -280,7 +289,13 @@ export function ExperimentActionBar({
  * "Waiting for approval" under the hypothesis while a ship waits on a change request. Renders nothing otherwise, so the
  * detail can mount it unconditionally.
  */
-export function PendingApprovalBanner({ experiment }: { experiment: ExperimentApi }): ReactElement | null {
+export function PendingApprovalBanner({
+    experiment,
+    onResume,
+}: {
+    experiment: ExperimentApi
+    onResume: () => void
+}): ReactElement | null {
     const { colors } = useTheme()
     const styles = useStyles()
     const approval = usePendingApproval(experiment)
@@ -288,7 +303,12 @@ export function PendingApprovalBanner({ experiment }: { experiment: ExperimentAp
         return null
     }
     return (
-        <View style={styles.waiting} testID="experiment-waiting-approval">
+        <Pressable44
+            style={styles.waiting}
+            onPress={onResume}
+            accessibilityRole="button"
+            testID="experiment-waiting-approval"
+        >
             <ClockIcon size={18} color={colors.blue} />
             <Text style={styles.waitingText}>
                 <Text style={styles.waitingStrong}>Waiting for approval.</Text>{' '}
@@ -300,9 +320,9 @@ export function PendingApprovalBanner({ experiment }: { experiment: ExperimentAp
                         {formatClock(new Date(approval.sentAt))}.
                     </>
                 )}{' '}
-                Nothing changes until someone approves it.
+                After approval, tap here to finish shipping with your saved choices.
             </Text>
-        </View>
+        </Pressable44>
     )
 }
 

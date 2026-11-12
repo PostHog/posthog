@@ -11,7 +11,7 @@ import {
 import type { ProjectScope } from '@/api/reports'
 import { coversScope, EXPERIMENTS_SCOPES, missingScope } from '@/api/scopeErrors'
 import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
-import { getSessionTokens } from '@/auth/tokens'
+import { getSessionTokens, sessionGeneration } from '@/auth/tokens'
 import { useDataMode } from '@/demo/demoMode'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { track } from '@/lib/analytics'
@@ -52,9 +52,18 @@ function reportActionError(error: unknown): void {
 }
 
 /** Stores the server's experiment on the detail and refetches the lists, where the row may change segment. */
-function applyExperiment(queryClient: QueryClient, scope: ProjectScope | null, experiment: ExperimentApi): void {
+async function applyExperiment(
+    queryClient: QueryClient,
+    scope: ProjectScope | null,
+    experiment: ExperimentApi,
+    session: number
+): Promise<boolean> {
+    if (sessionGeneration() !== session) return false
+    await queryClient.cancelQueries({ queryKey: experimentKeys.detail(scope, experiment.id) })
+    if (sessionGeneration() !== session) return false
     queryClient.setQueryData<ExperimentApi>(experimentKeys.detail(scope, experiment.id), experiment)
     void queryClient.invalidateQueries({ queryKey: experimentKeys.lists(scope) })
+    return true
 }
 
 /** Sets the change on the detail at once. Returns the experiment to put back when the server refuses. */
@@ -62,11 +71,13 @@ async function patchDetail(
     queryClient: QueryClient,
     scope: ProjectScope | null,
     id: string,
-    patch: (experiment: ExperimentApi) => ExperimentApi
+    patch: (experiment: ExperimentApi) => ExperimentApi,
+    session: number
 ): Promise<ExperimentApi | undefined> {
     const key = experimentKeys.detail(scope, id)
     // A refresh that lands after the optimistic patch would put the old values back.
     await queryClient.cancelQueries({ queryKey: key })
+    if (sessionGeneration() !== session) return undefined
     const previous = queryClient.getQueryData<ExperimentApi>(key)
     if (previous) {
         queryClient.setQueryData<ExperimentApi>(key, patch(previous))
@@ -78,11 +89,15 @@ function restoreDetail(
     queryClient: QueryClient,
     scope: ProjectScope | null,
     id: string,
-    previous: ExperimentApi | undefined
+    previous: ExperimentApi | undefined,
+    session: number
 ): void {
+    if (sessionGeneration() !== session) return
     if (previous) {
         queryClient.setQueryData<ExperimentApi>(experimentKeys.detail(scope, id), previous)
     }
+    void queryClient.invalidateQueries({ queryKey: experimentKeys.detail(scope, id) })
+    void queryClient.invalidateQueries({ queryKey: experimentKeys.lists(scope) })
 }
 
 function withFlagActive(experiment: ExperimentApi, active: boolean): ExperimentApi {
@@ -95,6 +110,8 @@ function withFlagActive(experiment: ExperimentApi, active: boolean): ExperimentA
 // remembers the 409 for the rest of the session.
 
 export interface PendingApproval {
+    request: Extract<FinishRequest, { kind: 'ship' }>
+    preset: FinishPreset
     changeRequestId: string
     variant: string
     /** Epoch ms of the 409. */
@@ -111,13 +128,14 @@ const usePendingApprovals = create<PendingApprovalsState>()(() => ({ byExperimen
 
 addSessionEndTask(() => usePendingApprovals.setState({ byExperiment: {} }))
 
-function setPendingApproval(id: string, approval: PendingApproval | null): void {
+function setPendingApproval(scope: ProjectScope | null, id: string, approval: PendingApproval | null): void {
+    const key = JSON.stringify(experimentKeys.detail(scope, id))
     usePendingApprovals.setState((state) => {
         const next = { ...state.byExperiment }
         if (approval) {
-            next[id] = approval
+            next[key] = approval
         } else {
-            delete next[id]
+            delete next[key]
         }
         return { byExperiment: next }
     })
@@ -125,7 +143,9 @@ function setPendingApproval(id: string, approval: PendingApproval | null): void 
 
 /** The ship request waiting for an approval, while the experiment is still live. */
 export function usePendingApproval(experiment: ExperimentApi): PendingApproval | null {
-    const approval = usePendingApprovals((state) => state.byExperiment[String(experiment.id)] ?? null)
+    const { scope } = useExperimentsContext()
+    const key = JSON.stringify(experimentKeys.detail(scope, experiment.id))
+    const approval = usePendingApprovals((state) => state.byExperiment[key] ?? null)
     return approval && isLiveStatus(experimentStatusOf(experiment)) ? approval : null
 }
 
@@ -203,14 +223,16 @@ export function useLaunchAction(experimentId: string): AsyncAction<[onDone: () =
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
     return useAsyncAction(async (onDone: () => void) => {
+        const session = sessionGeneration()
         try {
             // No optimistic patch: the sheet shows the wait, and a refused launch leaves nothing to undo.
             const experiment = await source.launchExperiment(experimentId)
-            applyExperiment(queryClient, scope, experiment)
+            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
             void queryClient.invalidateQueries({ queryKey: experimentKeys.experimentAll(scope, experimentId) })
             trackLaunched()
             onDone()
         } catch (error) {
+            if (sessionGeneration() !== session) return
             // Launch turns the flag on through the approval gate, so a policy can hold it.
             const pending = changeRequestOf(error)
             if (pending) {
@@ -237,18 +259,22 @@ export function useFinishAction(experimentId: string): AsyncAction<[FinishRun]> 
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
     return useAsyncAction(async ({ request, preset, onFinished, onNeedsApproval }: FinishRun) => {
+        const session = sessionGeneration()
         try {
             let experiment: ExperimentApi
             if (request.kind === 'ship') {
                 const result = await source.shipVariant(experimentId, request.body)
+                if (sessionGeneration() !== session) return
                 if (result.status === 'needs_approval') {
                     const approval: PendingApproval = {
+                        request,
+                        preset,
                         changeRequestId: result.changeRequestId,
                         variant: request.variant,
                         sentAt: Date.now(),
                         alreadyPending: result.code === 'change_request_pending',
                     }
-                    setPendingApproval(experimentId, approval)
+                    setPendingApproval(scope, experimentId, approval)
                     trackFinished(request, preset, 'needs_approval')
                     onNeedsApproval(approval)
                     return
@@ -257,12 +283,13 @@ export function useFinishAction(experimentId: string): AsyncAction<[FinishRun]> 
             } else {
                 experiment = await source.endExperiment(experimentId, request.body)
             }
-            applyExperiment(queryClient, scope, experiment)
-            setPendingApproval(experimentId, null)
+            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
+            setPendingApproval(scope, experimentId, null)
             trackFinished(request, preset, 'done')
             const cleanupStarted = request.body.open_cleanup_pr === true && Boolean(experiment.flag_cleanup_task_id)
             onFinished(finishToast(request, cleanupStarted))
         } catch (error) {
+            if (sessionGeneration() !== session) return
             trackFinished(request, preset, 'failed')
             reportActionError(error)
             throw error
@@ -282,19 +309,26 @@ export function usePauseResumeAction(
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
     return useAsyncAction(async (mode: 'pause' | 'resume', onDone: (outcome: PauseResumeOutcome) => void) => {
+        const session = sessionGeneration()
         const pause = mode === 'pause'
-        const previous = await patchDetail(queryClient, scope, experimentId, (experiment) =>
-            withFlagActive({ ...experiment, status: pause ? 'paused' : 'running' }, !pause)
+        const previous = await patchDetail(
+            queryClient,
+            scope,
+            experimentId,
+            (experiment) => withFlagActive({ ...experiment, status: pause ? 'paused' : 'running' }, !pause),
+            session
         )
+        if (sessionGeneration() !== session) return
         try {
             const experiment = pause
                 ? await source.pauseExperiment(experimentId)
                 : await source.resumeExperiment(experimentId)
-            applyExperiment(queryClient, scope, experiment)
+            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
             trackPauseResume(mode)
             onDone('done')
         } catch (error) {
-            restoreDetail(queryClient, scope, experimentId, previous)
+            if (sessionGeneration() !== session) return
+            restoreDetail(queryClient, scope, experimentId, previous, session)
             const pending = changeRequestOf(error)
             if (pending) {
                 onDone(pending.alreadyPending ? 'already_waiting' : 'needs_approval')
@@ -311,17 +345,26 @@ export function useArchiveAction(experimentId: string): AsyncAction<[() => void]
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
     return useAsyncAction(async (onDone: () => void) => {
-        const previous = await patchDetail(queryClient, scope, experimentId, (experiment) => ({
-            ...experiment,
-            archived: true,
-        }))
+        const session = sessionGeneration()
+        const previous = await patchDetail(
+            queryClient,
+            scope,
+            experimentId,
+            (experiment) => ({
+                ...experiment,
+                archived: true,
+            }),
+            session
+        )
+        if (sessionGeneration() !== session) return
         try {
             const experiment = await source.archiveExperiment(experimentId)
-            applyExperiment(queryClient, scope, experiment)
+            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
             trackArchived()
             onDone()
         } catch (error) {
-            restoreDetail(queryClient, scope, experimentId, previous)
+            if (sessionGeneration() !== session) return
+            restoreDetail(queryClient, scope, experimentId, previous, session)
             reportActionError(error)
             throw error
         }
@@ -338,19 +381,28 @@ export function useEditConclusionAction(experimentId: string): AsyncAction<[Conc
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
     return useAsyncAction(async ({ conclusion, comment }: ConclusionPatch, onDone: () => void) => {
+        const session = sessionGeneration()
         const text = comment.trim()
         const patch = { conclusion, conclusion_comment: text || null }
-        const previous = await patchDetail(queryClient, scope, experimentId, (experiment) => ({
-            ...experiment,
-            ...patch,
-        }))
+        const previous = await patchDetail(
+            queryClient,
+            scope,
+            experimentId,
+            (experiment) => ({
+                ...experiment,
+                ...patch,
+            }),
+            session
+        )
+        if (sessionGeneration() !== session) return
         try {
             const experiment = await source.updateExperiment(experimentId, patch)
-            applyExperiment(queryClient, scope, experiment)
+            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
             trackConclusionEdited({ from: previous?.conclusion ?? null, to: conclusion, hasComment: text.length > 0 })
             onDone()
         } catch (error) {
-            restoreDetail(queryClient, scope, experimentId, previous)
+            if (sessionGeneration() !== session) return
+            restoreDetail(queryClient, scope, experimentId, previous, session)
             reportActionError(error)
             throw error
         }

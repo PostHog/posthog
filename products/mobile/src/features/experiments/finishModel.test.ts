@@ -206,6 +206,7 @@ describe('finishModel', () => {
 
     it.each<[string, Partial<FinishForm>, FinishContext, CleanupTargetState]>([
         ['no variant picked', { variant: null, conclusion: 'lost' }, CONTEXT, READY_SINGLE],
+        ['a rule-linked experiment', { conclusion: 'lost' }, { ...CONTEXT, canShip: false }, READY_SINGLE],
         [
             'a variant is already at 100%',
             { conclusion: 'lost' },
@@ -217,6 +218,12 @@ describe('finishModel', () => {
             kind: 'end',
             body: { conclusion: 'lost', conclusion_comment: null, open_cleanup_pr: false },
         })
+    })
+
+    it('does not preselect a shipping variant for rule-linked experiments', () => {
+        const context = finishContextOf({ ...experiment(SPLIT), feature_flag_rule_id: 'rule-1' }, null)
+        expect(context.canShip).toBe(false)
+        expect(initialFinishForm('ship', context).variant).toBeNull()
     })
 
     it('never asks for a cleanup PR without GitHub, even when the box was ticked first', () => {
@@ -255,7 +262,8 @@ describe('finishModel', () => {
         ['without results in flag order', 'freq', [], ['start-trial', 'get-started', 'control', null]],
     ] as const)('orders the variants to ship: %s, control and None last', (_name, method, variants, keys) => {
         const results = variants.length ? primary([...variants]) : null
-        const context = finishContextOf(experiment(SPLIT), results)
+        const context = finishContextOf(experiment(SPLIT), results, method)
+        expect(initialFinishForm('ship', context).variant).toBe(keys[0])
         expect(variantOptions(context, results, method).map((option) => option.key)).toEqual(keys)
     })
 })

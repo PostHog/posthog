@@ -23,6 +23,8 @@ describe('experimentMenuItems', () => {
         ['complete', experiment('stopped'), ['edit-conclusion', 'archive']],
         ['archived', experiment('stopped', true), ['edit-conclusion']],
         ['draft', experiment('draft'), []],
+        ['rule-linked running', { ...experiment('running'), feature_flag_rule_id: 'rule-1' }, []],
+        ['rule-linked paused', { ...experiment('paused'), feature_flag_rule_id: 'rule-1' }, []],
     ])('offers only the verbs the server accepts when %s', (_name, value, verbs) => {
         const keys = experimentMenuItems(value, { onOpenSheet: jest.fn() }).map((item) => item.key)
         expect(keys).toEqual(['web', 'copy', 'flag', ...verbs])

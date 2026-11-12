@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 import { AppState } from 'react-native'
 
-import type { ExperimentApi, ExperimentResultsRunApi } from '@/api/experiments'
+import { type ExperimentApi, type ExperimentResultsRunApi, experimentKeys } from '@/api/experiments'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 
@@ -45,9 +45,19 @@ function setup(): { result: { current: ReturnType<typeof useRecalculation> }; no
     const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
     )
-    const hook = renderHook(() => useRecalculation(EXPERIMENT, LATEST, 'running', (text) => notices.push(text)), {
-        wrapper,
-    })
+    const hook = renderHook(
+        () => {
+            useQuery({
+                queryKey: experimentKeys.latest(null, EXPERIMENT.id),
+                queryFn: mockSource.fetchLatestResults,
+                initialData: LATEST,
+            })
+            return useRecalculation(EXPERIMENT, LATEST, 'running', (text) => notices.push(text))
+        },
+        {
+            wrapper,
+        }
+    )
     return { result: hook.result, notices, unmount: hook.unmount }
 }
 
@@ -57,10 +67,40 @@ describe('useRecalculation', () => {
     })
 
     beforeEach(() => {
+        for (const mock of Object.values(mockSource)) mock.mockReset()
         AppState.currentState = 'active'
         useDemoMode.setState({ enabled: true })
         jest.mocked(track).mockClear()
         mockSource.fetchLatestResults.mockResolvedValue(LATEST)
+    })
+
+    it('reports a failed final reload and reloads the completed results on the next pull', async () => {
+        mockSource.startRecalculation.mockResolvedValue({
+            run: { id: 'run-reload', status: 'pending', total_metrics: 1, completed_metrics: 0, is_existing: false },
+            retryAfterMs: null,
+        })
+        mockSource.fetchResultsRun.mockImplementation(async () => {
+            mockSource.fetchLatestResults.mockRejectedValue(new Error('Unavailable'))
+            return {
+                id: 'run-reload',
+                status: 'completed',
+                total_metrics: 1,
+                completed_metrics: 1,
+                failed_metrics: 0,
+                results: [],
+            }
+        })
+        const { result, notices, unmount } = setup()
+        act(() => result.current.onPull())
+        await waitFor(() =>
+            expect(notices).toContain("Couldn't load the updated results. Pull to refresh and try again.")
+        )
+        mockSource.fetchLatestResults.mockResolvedValue({ ...LATEST, id: 'run-reload' })
+        mockSource.startRecalculation.mockResolvedValue({ run: null, retryAfterMs: 60_000 })
+        act(() => result.current.onPull())
+        await waitFor(() => expect(result.current.pulling).toBe(false))
+        expect(result.current.phase.kind).toBe('window')
+        unmount()
     })
 
     it('counts down the server window after a 429 instead of starting a run', async () => {

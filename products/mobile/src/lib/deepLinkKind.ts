@@ -139,10 +139,20 @@ export function webLinkTarget(path: string): string | null {
     }
     const [section, id, ...more] = segments
     if (section === 'experiments' && more.length === 0) {
-        if (id === undefined) {
-            return web ? '/(stack)/experiments' : null
+        if (id !== undefined && !EXPERIMENT_ID.test(id)) return null
+        if (id === undefined && !web) return null
+        const params = new URLSearchParams()
+        if (id !== undefined) params.set('source', 'link')
+        if (projectId !== null) params.set('project', projectId)
+        if (/^https?:\/\//i.test(path)) {
+            try {
+                params.set('host', new URL(path).host.toLowerCase())
+            } catch {
+                return null
+            }
         }
-        return EXPERIMENT_ID.test(id) ? `/experiments/${id}?source=link` : null
+        const target = id === undefined ? '/(stack)/experiments' : `/experiments/${id}`
+        return params.size ? `${target}?${params.toString()}` : target
     }
     if (!web || more.length > 0 || (id !== undefined && !SAFE_ID.test(id))) {
         return null

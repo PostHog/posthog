@@ -163,9 +163,18 @@ function ExperimentsListBody({ chrome }: { chrome: NavChrome }): ReactElement {
             if (key) {
                 mark(row.id, key)
             }
-            router.push({ pathname: '/experiments/[id]', params: { id: row.id, source: 'list' } })
+            router.push({
+                pathname: '/experiments/[id]',
+                params: {
+                    id: row.id,
+                    source: 'list',
+                    ...(context.scope
+                        ? { project: String(context.scope.projectId), host: new URL(context.scope.host).host }
+                        : {}),
+                },
+            })
         },
-        [router, mark]
+        [router, mark, context.scope]
     )
 
     const [launchId, setLaunchId] = useState<string | null>(null)
@@ -263,7 +272,7 @@ function ExperimentsListBody({ chrome }: { chrome: NavChrome }): ReactElement {
                 <StateView
                     icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
                     title="Couldn't load your experiments"
-                    message="Check your connection and try again."
+                    message={list.error?.message ?? 'Check your connection and try again.'}
                     actionLabel="Try again"
                     onAction={() => list.refetch()}
                     testID="experiments-error"

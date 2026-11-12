@@ -27,6 +27,7 @@ import {
     FieldLabel,
     InfoBanner,
     RadioCard,
+    SheetButton,
     SheetDescription,
     SheetError,
     SheetFooter,
@@ -91,7 +92,13 @@ export function FinishSheet(props: FinishSheetProps): ReactElement {
             testID="experiment-finish-sheet"
         >
             {approval ? (
-                <ApprovalState approval={approval} onDone={onClose} onOpenApproval={props.onOpenApproval} />
+                <ApprovalState
+                    approval={approval}
+                    pending={props.pending}
+                    onRetry={() => props.onConfirm(approval.request)}
+                    onDone={onClose}
+                    onOpenApproval={props.onOpenApproval}
+                />
             ) : (
                 <FinishForm {...props} scrollGesture={scrollGesture} />
             )}
@@ -118,20 +125,20 @@ function FinishForm({
     const scroll = useRef<ScrollViewInstance>(null)
     const commentY = useRef(0)
     // Read when the sheet opens, so a results refresh behind the sheet does not move the person's picks.
-    const [context, setContext] = useState<FinishContext>(() => finishContextOf(experiment, primary))
+    const [context, setContext] = useState<FinishContext>(() => finishContextOf(experiment, primary, method))
     const [form, dispatch] = useReducer(finishFormReducer, null, () => initialFinishForm(preset, context))
     const [error, setError] = useState<string | null>(null)
 
     const wasVisible = useRef(false)
     useEffect(() => {
         if (visible && !wasVisible.current) {
-            const next = finishContextOf(experiment, primary)
+            const next = finishContextOf(experiment, primary, method)
             setContext(next)
             dispatch({ type: 'reset', form: initialFinishForm(preset, next) })
             setError(null)
         }
         wasVisible.current = visible
-    }, [visible, preset, experiment, primary])
+    }, [visible, preset, experiment, primary, method])
 
     const reason = finishDisabledReason(form, cleanup)
     const ships = finishShips(form, context)
@@ -162,6 +169,11 @@ function FinishForm({
                         <InfoBanner testID="experiment-finish-rolled-out">
                             <Code>{context.rolledOut}</Code> is already rolled out to 100% of {context.noun}. Ending
                             marks the experiment complete without changing the feature flag.
+                        </InfoBanner>
+                    ) : !context.canShip ? (
+                        <InfoBanner testID="experiment-finish-rule-linked">
+                            This experiment uses a feature flag rule. Ending it keeps the rule unchanged. Open the flag
+                            on the web to change its rollout.
                         </InfoBanner>
                     ) : (
                         <>
@@ -351,30 +363,51 @@ function FinishForm({
 
 function ApprovalState({
     approval,
+    pending,
+    onRetry,
     onDone,
     onOpenApproval,
 }: {
     approval: PendingApproval
+    pending: boolean
+    onRetry: () => Promise<void>
     onDone: () => void
     onOpenApproval?: () => void
 }): ReactElement {
+    const [error, setError] = useState<string | null>(null)
+    const retry = (): void => {
+        if (pending) return
+        setError(null)
+        void onRetry().catch((cause: unknown) => setError(actionErrorMessage(cause)))
+    }
     return (
-        <ApprovalNotice
-            alreadyPending={approval.alreadyPending}
-            at={approval.sentAt}
-            onDone={onDone}
-            onOpenApproval={onOpenApproval}
-            testID="experiment-finish-approval"
-        >
-            {approval.alreadyPending ? (
-                'This flag needs an approval before it changes. A change request for it is already waiting, so no new one was sent. Nothing changes until someone approves it on the web.'
-            ) : (
-                <>
-                    This flag needs an approval before it changes. We sent a change request to ship{' '}
-                    <Code>{approval.variant}</Code>. Nothing changes until someone approves it on the web.
-                </>
-            )}
-        </ApprovalNotice>
+        <>
+            <ApprovalNotice
+                alreadyPending={approval.alreadyPending}
+                at={approval.sentAt}
+                onDone={onDone}
+                onOpenApproval={onOpenApproval}
+                testID="experiment-finish-approval"
+            >
+                {approval.alreadyPending ? (
+                    'This flag needs an approval before it changes. A change request for it is already waiting, so no new one was sent. After approval on the web, come back and tap Finish shipping. Your conclusion and cleanup choices will be applied then.'
+                ) : (
+                    <>
+                        This flag needs an approval before it changes. We sent a change request to ship{' '}
+                        <Code>{approval.variant}</Code>. After approval on the web, come back and tap Finish shipping.
+                        Your conclusion and cleanup choices will be applied then.
+                    </>
+                )}
+            </ApprovalNotice>
+            <SheetError message={error} testID="experiment-finish-approval-error" />
+            <SheetButton
+                label={pending ? 'Finishing…' : 'Finish shipping'}
+                pending={pending}
+                onPress={retry}
+                tone="accent"
+                testID="experiment-finish-approval-retry"
+            />
+        </>
     )
 }
 
