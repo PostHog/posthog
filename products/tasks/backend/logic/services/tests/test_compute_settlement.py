@@ -646,8 +646,13 @@ class TestComputeSettlement(BaseTest):
             call_command("reconcile_sandbox_compute_settlement", wallet_team_id=self.team.id, stdout=out)
 
         output = out.getvalue()
-        assert "5.000000" not in output
+        totals = [line.split() for line in output.splitlines() if line.strip().startswith("TOTAL")]
+        assert totals == [
+            ["TOTAL", "5.000000", "5.000000", "0.000000", "3"],
+            ["TOTAL", "30.000000", "27.510112", "2.489888", "25215"],
+        ]
         assert "10.000112" not in output
         assert "17.510000" in output
         assert "0 of 1 teams listed, 1 within tolerance" in output
         assert "1 of 2 teams listed, 1 within tolerance" in output
+        assert "No teams in this window." in output
