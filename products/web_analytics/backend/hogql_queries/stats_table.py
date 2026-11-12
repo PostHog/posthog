@@ -241,7 +241,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
         variant = super().get_cache_key_variant()
-        # Cached results from the dimensional tables must not outlive the kill switch or the enrollment.
         if reads_dimensional(self):
             variant = f"{variant}_dim"
         effective_breakdown = self._effective_breakdown()

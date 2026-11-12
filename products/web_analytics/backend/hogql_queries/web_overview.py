@@ -271,7 +271,6 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
     def get_cache_key_variant(self) -> str:
         variant = super().get_cache_key_variant()
-        # Cached results from the dimensional tables must not outlive the kill switch or the enrollment.
         return f"{variant}_dim" if reads_dimensional(self) else variant
 
     def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
