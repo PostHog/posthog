@@ -20,7 +20,10 @@ export function PlatformAlertRuleMetadata({
                     {Object.keys(entries).length === 0 ? (
                         <p className="m-0 text-secondary">None</p>
                     ) : (
-                        <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 m-0" translate="no">
+                        <dl
+                            className="grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-6 gap-y-2 m-0"
+                            translate="no"
+                        >
                             {Object.entries(entries).map(([name, value]) => (
                                 <div key={name} className="contents">
                                     <dt className="font-mono text-secondary break-all">{name}</dt>
