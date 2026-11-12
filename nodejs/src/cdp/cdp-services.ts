@@ -480,7 +480,7 @@ export function createCdpCoreServices(
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
-    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
+    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager, deps.postgres)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     // cdp-api also gets the pool, but its sends are all test sends, which skip both limits.
@@ -535,6 +535,7 @@ export function createCdpCoreServices(
         // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
         personsManager,
+        workflowsActivationReporter,
         messageAssetsService
     )
 

@@ -23,6 +23,13 @@ describe('analyticsPinnedLogic', () => {
                     ],
                 },
             },
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/reorder/': async ({ request }) => {
+                    const { ordered_ids } = (await request.json()) as { ordered_ids: string[] }
+                    requests.push(`reorder ${ordered_ids.join(',')}`)
+                    return [200, []]
+                },
+            },
             delete: {
                 '/api/projects/:team_id/file_system_shortcut/:id/': ({ params }) => {
                     requests.push(`delete ${params.id}`)
@@ -49,5 +56,22 @@ describe('analyticsPinnedLogic', () => {
         ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(requests).toEqual(['delete sc-insight'])
         expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
+    })
+
+    it('moves a pin among the other pins and leaves the shortcuts that are not analytics in place', async () => {
+        const logic = analyticsPinnedLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.movePinned('sc-dashboard', 'sc-growth')).toDispatchActions(
+            projectTreeDataLogic,
+            ['reorderShortcutsSuccess']
+        )
+        expect(requests).toEqual(['reorder sc-product,sc-home,sc-dashboard,sc-growth,sc-insight'])
+        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual([
+            'dashboard:7',
+            'folder:Growth',
+            'insight:abc123',
+        ])
     })
 })

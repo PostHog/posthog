@@ -280,7 +280,7 @@ It never replaces the required live query.
 - **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
 - **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
 
-A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+A refresh replaces `value`, `value_at`, and `series`, records each bucket's label in `series_buckets`, and clears `comparison`.
 It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
 Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
 

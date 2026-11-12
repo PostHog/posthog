@@ -15,7 +15,7 @@ type Admission = { sequence: number; open: boolean }
  */
 export class BatchStages {
     private readonly limiters: Map<string, ReturnType<typeof pLimit>>
-    // When a batch fails, the batches behind it must not run more stages. Their offsets would go past the messages of the failed batch, and the consumer stores the tracked offsets when it stops. The batches ahead of the failed batch complete, because their work is complete and in order. The consumer decides whether to admit a batch after the failure, as it does for a lane that does not overlap batches.
+    // When a batch fails, the batches behind it must not run more stages. Their offsets would go past the messages of the failed batch, and the consumer stores the tracked offsets when it stops, unless a batch failed. The batches ahead of the failed batch complete, because their work is complete and in order. The consumer decides whether to admit a batch after the failure, as it does for a lane that does not overlap batches.
     private failure: { sequence: number; lastAdmitted: number; error: unknown } | null = null
     private nextSequence = 0
 
