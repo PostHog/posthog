@@ -12711,7 +12711,7 @@ export namespace Schemas {
     export type HogFlowSchedule = {
         id: string;
         /**
-         * iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour.
+         * iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart on a schedule trigger, and at least 1 hour apart on a batch trigger.
          */
         rrule: string;
         /**
