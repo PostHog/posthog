@@ -777,10 +777,8 @@ WHERE and(
 
     @cached_property
     def _reads_only_posthog_tables(self) -> bool:
-        # Building the full HogQL database loads every warehouse table, view and join, which costs
-        # seconds on teams with many warehouse sources. The filter types in
-        # _POSTHOG_TABLE_PROPERTY_TYPES never read them. HogQL, group and warehouse filters can, so
-        # any of those in the query, the test account filters or the conversion goal keeps the full database.
+        # The full HogQL database loads every warehouse table, view and join, which costs seconds on
+        # teams with many warehouse sources.
         goal = getattr(self.query, "conversionGoal", None)
         filters = [
             *(getattr(self.query, "properties", None) or []),
