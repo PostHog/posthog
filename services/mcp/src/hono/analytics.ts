@@ -385,6 +385,7 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
     ['suppressions-add', 'arguments'],
 ])

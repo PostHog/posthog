@@ -221,6 +221,7 @@ describe('Hono MCP analytics contexts', () => {
         ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png' }, false, false],
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
+        ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
         [
             'an email send through exec',
             'exec',
