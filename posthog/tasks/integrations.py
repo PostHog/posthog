@@ -168,6 +168,8 @@ UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 # Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
 # backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
 EXPIRED_EMAIL_SENDERS_PER_RUN = 10
+# Bounds the sender deletes and cleanup tasks of one run, which the identity budget above does not count.
+DELETED_EMAIL_SENDERS_PER_RUN = 200
 
 
 def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
@@ -183,10 +185,12 @@ def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
 @skip_team_scope_audit
 def expire_unverified_email_senders() -> None:
     cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
-    expired = 0
+    expired = deleted = 0
     for sender in _unverified_email_senders_oldest_first():
         # Rows come back in id order, which is creation order, so every later sender is younger too.
-        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or sender.created_at >= cutoff:
+        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or deleted >= DELETED_EMAIL_SENDERS_PER_RUN:
+            break
+        if sender.created_at >= cutoff:
             break
         # A contested domain's senders hold the only record that verifying it needs the organization's own record.
         if sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY):
@@ -202,6 +206,7 @@ def expire_unverified_email_senders() -> None:
             )
             # An unverified sender cannot send, so a workflow that still names it loses nothing it had.
             IntegrationManager.email.any.delete(sender.team_id, sender.id, ignore_usages=True)
+        deleted += 1
         if frees_identity:
             expired += 1
     logger.info("expired_unverified_email_senders", count=expired)

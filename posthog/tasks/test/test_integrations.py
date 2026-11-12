@@ -236,11 +236,19 @@ class TestIntegrationsTasks(APIBaseTest):
         assert set(remaining) == {"b@fresh.com", "c@verified.com", "d@contested.com"}
         assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
 
+    @parameterized.expand(
+        [("identity_budget_only", 200, {"d@flood.com"}), ("delete_budget_reached", 2, {"c@other.com", "d@flood.com"})]
+    )
     @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 1)
     @patch("posthog.tasks.integrations.delete_ses_identity")
     @patch("posthog.tasks.integrations.remove_ses_tenant_associations")
     def test_expire_unverified_email_senders_spends_its_budget_only_on_freed_identities(
-        self, _mock_remove_links: MagicMock, _mock_delete_identity: MagicMock
+        self,
+        _name: str,
+        deletes_per_run: int,
+        remaining: set[str],
+        _mock_remove_links: MagicMock,
+        _mock_delete_identity: MagicMock,
     ) -> None:
         for email, age_days in [("a@flood.com", 15), ("b@flood.com", 15), ("c@other.com", 15), ("d@flood.com", 1)]:
             sender = Integration.objects.create(
@@ -251,9 +259,10 @@ class TestIntegrationsTasks(APIBaseTest):
             )
             Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=age_days))
 
-        expire_unverified_email_senders()
+        with patch("posthog.tasks.integrations.DELETED_EMAIL_SENDERS_PER_RUN", deletes_per_run):
+            expire_unverified_email_senders()
 
-        assert set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True)) == {"d@flood.com"}
+        assert set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True)) == remaining
 
     @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 2)
     @patch("posthog.tasks.integrations.delete_ses_identity")
