@@ -2487,8 +2487,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if outcome == "gitlab_unsupported":
-            raise ValidationError("GitLab task runs are not available yet.")
         if outcome == "ownership_changed":
             return Response(
                 TaskRunErrorResponseSerializer(

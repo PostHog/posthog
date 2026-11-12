@@ -6628,6 +6628,17 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
+    # GitLab runs commit as the connection's token, so they never resolve a GitHub identity.
+    if task.repository_integration_id is not None:
+        if github_user_token:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_token_not_allowed",
+                detail="GitLab tasks don't use a GitHub token. Start the run without github_user_token.",
+                attr="github_user_token",
+            )
+        return PrAuthorshipMode.BOT, None
+
     if not Task._github_resolution_allowed(
         task.origin_product, has_repository=bool(task.repositories or task.repository)
     ):
@@ -6722,10 +6733,6 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
-    if task.repository_integration_id is not None:
-        return contracts.TaskRunCreateResult(
-            error=contracts.TaskRunValidationError(kind="detail", detail="GitLab task runs are not available yet.")
-        )
     if task.origin_product == Task.OriginProduct.TASK_ANALYSIS:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
@@ -7010,8 +7017,6 @@ def start_task_run(
             )
             if not run.matches_task_ownership(task):
                 return "ownership_changed", None
-            if task.repository_integration_id is not None:
-                return "gitlab_unsupported", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -7095,8 +7100,6 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
-        if task.repository_integration_id is not None:
-            return "auth_error:GitLab task runs are not available yet.", None, None
         if run.environment != TaskRun.Environment.CLOUD:
             return "not_cloud", None, None
 
@@ -8797,6 +8800,7 @@ def update_task(
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)
             validated_data.pop("github_user_integration", None)
+            validated_data.pop("repository_integration_id", None)
         if "repositories" in validated_data:
             repositories = validated_data["repositories"]
             validated_data["repository"] = repositories[0] if repositories else None
@@ -10088,10 +10092,6 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
-    if task.repository_integration_id is not None:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(kind="detail", detail="GitLab task runs are not available yet.")
-        )
     # Another product may need to finish something before this task runs, for example a chat that
     # is copied into the task a few seconds behind each turn.
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)
