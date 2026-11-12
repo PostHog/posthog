@@ -57570,6 +57570,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
       /** Google Ads daily campaign impression share table. */
