@@ -35,7 +35,6 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import Team
 from posthog.models.event.new_events_schema import events_route_scope, new_events_schema_for_request
-from posthog.models.team.team import CookielessServerHashMode
 from posthog.redis import TEST_clear_clients
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -755,11 +754,6 @@ class TestTeamOomPin(BaseTest):
 
 
 class TestWebEnsurePrecomputed(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.team.cookieless_server_hash_mode = CookielessServerHashMode.STATEFUL
-        self.team.save()
-
     @parameterized.expand(
         [
             ("off", False, None),
