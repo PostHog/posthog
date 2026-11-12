@@ -82,8 +82,7 @@ async def test_emits_and_returns_line_count(monkeypatch):
     _patch(monkeypatch, archive="line one\nline two")
     result = await fetch_and_emit_job_log_activity(_INPUTS)
     assert result == {"status": "emitted", "job_id": 3, "lines": 2}
-    # The job identity attributes must reach the emitter — dropping one here silently strips it
-    # from every stored record, and it can't be backfilled (GitHub logs expire).
+    # An attribute dropped here is missing from every stored record and cannot be backfilled.
     attrs = _FakeEmitter.last_kwargs["attributes"]
     assert attrs["job_name"] == "backend-tests"
     assert attrs["workflow_name"] == "Backend CI"
@@ -92,8 +91,6 @@ async def test_emits_and_returns_line_count(monkeypatch):
 
 
 async def test_raises_and_skips_fetch_when_budget_exhausted(monkeypatch):
-    # The gate must stop us before the GitHub call when over the shared budget, and raise (retryable)
-    # so Temporal backs off — never silently proceed.
     fetched = {"called": False}
 
     def _fetch(*_args, **_kwargs):
@@ -108,8 +105,7 @@ async def test_raises_and_skips_fetch_when_budget_exhausted(monkeypatch):
 
 
 async def test_depot_attempt_fetches_by_attempt_id_and_emits_decoded_ids(monkeypatch):
-    # Logs rows join the curated CI views and traces on the decoded integer ids. Emitting Depot's
-    # string ids, or swapping run and attempt, leaves every Depot failure log unreachable by run_id.
+    # Logs rows join the curated CI views and traces on the decoded integer ids.
     _patch(monkeypatch)
     fetched: dict[str, str] = {}
 
@@ -152,7 +148,6 @@ _ACTIVITIES = [
 
 @pytest.mark.parametrize("activity_fn, inputs, fetcher", _ACTIVITIES)
 async def test_log_unavailable_is_benign(monkeypatch, activity_fn, inputs, fetcher):
-    # An expired/purged log (fetch returns None) must report log_unavailable, not crash or emit.
     _patch(monkeypatch)
     monkeypatch.setattr(activity_module, fetcher, lambda *_args, **_kwargs: None)
     result = await activity_fn(inputs)
@@ -161,8 +156,6 @@ async def test_log_unavailable_is_benign(monkeypatch, activity_fn, inputs, fetch
 
 @pytest.mark.parametrize("activity_fn, inputs, fetcher", _ACTIVITIES)
 async def test_raises_when_export_disabled(monkeypatch, activity_fn, inputs, fetcher):
-    # No Logs endpoint configured: raise (retryable) before fetching, so the failure isn't marked
-    # done-and-unretryable and we don't spend egress budget on a job we can't emit.
     fetched = {"called": False}
 
     def _fetch(*_args, **_kwargs):
