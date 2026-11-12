@@ -44,6 +44,8 @@ class ImportedCategory:
     key: str
     name: str
     description: str = ""
+    # What the preferences page shows recipients. None shows `description`, for tools that show it to recipients too.
+    public_description: str | None = None
 
 
 @frozen
@@ -161,7 +163,9 @@ def import_categories(
                 key=category.key,
                 name=category.name,
                 description=category.description,
-                public_description=category.description,
+                public_description=category.description
+                if category.public_description is None
+                else category.public_description,
                 category_type=MessageCategoryType.MARKETING,
                 created_by_id=created_by_id,
             )
