@@ -645,6 +645,7 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -658,6 +659,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -716,6 +718,7 @@ export interface signalSourcesLogicMeta {
                 | 'roark'
                 | 'rollbar'
                 | 'semgrep'
+                | 'semrush'
                 | 'sentry'
                 | 'servicenow'
                 | 'shortcut'
@@ -759,6 +762,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -772,6 +776,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -830,6 +835,7 @@ export interface signalSourcesLogicMeta {
                 | 'roark'
                 | 'rollbar'
                 | 'semgrep'
+                | 'semrush'
                 | 'sentry'
                 | 'servicenow'
                 | 'shortcut'
@@ -863,6 +869,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -876,6 +883,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -934,6 +942,7 @@ export interface signalSourcesLogicMeta {
                 | 'roark'
                 | 'rollbar'
                 | 'semgrep'
+                | 'semrush'
                 | 'sentry'
                 | 'servicenow'
                 | 'shortcut'

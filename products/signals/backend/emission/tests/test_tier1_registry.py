@@ -126,6 +126,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
+    # SEO site audits
+    (ExternalDataSourceType.BINGWEBMASTERTOOLS, "crawl_issues", "bing_webmaster_tools", "search_opportunity"),
+    (ExternalDataSourceType.AHREFS, "site_audit_issues", "ahrefs", "search_opportunity"),
+    (ExternalDataSourceType.SEMRUSH, "site_audit_issue_details", "semrush", "search_opportunity"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -166,6 +170,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"severity": "high", "resolution_status": "unresolved"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
+        elif name == "issue_flag":
+            record[name] = 4
+        elif name in ("affected_urls", "affected_pages", "inbound_links"):
+            record[name] = 3
         else:
             record[name] = f"value-{name}"
     return record
