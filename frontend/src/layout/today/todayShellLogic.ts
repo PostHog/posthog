@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
+import { fromPostHogProducts, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
@@ -129,7 +129,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
         isUnderPath(path, urls.notebooks()) ||
         isUnderPath(path, urls.dashboards()) ||
         isUnderPath(path, '/insights') ||
-        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
+        isFromPostHogItem(byPostHogItemForPath(path) ?? {})
     ) {
         return 'analytics'
     }
@@ -148,6 +148,14 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
 }
 
 let navProductPages: FileSystemImport[] | null = null
+
+/**
+ * The By PostHog entry that owns this page. Its ready-made analytics belong to Analytics. Its other pages, like
+ * Session replay, belong to Products and keep an open Analytics pane open.
+ */
+function byPostHogItemForPath(path: string): FileSystemImport | undefined {
+    return fromPostHogProducts().find((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))?.item
+}
 
 /** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
 function productsPaneListsPath(path: string): boolean {
@@ -187,6 +195,9 @@ function paneAfterNavigation(
         return shownPane
     }
     if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {
+        return shownPane
+    }
+    if (shownPane === 'analytics' && byPostHogItemForPath(path)) {
         return shownPane
     }
     return routePane ?? openPane
