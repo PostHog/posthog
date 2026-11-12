@@ -47,10 +47,6 @@ const buttonVariants = cva(
                 true: 'quill-button--inert',
                 false: '',
             },
-            elevated: {
-                true: 'quill-button--elevated',
-                false: '',
-            },
         },
         defaultVariants: {
             variant: 'default',
@@ -63,11 +59,6 @@ export type ButtonProps = ButtonPrimitive.Props &
     VariantProps<typeof buttonVariants> & {
         /** Hides the label under a centered spinner and disables the button. Width stays stable. */
         loading?: boolean
-        /**
-         * Chunky raised chrome (heavy edge + bottom ledge) for strong calls to action.
-         * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
-         */
-        elevated?: boolean
         /**
          * A dot on the top-right corner that flags something waiting behind the button, such as unread
          * items. Say what it means in the `aria-label`. Off the app background, set
@@ -130,7 +121,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             size = 'default',
             focusableWhenDisabled = true,
             left = false,
-            elevated = false,
             loading = false,
             indicator,
             disabled,
@@ -166,7 +156,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 // readers can reach it and announce busy. Activation stays blocked. A disabled
                 // reason needs the same, because its tooltip only opens on hover or focus.
                 focusableWhenDisabled={loading || hasDisabledReason ? true : focusableWhenDisabled}
-                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left, elevated }))}
+                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
             >
                 {children}

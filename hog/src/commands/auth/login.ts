@@ -1,3 +1,5 @@
+import { dirname } from 'node:path'
+
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
@@ -6,53 +8,24 @@ import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
-import type { StoreChoice } from '@/posthog/credential-store/types'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGION_CHOICES, REGION_IDS, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { finishLogin, type FinishedLogin } from '@/posthog/login/finish'
+import { LOGIN_COMMAND, loginFlow, loginWait } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-type LoginResult =
-    | (PendingResult & { host: string })
-    | {
-          status: 'logged_in'
-          host: string
-          projectId: string
-          store: StoreChoice
-          credentialsPath: string | null
-          keychainError: string | null
-          // What the login may do, as PostHog reports it.
-          scopes: string[] | null
-          // ISO 8601, for an OAuth login. hog renews the token before then.
-          expiresAt: string | null
-          next: string
-      }
+type LoginResult = (PendingResult & { host: string }) | (FinishedLogin & { next: string })
 
 function nextCommand(scopes: readonly string[] | null): string {
     const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
-    const { scopes, expiresAt } = status
-    return {
-        status: 'logged_in',
-        host,
-        projectId,
-        store,
-        credentialsPath,
-        keychainError,
-        scopes,
-        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
-        next: nextCommand(scopes),
-    }
-}
-
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
-    return loggedInResult(await saveLogin(ctx.runtime, key))
+    const finished = await finishLogin(ctx, key)
+    return { ...finished, next: nextCommand(finished.scopes) }
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -60,7 +33,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
         initialValue: REGIONS.us,
         validate: (value) => validationError(HostSchema, value),
     })
-    const projectId = await prompts.text('Project ID, the number in your project URL', {
+    const projectId = await prompts.text('Project ID (the number in your project URL)', {
         validate: (value) => validationError(ProjectIdSchema, value),
     })
     const apiKey = await prompts.password('Personal API key', {
@@ -80,14 +53,14 @@ export default defineCommand({
     options: {
         region: {
             type: 'string',
-            choices: ['us', 'eu'],
+            choices: REGION_IDS,
             placeholder: 'region',
             description:
-                'Where your PostHog account is hosted, as in the us.posthog.com or eu.posthog.com address. Use --host for self-hosted PostHog',
+                'Where your PostHog account is hosted: `us` for us.posthog.com, `eu` for eu.posthog.com. Use `--host` for self-hosted PostHog',
         },
         wait: {
             type: 'boolean',
-            description: 'Wait for the login an agent or script started, and save the token once a person approves it',
+            description: 'Wait for approval of the login an agent or script started, then save the token',
         },
         readOnly: {
             type: 'boolean',
@@ -98,9 +71,10 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
+        'You pick one project when you approve the login. The token only works in that project and renews automatically.',
+        'Each project has its own login. The closest `posthog.json` decides which login a command uses. Login writes the host and project to the closest `posthog.json`, or creates one in this folder.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
-        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
+        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token. Or set `HOG_PERSONAL_API_KEY` and `HOG_HOST`, and put the project ID in `posthog.json` as `"projectId"` or in `HOG_PROJECT_ID`.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 
@@ -110,13 +84,13 @@ export default defineCommand({
         if (options.wait && options.readOnly) {
             throw new HogError(
                 'read_only_with_wait',
-                '--read-only sets what a new login asks for, and --wait finishes the login that already started.',
+                "`--read-only` and `--wait` don't go together. `--read-only` applies to a new login, and `--wait` finishes one that already started.",
                 'Run `hog auth login --read-only` to start a read-only login, then `hog auth login --wait`.',
                 EXIT_USAGE
             )
         }
         if (options.wait) {
-            return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
+            return finish(ctx, (await resumeApproval(ctx, loginWait(ctx.runtime))).value)
         }
 
         refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)
@@ -129,16 +103,15 @@ export default defineCommand({
             if (!prompts) {
                 throw new HogError(
                     'region_required',
-                    'hog auth login needs to know where your PostHog account is hosted.',
-                    'Ask the user where their PostHog account is hosted. When they open PostHog in a browser, the address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass --host.',
+                    "hog doesn't know where your PostHog account is hosted.",
+                    'Ask the user whether their PostHog address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass `--host`.',
                     EXIT_USAGE
                 )
             }
             const choice = await prompts.select(
                 'Where is your PostHog account hosted?',
                 [
-                    { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
-                    { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+                    ...REGION_CHOICES,
                     {
                         value: 'key',
                         label: 'Paste a personal API key',
@@ -146,15 +119,15 @@ export default defineCommand({
                     },
                 ],
                 {
-                    help: 'Open PostHog in your browser and check the address: it starts with us.posthog.com or eu.posthog.com.',
+                    help: 'Check the PostHog address in your browser. It starts with us.posthog.com or eu.posthog.com.',
                 }
             )
             if (choice === 'key') {
                 if (options.readOnly) {
                     throw new HogError(
                         'read_only_with_key',
-                        "--read-only can't limit a personal API key: the key keeps the scopes it has in PostHog.",
-                        'Approve a read-only login in the browser instead, or create a key with read scopes only.',
+                        "`--read-only` doesn't apply to a personal API key. The key keeps the scopes set in PostHog.",
+                        'Log in through the browser instead, or create a key with read scopes only.',
                         EXIT_USAGE
                     )
                 }
@@ -170,21 +143,53 @@ export default defineCommand({
 
     human({ result, out }) {
         if (result.status === 'pending') {
-            printPending(out, result)
+            printPending(out, result, 'login')
             return
         }
-        out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)
-        switch (result.store) {
-            case 'keychain':
-                out.line(out.style('Credentials saved to the system keychain', 'dim'))
-                break
-            case 'file':
-                if (result.keychainError) {
-                    out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
-                }
-                out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
-                break
+
+        const effects: string[] = []
+        const warnings: string[] = []
+        const notes: string[] = []
+        if (result.store === 'file') {
+            if (result.keychainError) {
+                warnings.push(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`)
+            }
+            effects.push(`Credentials saved to ${result.credentialsPath}, which only you can read`)
+        } else {
+            effects.push('Credentials saved to the system keychain')
         }
-        out.line(`Try it: ${result.next}`)
+
+        const { path, status, error } = result.config
+        const file = escapeControls(path)
+        if (status === 'failed') {
+            warnings.push(
+                `hog couldn't write ${file}: ${escapeControls(error ?? '').replace(/\.?$/, '.')} Add "host": "${escapeControls(result.host)}" and "projectId": ${result.projectId} to it, so commands there use this login.`
+            )
+        } else if (status === 'unchanged') {
+            notes.push(`${file} already has this host and project.`)
+        } else {
+            effects.push(
+                status === 'created'
+                    ? `Created ${file} with this host and project`
+                    : `Set this host and project in ${file}`
+            )
+        }
+        if (status !== 'failed') {
+            notes.push(
+                out.style(
+                    `Commands under ${escapeControls(dirname(path))} use this login, unless a closer \`posthog.json\` sets another project.`,
+                    'dim'
+                )
+            )
+        }
+        notes.push(`Try it: ${result.next}`)
+
+        out.report({
+            status: status === 'failed' ? 'partial' : 'done',
+            result: `Logged in to ${escapeControls(result.host)}, project ${result.projectId}`,
+            effects,
+            warnings,
+            notes,
+        })
     },
 })

@@ -654,7 +654,7 @@ export interface ExternalDataSchemaApi {
     /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
     drop_history_table?: boolean
     /**
-     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
      * @nullable
      */
     readonly registered_history_table_name: string | null
@@ -899,7 +899,7 @@ export interface PatchedExternalDataSchemaApi {
     /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
     drop_history_table?: boolean
     /**
-     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+     * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
      * @nullable
      */
     readonly registered_history_table_name?: string | null
@@ -1151,6 +1151,81 @@ export interface ExternalDataSourceCreateApi {
 export interface ExternalDataSourceCreateResponseApi {
     /** ID of the created external data source. */
     id: string
+}
+
+/**
+ * * `unresolved_secret_ref` - Unresolved secret reference
+ * * `credential_not_found` - Stored credential not found
+ * * `credential_expired` - Stored credential expired
+ * * `credential_source_type_mismatch` - Stored credential is for another source type
+ * * `reserved_name` - Reserved source name
+ * * `direct_query_unsupported` - Direct query not supported for this source type
+ * * `direct_query_name_required` - Direct query sources need a name
+ * * `duplicate_source` - A source of this type already exists without a prefix
+ * * `duplicate_prefix` - Prefix already used by another source of this type
+ * * `billing_limit_reached` - Monthly sync limit reached
+ * * `max_instances_reached` - Too many sources of this type
+ * * `source_unavailable` - Source cannot be set up this way
+ * * `invalid_config` - Invalid source config
+ * * `credential_validation_failed` - Credential validation failed
+ * * `schema_discovery_failed` - Table discovery failed
+ * * `no_tables_found` - No tables found
+ * * `cdc_unsupported_source_type` - Source type does not support CDC
+ * * `invalid_cdc_management_mode` - Invalid CDC management mode
+ * * `host_not_allowed` - Host not allowed
+ * * `connection_failed` - Connection failed
+ */
+export type SourceSetupErrorCodeEnumApi = (typeof SourceSetupErrorCodeEnumApi)[keyof typeof SourceSetupErrorCodeEnumApi]
+
+export const SourceSetupErrorCodeEnumApi = {
+    UnresolvedSecretRef: 'unresolved_secret_ref',
+    CredentialNotFound: 'credential_not_found',
+    CredentialExpired: 'credential_expired',
+    CredentialSourceTypeMismatch: 'credential_source_type_mismatch',
+    ReservedName: 'reserved_name',
+    DirectQueryUnsupported: 'direct_query_unsupported',
+    DirectQueryNameRequired: 'direct_query_name_required',
+    DuplicateSource: 'duplicate_source',
+    DuplicatePrefix: 'duplicate_prefix',
+    BillingLimitReached: 'billing_limit_reached',
+    MaxInstancesReached: 'max_instances_reached',
+    SourceUnavailable: 'source_unavailable',
+    InvalidConfig: 'invalid_config',
+    CredentialValidationFailed: 'credential_validation_failed',
+    SchemaDiscoveryFailed: 'schema_discovery_failed',
+    NoTablesFound: 'no_tables_found',
+    CdcUnsupportedSourceType: 'cdc_unsupported_source_type',
+    InvalidCdcManagementMode: 'invalid_cdc_management_mode',
+    HostNotAllowed: 'host_not_allowed',
+    ConnectionFailed: 'connection_failed',
+} as const
+
+export interface ExternalDataSourceErrorResponseApi {
+    /** Human-readable explanation of why the request failed and what to do next. */
+    message: string
+    /** Stable machine-readable failure cause, for example 'credential_expired', 'invalid_config' or 'credential_validation_failed'. Branch on this instead of parsing the message. Absent on errors that have no dedicated code.
+     *
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed */
+    code?: SourceSetupErrorCodeEnumApi
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -1473,6 +1548,16 @@ export interface ExternalDataJobSerializersApi {
     readonly destination_ids: readonly string[]
 }
 
+/**
+ * Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.
+ */
+export type UpdateWebhookInputsRequestApiInputs = { [key: string]: string }
+
+export interface UpdateWebhookInputsRequestApi {
+    /** Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank. */
+    inputs: UpdateWebhookInputsRequestApiInputs
+}
+
 export interface UpdateWebhookInputsResponseApi {
     /** Whether the inputs were saved and pushed to the external service. */
     success: boolean
@@ -1633,6 +1718,32 @@ export interface ApplyMigrationItemResponseApi {
     source_id: string
     /** Every difference from the Fivetran connection, including new ones. */
     caveats: string[]
+}
+
+/**
+ * Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards.
+ */
+export type CdcPrerequisitesRequestApiPayload = { [key: string]: unknown }
+
+export interface CdcPrerequisitesRequestApi {
+    /** A CDC-capable source type, for example 'Postgres'. Other source types are rejected. */
+    source_type: string
+    /** Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards. */
+    payload?: CdcPrerequisitesRequestApiPayload
+    /** Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them). */
+    cdc_management_mode?: string
+    /** Tables to check against the publication. Omit to check the database-level prerequisites only. */
+    tables?: string[]
+    /**
+     * Self-managed replication slot name to check. Ignored in 'posthog' mode.
+     * @nullable
+     */
+    cdc_slot_name?: string | null
+    /**
+     * Self-managed publication name to check. Ignored in 'posthog' mode.
+     * @nullable
+     */
+    cdc_publication_name?: string | null
 }
 
 export interface CdcPrerequisitesResponseApi {
@@ -1875,14 +1986,14 @@ export interface SourcePreviewResponseApi {
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
 export interface SourceSetupApi {
     /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot'). */
     source_type: string
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.

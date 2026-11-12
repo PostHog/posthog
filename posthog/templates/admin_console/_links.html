@@ -1,0 +1,8 @@
+{# A Links block as a row of buttons. A link only reads. #}
+<div class="flex flex-wrap items-center gap-2">
+    {% for link in links.items %}
+        <a href="{{ link.href }}"
+           {% if link.pending_label %}data-pending-label="{{ link.pending_label }}"{% endif %}
+           class="quill-button {% if link.primary %}quill-button--variant-primary{% else %}quill-button--variant-outline{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ link.label }}</a>
+    {% endfor %}
+</div>

@@ -15,7 +15,7 @@ import ipaddress
 from collections.abc import Iterator
 
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -38,6 +38,7 @@ from products.business_knowledge.backend.logic import (
     update_url_source,
 )
 from products.business_knowledge.backend.models import (
+    CrawlMode,
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeSource,
@@ -556,6 +557,35 @@ class TestUrlApi(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         mock_ingest.assert_called_once()
         assert mock_ingest.call_args.kwargs["team_id"] == self.team.id
+
+    @patch(
+        "products.business_knowledge.backend.logic.execute_refresh_source",
+        side_effect=AssertionError("crawl must not run inside the PATCH request"),
+    )
+    @patch("products.business_knowledge.backend.api.views.sync_connect")
+    def test_crawl_config_edit_hands_recrawl_to_refresh_workflow(
+        self, mock_sync_connect: MagicMock, _inline_refresh: MagicMock, _ff: MagicMock
+    ) -> None:
+        start_workflow = AsyncMock()
+        mock_sync_connect.return_value.start_workflow = start_workflow
+        source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Docs",
+            source_type=SourceType.URL,
+            status=SourceStatus.READY,
+            source_url="https://docs.example.com/sitemap.xml",
+            crawl_mode=CrawlMode.SITEMAP,
+            crawl_config={"include_globs": ["/docs/old/*"], "exclude_globs": [], "max_pages": 50, "max_depth": 2},
+        )
+
+        response = self.client.patch(f"{self.url}{source.id}/", {"include_globs": ["/docs/new/*"]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["status"] == "processing"
+        source.refresh_from_db()
+        assert source.crawl_config["include_globs"] == ["/docs/new/*"]
+        assert start_workflow.call_args.args[0] == "business-knowledge-refresh-source"
+        assert start_workflow.call_args.args[1].claim_id == str(source.processing_claim_id)
 
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",

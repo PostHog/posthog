@@ -11,6 +11,16 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
+WRITER_ALLOWED_DOMAINS = (
+    "github.com",
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "codeload.github.com",
+    "registry.npmjs.org",
+    "posthog.com",
+)
+
 WRITER = TaskProfile(
     key="knowledge_writer.docs",
     origin_product="knowledge_writer",
@@ -25,7 +35,7 @@ WRITER = TaskProfile(
     warm=None,
     runtimes=("acp",),
     sandbox_templates=("default_base",),
-    network=NetworkPolicy(levels=(NetworkAccess.FULL,)),
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,), allowed_domains=WRITER_ALLOWED_DOMAINS),
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_agent=None,

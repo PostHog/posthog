@@ -78,7 +78,7 @@ from products.authorization.backend.facade.enums import (
     ResourceType,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -472,12 +472,7 @@ class AutoProjectMiddleware:
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                if dashboard_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
+            if path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "notebooks":
@@ -502,6 +497,8 @@ class AutoProjectMiddleware:
         if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
             # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
             return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        if len(path_parts) >= 2 and path_parts[0] == "dashboard" and path_parts[1].isnumeric():
+            return find_dashboard_team_id(dashboard_id=int(path_parts[1]))
         return None
 
     def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
@@ -516,6 +513,11 @@ class AutoProjectMiddleware:
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            if not user.is_staff:
+                # A short_id is unique per team only, and no index starts with short_id, so a lookup across all
+                # teams reads the whole table. Staff keep the lookup across all teams, because can_switch_to_team
+                # suggests users to log in as when a staff user opens an object in a team they cannot access.
+                target_queryset = target_queryset.filter(team__in=user.teams)
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)

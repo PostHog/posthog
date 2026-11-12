@@ -4,16 +4,12 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
-import { quantileMetricSequentialReason } from 'scenes/experiments/ExperimentView/sequential'
 import { formatMetricTypeName } from 'scenes/experiments/MetricsView/shared/utils'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -50,8 +46,6 @@ export function SharedMetricModal({
     } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
-    const { tags: allTags } = useValues(tagsModel)
-    const { experimentsConfig } = useValues(experimentsConfigLogic)
 
     if (!compatibleSharedMetrics) {
         return null
@@ -61,14 +55,6 @@ export function SharedMetricModal({
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
         }
-        return quantileMetricSequentialReason(
-            compatibleSharedMetrics.some(
-                (metric) =>
-                    selectedMetricIds.includes(metric.id) && metric.query.metric_type === ExperimentMetricType.QUANTILE
-            ),
-            experiment.stats_config,
-            experimentsConfig?.default_sequential_testing_enabled ?? false
-        )
     }
 
     const closeModal = (): void => {
@@ -242,7 +228,6 @@ export function SharedMetricModal({
                                     render: (_: any, metric: SharedMetric) => (
                                         <InlineTagEditor
                                             metric={metric}
-                                            allTags={allTags}
                                             onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                                             saving={savingTagsMetricId === metric.id}
                                         />

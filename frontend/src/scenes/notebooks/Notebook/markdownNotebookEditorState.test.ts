@@ -58,7 +58,7 @@ describe('notebookLogic markdown editor state', () => {
         // localContent is a persisted reducer — clear it so tests don't leak into each other
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()

@@ -44,6 +44,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation import build_job_payload, get_run_results
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -61,6 +62,7 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _record_metric_out_of_time_failure_sync,
     _update_recalculation_progress_sync,
 )
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.experiments.stats.shared.statistics import StatisticError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1218,6 +1220,8 @@ class TestCalculateActivity(BaseTest):
         [
             ("activity_queue", "activity-q", "activity-q", ClickHouseUser.EXPERIMENTS),
             ("precompute_queue", "activity-q", "precompute-q", ClickHouseUser.EXPERIMENTS),
+            ("build_queue", "activity-q", "build-q", ClickHouseUser.EXPERIMENTS),
+            ("direct_heavy_queue", "activity-q", "direct-heavy-q", ClickHouseUser.EXPERIMENTS),
             ("main_queue", "activity-q", "main-q", ClickHouseUser.CACHE_WARMUP),
             ("collapsed_queues", "main-q", "main-q", ClickHouseUser.CACHE_WARMUP),
         ]
@@ -1240,6 +1244,8 @@ class TestCalculateActivity(BaseTest):
                 EXPERIMENTS_RECALCULATION_TASK_QUEUE="main-q",
                 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE=activity_task_queue,
                 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+                EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE="build-q",
+                EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE="direct-heavy-q",
             ),
             patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
             _patched_runner() as mock_runner,
@@ -1302,28 +1308,59 @@ class TestCalculateActivity(BaseTest):
         assert row.id == existing.id
         assert row.result == {"already": "computed"}
 
-    def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
-        # A config change yields a different recalc fingerprint, so the existing row does not match and the
-        # activity must recompute rather than reuse a stale result.
-        metric = _mean_metric("m1")
-        exp = self._experiment(flag_key="calc-skip-stale", metrics=[metric])
+    @parameterized.expand(
+        [
+            ("a_result_replaces_it", None, "version_2", {"fresh": True}, "current", (1, 0)),
+            ("a_failure_keeps_it", StatisticError("Not enough data"), "version_1", {"saved": True}, "unknown", (0, 1)),
+        ]
+    )
+    def test_recomputes_a_result_under_another_key_version(
+        self,
+        _name: str,
+        error: Exception | None,
+        expected_key: str,
+        expected_result: dict,
+        expected_configuration: str,
+        expected_counters: tuple[int, int],
+    ) -> None:
+        self.enterContext(patch_calculation_key_version(2))
+        exp = self._experiment(flag_key=f"calc-other-version-{_name}", metrics=[_mean_metric("m1")])
         query_to = datetime.fromisoformat(_QUERY_TO)
+        calculation_config = get_metric_calculation_config(exp, "m1")
+        assert calculation_config is not None
+        keys = {
+            "version_1": _recalc_fingerprint(calculation_config.key_for_version(1)),
+            "version_2": _recalc_fingerprint(calculation_config.key_for_version(2)),
+        }
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
-            fingerprint="stale-fingerprint-from-old-config",
+            fingerprint=keys["version_1"],
             query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
-            result={"stale": True},
+            result={"saved": True},
         )
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _patched_runner() as mock_runner:
-            mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            if error is None:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {"fresh": True}
+            else:
+                mock_runner.return_value.run.side_effect = error
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, calculation_key_version=2)
 
         mock_runner.assert_called_once()
+        recalc.refresh_from_db()
+        assert list(recalc.metric_errors) == ([] if error is None else ["m1"])
+        results = get_run_results(recalc)
+        assert [(r["status"], r["result"], r["configuration_status"]) for r in results] == [
+            (ExperimentMetricResult.Status.COMPLETED, expected_result, expected_configuration)
+        ]
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
+        assert row.fingerprint == keys[expected_key]
+        payload = build_job_payload(recalc, results=results)
+        assert (payload["completed_metrics"], payload["failed_metrics"]) == expected_counters
 
     def test_excluded_variants_change_recomputes(self):
         # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
@@ -1860,9 +1897,12 @@ class TestRecalculationAnalytics(BaseTest):
             query_to=datetime.fromisoformat(_QUERY_TO),
         )
 
-    def test_metric_finished_event_on_success(self):
+    @parameterized.expand([("manual",), ("scheduled",)])
+    def test_metric_finished_event_on_success(self, trigger: str) -> None:
         exp = self._experiment(flag_key="an-success", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
+        recalc.trigger = trigger
+        recalc.save(update_fields=["trigger"])
 
         with _record_captures() as captured:
             with _patched_runner() as mock_runner:
@@ -1879,6 +1919,10 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["metric_kind"] == "mean"
         assert props["is_primary"] is True
         assert props["execution_mode"] == "recalculation"
+        if trigger == "scheduled":
+            assert props["$update_person_last_seen_at"] is False
+        else:
+            assert "$update_person_last_seen_at" not in props
         assert "duration_ms" in props
 
     def test_metric_error_event_on_insufficient_data(self):
@@ -2009,12 +2053,15 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["mechanism"] == "orchestrated"
         assert props["trigger"] == "manual"
 
-    def test_results_refresh_completed_event_on_finish(self):
+    @parameterized.expand([("manual",), ("scheduled",)])
+    def test_results_refresh_completed_event_on_finish(self, trigger: str) -> None:
         exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")], secondary=[_mean_metric("s1")])
         for uuid, role in [("sp1", "primary"), ("ss1", "secondary")]:
             saved = ExperimentSavedMetric.objects.create(team=self.team, name=f"saved-{uuid}", query=_mean_metric(uuid))
             ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": role})
         recalc = self._recalc(exp, metric_uuids=["m1", "s1", "sp1", "ss1"])
+        recalc.trigger = trigger
+        recalc.save(update_fields=["trigger"])
 
         with _record_captures() as captured:
             _update(
@@ -2040,6 +2087,10 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["primary_metrics_count"] == 2
         assert props["secondary_metrics_count"] == 2
         assert props["execution_mode"] == "recalculation"
+        if trigger == "scheduled":
+            assert props["$update_person_last_seen_at"] is False
+        else:
+            assert "$update_person_last_seen_at" not in props
         assert "total_duration_ms" in props
 
     def test_results_refresh_completed_not_re_emitted_on_retry(self):

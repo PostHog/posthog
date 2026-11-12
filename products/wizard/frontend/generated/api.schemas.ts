@@ -428,6 +428,22 @@ export const WizardRunPullRequestArtifactApiArtifactType = {
     PullRequest: 'pull_request',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ */
+export type WizardPullRequestStateEnumApi =
+    (typeof WizardPullRequestStateEnumApi)[keyof typeof WizardPullRequestStateEnumApi]
+
+export const WizardPullRequestStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+} as const
+
 export interface WizardRunPullRequestArtifactApi {
     /** Unique ID of the run artifact. */
     readonly id: string
@@ -451,6 +467,23 @@ export interface WizardRunPullRequestArtifactApi {
     readonly base_branch: string
     /** Time when the artifact was stored. */
     readonly created_at: string
+    /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed */
+    readonly state: WizardPullRequestStateEnumApi | null
+    /**
+     * Time when the pull request was merged, if it was.
+     * @nullable
+     */
+    readonly merged_at: string | null
+    /**
+     * Time when the pull request was closed or merged. Null while it is open.
+     * @nullable
+     */
+    readonly closed_at: string | null
 }
 
 export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
@@ -593,6 +626,17 @@ export interface WizardScanResultApi {
     id: string
     /** False when this session had already reported its scan, so nothing changed. */
     created: boolean
+}
+
+export interface WizardDetectedWarehouseSourceApi {
+    /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+    kind: string
+    /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+    warehouse_source_type: string
+    /** When a wizard scan first found the tool. */
+    first_seen_at: string
+    /** When a wizard scan last found the tool. */
+    last_seen_at: string
 }
 
 /**
@@ -939,6 +983,13 @@ export type WizardRunsArtifactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string
 }
 
 export type WizardSessionsListParams = {

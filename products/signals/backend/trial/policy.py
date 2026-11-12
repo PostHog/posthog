@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.common.errors import NonReportableError
 
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION, STANDARD_TRIAL_LIMITS, TrialLimits
@@ -32,9 +33,17 @@ class TrialRefused(APIException):
     status_code = 402
     default_code = "self_driving_trial_unavailable"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, detail: str | None = None) -> None:
         self.reason = reason
-        super().__init__(f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+        super().__init__(detail or f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+
+
+class TrialExecutionRefused(TrialRefused, NonReportableError):
+    def __init__(self) -> None:
+        super().__init__(
+            "accounted_execution_required",
+            detail="Self-driving trials require the PostHog AI gateway. Choose Claude Code or Codex with PostHog model access to start this run.",
+        )
 
 
 @frozen
@@ -196,12 +205,11 @@ class TrialPolicy:
         from products.signals.backend.scout_harness.lifecycle_lock import (
             user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
         )
-
-        configs = list(
-            SignalScoutConfig.objects.for_team(self.team_id, canonical=True)
-            .filter(enabled=True)
-            .order_by("created_at", "id")
+        from products.signals.backend.trial.scouts import (
+            trial_counted_scouts,  # noqa: PLC0415 -- the scout rules import this module
         )
+
+        configs = list(trial_counted_scouts(self.team_id).order_by("created_at", "id"))
         excess = configs[grant.scout_limit :]
         if excess and api_scopes is not None and not {"*", "signal_scout:write"}.intersection(api_scopes):
             raise PermissionDenied("Starting this trial would pause scouts and requires signal_scout:write access.")

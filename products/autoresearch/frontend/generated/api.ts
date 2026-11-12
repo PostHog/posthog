@@ -605,6 +605,26 @@ export const autoresearchTrainingRunsMaterializeFeaturesCreate = async (
     )
 }
 
+export const getAutoresearchTrainingRunsStopCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/stop/`
+}
+
+/**
+ * Stop a pending or running training run. The run fails with a 'stopped' error, its sandbox is cancelled, and no model is promoted from it, so the current champion keeps scoring. The iterations it recorded stay. When this was the pipeline's first run, the pipeline goes back to draft and its definition can change again. The run still counts against the project's daily training limit.
+ * @summary Stop a training run
+ */
+export const autoresearchTrainingRunsStopCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsStopCreateUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAutoresearchTrainingRunsHistoryRetrieveUrl = (
     projectId: string,
     pipelineId: string,
@@ -910,7 +930,7 @@ export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Return the project's autoresearch limits and how much of each it is using: sandbox training runs in the last 24 hours against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
+ * Return the project's autoresearch limits and how much of each it is using: sandbox training runs against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
  * @summary Read the project's limits
  */
 export const autoresearchLimitsRetrieve = async (

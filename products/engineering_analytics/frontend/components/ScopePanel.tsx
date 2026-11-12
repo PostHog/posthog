@@ -1,5 +1,4 @@
-// The scope boundary: the window controls sit on the panel's rim, and everything inside reflects them.
-// The repository is the page's own scope, set from the title. Current-state surfaces belong outside it.
+// Everything inside the panel reflects the window controls on its rim, so current-state surfaces belong outside it.
 
 import { ReactNode } from 'react'
 
@@ -12,10 +11,8 @@ export function ScopePanel({
     controls,
     children,
 }: {
-    /** Reloading with data already on screen, so a window change reads as "updating" rather than a silent swap. */
     busy?: boolean
-    /** Rim controls; defaults to the shared window picker. A page with its own window state passes its picker,
-     *  and a page with a fixed window passes null. */
+    /** A page with its own window state passes its picker, and a page with a fixed window passes null. */
     controls?: ReactNode
     children: ReactNode
 }): JSX.Element {
