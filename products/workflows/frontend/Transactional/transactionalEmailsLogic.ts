@@ -44,6 +44,7 @@ export interface transactionalEmailsLogicValues {
     codeEmailsLoading: boolean
     filteredTransactionalEmails: TransactionalEmailRow[]
     filters: TransactionalEmailsFilters
+    hasNoEmails: boolean
     isFiltered: boolean
     savingTagsFor: string | null
     transactionalEmails: TransactionalEmailRow[]
@@ -106,6 +107,12 @@ export interface transactionalEmailsLogicMeta {
             transactionalEmails: TransactionalEmailRow[],
             filters: TransactionalEmailsFilters
         ) => TransactionalEmailRow[]
+        hasNoEmails: (
+            transactionalTemplatesLoading: boolean,
+            transactionalTemplatesFailed: boolean,
+            transactionalTemplates: MessageTemplateApi[],
+            codeEmails: CodeEmailApi[] | null
+        ) => boolean
         isFiltered: (filters: TransactionalEmailsFilters) => boolean
     }
 }
@@ -189,6 +196,20 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             (s) => [s.transactionalEmails, s.filters],
             (rows: TransactionalEmailRow[], filters: TransactionalEmailsFilters): TransactionalEmailRow[] =>
                 filterTransactionalEmails(rows, filters),
+        ],
+        hasNoEmails: [
+            (s) => [
+                s.transactionalTemplatesLoading,
+                s.transactionalTemplatesFailed,
+                s.transactionalTemplates,
+                s.codeEmails,
+            ],
+            (
+                templatesLoading: boolean,
+                templatesFailed: boolean,
+                templates: MessageTemplateApi[],
+                codeEmails: CodeEmailApi[] | null
+            ): boolean => !templatesLoading && !templatesFailed && templates.length === 0 && codeEmails?.length === 0,
         ],
         isFiltered: [
             (s) => [s.filters],

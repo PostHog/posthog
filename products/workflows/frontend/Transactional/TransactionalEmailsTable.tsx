@@ -32,9 +32,8 @@ const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 
 export function TransactionalEmailsTable(): JSX.Element {
     const {
-        transactionalTemplates,
+        hasNoEmails,
         transactionalTemplatesFailed,
-        codeEmails,
         filteredTransactionalEmails,
         transactionalTemplatesLoading,
         codeEmailsLoading,
@@ -52,12 +51,7 @@ export function TransactionalEmailsTable(): JSX.Element {
         AccessControlLevel.Editor
     )
 
-    if (
-        !transactionalTemplatesLoading &&
-        !transactionalTemplatesFailed &&
-        transactionalTemplates.length === 0 &&
-        codeEmails?.length === 0
-    ) {
+    if (hasNoEmails) {
         return (
             <ProductIntroduction
                 thingName="transactional email"
