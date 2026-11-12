@@ -9,6 +9,16 @@ import {
 } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
 
+// Retention floors and deletes only the events table, so an insight reading warehouse tables alone loses nothing.
+export function readsOnlyWarehouseTables(source: Node | null | undefined): boolean {
+    return (
+        !!source &&
+        isInsightQueryWithSeries(source) &&
+        source.series.length > 0 &&
+        source.series.every(isAnyDataWarehouseNode)
+    )
+}
+
 /** Whether one insight's date range reaches past the team's events retention window.
  *
  * Shared by the per-insight banner, the dashboard-level banner and the tile icon so every surface answers the
@@ -35,8 +45,7 @@ export function exceedsRetention({
         return true
     }
     const source = isInsightVizNode(query) ? query.source : undefined
-    // Retention floors only the events table, so an insight reading warehouse tables alone can't be truncated.
-    if (isInsightQueryWithSeries(source) && source.series.length > 0 && source.series.every(isAnyDataWarehouseNode)) {
+    if (readsOnlyWarehouseTables(source)) {
         return false
     }
     const dateFrom = dateFromOverride ?? source?.dateRange?.date_from

@@ -13,7 +13,7 @@ import { insightRetentionBannerLogic } from './insightRetentionBannerLogic'
 export function InsightRetentionBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { shouldShowBanner } = useValues(insightRetentionBannerLogic(insightProps))
     const { retentionPeriodLabel, retentionBannerAction, nextDeletionLabel } = useValues(dataRetentionBannerLogic)
-    const { snooze } = useActions(dataRetentionBannerLogic)
+    const { dismiss } = useActions(dataRetentionBannerLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!shouldShowBanner || !retentionPeriodLabel) {
@@ -32,14 +32,14 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
 
     if (todayRailNav) {
         return (
-            <QuillInsightBanner tone="warning" onClose={snooze} action={retentionBannerAction ?? undefined}>
+            <QuillInsightBanner tone="warning" onClose={dismiss} action={retentionBannerAction ?? undefined}>
                 {message}
             </QuillInsightBanner>
         )
     }
 
     return (
-        <LemonBanner type="warning" onClose={snooze} action={retentionBannerAction ?? undefined}>
+        <LemonBanner type="warning" onClose={dismiss} action={retentionBannerAction ?? undefined}>
             {message}
         </LemonBanner>
     )
