@@ -7084,9 +7084,9 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     benchmark: float | None = Field(
         ...,
         description=(
-            "CPA benchmark for the subject. Rules that judge a CPA compare it with this"
-            " value, and other rules show it for context. Null when the account has no"
-            " non-brand conversions."
+            "CPA benchmark the rule compares the subject with. Only rules that judge a"
+            " CPA carry `cpa`: review, Search scale, budget, spend without conversions"
+            " and content gap."
         ),
     )
     benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | None = Field(
@@ -7100,10 +7100,9 @@ class MarketingAnalyticsRecommendationCpa(BaseModel):
     value: float | None = Field(
         ...,
         description=(
-            "Cost per conversion of the subject, as the reason states it. Campaigns use"
-            " their non-brand CPA, or their total CPA when the benchmark is a target"
-            " CPA or the rule is the Performance Max rank rule. Null when it has no"
-            " conversions or is not bought yet."
+            "Cost per conversion of the subject. Campaigns use their non-brand CPA, or"
+            " their total CPA when the benchmark is a target CPA. Null when it has no"
+            " conversions."
         ),
     )
     worstCampaign: float | None = Field(
@@ -35969,6 +35968,10 @@ class ErrorTrackingReleasesQuery(BaseModel):
 class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    as_of: str | None = Field(
+        default=None,
+        description=("The instant the window is evaluated at, when it ends before `end_date`. Unset means now."),
     )
     end_date: str | None = None
     experiment_id: int | None = None
