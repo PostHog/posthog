@@ -5009,7 +5009,7 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         choices=ReportInvolvement.choices,
         help_text="`authored` when your scout emitted the report, `edited` when it only edited it.",
     )
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=DiscussionSource.choices,
         help_text="`inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.",
     )
@@ -5026,14 +5026,15 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The latest run's summary of the conversation and its outcome. Null when no run has written one yet, "
-            "or when the summary could have been written by someone who may not steer scouts on this project."
+            "or when the summary could have been written by someone who may not steer scouts on this project. "
+            "Always null for a `slack` discussion, because other people in the thread can steer it."
         ),
     )
     question = serializers.CharField(
         allow_null=True,
         help_text=(
             "For a `slack` discussion, the message that started it, in the person's own words. Null when that "
-            "message cannot be separated from the rest of the Slack thread, or when the rule that nulls "
-            "`task_summary` applies. Always null for an `inbox` discussion, because a scout note carried its question."
+            "person may not steer scouts on this project, or started a later Slack discussion on the same report. "
+            "Always null for an `inbox` discussion, because a scout note carried its question."
         ),
     )

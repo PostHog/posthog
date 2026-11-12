@@ -25,6 +25,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.facade.api import link_slack_task_to_report
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 
@@ -140,10 +141,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         task = Task.objects.create(
             team=self.team,
             title="Is this expected?",
-            description=(
-                "<slack_thread_context>\nSlack thread leading up to the request.\n\n"
-                "<@U_OTHER|other>:\n  Someone else's message.\n</slack_thread_context>\n\nIs this expected?"
-            ),
+            description="Rewritten through the tasks API after the thread linked it.",
             origin_product=Task.OriginProduct.SLACK,
             created_by=creator,
             channel=self.channel,
@@ -160,12 +158,12 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
             mentioning_slack_user_id="U_MENTIONER",
             conversation_type=conversation_type,
         )
-        append_task_run_artefact(
+        link_slack_task_to_report(
             team_id=self.team.id,
-            report_id=str(self.authored.id),
-            product=SIGNALS_PRODUCT,
-            type=TASK_RUN_TYPE_DISCUSSION,
             task_id=str(task.id),
+            report_id=str(self.authored.id),
+            user_id=creator.id,
+            question="Is this expected?",
         )
 
         rows = self._list()
@@ -175,10 +173,8 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
             return
         [row] = rows
         assert row["source"] == "slack"
-        if outsider:
-            assert (row["question"], row["task_summary"]) == (None, None)
-        else:
-            assert (row["question"], row["task_summary"]) == ("Is this expected?", "Intended behavior.")
+        assert row["task_summary"] is None
+        assert row["question"] == (None if outsider else "Is this expected?")
 
     def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:
         three_days_ago = timezone.now() - timedelta(days=3)

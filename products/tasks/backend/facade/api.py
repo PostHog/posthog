@@ -2093,8 +2093,14 @@ def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
         TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
 
 
-def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
-    """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
+def link_slack_task_to_report(
+    *, team_id: int, task_id: str, report_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Link only a saved Slack task; a repeated activity must not add another discussion entry.
+
+    `question` is the verified Slack user's own message, recorded for the report's scout. Pass it only
+    for a thread in a Slack channel.
+    """
     from products.signals.backend.facade.api import record_slack_report_discussion
 
     with transaction.atomic():
@@ -2103,7 +2109,9 @@ def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, use
         )
         if task.signal_report_source_id is not None:
             return
-        record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
+        record_slack_report_discussion(
+            team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id, question=question
+        )
         task.signal_report_id = UUID(report_id)
         task.source_kind = SourceKind.SIGNAL_REPORT.value
         task.source_id = str(task.signal_report_id)

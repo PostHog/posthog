@@ -24,9 +24,12 @@ full steering gate, including the credential scopes this read cannot recover.
 
 A reply in a report's Slack thread starts a discussion too (`record_slack_report_discussion`), and
 no note carries its question. The tasks facade returns such a task only when its thread is in a
-Slack channel, never a direct message. Its `question` is the person's own message, isolated from the
-thread quoted around it, under the same gate as a summary. A Slack user is verified as a PostHog
-user, and has no credential scopes to check.
+Slack channel, never a direct message. Its summary is always null: other people in the thread can
+send the task turns, and the thread reaches its agent as context, so the creator is never its only
+author. Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` action row that
+the Slack flow wrote when it linked the task, never from the task description, which a `task:write`
+credential can rewrite. It is returned only when the creator passes `user_can_steer_scouts`. A Slack
+user is verified as a PostHog user, and has no credential scopes to check.
 """
 
 from __future__ import annotations
@@ -43,7 +46,7 @@ from posthog.models import Team, User
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
 from products.signals.backend.dismissal_notes import user_can_steer_scouts
-from products.signals.backend.models import SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutRun
 from products.tasks.backend.facade.api import TaskOriginProduct
 from products.tasks.backend.facade.team_task_summaries import list_team_task_summaries
 
@@ -130,16 +133,21 @@ def list_report_discussions(
         active_after=active_after,
         limit=limit,
     )
+    slack_questions = _slack_questions(
+        team_id=team.id,
+        report_ids=[report_by_task[task.task_id] for task in tasks if task.origin_product == TaskOriginProduct.SLACK],
+    )
     steering_creators = _creators_who_may_steer(
-        team, (task.created_by_id for task in tasks if task.summary or task.slack_request)
+        team,
+        (task.created_by_id for task in tasks if task.summary or (task.created_by_id, task.task_id) in slack_questions),
     )
 
     discussions: list[ReportDiscussion] = []
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
-        trusted = task.creator_controls_alone and task.created_by_id in steering_creators
-        summary = task.summary if trusted else None
-        question = task.slack_request if trusted else None
+        may_steer = task.created_by_id in steering_creators
+        summary = task.summary if task.creator_controls_alone and may_steer else None
+        question = slack_questions.get((task.created_by_id, task.task_id)) if may_steer else None
         discussions.append(
             ReportDiscussion(
                 report_id=discussion_report_id,
@@ -177,6 +185,29 @@ def _touched_reports(*, team_id: int, skill_name: str, report_id: str | None) ->
     if report_id is not None:
         return {report_id: involvement[report_id]} if report_id in involvement else {}
     return involvement
+
+
+def _slack_questions(*, team_id: int, report_ids: list[str]) -> dict[tuple[int | None, str], str]:
+    """The opening Slack message of each discussion task on these reports, keyed by (creator, task id).
+
+    The action row keeps one entry per person and report, so an earlier task by the same person on the
+    same report has no question here.
+    """
+    if not report_ids:
+        return {}
+    rows = (
+        SignalReportAction.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=SignalReportAction.ActionType.SLACK_DISCUSSION)
+        .values_list("user_id", "metadata")
+    )
+    return {
+        (user_id, str(metadata["task_id"])): question
+        for user_id, metadata in rows
+        if isinstance(metadata, dict)
+        and metadata.get("task_id")
+        and isinstance(question := metadata.get("question"), str)
+        and question.strip()
+    }
 
 
 def _creators_who_may_steer(team: Team, creator_ids: Iterable[int | None]) -> set[int]:

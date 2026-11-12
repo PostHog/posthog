@@ -35,11 +35,9 @@ class TeamTaskSummary:
     summary: str | None
     # True when only the creator can drive the task or write its run summary. That holds for a task
     # filed into a channel. A null-channel task from a team-controlled origin can be driven by any
-    # member, so its summary may be someone else's text.
+    # member, so its summary may be someone else's text. A Slack task never qualifies: other people in
+    # its thread can send it turns, and the thread itself reaches its agent as context.
     creator_controls_alone: bool
-    # A Slack task's request in its creator's own words, without the thread quoted around it. None for
-    # any other origin, and when the request cannot be told apart from the thread.
-    slack_request: str | None
 
 
 def _readable_by_team_q(team_id: int) -> Q:
@@ -54,16 +52,6 @@ def _readable_by_team_q(team_id: int) -> Q:
     in_other_thread = Exists(thread_mappings.exclude(conversation_type__in=sorted(CHANNEL_CONVERSATION_TYPES)))
     slack_q = Q(origin_product=Task.OriginProduct.SLACK)
     return (slack_q & in_channel_thread & ~in_other_thread) | (~slack_q & task_visibility_q(None, team_id))
-
-
-def _slack_request(origin_product: str, description: str | None) -> str | None:
-    if origin_product != Task.OriginProduct.SLACK:
-        return None
-    from products.slack_app.backend.facade.api import (  # noqa: PLC0415 — cross-product import kept off the import path
-        slack_task_request_text,
-    )
-
-    return slack_task_request_text(description or "")
 
 
 def list_team_task_summaries(
@@ -101,7 +89,7 @@ def list_team_task_summaries(
         .annotate(active_at=Coalesce(Subquery(last_run_change), F("created_at")))
         .filter(active_at__gte=active_after)
         .order_by("-active_at", "id")
-        .values("id", "created_at", "active_at", "created_by_id", "origin_product", "channel_id", "description")[:limit]
+        .values("id", "created_at", "active_at", "created_by_id", "origin_product", "channel_id")[:limit]
     )
     if not tasks:
         return []
@@ -140,8 +128,11 @@ def list_team_task_summaries(
                 origin_product=task["origin_product"],
                 run_status=run["status"] if run is not None else None,
                 summary=summary,
-                creator_controls_alone=task["channel_id"] is not None and task["created_by_id"] is not None,
-                slack_request=_slack_request(task["origin_product"], task["description"]),
+                creator_controls_alone=(
+                    task["channel_id"] is not None
+                    and task["created_by_id"] is not None
+                    and task["origin_product"] != Task.OriginProduct.SLACK
+                ),
             )
         )
     return summaries

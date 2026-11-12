@@ -4,16 +4,15 @@ The ONLY module other products are allowed to import. Keep the surface narrow:
 every function here lives behind a tach contract check, so each addition has a
 cost in cross-product coupling.
 
-Today the facade exists for seven jobs: letting core's OAuth callback invalidate
+Today the facade exists for six jobs: letting core's OAuth callback invalidate
 the per-integration auth-state cache when a Slack install is reconnected,
 answering whether a channel has been approved for PostHog to speak in,
 telling a product that posts a report whether the bot can answer a follow-up,
 turning an agent's tool calls into the progress lines of a streamed Slack
 reply, recording that a Slack user used a feature, so feature tips skip it,
-serving the web setup after a Slack install to this product's presentation
-layer, and reading the requester's own message out of a Slack task's
-description. All are stable re-exports so the implementations can move around
-inside slack_app without breaking their callers.
+and serving the web setup after a Slack install to this product's presentation
+layer. All are stable re-exports so the implementations can move around inside
+slack_app without breaking their callers.
 
 This module's import graph must not reach ``products.signals``. That product now imports this
 facade, and ``products.slack_app`` imports signals' facade in turn, so a module-level edge from
@@ -58,9 +57,6 @@ from products.slack_app.backend.services.followup_invite import build_followup_i
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
-from products.slack_app.backend.services.slack_task_description import (
-    request_from_task_description as slack_task_request_text,
-)
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 
@@ -95,7 +91,6 @@ __all__ = [
     "slack_followup_invite",
     "slack_followup_invite_text",
     "slack_report_implementation_button",
-    "slack_task_request_text",
 ]
 
 logger = structlog.get_logger(__name__)

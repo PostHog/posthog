@@ -339,14 +339,15 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("report_notification_thread", True, False, None, False),
-            ("report_implementation", True, True, None, False),
-            ("implementation_mapping_failure", True, True, "mapping", False),
-            ("implementation_registration_failure", True, True, "registration", False),
-            ("mapping_failure", True, False, "mapping", False),
-            ("association_failure", True, False, "association", False),
-            ("ordinary_thread", False, False, None, False),
-            ("implementation_repository_refresh", True, True, None, True),
+            ("report_notification_thread", True, False, None, False, "channel"),
+            ("report_thread_in_direct_message", True, False, None, False, "im"),
+            ("report_implementation", True, True, None, False, "channel"),
+            ("implementation_mapping_failure", True, True, "mapping", False, "channel"),
+            ("implementation_registration_failure", True, True, "registration", False, "channel"),
+            ("mapping_failure", True, False, "mapping", False, "channel"),
+            ("association_failure", True, False, "association", False, "channel"),
+            ("ordinary_thread", False, False, None, False, "channel"),
+            ("implementation_repository_refresh", True, True, None, True, "channel"),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
@@ -358,6 +359,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         implementation,
         failure_stage,
         refresh_repository,
+        channel_type,
         mock_slack_cls,
         _mock_execute_workflow,
     ):
@@ -390,6 +392,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, "channel_type": channel_type})
         if implementation:
             inputs = replace(inputs, report_implementation_message_ts="1234.5678")
         if refresh_repository:
@@ -467,6 +470,13 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
         )
         assert work_log.count() == int(from_report_thread)
+        if from_report_thread and not implementation and failure_stage is None:
+            action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
+            if channel_type == "im":
+                assert action.metadata == {}
+            else:
+                assert action.metadata["task_id"] == str(task.id)
+                assert "do something" in action.metadata["question"]
         from products.signals.backend.scout_harness.inactivity import _engaged_report_ids
 
         assert (
