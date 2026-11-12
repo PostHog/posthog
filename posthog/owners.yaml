@@ -9,7 +9,7 @@ rules:
           - '/csp_middleware.py'
           - '/test/test_csp_middleware.py'
       owners: team-security
-    - match: '/test/test_migration_1434_delete_user_interview_sharing_configurations.py'
+    - match: '/test/test_migration_1435_delete_user_interview_sharing_configurations.py'
       owners: team-security
     - match: '/data_freshness.py'
       owners: team-platform-features

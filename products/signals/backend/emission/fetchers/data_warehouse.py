@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -23,6 +23,19 @@ logger = structlog.get_logger(__name__)
 
 FILTER_SOURCE_ALIAS = "signal_filter_source"
 MALFORMED_COLUMN = "__signal_filter_malformed"
+# A filtered fetch writes the number of rows it dropped for malformed filter fields to this context key.
+MALFORMED_COUNT_KEY = "malformed_count"
+# When the caller sets DRAIN_WINDOW_KEY, the fetch reads oldest first and reports where a capped batch ended,
+# so the caller can resume from there instead of losing the rows past `max_records`.
+DRAIN_WINDOW_KEY = "drain_window"
+WINDOW_END_KEY = "window_end"
+WINDOW_END_ID_KEY = "window_end_id"
+WINDOW_CAPPED_KEY = "window_capped"
+# With `last_synced_at`, reads rows after that exact (timestamp, cursor id) position.
+RESUME_AFTER_ID_KEY = "resume_after_id"
+WINDOW_POSITION_COLUMN = "__signal_window_position"
+WINDOW_POSITION_ID_COLUMN = "__signal_window_position_id"
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def escape_table_name(table_name: str) -> str:
@@ -78,8 +91,17 @@ def data_warehouse_record_fetcher(
         if config.partition_field_is_datetime_string
         else config.partition_field
     )
+    cursor_id_expr = f"toString({config.cursor_id_field})" if config.cursor_id_field else None
+    resume_after_id = context.get(RESUME_AFTER_ID_KEY)
     # Continuous sync — filter records since last sync
-    if last_synced_at is not None:
+    if last_synced_at is not None and resume_after_id and cursor_id_expr:
+        where_parts.append(
+            f"({partition_expr} > {{last_synced_at}} OR "
+            f"({partition_expr} = {{last_synced_at}} AND {cursor_id_expr} > {{resume_after_id}}))"
+        )
+        placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
+        placeholders["resume_after_id"] = ast.Constant(value=resume_after_id)
+    elif last_synced_at is not None:
         where_parts.append(f"{partition_expr} > {{last_synced_at}}")
         placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
     # First ever sync — look back a limited window
@@ -95,8 +117,16 @@ def data_warehouse_record_fetcher(
     fields_sql = ", ".join(config.fields)
     saved_filter = saved_filter_from_source_config(context.get("source_config"))
     alias_sql = f" AS {FILTER_SOURCE_ALIAS}" if saved_filter is not None else ""
+    drain = bool(context.get(DRAIN_WINDOW_KEY))
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
     order_sql = f"ORDER BY {config.order_by}" if config.order_by else ""
+    if drain:
+        # Milliseconds since the epoch in UTC, so the stored position does not depend on the result timezone.
+        fields_sql = f"{fields_sql}, toUnixTimestamp64Milli(toDateTime64({partition_expr}, 3, 'UTC')) AS {WINDOW_POSITION_COLUMN}"
+        order_sql = f"ORDER BY {partition_expr} ASC"
+        if cursor_id_expr:
+            fields_sql = f"{fields_sql}, {cursor_id_expr} AS {WINDOW_POSITION_ID_COLUMN}"
+            order_sql = f"{order_sql}, {cursor_id_expr} ASC"
     query = f"""
         SELECT {fields_sql}
         FROM {escape_table_name(table_name)}{alias_sql}
@@ -152,9 +182,16 @@ def data_warehouse_record_fetcher(
     if not result.results or not result.columns:
         return []
     records = [dict(zip(result.columns, row)) for row in result.results]
+    if drain:
+        positions = [record.pop(WINDOW_POSITION_COLUMN) for record in records]
+        position_ids = [record.pop(WINDOW_POSITION_ID_COLUMN, None) for record in records]
+        context[WINDOW_END_KEY] = _EPOCH + timedelta(milliseconds=int(positions[-1]))
+        context[WINDOW_END_ID_KEY] = position_ids[-1]
+        context[WINDOW_CAPPED_KEY] = len(records) >= config.max_records
     if filter_context is None:
         return records
     passing = [record for record in records if not record.pop(MALFORMED_COLUMN)]
+    context[MALFORMED_COUNT_KEY] = len(records) - len(passing)
     if len(passing) < len(records):
         logger.warning(
             "Excluded records with malformed filter fields",

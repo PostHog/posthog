@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { NotebooksDeleteCellSchema } from '@/tools/notebooks/deleteCell'
-import { NotebookEditSchema } from '@/tools/notebooks/edit'
 import { NotebooksUpdateCellSchema } from '@/tools/notebooks/updateCell'
 import type { ZodObjectAny } from '@/tools/types'
 
@@ -20,31 +19,28 @@ describe('notebook identifier contracts', () => {
         return result.data as Record<string, unknown>
     }
 
-    describe.each([
-        ['notebooks-retrieve'],
-        ['notebooks-get'],
-        ['notebooks-destroy'],
-        ['notebooks-partial-update'],
-        ['notebooks-list-frames'],
-    ])('%s normalizes aliases to `short_id`', (toolName) => {
-        const schema = GENERATED_TOOLS[toolName]!().schema
+    describe.each([['notebooks-get'], ['notebooks-destroy'], ['notebooks-partial-update'], ['notebooks-list-frames']])(
+        '%s normalizes aliases to `short_id`',
+        (toolName) => {
+            const schema = GENERATED_TOOLS[toolName]!().schema
 
-        it.each([
-            ['short_id', { short_id: SHORT_ID }],
-            ['notebook_id', { notebook_id: SHORT_ID }],
-            ['notebookId', { notebookId: SHORT_ID }],
-            ['shortId', { shortId: SHORT_ID }],
-        ])('accepts %s', (_label, input) => {
-            const data = parseWith(schema, input)
+            it.each([
+                ['short_id', { short_id: SHORT_ID }],
+                ['notebook_id', { notebook_id: SHORT_ID }],
+                ['notebookId', { notebookId: SHORT_ID }],
+                ['shortId', { shortId: SHORT_ID }],
+            ])('accepts %s', (_label, input) => {
+                const data = parseWith(schema, input)
 
-            expect(data.short_id).toBe(SHORT_ID)
-            expect(data).not.toHaveProperty('notebook_id')
-        })
+                expect(data.short_id).toBe(SHORT_ID)
+                expect(data).not.toHaveProperty('notebook_id')
+            })
 
-        it('keeps short_id when the caller sends both spellings', () => {
-            expect(parseWith(schema, { short_id: SHORT_ID, notebook_id: 'other' }).short_id).toBe(SHORT_ID)
-        })
-    })
+            it('keeps short_id when the caller sends both spellings', () => {
+                expect(parseWith(schema, { short_id: SHORT_ID, notebook_id: 'other' }).short_id).toBe(SHORT_ID)
+            })
+        }
+    )
 
     describe.each([
         ['notebooks-update-cell', NotebooksUpdateCellSchema],
@@ -70,15 +66,5 @@ describe('notebook identifier contracts', () => {
         })
 
         expect(data.notebook_id).toBe(SHORT_ID)
-    })
-
-    it('notebook-edit accepts notebook_id in place of short_id', () => {
-        const data = parseWith(NotebookEditSchema, {
-            notebook_id: SHORT_ID,
-            old_markdown: 'before',
-            new_markdown: 'after',
-        })
-
-        expect(data.short_id).toBe(SHORT_ID)
     })
 })

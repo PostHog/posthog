@@ -346,10 +346,15 @@ tools:
             import, read each message action's template with GET
             /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass snippets that notes name. In a
             preview, a workflow_id means the import replaces that existing draft. Pass sender identities and segment
-            ids, names and types too, never segment members. Run once with dry_run=true and show the user each
-            automation's notes, then import for real. Drafts never send until a person enables them. Re-importing an
-            automation replaces its draft, discarding edits made there since, so confirm with the user first. Share each
-            draft's link and the notes marked needs_input, since the team must set those before enabling.
+            ids, names and types too, never segment members. For each dynamic segment an automation checks, read its
+            rules with GET /v1/environments/{environment_id}/segments/{segment_id} and pass them as that segment's
+            `conditions`: a real import then turns the segment into a realtime cohort when every rule has an exact
+            cohort condition, reuses that cohort on later imports, and reports each segment in `segment_cohorts`.
+            Creating cohorts needs the cohort:write scope. Run once with dry_run=true and show the user each
+            automation's notes and the cohorts it would create, then import for real. Drafts never send until a person
+            enables them. Re-importing an automation replaces its draft, discarding edits made there since, so confirm
+            with the user first. Share each draft's link and the notes marked needs_input, since the team must set those
+            before enabling.
         feature_flag: workflows-customerio-import
     workflows-import-notes:
         operation: workflow_imports_for_workflow_retrieve

@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("user_interviews", "0010_alter_intervieweecontext_team_and_more"),
-        ("posthog", "1435_sharingconfiguration_untrack_interviewee_context"),
+        ("posthog", "1436_sharingconfiguration_untrack_interviewee_context"),
     ]
 
     operations = [

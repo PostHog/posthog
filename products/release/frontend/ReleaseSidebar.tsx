@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCalendar, IconList } from '@posthog/icons'
-import { Dot } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -15,12 +14,13 @@ import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { releaseLogic } from './releaseLogic'
-import { STAGE_TONE } from './releaseUtils'
+import { ReleaseStageDot } from './ReleaseStageDot'
+import { STAGE_COLOR_VARS } from './releaseUtils'
 
 const SECTION_LIMIT = 10
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount } = useValues(releaseLogic)
+    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
     const { setDecisionOnly } = useActions(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
@@ -63,7 +63,7 @@ export function ReleaseSidebar(): JSX.Element {
             key={row.id}
             value={`release:${row.id}`}
             label={row.name}
-            icon={<Dot variant={STAGE_TONE[row.stage]} />}
+            icon={<ReleaseStageDot stage={row.stage} />}
             to={urls.release(row.id)}
             active={path === urls.release(row.id)}
             dataAttr="release-sidebar-release"
@@ -71,7 +71,10 @@ export function ReleaseSidebar(): JSX.Element {
     )
 
     return (
-        <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
+        <div
+            className={`TodayPane group/colorful-product-icons colorful-product-icons-true ${STAGE_COLOR_VARS}`}
+            data-quill
+        >
             <SidebarSearchList
                 query={query}
                 onQueryChange={setQuery}
@@ -94,7 +97,7 @@ export function ReleaseSidebar(): JSX.Element {
                         <SidebarRow
                             value="releases"
                             label="Releases"
-                            meta={String(rows.length)}
+                            meta={dataLoading && !rows.length ? undefined : String(rows.length)}
                             icon={<IconList />}
                             to={urls.releaseList()}
                             active={path === urls.releaseList()}

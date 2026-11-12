@@ -19,14 +19,12 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -42,14 +40,14 @@ import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
-import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
 import { AccountColumnDisplayConfig, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
+import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import type { AccountSystemTabKind } from './accountViewComponents'
 import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
@@ -309,13 +307,13 @@ function CustomPropertyHistoryCell({
     )
 }
 
-const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
+const CANONICAL_PROPERTY_TAB: Record<string, AccountSystemTabKind> = {
     'Last Slack message at': 'conversations',
 }
 
 export function getCanonicalPropertyTab(
     definition: AccountsTableCustomPropertyDefinition
-): AccountExpansionTab | undefined {
+): AccountSystemTabKind | undefined {
     return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
 }
 
@@ -328,36 +326,15 @@ function CanonicalTimestampCell({
     record: unknown
     definition: AccountsTableCustomPropertyDefinition
     value: string
-    tab: AccountExpansionTab
+    tab: AccountSystemTabKind
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { openAccountTab } = useActions(accountsExpansionLogic)
     const accountId = getNameCell(record)?.id
     const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
 
     if (!accountId) {
         return label
     }
-    return (
-        <Link
-            to={urls.customerAnalyticsAccount(accountId, tab)}
-            onClick={(event) => {
-                if (
-                    featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey
-                ) {
-                    return
-                }
-                event.preventDefault()
-                event.stopPropagation()
-                openAccountTab(accountId, tab)
-            }}
-        >
-            {label}
-        </Link>
-    )
+    return <Link to={urls.customerAnalyticsAccount(accountId, tab)}>{label}</Link>
 }
 
 export function isCustomPropertyEditable(definition: AccountsTableCustomPropertyDefinition): boolean {
@@ -837,10 +814,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { expandedAccountIds } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
-    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     return useMemo(() => {
         return {
             noIndent: true,
@@ -866,14 +841,10 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
                 if (!cell) {
                     return null
                 }
-                return accountSceneEnabled ? (
-                    <AccountPinnedPropertiesExpansion accountId={cell.id} />
-                ) : (
-                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
-                )
+                return <AccountPinnedPropertiesExpansion accountId={cell.id} />
             },
         }
-    }, [accountSceneEnabled, expandedAccountIds, toggleAccountExpanded])
+    }, [expandedAccountIds, toggleAccountExpanded])
 }
 
 const SKELETON_ROW_COUNT = 5

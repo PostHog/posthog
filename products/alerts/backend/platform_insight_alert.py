@@ -1,7 +1,7 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
@@ -16,13 +16,16 @@ from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
+    delete_owned_configuration,
     get_configuration,
     list_configurations,
+    native_configuration_ids_by_source_config,
     native_configuration_matches,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    ActivitySource,
     NativeConfigurationMatch,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
@@ -89,6 +92,15 @@ def insight_of(team_id: int, source_config: dict) -> Insight | None:
     return found[0] if found and not found[0].deleted else None
 
 
+def insight_activity_source(team_id: int, source_config: Mapping[str, Any]) -> ActivitySource | None:
+    """The insight an insight alert watches, named on the alert's activity log entries. None once the
+    insight is gone."""
+    insight = insight_of(team_id, dict(source_config))
+    if insight is None:
+        return None
+    return ActivitySource(id=insight.short_id, name=insight.name or insight.derived_name or insight.short_id)
+
+
 def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
     """The users who can still view the insight an insight alert watches. Nobody, once it is gone."""
     configuration = get_configuration(
@@ -150,6 +162,12 @@ def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAler
     )
 
 
+def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes an insight alert with no insight row: sends the resolves of its open firings while its
+    destinations still exist, then removes them and the alert. Call it outside any transaction."""
+    delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
+
+
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
     """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
     return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
@@ -168,6 +186,14 @@ def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tup
     )
     return tuple(
         configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
+    )
+
+
+def native_insight_alert_ids_by_insight(team_id: int, insight_ids: Collection[int]) -> dict[int, list[UUID]]:
+    """The ids of the team's insight alerts with no insight row on these insights, oldest first. An
+    insight with none is left out."""
+    return native_configuration_ids_by_source_config(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=insight_ids
     )
 
 
@@ -229,8 +255,10 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
         alert.threshold = Threshold(
             team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
         )
-    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    # An unsaved threshold has no `created_at`, which the API's readers expect, and a fresh id on
+    # every read. The alert's id keeps the threshold's id the same from one read to the next.
     alert.threshold.created_at = configuration.created_at
+    alert.threshold.id = configuration.id
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
