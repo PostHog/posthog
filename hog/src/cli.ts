@@ -1,4 +1,5 @@
 import { Command as Commander, CommanderError, Option } from 'commander'
+import { win32 } from 'node:path'
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
 import { z } from 'zod'
 
@@ -28,12 +29,14 @@ import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
+import { UpdateCheck, updateChecksOff } from '@/upgrade/check'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
 Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
-HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`
+HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.
+\`hog --version\` (or -V) prints the version.`
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
@@ -280,7 +283,6 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
 
     const program = new Commander('hog')
         .description('The PostHog command line')
-        .version(VERSION, '-V, --version', 'Show the version')
         .helpOption('-h, --help', 'Show help')
         // Listed in help only: run() turns `hog help <command...>` into `hog <command...> --help`.
         .helpCommand('help [command...]', 'Show help for a command')
@@ -445,19 +447,30 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
-const TelemetryOptOut = z.object({ cli: z.object({ telemetry: z.literal(false) }) })
+const CliOptOuts = z.object({
+    cli: z.object({ telemetry: z.unknown().optional(), updateCheck: z.unknown().optional() }),
+})
 
 // Read without the full schema, so an opt-out still counts in a file another check rejects. A file
 // that isn't JSON stops the command later, with telemetry on.
-async function configOptsOut(runtime: Runtime): Promise<boolean> {
+async function configOptOuts(runtime: Runtime): Promise<{ telemetry: boolean; updateCheck: boolean }> {
+    const none = { telemetry: false, updateCheck: false }
     const path = await findConfig(runtime)
     if (path === undefined) {
-        return false
+        return none
     }
     try {
-        return parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut) !== undefined
+        const cli = parseJsonOrUndefined(await runtime.readFile(path), CliOptOuts)?.cli
+        return { telemetry: cli?.telemetry === false, updateCheck: cli?.updateCheck === false }
     } catch {
-        return false
+        return none
+    }
+}
+
+// Windows can't replace a running hog.exe, so `hog upgrade` renamed it. It isn't running any more.
+async function removeReplacedBinary(runtime: Runtime): Promise<void> {
+    if (runtime.platform === 'win32' && !runtime.isDevelopment) {
+        await runtime.removeFile(win32.join(win32.dirname(runtime.execPath), 'hog.old.exe')).catch(() => {})
     }
 }
 
@@ -518,13 +531,14 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
     const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
     const state: RunState = { exitCode: 0 }
+    const optOuts = await configOptOuts(runtime)
     const telemetry = new Telemetry(
         runtime,
         mode,
         !(
             noTelemetry ||
             optOutFlag(runtime.env, GLOBAL_OPTIONS.noTelemetry.env) ||
-            (runtime.telemetryToken !== undefined && (await configOptsOut(runtime)))
+            (runtime.telemetryToken !== undefined && optOuts.telemetry)
         )
     )
     const program = createProgram(runtime, mode, state, telemetry)
@@ -534,8 +548,24 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     }
     const started = runtime.now()
     const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
+    // Handled here rather than by commander, whose program-level --version would also catch
+    // `hog upgrade --version <version>`.
+    if (
+        commandIndex === undefined &&
+        tokens.some((token) => token.kind === 'option' && ['version', 'V'].includes(token.name))
+    ) {
+        runtime.writeStdout(`${VERSION}\n`)
+        return 0
+    }
     const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
     const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
+    // Help and --version answer at once, so they don't wait for a request to finish.
+    const answersAtOnce =
+        isHelp || tokens.some((token) => token.kind === 'option' && ['help', 'h', 'version', 'V'].includes(token.name))
+    const updates = answersAtOnce
+        ? undefined
+        : new UpdateCheck(runtime, optOuts.updateCheck || updateChecksOff(runtime, undefined))
+    await removeReplacedBinary(runtime)
 
     let exitCode: number
     let failure: HogError | undefined
@@ -559,6 +589,11 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
         exitCode = ignore && failure.exitCode === EXIT_FAILURE ? 0 : failure.exitCode
+    }
+
+    // A `hog_outdated` failure already says to update, so the notice would repeat it.
+    if (failure?.code !== 'hog_outdated') {
+        await updates?.finish({ mode, command: state.command })
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.

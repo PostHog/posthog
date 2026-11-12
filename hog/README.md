@@ -1,10 +1,47 @@
 # hog
 
-`hog` is the PostHog command line, version 1.
-It replaces `posthog-cli` (version 0, in `cli/`), which keeps working until `hog` covers everything it does.
+`hog` is the PostHog command line.
+It replaces `posthog-cli` (in `cli/`), which keeps working until `hog` covers everything it does.
 
 `hog` is written in TypeScript and compiles to a single binary with [Bun](https://bun.sh).
-It is not published yet.
+It is in alpha: the first release is 0.1.0-alpha.1.
+
+## Install
+
+```bash
+curl -fsSL https://releases.posthog.com/hog/install.sh | sh        # macOS and Linux
+irm https://releases.posthog.com/hog/install.ps1 | iex              # Windows PowerShell
+brew install posthog/tap/hog                                        # Homebrew
+npm install -g @posthog/hog                                         # or pnpm add -g, bun add -g
+npx @posthog/hog setup                                              # run once without installing
+```
+
+- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
+- `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0-alpha.3`.
+- Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
+- The npm package `@posthog/hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
+
+### Updates
+
+`hog upgrade` updates hog, and `hog upgrade --check` only says whether a newer version is out. hog never updates itself on its own.
+
+| Installed with                 | `hog upgrade`                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces the binary in one rename                                    |
+| Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
+| npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
+
+`--version <version>` installs that version instead of the latest one.
+On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
+
+hog reads the latest release from `https://releases.posthog.com/hog/stable/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder.
+
+- A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing, because every merge ships one.
+- Agents, pipes, `-o json`, CI, npx and runs from source never see that line.
+- `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
+- `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
+- When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ## Commands
 
@@ -42,6 +79,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                                  |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
+| `hog upgrade`                             | Updates hog. `--check` only reports, and `--version` picks a version. See [Updates](#updates).                                    |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
 ## What's left
@@ -51,12 +89,13 @@ hog replaces posthog-cli in three steps: settle the CLI, ship it, then move ever
 
 First, settle the CLI:
 
-- [ ] `hog upgrade`, which updates hog to the latest version. It downloads the release binaries, so it lands with distribution. Until then it points to `posthog-cli update`.
+- [x] `hog upgrade`, which updates hog to the latest version.
 - The AGENTS.md snippet comes back as a top-level command, designed fresh rather than ported from `posthog-cli api agents-md`. Until then, hog points to it. `hog skills add` already replaces `posthog-cli api skill`.
 
 Then ship it:
 
-- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, and CI on Linux and Windows.
+- [x] Distribution: a binary for each platform, macOS signing and notarization, the npm package and the Homebrew formula. See [Releases](#releases).
+- [ ] CI on Linux and Windows: run the tests on Windows, and the install scripts on each platform.
 
 Then move everyone over:
 
@@ -92,6 +131,7 @@ The setup is built for a coding agent: it asks the person one question, and runs
 A person at a terminal gets prompts for any answer the options leave out.
 Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, instructions }, context }`, where `next.kind` is `run`, `ask_user`, `tell_user`, `read`, `wait` or `done`.
 [src/setup/README.md](src/setup/README.md) draws the steps for a person alone and for a person with an agent.
+Setup runs only on the latest hog: it stops with `hog_outdated` and the update command when a newer release exists. See [Updates](#updates).
 
 | Step        | `hog setup next`                                                                                                                                                              | Done when                                     |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
@@ -182,6 +222,7 @@ A flag beats the environment variable, which beats `posthog.json`.
 `--host` and `HOG_HOST` override the host of every credential source. `host` in `posthog.json` never sends your credentials elsewhere: `hog auth login` uses it, and other commands stop when your credentials are for another host.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
+`HOG_NO_UPDATE_CHECK=1` and `cli.updateCheck: false` stop every update request except setup's. See [Updates](#updates).
 
 ## Telemetry
 
@@ -356,4 +397,43 @@ pnpm --filter @posthog/hog typecheck        # check types
 pnpm --filter @posthog/hog compile          # build dist/hog for this machine
 ```
 
+A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
+
 hog reads credentials only from the sources above. Runs from source keep their keychain items under their own name, so they never read or replace an installed hog's login. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.
+
+## Releases
+
+hog releases the way posthog-cli does: a sampo changeset says what changed, and a person approves each release.
+The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `release/` holds its scripts.
+
+To release a change, add a changeset to your pull request from `hog/`:
+
+```bash
+sampo add --package npm/@posthog/hog --bump patch --message "Describe the change for the changelog"
+```
+
+Use `minor` or `major` instead of `patch` when it fits. While the version is a prerelease, such as `0.1.0-alpha.3`, every bump raises the prerelease number. Commit the file sampo writes under `hog/.sampo/changesets/`.
+
+After the pull request merges to master, the workflow:
+
+1. Posts an approval request in the hog releases Slack channel.
+2. Waits for approval in the `hog-release` environment. The authors and mergers of the released pull requests can't approve.
+3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
+
+Merging the release pull request runs the workflow again, which:
+
+4. Compiles every target, with the version and the release commit's date as the build date.
+5. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release.
+6. Uploads to `releases.posthog.com/hog/v<version>/`, then creates the GitHub release and the `hog/v<version>` tag, then points `hog/stable/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages.
+
+A release takes two merges, the changeset and then the release pull request, and one approval.
+
+- Re-run the failed jobs to finish a release that stopped. Files under a version never change: once the bucket has a version, a rerun reuses its files instead of signing again. GitHub, npm and the formula skip what they already have.
+- A rerun of an older version never moves `stable`, npm's `latest` or the formula back.
+- To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
+- Don't run `sampo publish` or push `hog/v*` tags by hand.
+
+```bash
+bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
+bun test release/                                                       # the install script and launcher tests
+```

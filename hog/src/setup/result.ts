@@ -1,6 +1,7 @@
 import type { McpAgent } from '@/commands/mcp/clients'
 import type { RegionId } from '@/posthog/host'
 import type { ProjectToken } from '@/posthog/tokens'
+import type { HogVersionInfo } from '@/upgrade/check'
 
 import type { WrittenFile } from './agents-md'
 import type { Product, ProductId } from './products'
@@ -77,6 +78,9 @@ export interface SetupResult {
     done: DoneStep[]
     next: NextAction
     context: SetupContext
+    // The running hog and the latest release. Setup stops with `hog_outdated` before it gets here
+    // when a newer release exists, so `updateAvailable` is false unless the release couldn't be read.
+    hog?: HogVersionInfo
 }
 
 export interface Stop {

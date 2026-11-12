@@ -4,6 +4,8 @@
 A step is either done, does its work, or stops with the next action: what you or the agent do before the next `hog setup next`.
 `hog setup` only describes the current step, and `hog setup next` keeps going until a step stops.
 
+Before any step, `commands/setup.ts` checks that this is the latest hog with `requireLatestForSetup` in `src/upgrade/check.ts`. A newer release, even one patch newer, stops setup with `hog_outdated`, and the hint names the update command for how hog was installed. The check reads the release manifest fresh, accepting an answer up to 10 minutes old. It lets setup go on when the manifest can't be read, and skips runs from source and local builds. The result carries `hog: { version, latest, updateAvailable, command }`.
+
 The rule for every step: an option counts as an answer as soon as it is given, and a prompt at a terminal asks only for the answers the options left out.
 The install step has no option, so it ends only on a `hog setup next` that started on it, which means the agent always reads its instructions first.
 

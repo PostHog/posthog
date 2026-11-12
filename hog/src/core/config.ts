@@ -105,6 +105,12 @@ export const PostHogConfig = z
                     .describe(
                         'false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.'
                     ),
+                updateCheck: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'false stops every update check for everyone working in this folder, except the one `hog setup` runs. HOG_NO_UPDATE_CHECK does the same.'
+                    ),
                 rateLimit: z
                     .number()
                     .int()

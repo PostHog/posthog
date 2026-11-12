@@ -4,6 +4,7 @@ import type { Secrets } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { HOG_CLIENT_ID } from '@/posthog/oauth'
 import { readJson, runHog } from '@/testing'
+import { VERSION } from '@/version'
 
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
@@ -701,7 +702,13 @@ describe('hog auth login', () => {
     test('status without a key exits 1 and points to login', async () => {
         const result = await runHog(['auth', 'status'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(1)
-        expect(result.json()).toEqual({ authenticated: false, next: 'hog auth login', config: null, login: null })
+        expect(result.json()).toEqual({
+            authenticated: false,
+            next: 'hog auth login',
+            config: null,
+            login: null,
+            hog: { version: VERSION, latest: null, updateAvailable: false, command: null },
+        })
     })
 
     test.each([

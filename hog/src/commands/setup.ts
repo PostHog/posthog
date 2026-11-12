@@ -193,8 +193,11 @@ export default defineCommand({
             )
         }
 
+        const { requireLatestForSetup } = await import('@/upgrade/check')
+        const hog = await requireLatestForSetup(ctx.runtime, next ? 'setup next' : 'setup')
+
         const { runSetup } = await import('@/setup/run')
-        return runSetup(ctx, { next, ...options })
+        return { ...(await runSetup(ctx, { next, ...options })), hog }
     },
 
     human({ args, result, out }) {

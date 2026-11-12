@@ -101,6 +101,10 @@
                     "description": "false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.",
                     "type": "boolean"
                 },
+                "updateCheck": {
+                    "description": "false stops every update check for everyone working in this folder, except the one `hog setup` runs. HOG_NO_UPDATE_CHECK does the same.",
+                    "type": "boolean"
+                },
                 "rateLimit": {
                     "description": "The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.",
                     "type": "integer",
