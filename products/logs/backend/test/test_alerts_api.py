@@ -568,6 +568,15 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["first_enabled_at"] is not None
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                limit=1,
+                offset=0,
+                legacy_configuration_id=UUID(alert_id),
+            ).configurations
+        assert copy.first_enabled_at == LogsAlertConfiguration.objects.get(id=alert_id).first_enabled_at
 
     def test_first_enabled_at_not_overwritten_on_subsequent_enable(self):
         created = self._create_via_api()

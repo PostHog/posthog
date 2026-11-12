@@ -803,6 +803,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             # Reached by a backfill run, which re-admits a copy an operator switched off.
             "switched_off_at": None,
         }
+        if upsert.first_enabled_at is not None:
+            defaults["first_enabled_at"] = upsert.first_enabled_at
         if (
             existing is None
             or not existing["enabled"]
