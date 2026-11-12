@@ -1,5 +1,6 @@
 import os
 import json
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -12,9 +13,10 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
-
-from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import hash_key_value
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -26,8 +28,16 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
-            # A sparkline over the full fixture window reads the volume rollup, so the rows go to both.
-            insert_logs_and_rollups([{**json.loads(line), "team_id": cls.team.id} for line in f])
+            sql = ""
+            for line in f:
+                log_item = json.loads(line)
+                log_item["team_id"] = cls.team.id
+                sql += json.dumps(log_item) + "\n"
+            sync_execute(f"""
+                INSERT INTO logs
+                FORMAT JSONEachRow
+                {sql}
+            """)
 
     def _count(self, query_params, expected_status=status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": query_params})
@@ -123,6 +133,28 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
 
         sparkline_sum = sum(bucket["count"] for bucket in sparkline_response.json())
         self.assertEqual(count_result["count"], sparkline_sum)
+
+    @parameterized.expand(
+        [
+            ("read_action_with_logs_read", "count", ["logs:read"], status.HTTP_200_OK),
+            ("read_action_with_another_scope", "count", ["endpoint:read"], status.HTTP_403_FORBIDDEN),
+            ("export_with_logs_read", "export", ["logs:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_project_secret_api_key_reads_logs_but_cannot_export(self, _name, action, scopes, expected_status):
+        token = f"phs_{uuid4().hex}"
+        ProjectSecretAPIKey.objects.create(
+            team=self.team, label="Logs reader", secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{action}",
+            data={"query": {"dateRange": _FIXTURE_WINDOW}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, expected_status)
 
     def _post_count_with_personal_api_key(self):
         token = self.create_personal_api_key_with_scopes(["logs:read"])

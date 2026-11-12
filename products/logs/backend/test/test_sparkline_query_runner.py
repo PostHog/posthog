@@ -6,14 +6,12 @@ from datetime import datetime, timedelta
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
 from products.logs.backend.sparkline_query_runner import SPARKLINE_TOP_BREAKDOWN_VALUES
-from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups
 
 
 class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -27,7 +25,6 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
     HEAVY_SERVICE = "service-024"
     BYTES_PER_LOG = 1
     HEAVY_BYTES_PER_LOG = 1_000_000
-    LOGS_TABLE_ONLY_COUNT = 3
 
     @classmethod
     def setUpTestData(cls):
@@ -84,7 +81,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 49)
         self.assertEqual(sum(r["count"] for r in response), 900)
 
-    def _service_sparkline(self, rank_by: str | None = None, search_term: str | None = None) -> list:
+    def _service_sparkline(self, rank_by: str | None = None) -> list:
         query_params = {
             "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
             "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
@@ -92,60 +89,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         if rank_by is not None:
             query_params["sparklineRankBy"] = rank_by
-        if search_term is not None:
-            query_params["searchTerm"] = search_term
         return self._make_sparkline_api_request(query_params)
-
-    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
-    def test_rollup_keeps_the_bucket_boundaries_of_the_logs_table(self):
-        query_params = {
-            "dateRange": {"date_from": "2026-03-01T00:07:13.000000Z", "date_to": "2026-03-01T20:41:00.000000Z"},
-            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
-        }
-        from_rollup = self._make_sparkline_api_request(query_params)
-        from_logs = self._make_sparkline_api_request({**query_params, "sparklineRankBy": "bytes"})
-
-        self.assertEqual(
-            [(r["time"], r["severity"], r["count"]) for r in from_rollup],
-            [(r["time"], r["severity"], r["count"]) for r in from_logs],
-        )
-
-    @time_machine.travel("2026-03-15T00:10:00Z", tick=False)
-    def test_rollup_drops_the_part_of_the_first_bucket_older_than_the_shortest_retention(self):
-        # The range starts at the cutoff, so its first bucket starts 10 minutes before the cutoff.
-        response = self._make_sparkline_api_request(
-            {"dateRange": {"date_from": "2026-03-01T00:10:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"}}
-        )
-
-        self.assertEqual(sum(r["count"] for r in response), self.SERVICE_COUNT * (self.BUCKET_COUNT - 1))
-
-    @parameterized.expand(
-        [
-            # The rollup stores severity in lower case, so it has no row for this filter.
-            ("upper_case_severity_filter", "2026-02-02T00:10:00Z", ["ERROR"]),
-            ("range_older_than_the_shortest_retention", "2026-02-20T00:10:00Z", []),
-        ]
-    )
-    def test_reads_the_logs_table(self, _name, now, severity_filter):
-        filters = [{"key": "severity_level", "type": "log", "operator": "exact", "value": severity_filter}]
-        with time_machine.travel(now, tick=False):
-            response = self._make_sparkline_api_request(
-                {
-                    "dateRange": {"date_from": "2026-02-01T00:00:00.000000Z", "date_to": "2026-02-02T00:00:00.000000Z"},
-                    "filterGroup": {
-                        "type": "AND",
-                        "values": [{"type": "AND", "values": filters if severity_filter else []}],
-                    },
-                }
-            )
-
-        self.assertEqual(sum(r["count"] for r in response), self.LOGS_TABLE_ONLY_COUNT)
-
-    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
-    def test_body_search_reads_the_logs_table_not_the_rollup(self):
-        response = self._service_sparkline(search_term="text-that-no-fixture-log-contains")
-
-        self.assertEqual(sum(r["count"] for r in response), 0)
 
     @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_service_breakdown_collapses_the_tail_into_one_other_bucket(self):
@@ -190,7 +134,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             template = json.loads(f.readline())
         start_at = datetime.fromisoformat(start)
-        rows = []
+        rows = ""
         for service_name, bytes_per_log in services.items():
             for bucket_index in range(bucket_count):
                 log_item = dict(template)
@@ -202,17 +146,9 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 timestamp = start_at + timedelta(minutes=30 * bucket_index, seconds=61)
                 log_item["timestamp"] = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
                 log_item["observed_timestamp"] = log_item["timestamp"]
-                rows.append(log_item)
-        # The test `logs` table feeds no volume rollup, so the sparkline needs the rollup rows too.
-        insert_logs_and_rollups(rows)
-
-        # These logs have no rollup rows, so only a read of the logs table counts them.
-        logs_table_only = ""
-        for hour in range(cls.LOGS_TABLE_ONLY_COUNT):
-            log_item = dict(template)
-            log_item["team_id"] = cls.team.id
-            log_item["uuid"] = str(uuid.uuid4())
-            log_item["severity_text"] = "ERROR"
-            log_item["timestamp"] = log_item["observed_timestamp"] = f"2026-02-01 0{hour + 1}:00:00.000000"
-            logs_table_only += json.dumps(log_item) + "\n"
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{logs_table_only}")
+                rows += json.dumps(log_item) + "\n"
+        sync_execute(f"""
+            INSERT INTO logs
+            FORMAT JSONEachRow
+            {rows}
+        """)
