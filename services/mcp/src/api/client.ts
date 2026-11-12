@@ -4,7 +4,9 @@ import { z } from 'zod'
 import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
 import { getUserAgent } from '@/lib/constants'
 import {
+    describeTransportCause,
     ErrorCode,
+    ExperimentNotStartedError,
     formatSafeRequestTarget,
     hasTimeoutCause,
     isTimeoutError,
@@ -743,7 +745,9 @@ export class ApiClient {
                     isSafeMethod &&
                     transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
-                    console.error(`[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}`)
+                    console.error(
+                        `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}`
+                    )
                     return {
                         success: false,
                         error: new PostHogTransportError({
@@ -760,7 +764,7 @@ export class ApiClient {
                 const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
                 transportRetries++
                 console.warn(
-                    `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
+                    `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
                 )
                 await waitUnlessAborted(delayMs, options?.signal)
                 continue
@@ -1139,6 +1143,19 @@ export class ApiClient {
                 )
             },
 
+            getHealth: async ({
+                experimentId,
+                signal,
+            }: {
+                experimentId: number
+                signal?: AbortSignal
+            }): Promise<Result<Schemas.ExperimentHealth>> => {
+                return this.fetchJson<Schemas.ExperimentHealth>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    { signal }
+                )
+            },
+
             getExposures: async ({
                 experimentId,
                 refresh = false,
@@ -1169,7 +1186,7 @@ export class ApiClient {
                 if (!experiment.start_date) {
                     return {
                         success: false,
-                        error: new Error(
+                        error: new ExperimentNotStartedError(
                             `Experiment "${experiment.name}" has not started yet. Exposure data is only available for started experiments.`
                         ),
                     }

@@ -31,6 +31,7 @@ async def test_warehouse_defers_billing_admission_to_per_signal_pipeline(team):
         patch(f"{module}._fetch_schema_and_team", AsyncMock(return_value=(MagicMock(), team))),
         patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as gate,
         patch(f"{module}.afetch_source_config", AsyncMock(return_value={})),
+        patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
         patch(f"{module}.get_data_warehouse_table_name", return_value="github.issues"),
         patch(f"{module}.run_signal_pipeline", AsyncMock(return_value={"status": "success"})) as pipeline,
     ):

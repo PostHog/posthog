@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { memo } from 'react'
 
-import { IconEye, IconHide, IconUndo } from '@posthog/icons'
+import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -34,9 +34,12 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
+import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardPersonalReason } from './ReportCardPersonalReason'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -156,13 +159,21 @@ function ReportCardRaw({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
+    // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
+    // and puts the Monitoring evidence where the impact column would be.
+    const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
+    const showsPrBadge = hasPr && !isMonitoring
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
-    const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const reportMetricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const showImpactColumn = reportMetricsEnabled && !isMonitoring
+    const hasRightColumn = showImpactColumn || !!monitoringSummary
+    const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
 
@@ -212,11 +223,11 @@ function ReportCardRaw({
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
-        showImpactColumn && 'flex-wrap @lg:flex-nowrap'
+        hasRightColumn && 'flex-wrap @lg:flex-nowrap'
     )
     const cardBody = (
         <>
-            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', hasRightColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
@@ -224,8 +235,8 @@ function ReportCardRaw({
                         'min-w-0 break-words font-semibold text-[15px] leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
-                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
-                        hasPr && showImpactColumn && '@lg:pr-0'
+                        showsPrBadge && (glyphStatus ? 'pr-24' : 'pr-14'),
+                        showsPrBadge && showImpactColumn && '@lg:pr-0'
                     )}
                 >
                     {/* Inline like ConventionalCommitScopeTag, so wrapped title lines use the full width. */}
@@ -264,16 +275,9 @@ function ReportCardRaw({
                         'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
-                        showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
+                        hasRightColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
-                    {report.status === SignalReportStatus.MONITORING && (
-                        <Tooltip title="The fix is being monitored.">
-                            <span className="flex shrink-0 items-center text-success" aria-label="Monitoring">
-                                <IconEye className="text-base" />
-                            </span>
-                        </Tooltip>
-                    )}
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {outcomeLabel && (
@@ -328,23 +332,31 @@ function ReportCardRaw({
                     </span>
                 </div>
             ) : null}
+            {monitoringSummary ? (
+                <ReportCardMonitoringPanel summary={monitoringSummary} metrics={report.metrics} now={now} />
+            ) : null}
         </>
     )
 
-    return (
+    const rowStateClassName = clsx(
+        // Closed rows recede so open work stands out in the mixed flat list; hover restores
+        // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+        (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+        isSelected && 'ring-1 ring-accent',
+        // A long press must not paint the title as selected text under the finger.
+        isHolding && 'select-none'
+    )
+
+    const row = (
         <div
             className={clsx(
-                inboxCardRowClassName(attached, { dashed: !hasPr }),
-                // Closed rows recede so open work stands out in the mixed flat list; hover restores
-                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
-                isSelected && 'ring-1 ring-accent',
-                // A long press must not paint the title as selected text under the finger.
-                isHolding && 'select-none'
+                // Inside the Monitoring frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || isMonitoring, { dashed: !hasPr }),
+                !isMonitoring && rowStateClassName
             )}
         >
             <div className="relative flex min-w-0 flex-1">
-                {hasPr && prNumber != null ? (
+                {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
                             prNumber={prNumber}
@@ -410,6 +422,24 @@ function ReportCardRaw({
                     )}
                 </div>
             )}
+        </div>
+    )
+
+    if (!isMonitoring) {
+        return row
+    }
+    return (
+        <div
+            className={clsx(
+                'overflow-hidden',
+                attached
+                    ? 'border-b border-primary last:border-b-0'
+                    : 'rounded border border-primary hover:border-secondary',
+                rowStateClassName
+            )}
+        >
+            <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            {row}
         </div>
     )
 }

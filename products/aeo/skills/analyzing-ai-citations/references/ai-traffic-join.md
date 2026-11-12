@@ -132,7 +132,7 @@ WITH cited AS (
         SELECT prompt_id,
                arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(target_urls)))) AS url
         FROM system.aeo_citation_checks
-        WHERE created_at >= now() - INTERVAL 30 DAY
+        WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
           AND cited = 1
     )
     GROUP BY cited_path
