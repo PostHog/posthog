@@ -8,7 +8,7 @@ import { HogWatcherFunctionState, HogWatcherState, sameWatcherStates } from '../
 import { CrashGuard } from '../services/poison-batch/crash-guard'
 import { createQuarantineAutoDisable } from '../services/poison-batch/quarantine-auto-disable'
 import { InvocationQuarantine, recordTerminal } from '../services/poison-batch/quarantine-invocations'
-import { CyclotronJobInvocation, DEAD_LETTER_QUEUE } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, DEAD_LETTER_QUEUE } from '../types'
 import { dualRead } from '../utils/dual-store'
 import { CdpCyclotronWorker, CdpCyclotronWorkerDeps } from './cdp-cyclotron-worker.consumer'
 
@@ -70,8 +70,10 @@ export class CdpCyclotronDeadLetterWorker extends CdpCyclotronWorker {
         }
     }
 
-    protected override runnableInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocation[]> {
-        return this.skipDisabledFunctions(invocations)
+    public override async processInvocations(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationResult[]> {
+        return await super.processInvocations(await this.skipDisabledFunctions(invocations))
     }
 
     /**

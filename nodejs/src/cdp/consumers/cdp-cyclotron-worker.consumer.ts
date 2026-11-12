@@ -58,7 +58,7 @@ export class CdpCyclotronWorker<
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
-        const loadedInvocations = await this.loadHogFunctions(await this.runnableInvocations(invocations))
+        const loadedInvocations = await this.loadHogFunctions(invocations)
 
         return await Promise.all(
             loadedInvocations.map((item) => {
@@ -73,11 +73,6 @@ export class CdpCyclotronWorker<
                 }
             })
         )
-    }
-
-    /** The invocations of a batch that run. The dead letter worker leaves out those it skips. */
-    protected runnableInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocation[]> {
-        return Promise.resolve(invocations)
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.loadHogFunctions', timeoutMs: 10_000, sendException: false })
