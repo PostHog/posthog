@@ -27,8 +27,8 @@
 //! Nothing for a fenced key can leapfrog the failure. The batcher keeps one
 //! request in flight per key and requeues a failed request before it releases
 //! the request's keys, so a newer send for a fenced key does not exist. A
-//! send split into chunks is one queue entry, so the fence fails all of its
-//! chunks or none of them.
+//! send split into chunks is one queue entry, so all of its chunks ride the
+//! same stream.
 //!
 //! The queue is unbounded, so enqueue stays synchronous and ordered. The
 //! batcher bounds its depth: it keeps at most `INGESTION_WORKER_CONCURRENT_BATCHES`
@@ -160,9 +160,9 @@ struct WorkerStreamItem {
     reply: oneshot::Sender<StreamReply>,
 }
 
-/// The chunks of one send. They are one queue entry so that a stream failure
-/// fails all of them or none: a later chunk must not reach the worker after
-/// an earlier one failed.
+/// The chunks of one send. They are one queue entry so that they all ride the
+/// same stream: on the next stream, a later chunk would reach the worker
+/// ahead of the retry of an earlier one.
 type WorkerStreamSend = Vec<WorkerStreamItem>;
 
 struct WorkerStream {
@@ -307,9 +307,8 @@ impl GrpcTransport {
             return PendingWorkerStreamSend { chunks: receivers };
         }
         if let Err(send_err) = self.worker_stream_for(worker_url).tx.send(send) {
-            // Worker stream task gone (removed worker): fail the send
-            // immediately with its messages so the caller defers and
-            // re-routes.
+            // The worker stream task is gone: fail the send with its messages
+            // so the caller requeues and re-routes them.
             for item in send_err.0 {
                 let _ = item.reply.send(Err(SendError {
                     error: TransportError::WorkerStreamClosed,
@@ -816,13 +815,9 @@ impl WorkerStreamRunner {
         StreamEnd::Idle
     }
 
-    /// Resolve everything outstanding as failed, **in enqueue order**: the
-    /// un-acked ledger first, then the chunks not yet on the wire, then
-    /// anything still queued (which was enqueued after both). Order matters
-    /// because the batcher requeues each failed send at the front of its
-    /// keys' queues, so resolving in order keeps every fenced key's messages
-    /// queued oldest-first and the retry (oldest first) is the same request
-    /// that failed.
+    /// Resolve everything outstanding as failed, in enqueue order: the
+    /// ledger first, then the chunks not yet on the wire, then anything
+    /// still queued.
     fn fence(
         &self,
         pending: &mut VecDeque<WorkerStreamItem>,

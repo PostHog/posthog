@@ -557,7 +557,7 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 
 - Fences go only after the batcher is single-owner. Change 11 makes requeue-before-release a scheduler invariant; change 19 makes it mechanical: one task performs settlement, requeue, and the next dispatch, so no window exists for a newer send to overtake a failure.
 - A stream failure returns each request's messages to the key table. That is sufficient for a request that rides the stream as one frame.
-- A request over the frame size cap rides the stream as several chunks, and the fences also kept such a request whole. A failure that emptied the queue between two chunks failed the first chunk, and the fence failed the others on arrival. Without the fence the next stream carries the later chunks, and the worker processes them before the retry of the first. So the transport queues the chunks of one send as one entry, and a failure fails all of them or none.
+- A request over the frame size cap rides the stream as several chunks, and the fences also kept such a request whole. A failure that emptied the queue between two chunks failed the first chunk, and the fence failed the others on arrival. Without the fence the next stream carries the later chunks, and the worker processes them before the retry of the first. So the transport queues the chunks of one send as one entry, and they all ride the same stream.
 - This change is deferrable. With one send origin and whole sends on the queue, fences are redundant protection; their only cost is the code.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
 
