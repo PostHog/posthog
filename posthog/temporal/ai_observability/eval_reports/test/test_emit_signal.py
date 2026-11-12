@@ -17,6 +17,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     emit_eval_report_signal_activity,
     summarize_report_for_signal,
 )
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -33,7 +34,7 @@ async def aorganization():
     )
     yield organization
     await sync_to_async(User.objects.filter(organization_membership__organization=organization).delete)()
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -43,7 +44,7 @@ async def ateam(aorganization):
         name=f"SignalsEvalReportTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 def _make_content() -> dict:

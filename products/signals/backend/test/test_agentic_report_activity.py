@@ -26,6 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
@@ -119,7 +120,7 @@ async def aorganization():
 
     yield organization
 
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -131,7 +132,7 @@ async def ateam(aorganization):
 
     yield team
 
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 def _build_research_output() -> ReportResearchOutput:

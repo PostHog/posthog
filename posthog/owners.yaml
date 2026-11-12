@@ -71,6 +71,7 @@ rules:
           - '/scheduling/test/test_*.py'
           - '/slo/test/test_*.py'
           - '/test/repo_invariants/test_*.py'
+          - '/test/test_cascade_delete.py'
       owners: team-devex
     - match:
           - '/security/test/test_*.py'

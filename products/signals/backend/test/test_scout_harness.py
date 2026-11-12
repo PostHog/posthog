@@ -42,6 +42,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -138,7 +139,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -153,7 +154,7 @@ async def ateam(aorganization, request: pytest.FixtureRequest):
     # `canonical=True` skips the sync DB resolution lookup (illegal from async).
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture

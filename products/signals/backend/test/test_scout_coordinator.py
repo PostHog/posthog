@@ -25,6 +25,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
@@ -152,7 +153,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -168,7 +169,7 @@ async def ateam(aorganization):
     with team_scope(team.id, canonical=True):
         yield team
     _FLAGGED_TEAM_IDS.discard(str(team.id))
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -182,7 +183,7 @@ async def aother_team(aorganization):
     _FLAGGED_TEAM_IDS.add(str(team.id))
     yield team
     _FLAGGED_TEAM_IDS.discard(str(team.id))
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 def _create_skill(team: Team, name: str, *, seeded: bool = True) -> LLMSkill:

@@ -26,6 +26,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +51,7 @@ async def aorganization():
         name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -60,4 +61,4 @@ async def ateam(aorganization):
         name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
