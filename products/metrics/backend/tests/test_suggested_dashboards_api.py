@@ -28,7 +28,7 @@ from products.metrics.backend.suggested_dashboards.generation import (
     finish_generation,
     generation_key,
 )
-from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion
+from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion, reject
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 from products.metrics.backend.variable_options import list_variable_options
@@ -146,6 +146,40 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert relisted.json()[0]["dashboard_id"] is None
         assert recreated.status_code == status.HTTP_201_CREATED
         assert recreated.json()["dashboard_id"] not in (None, first.json()["dashboard_id"])
+
+    @parameterized.expand(
+        [
+            ("when_the_next_analysis_suggests_it_again", False, [["queue"]]),
+            ("when_an_analysis_drops_it_and_a_later_one_suggests_it_again", False, [[], ["queue"]]),
+            ("when_its_template_is_rejected_and_approved_again", True, [["queue"]]),
+        ]
+    )
+    def test_a_dismissed_suggestion_does_not_come_back(
+        self, _name: str, rejected: bool, analyses: list[list[str]]
+    ) -> None:
+        template = _template("queue", "approved", *QUEUE_METRICS[:2], source="generated")
+        suggestion = MetricsDashboardSuggestion.objects.for_team(self.team.id).create(
+            team_id=self.team.id, template=template, coverage=1.0
+        )
+
+        dismissed = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dismiss/")
+        repeated = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dismiss/")
+        if rejected:
+            reject(template=template, user=self.user)
+            MetricsDashboardTemplate.objects.filter(id=template.id).update(status="approved")
+        for keys in analyses:
+            answer = self._answer(suggested=[{"key": key, "reason": "Queue depth and wait"} for key in keys])
+            with patch("products.metrics.backend.suggested_dashboards.analysis.ask_model", return_value=answer):
+                analyze_team(self.team.id, force=True)
+        listed = self.client.get(f"{self.base_url}/suggested_dashboards/")
+        created = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dashboard/")
+
+        assert (dismissed.status_code, repeated.status_code) == (
+            status.HTTP_204_NO_CONTENT,
+            status.HTTP_204_NO_CONTENT,
+        )
+        assert listed.json() == []
+        assert created.status_code == status.HTTP_404_NOT_FOUND
 
     def test_a_suggested_dashboard_gets_the_variables_of_its_tiles(self) -> None:
         template = _template("mixed", "approved", "orders_total", "unknown_total")
