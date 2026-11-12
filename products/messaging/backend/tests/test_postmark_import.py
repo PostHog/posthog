@@ -64,6 +64,14 @@ class TestMustachioToLiquid(SimpleTestCase):
 
         assert any(tag in note for note in converted.notes)
 
+    def test_deep_nesting_stays_within_the_output_budget(self) -> None:
+        html = "{{#a}}{{#b}}" * 500 + "{{x}}" + "{{/b}}{{/a}}" * 500
+
+        converted = convert_template({"Subject": "s", "HtmlBody": html, "Active": True})
+
+        assert len(converted.html) < 1_000_000
+        assert any("nest too deeply" in note for note in converted.notes)
+
     def test_an_unclosed_block_still_parses_as_liquid(self) -> None:
         converted = convert_text("{{#a}}x{{#each b}}y", is_html=True)
 
@@ -220,6 +228,7 @@ class TestPostmarkImport(BaseTest):
         assert self._opted_out() == {
             "mixed.case.unsub@example.com",
             "Mixed.Case.Unsub@Example.com",
+            "MIXED.case.unsub@example.com",
             "news-only-unsub@example.com",
         }
         rows = MessageSuppression.objects.for_team(self.team.id)
@@ -303,6 +312,26 @@ class TestPostmarkImport(BaseTest):
         assert rerun.progress["templates"]["counts"]["already_present"] == len(
             MessageTemplate.objects.filter(team_id=self.team.id)
         )
+
+    @parameterized.expand([("dotted_alias_first", True), ("exact_alias_first", False)])
+    def test_an_alias_that_turns_into_another_templates_alias_gets_its_own_key(
+        self, _name: str, dotted_first: bool
+    ) -> None:
+        data = json.loads(FIXTURE.read_text())
+        server = data["servers"][0]
+        dotted = next(row for row in server["templates"] if row["Alias"] == "password.reset")
+        exact = {**copy.deepcopy(dotted), "TemplateId": 2099, "Alias": "password-reset", "Subject": "Exact"}
+        server["templates"] = [dotted, exact] if dotted_first else [exact, dotted]
+        self.fake.data = data
+
+        self._run(["templates"], token=PRODUCTION_TOKEN)
+        rerun = self._run(["templates"], token=PRODUCTION_TOKEN)
+
+        subjects = {
+            row.key: row.content["email"]["subject"] for row in MessageTemplate.objects.filter(team_id=self.team.id)
+        }
+        assert subjects == {"password-reset": "Exact", "password-reset-2003": "Reset your password"}
+        assert rerun.progress["templates"]["counts"]["already_present"] == 2
 
     def test_a_template_someone_else_owns_the_key_of_is_left_alone(self) -> None:
         MessageTemplate.objects.create(team_id=self.team.id, key="receipt", name="Mine", type="email", content={})

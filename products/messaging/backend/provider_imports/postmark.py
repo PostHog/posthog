@@ -392,8 +392,9 @@ def _stream_notes(stream: dict[str, Any]) -> tuple[str, ...]:
 @frozen
 class _Suppression:
     address: str
-    # The address as Postmark has it. An opt-out matches the address a send names exactly, unlike a suppression row.
-    original_address: str
+    # Each spelling Postmark has for the address. An opt-out matches the address a send names exactly, unlike a
+    # suppression row.
+    original_addresses: frozenset[str]
     reason: str
     origin: str
     created_at: str
@@ -449,17 +450,22 @@ def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_trans
             continue
         current = merged.get(address)
         on_transactional_stream = is_transactional or (current is not None and current.on_transactional_stream)
+        spellings = frozenset({str(row["EmailAddress"]).strip()}) | (
+            current.original_addresses if current else frozenset()
+        )
         if current is None or _rank(reason, origin) > _rank(current.reason, current.origin):
             merged[address] = _Suppression(
                 address=address,
-                original_address=str(row["EmailAddress"]).strip(),
+                original_addresses=spellings,
                 reason=reason,
                 origin=origin,
                 created_at=str(row.get("CreatedAt") or ""),
                 on_transactional_stream=on_transactional_stream,
             )
         else:
-            merged[address] = replace(current, on_transactional_stream=on_transactional_stream)
+            merged[address] = replace(
+                current, original_addresses=spellings, on_transactional_stream=on_transactional_stream
+            )
     return invalid
 
 
@@ -477,7 +483,7 @@ def _save_suppressions(context: ImportContext, batch: list[_Suppression]) -> Sav
     opt_outs = {
         address: [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
         for row in unsubscribed
-        for address in (row.address, row.original_address)
+        for address in (row.address, *row.original_addresses)
     }
     opted_out = min(import_opt_outs(context.team_id, opt_outs, context.created_by_id), len(unsubscribed))
     return SavedPage(
@@ -542,6 +548,7 @@ def _template_page(
     next_server: PostmarkServer | None,
 ) -> ImportPage:
     templates: list[dict[str, Any]] = []
+    shadowed: set[int] = set()
     missing = 0
     layout_rows = [row for row in page if row.get("TemplateType") == "Layout"]
     for row in page:
@@ -555,6 +562,8 @@ def _template_page(
         alias = template.get("LayoutTemplate")
         if alias and alias not in layouts:
             layouts[alias] = _read_template(client, alias)
+        if _alias_shadowed(client, template):
+            shadowed.add(template["TemplateId"])
         templates.append(template)
     if next_offset is not None:
         checkpoint: StepCheckpoint | None = {"server": server.id, "offset": next_offset}
@@ -564,7 +573,9 @@ def _template_page(
         checkpoint = None
     return ImportPage(
         processed=len(page),
-        save=partial(_save_templates, context, server, templates, dict(layouts), layout_rows, missing),
+        save=partial(
+            _save_templates, context, server, templates, frozenset(shadowed), dict(layouts), layout_rows, missing
+        ),
         checkpoint=checkpoint,
     )
 
@@ -579,14 +590,31 @@ def _read_template(client: PostmarkClient, reference: Any) -> dict[str, Any] | N
         raise
 
 
-def _template_key(template: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+def _alias_key(alias: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", alias)[:400]
+
+
+def _alias_shadowed(client: PostmarkClient, template: dict[str, Any]) -> bool:
+    """Whether another template on the server has, as its exact alias, the key this template's alias turns into."""
+    alias = str(template.get("Alias") or "").strip()
+    if not alias or TEMPLATE_KEY_PATTERN.fullmatch(alias):
+        return False
+    other = _read_template(client, _alias_key(alias))
+    return other is not None and other.get("TemplateId") != template.get("TemplateId")
+
+
+def _template_key(template: dict[str, Any], shadowed: frozenset[int]) -> tuple[str, tuple[str, ...]]:
     """The key and any note about it. Postmark allows a `.` in an alias, and PostHog's keys don't."""
     alias = str(template.get("Alias") or "").strip()
     if not alias:
         return f"postmark-{template.get('TemplateId')}"[:400], ()
     if TEMPLATE_KEY_PATTERN.fullmatch(alias):
         return alias, ()
-    key = re.sub(r"[^A-Za-z0-9_-]", "-", alias)[:400]
+    key = _alias_key(alias)
+    if template.get("TemplateId") in shadowed:
+        # The template whose alias is the key keeps it, whichever of the two an import reads first.
+        suffix = f"-{template['TemplateId']}"
+        key = f"{key[: 400 - len(suffix)]}{suffix}"
     return key, (f"PostHog keys can't contain every character in the alias {alias}, so the key is {key}.",)
 
 
@@ -598,11 +626,12 @@ def _save_templates(
     context: ImportContext,
     server: PostmarkServer,
     templates: list[dict[str, Any]],
+    shadowed: frozenset[int],
     layouts: dict[str, dict[str, Any] | None],
     layout_rows: list[dict[str, Any]],
     missing: int,
 ) -> SavedPage:
-    keys = [_template_key(template)[0] for template in templates]
+    keys = [_template_key(template, shadowed)[0] for template in templates]
     keys += [f"{key}-{server.id}" for key in keys]
     # A deleted template counts too: importing again must not bring back one someone deleted.
     taken = {
@@ -615,7 +644,7 @@ def _save_templates(
     items: list[ImportItem] = []
     counts: Counter[str] = Counter({"layouts": len(layout_rows), "unreadable": missing})
     for template in templates:
-        key, key_notes = _template_key(template)
+        key, key_notes = _template_key(template, shadowed)
         name = str(template.get("Name") or key)[:400]
         choice = _choose_key(key, server, taken)
         if choice.key is None:

@@ -108,7 +108,8 @@
           {"EmailAddress": "not-an-address", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-02-07T08:58:33-05:00"}
         ],
         "product-news": [
-          {"EmailAddress": "news-only-unsub@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-03-01T08:58:33-05:00"}
+          {"EmailAddress": "news-only-unsub@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-03-01T08:58:33-05:00"},
+          {"EmailAddress": "MIXED.case.unsub@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-03-03T08:58:33-05:00"}
         ],
         "old-news": [
           {"EmailAddress": "archived-only@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-03-02T08:58:33-05:00"}

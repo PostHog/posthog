@@ -25,6 +25,10 @@ _HREF_OPENING = re.compile(r"""href\s*=\s*\\?["']?$""", re.IGNORECASE)
 _CONTENT_PLACEHOLDER = re.compile(r"\{\{\{\s*@?content\s*\}\}\}|\{\{\s*@content\s*\}\}")
 _STYLE_BLOCK = re.compile(r"<style[\s>]", re.IGNORECASE)
 _MAX_NOTED_TAGS = 5
+# Each name inside a section prints the section's whole path, so deep nesting grows the output much faster than the input.
+_MIN_OUTPUT_BUDGET = 1_000_000
+_OUTPUT_GROWTH_LIMIT = 20
+_TOO_NESTED = "a part whose sections nest too deeply"
 
 
 @frozen
@@ -58,12 +62,20 @@ def convert_text(text: str | None, *, is_html: bool) -> ConvertedText:
     """Rewrites one part of a template to Liquid. Subjects and text bodies print values unescaped in both tools."""
     if not text:
         return ConvertedText(text="")
-    return _Converter(is_html).convert(text)
+    try:
+        return _Converter(is_html, budget=max(_MIN_OUTPUT_BUDGET, _OUTPUT_GROWTH_LIMIT * len(text))).convert(text)
+    except _OutputTooLarge:
+        return ConvertedText(text=_literal(text), unsupported_tags=(_TOO_NESTED,))
+
+
+class _OutputTooLarge(Exception):
+    pass
 
 
 class _Converter:
-    def __init__(self, is_html: bool) -> None:
+    def __init__(self, is_html: bool, *, budget: int) -> None:
         self._is_html = is_html
+        self._budget = budget
         self._root = _Scope(expression="variables")
         self._scope = self._root
         self._blocks: list[_Block] = []
@@ -74,13 +86,19 @@ class _Converter:
         self._uses_if = False
         self._uses_unsubscribe = False
 
+    def _emit(self, part: str) -> None:
+        self._budget -= len(part)
+        if self._budget < 0:
+            raise _OutputTooLarge
+        self._out.append(part)
+
     def convert(self, text: str) -> ConvertedText:
         position = 0
         for match in _TOKEN.finditer(text):
-            self._out.append(_literal(text[position : match.start()]))
+            self._emit(_literal(text[position : match.start()]))
             self._token(match.group(0), preceding=text[position : match.start()])
             position = match.end()
-        self._out.append(_literal(text[position:]))
+        self._emit(_literal(text[position:]))
         # Postmark refuses an unclosed block when it saves a template, so this only protects the Liquid parse.
         while self._blocks:
             self._unsupported.append(f"unclosed {self._blocks[-1].token}")
@@ -111,13 +129,13 @@ class _Converter:
         elif token.startswith(("{{{", "{{&")):
             self._value(token, token.strip("{}").lstrip("&").strip(), escaped=False, preceding=preceding)
         elif token[2:-2].strip() == "else" and self._blocks and self._blocks[-1].is_if:
-            self._out.append("{% else %}")
+            self._emit("{% else %}")
         else:
             self._value(token, token[2:-2].strip(), escaped=True, preceding=preceding)
 
     def _value(self, token: str, path: str, *, escaped: bool, preceding: str) -> None:
         if _UNSUBSCRIBE.fullmatch(path):
-            self._out.append(self._unsubscribe_link(preceding))
+            self._emit(self._unsubscribe_link(preceding))
             return
         if _INVALID_PATH.search(path):
             self._not_converted(token)
@@ -126,7 +144,7 @@ class _Converter:
         if scope.expression is None or scope.is_list:
             return
         raw = " | raw" if not escaped and self._is_html else ""
-        self._out.append(f"{{{{ {scope.expression}{raw} }}}}")
+        self._emit(f"{{{{ {scope.expression}{raw} }}}}")
 
     def _unsubscribe_link(self, preceding: str) -> str:
         self._uses_unsubscribe = True
@@ -144,7 +162,7 @@ class _Converter:
         scope = self._resolve(path)
         condition = _truthy(scope)
         tag, closing = ("unless", "{% endunless %}") if inverted else ("if", "{% endif %}")
-        self._out.append(f"{{% {tag} {condition} %}}")
+        self._emit(f"{{% {tag} {condition} %}}")
         self._push(_Block(token=path, scope=scope, outer_scope=self._scope, closing=closing))
 
     def _close_section(self, token: str, path: str) -> None:
@@ -162,7 +180,7 @@ class _Converter:
         self._loops += 1
         item = f"item_{self._loops}"
         source = collection.expression if collection.expression is not None and not collection.is_list else "nil"
-        self._out.append(f"{{% for {item} in {source} %}}")
+        self._emit(f"{{% for {item} in {source} %}}")
         list_scope = _Scope(expression=None, parent=collection.parent, is_list=True)
         self._push(
             _Block(
@@ -186,7 +204,7 @@ class _Converter:
             self._not_converted(token)
             return
         self._uses_if = True
-        self._out.append(f"{{% if {_truthy(self._resolve(path))} %}}")
+        self._emit(f"{{% if {_truthy(self._resolve(path))} %}}")
         self._push(_Block(token="if", scope=self._scope, outer_scope=self._scope, closing="{% endif %}", is_if=True))
 
     def _push(self, block: _Block) -> None:
@@ -195,7 +213,7 @@ class _Converter:
 
     def _close(self) -> None:
         block = self._blocks.pop()
-        self._out.append(block.closing)
+        self._emit(block.closing)
         self._scope = block.outer_scope
 
     def _resolve(self, path: str) -> _Scope:
@@ -214,7 +232,7 @@ class _Converter:
 
     def _not_converted(self, token: str) -> None:
         self._unsupported.append(token)
-        self._out.append(_literal(token))
+        self._emit(_literal(token))
 
 
 def _child(scope: _Scope, name: str) -> str | None:
