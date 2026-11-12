@@ -18,13 +18,13 @@ SESSION_BLOCKED_ACTIONS = frozenset(
         "patch_layout",
         "request_fix",
         "request_agent",
+        # Every build action is closed, not only retry. Pin, unpin and cancel change which build
+        # the viewer serves, which is part of managing a canvas.
+        "build_action",
     }
 )
 # Linking a generation task is how the web app starts a hosted generation or a hosted edit run.
 SESSION_BLOCKED_UPDATE_FIELDS = frozenset({"generation_task_id"})
-# A retry queues a build whose completion can publish content the web app could not publish itself.
-# The other build actions (pin, unpin, cancel) do not publish anything.
-SESSION_BLOCKED_BUILD_ACTIONS = frozenset({"retry"})
 
 
 def blocks_session_action(action: str | None, data: Any) -> bool:
@@ -33,8 +33,4 @@ def blocks_session_action(action: str | None, data: Any) -> bool:
         return True
     if action == "partial_update" and isinstance(data, dict):
         return not SESSION_BLOCKED_UPDATE_FIELDS.isdisjoint(data)
-    if action == "build_action" and isinstance(data, dict):
-        # The body is not validated yet, and an unhashable value would raise on the membership check.
-        build_action = data.get("action")
-        return isinstance(build_action, str) and build_action in SESSION_BLOCKED_BUILD_ACTIONS
     return False

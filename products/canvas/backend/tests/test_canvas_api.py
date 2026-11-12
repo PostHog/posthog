@@ -1291,27 +1291,16 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             ("promote", "post", "promote/", {}, status.HTTP_403_FORBIDDEN),
             ("revert", "post", "revert/", {}, status.HTTP_403_FORBIDDEN),
             ("publish_current_version", "post", "publish-current-version/", {}, status.HTTP_403_FORBIDDEN),
-            (
-                "build_retry",
-                "post",
-                "builds/action/",
-                {"build_id": str(uuid4()), "action": "retry"},
-                status.HTTP_403_FORBIDDEN,
-            ),
-            (
-                "build_malformed_action",
-                "post",
-                "builds/action/",
-                {"build_id": str(uuid4()), "action": ["retry"]},
-                status.HTTP_400_BAD_REQUEST,
-            ),
-            (
-                "build_cancel",
-                "post",
-                "builds/action/",
-                {"build_id": str(uuid4()), "action": "cancel"},
-                status.HTTP_404_NOT_FOUND,
-            ),
+            *[
+                (
+                    f"build_{action}",
+                    "post",
+                    "builds/action/",
+                    {"build_id": str(uuid4()), "action": action},
+                    status.HTTP_403_FORBIDDEN,
+                )
+                for action in ("retry", "pin", "unpin", "cancel")
+            ],
             ("layout_publish", "post", "layout/publish/", {}, status.HTTP_403_FORBIDDEN),
             ("request_fix", "post", "request_fix/", {"build_id": str(uuid4())}, status.HTTP_403_FORBIDDEN),
             ("request_agent", "post", "request_agent/", {"prompt": "Make it blue."}, status.HTTP_403_FORBIDDEN),
