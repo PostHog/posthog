@@ -62,7 +62,8 @@ MAX_MENTION_CANDIDATES = 4 * MAX_MENTION_RECIPIENTS
 # Each recipient costs one token, so one author can ping two full notes at once and about 300 people an hour.
 MENTION_SEND_BUDGET = Budget(burst=2 * MAX_MENTION_RECIPIENTS, per_hour=300)
 SLACK_RETRY_DELAY_SECONDS = 60
-MAX_SLACK_ATTEMPTS = 3
+# The first Slack attempt and up to three retries.
+MAX_SLACK_ATTEMPTS = 4
 _EXCERPT_LIMIT = 280
 # NotificationEvent.title is a varchar(255).
 _TITLE_LIMIT = 255
@@ -331,6 +332,9 @@ def _send_in_app(message: _MentionMessage, recipients: Collection[MentionRecipie
                     body=message.text,
                     target_type=TargetType.USER,
                     target_id=str(recipient.user.id),
+                    # The notifications list re-checks Inbox access with this, so a person who loses
+                    # Inbox access stops seeing the note text.
+                    resource_type="inbox",
                     resource_id=str(report.id),
                     source_url=report_path(report.team_id, report.id, ReportLinkSource.NOTE_MENTION),
                     idempotency_key=f"report-note-mention:{artefact_id}:{recipient.user.id}:{message.digest}",
@@ -406,11 +410,18 @@ def _send_slack(message: _MentionMessage, recipients: Collection[MentionRecipien
         return NoteMentionSlackResult(sent=0, deferred_user_ids=())
 
 
-def _schedule_slack_retry(
-    *, team_id: int, artefact_id: str, author_id: int, mentions: NoteMentions, user_ids: Collection[int], attempt: int
-) -> None:
+def _enqueue_slack(
+    *,
+    team_id: int,
+    artefact_id: str,
+    author_id: int,
+    mentions: NoteMentions,
+    user_ids: Collection[int],
+    attempt: int,
+    countdown: int = 0,
+) -> bool:
     if not user_ids or attempt > MAX_SLACK_ATTEMPTS:
-        return
+        return False
     try:
         send_report_note_mention_slack.apply_async(
             kwargs={
@@ -422,32 +433,40 @@ def _schedule_slack_retry(
                 "only_user_ids": sorted(user_ids),
                 "attempt": attempt,
             },
-            countdown=SLACK_RETRY_DELAY_SECONDS,
+            countdown=countdown,
         )
+        return True
     except Exception:
-        logger.exception("signals.report_note_mentions.slack_retry_enqueue_failed", artefact_id=artefact_id)
+        logger.exception("signals.report_note_mentions.slack_enqueue_failed", artefact_id=artefact_id)
+        return False
 
 
-def _capture_notified(
-    report: SignalReport, *, recipient_count: int, sent: dict[str, int], throttled: bool = False
-) -> None:
+def _capture(report: SignalReport, event: str, properties: dict[str, object]) -> None:
     try:
         team = report.team
         with ph_scoped_capture() as capture:
             capture(
                 distinct_id=str(team.uuid),
-                event="signals_report_note_mention_notified",
-                properties={
-                    "team_id": report.team_id,
-                    "report_id": str(report.id),
-                    "recipient_count": recipient_count,
-                    "throttled": throttled,
-                    **{f"{channel}_sent": count for channel, count in sent.items()},
-                },
+                event=event,
+                properties={"team_id": report.team_id, "report_id": str(report.id), **properties},
                 groups=groups(team.organization, team),
             )
     except Exception:
-        logger.exception("signals.report_note_mentions.capture_failed", report_id=str(report.id))
+        logger.exception("signals.report_note_mentions.capture_failed", report_id=str(report.id), event=event)
+
+
+def _capture_notified(
+    report: SignalReport, *, recipient_count: int, sent: dict[str, int], throttled: bool = False
+) -> None:
+    _capture(
+        report,
+        "signals_report_note_mention_notified",
+        {
+            "recipient_count": recipient_count,
+            "throttled": throttled,
+            **{f"{channel}_sent": count for channel, count in sent.items()},
+        },
+    )
 
 
 def _within_send_budget(*, team_id: int, author_id: int, recipient_count: int) -> bool:
@@ -459,7 +478,11 @@ def _within_send_budget(*, team_id: int, author_id: int, recipient_count: int) -
 def deliver_note_mentions(
     *, team_id: int, artefact_id: str, author_id: int, mentions: NoteMentions
 ) -> list[MentionRecipient]:
-    """Send one note's mentions on every channel. Returns the people it notified."""
+    """Send one note's mentions in-app, by email, and by push, and queue the Slack messages.
+
+    Slack runs in its own task, so a slow Slack workspace does not hold up the other channels.
+    Returns the people it notified.
+    """
     prepared = _prepare_note_mentions(team_id=team_id, artefact_id=artefact_id, author_id=author_id, mentions=mentions)
     if prepared is None:
         return []
@@ -468,27 +491,25 @@ def deliver_note_mentions(
         logger.warning("signals.report_note_mentions.throttled", team_id=team_id, artefact_id=artefact_id)
         _capture_notified(message.report, recipient_count=len(recipients), sent={}, throttled=True)
         return []
-    slack = _send_slack(message, recipients)
     sent = {
         "in_app": _send_in_app(message, recipients, artefact_id),
         "email": _send_email(message, recipients, artefact_id),
         "push": _send_push(message, recipients, artefact_id),
-        "slack": slack.sent,
-        "slack_deferred": len(slack.deferred_user_ids),
     }
-    _schedule_slack_retry(
+    slack_queued = _enqueue_slack(
         team_id=team_id,
         artefact_id=artefact_id,
         author_id=author_id,
         mentions=mentions,
-        user_ids=slack.deferred_user_ids,
+        user_ids=[recipient.user.id for recipient in recipients],
         attempt=1,
     )
+    sent["slack_queued"] = len(recipients) if slack_queued else 0
     _capture_notified(message.report, recipient_count=len(recipients), sent=sent)
     return recipients
 
 
-def retry_note_mention_slack(
+def deliver_note_mention_slack(
     *,
     team_id: int,
     artefact_id: str,
@@ -497,20 +518,37 @@ def retry_note_mention_slack(
     only_user_ids: Collection[int],
     attempt: int,
 ) -> int:
-    """Send the Slack messages a lookup budget deferred. The send budget was already charged."""
+    """Send one note's Slack messages to `only_user_ids`, and queue a retry for anyone deferred.
+
+    Recipients resolve again, so a person who lost access since the first attempt gets nothing. The
+    send budget was charged when the note was delivered.
+    """
     prepared = _prepare_note_mentions(team_id=team_id, artefact_id=artefact_id, author_id=author_id, mentions=mentions)
     if prepared is None:
         return 0
     wanted = set(only_user_ids)
     recipients = [recipient for recipient in prepared.recipients if recipient.user.id in wanted]
     slack = _send_slack(prepared.message, recipients)
-    _schedule_slack_retry(
+    retried = _enqueue_slack(
         team_id=team_id,
         artefact_id=artefact_id,
         author_id=author_id,
         mentions=mentions,
         user_ids=slack.deferred_user_ids,
         attempt=attempt + 1,
+        countdown=slack.retry_after_seconds or SLACK_RETRY_DELAY_SECONDS,
+    )
+    _capture(
+        prepared.message.report,
+        "signals_report_note_mention_slack_delivered",
+        {
+            "attempt": attempt,
+            "recipient_count": len(recipients),
+            "sent": slack.sent,
+            "deferred": len(slack.deferred_user_ids),
+            "rate_limited": slack.retry_after_seconds is not None,
+            "dropped": len(slack.deferred_user_ids) if not retried else 0,
+        },
     )
     return slack.sent
 
@@ -519,8 +557,8 @@ def _mentions_from_ids(user_ids: list[int], role_ids: list[str]) -> NoteMentions
     return NoteMentions(user_ids=frozenset(user_ids), role_ids=frozenset(uuid.UUID(role_id) for role_id in role_ids))
 
 
-# No automatic retry: email, push, and Slack have no shared idempotency key, so a retry could ping
-# the same person twice. Slack people deferred by the lookup budget get their own task below.
+# No automatic retry: in-app, email, and push have no shared idempotency key, so a retry could
+# ping the same person twice. Slack runs in its own task below, which retries only deferred people.
 @shared_task(ignore_result=True)
 @with_team_scope()
 def send_report_note_mention_notifications(
@@ -531,7 +569,8 @@ def send_report_note_mention_notifications(
     )
 
 
-@shared_task(ignore_result=True)
+# The soft limit leaves time to queue the people not reached yet before the hard limit stops the task.
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
 @with_team_scope()
 def send_report_note_mention_slack(
     team_id: int,
@@ -542,7 +581,7 @@ def send_report_note_mention_slack(
     only_user_ids: list[int],
     attempt: int,
 ) -> None:
-    retry_note_mention_slack(
+    deliver_note_mention_slack(
         team_id=team_id,
         artefact_id=artefact_id,
         author_id=author_id,

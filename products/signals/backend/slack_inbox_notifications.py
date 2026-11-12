@@ -20,6 +20,7 @@ from collections.abc import Collection, Iterable
 
 from django.conf import settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
@@ -1002,8 +1003,24 @@ def _note_mention_blocks(
 @frozen
 class NoteMentionSlackResult:
     sent: int
-    # People whose Slack lookup ran out of the workspace's lookup budget, to try again after it refills.
+    # People to try again later: the workspace's member lookup budget ran out, Slack rate-limited the
+    # posts, or the task ran out of time.
     deferred_user_ids: tuple[int, ...]
+    # Slack's own wait after a rate limit. None means the caller picks the delay.
+    retry_after_seconds: int | None = None
+
+
+def _slack_rate_limit_wait(error: SlackApiError) -> int | None:
+    """Slack's `Retry-After` in seconds when the error is a rate limit, else None."""
+    response = getattr(error, "response", None)
+    if response is None:
+        return None
+    rate_limited = getattr(response, "status_code", None) == 429 or response.get("error") == "ratelimited"
+    if not rate_limited:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    raw = str(headers.get("Retry-After") or headers.get("retry-after") or "")
+    return max(1, int(raw)) if raw.isdigit() else 1
 
 
 def deliver_report_note_mention_to_slack(
@@ -1029,7 +1046,9 @@ def deliver_report_note_mention_to_slack(
 
     sent = 0
     deferred: list[int] = []
-    for user in users:
+    retry_after: int | None = None
+    ordered = list(users)
+    for index, user in enumerate(ordered):
         log_context = {"report_id": str(report.id), "team_id": report.team_id}
         try:
             destination = _note_mention_destination(user, own_configs.get(user.id), team_integration)
@@ -1051,6 +1070,19 @@ def deliver_report_note_mention_to_slack(
         except serializers.ValidationError:
             # The member lookup budget is shared by the workspace and refills each minute.
             deferred.append(user.id)
+        except SoftTimeLimitExceeded:
+            # Out of time, so whoever is left goes to the next attempt instead of being dropped.
+            deferred.extend(remaining.id for remaining in ordered[index:])
+            break
+        except SlackApiError as error:
+            wait = _slack_rate_limit_wait(error)
+            if wait is None:
+                logger.warning("Failed to send a report note mention to Slack", extra=log_context, exc_info=True)
+                continue
+            # Every later post would hit the same limit, so the rest wait for Slack's Retry-After too.
+            deferred.extend(remaining.id for remaining in ordered[index:])
+            retry_after = wait
+            break
         except Exception:
             logger.warning("Failed to send a report note mention to Slack", extra=log_context, exc_info=True)
-    return NoteMentionSlackResult(sent=sent, deferred_user_ids=tuple(deferred))
+    return NoteMentionSlackResult(sent=sent, deferred_user_ids=tuple(deferred), retry_after_seconds=retry_after)

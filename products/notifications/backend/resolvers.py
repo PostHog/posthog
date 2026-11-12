@@ -5,10 +5,18 @@ import structlog
 from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
+    UserAccessControl,
+)
 from products.notifications.backend.facade.enums import TargetType
 
 logger = structlog.get_logger(__name__)
+
+# Resource types whose access control decides who may see a notification. An inherited type such as
+# `inbox` has no rules of its own, and the access check resolves it to its parent (`task`).
+ACCESS_CHECKED_RESOURCE_TYPES: frozenset[str] = frozenset({*ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP})
 
 
 class RecipientsResolver:

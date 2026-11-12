@@ -1,12 +1,13 @@
 import uuid
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers
+from slack_sdk.errors import SlackApiError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
@@ -30,7 +31,7 @@ from products.signals.backend.report_note_mentions import (
     notification_title,
     parse_note_mentions,
     render_note_text,
-    retry_note_mention_slack,
+    send_report_note_mention_slack,
 )
 
 ROLE_ID = uuid.UUID("0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d")
@@ -91,6 +92,17 @@ class TestDeliverNoteMentions(BaseTest):
         self.mocks = {name: p.start() for name, p in patches.items()}
         for p in patches.values():
             self.addCleanup(p.stop)
+        self.slack_dispatches: list[dict] = []
+        self.run_slack_now = True
+        slack_task = patch.object(send_report_note_mention_slack, "apply_async", side_effect=self._dispatch_slack)
+        slack_task.start()
+        self.addCleanup(slack_task.stop)
+
+    def _dispatch_slack(self, *, kwargs: dict, countdown: int = 0) -> None:
+        self.slack_dispatches.append({**kwargs, "countdown": countdown})
+        # The first attempt runs here, as a worker would. A delayed retry is only recorded.
+        if self.run_slack_now and countdown == 0:
+            send_report_note_mention_slack(**kwargs)
 
     def _note(self, text: str, **content: object) -> SignalReportArtefact:
         return SignalReportArtefact.add_log(
@@ -141,6 +153,7 @@ class TestDeliverNoteMentions(BaseTest):
         assert in_app[str(self.mentioned.id)].title == "Andy mentioned you on a report"
         assert in_app[str(self.role_member.id)].title == "Andy mentioned @Self-driving on a report"
         assert in_app[str(self.mentioned.id)].body == "@Dylan @someone and @Self-driving can you look"
+        assert in_app[str(self.mentioned.id)].resource_type == "inbox"
         assert in_app[str(self.mentioned.id)].source_url.startswith(
             f"/project/{self.team.id}/inbox/reports/{self.report.id}"
         )
@@ -263,29 +276,47 @@ class TestDeliverNoteMentions(BaseTest):
 
         self.mocks["slack"].return_value.client.chat_postMessage.assert_not_called()
 
-    def test_slack_retries_people_past_the_lookup_budget(self) -> None:
+    def test_slack_runs_in_its_own_task(self) -> None:
+        self.run_slack_now = False
         self._inbox_slack_workspace()
-        text = f"@member:{self.mentioned.id}"
-        lookup = "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email"
-        with (
-            patch(lookup, side_effect=serializers.ValidationError("budget")),
-            patch("products.signals.backend.report_note_mentions.send_report_note_mention_slack.apply_async") as retry,
+
+        with patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value="U0SOMEONE"
         ):
-            self._deliver(text)
+            recipient_ids = self._deliver(f"@member:{self.mentioned.id} @member:{self.role_member.id}")
+
+        assert len(self.mocks["in_app"].call_args_list) == 2
         self.mocks["slack"].return_value.client.chat_postMessage.assert_not_called()
-        retry_kwargs = retry.call_args.kwargs["kwargs"]
-        assert retry_kwargs["only_user_ids"] == [self.mentioned.id]
-        assert retry.call_args.kwargs["countdown"] == 60
+        assert [(d["only_user_ids"], d["attempt"], d["countdown"]) for d in self.slack_dispatches] == [
+            (sorted(recipient_ids), 1, 0)
+        ]
 
-        with patch(lookup, return_value="U0DYLAN"):
-            retry_note_mention_slack(
-                team_id=self.team.id,
-                artefact_id=retry_kwargs["artefact_id"],
-                author_id=self.user.id,
-                mentions=parse_note_mentions(text),
-                only_user_ids=retry_kwargs["only_user_ids"],
-                attempt=retry_kwargs["attempt"],
-            )
+    @parameterized.expand([("member_lookup_budget", 60), ("slack_rate_limit", 30)])
+    def test_slack_retries_the_people_it_could_not_reach(self, case: str, expected_countdown: int) -> None:
+        self._inbox_slack_workspace()
+        text = f"@member:{self.mentioned.id} @member:{self.role_member.id}"
+        lookup = "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email"
+        post = self.mocks["slack"].return_value.client.chat_postMessage
+        if case == "member_lookup_budget":
+            lookup_patch = patch(lookup, side_effect=serializers.ValidationError("budget"))
+        else:
+            lookup_patch = patch(lookup, return_value="U0SOMEONE")
+            response = MagicMock(status_code=429, headers={"Retry-After": "30"})
+            response.get.return_value = "ratelimited"
+            post.side_effect = SlackApiError("ratelimited", response)
 
-        post = self.mocks["slack"].return_value.client.chat_postMessage.call_args.kwargs
-        assert post["channel"] == "U0DYLAN"
+        with lookup_patch:
+            self._deliver(text)
+
+        retry = self.slack_dispatches[-1]
+        assert (retry["only_user_ids"], retry["attempt"], retry["countdown"]) == (
+            sorted([self.mentioned.id, self.role_member.id]),
+            2,
+            expected_countdown,
+        )
+
+        post.reset_mock(side_effect=True)
+        with patch(lookup, return_value="U0SOMEONE"):
+            send_report_note_mention_slack(**{k: v for k, v in retry.items() if k != "countdown"})
+
+        assert post.call_count == 2

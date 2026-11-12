@@ -2432,6 +2432,25 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert [call.kwargs["user_ids"] for call in delay.call_args_list] == expected_user_ids
 
+    def test_patch_note_with_a_bad_task_header_saves_nothing(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "first"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"{self._list_url(str(report.id))}{artefact_id}/",
+            data=json.dumps({"content": {"note": "second"}}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": "not-a-uuid"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert json.loads(SignalReportArtefact.objects.get(id=artefact_id).content)["note"] == "first"
+
     def test_patch_note_pings_only_the_mentions_it_adds(self):
         report = self._create_report()
         response = self.client.post(

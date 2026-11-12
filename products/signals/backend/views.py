@@ -7321,6 +7321,12 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         previous_content = artefact.content
+        # Resolved before the edit is saved, so a bad task header fails the request without writing it.
+        mention_author_id = (
+            request_mention_author_id(request, resolve_request_attribution(request, self.team.id))
+            if artefact.type == SignalReportArtefact.ArtefactType.NOTE
+            else None
+        )
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -7336,7 +7342,7 @@ class SignalReportArtefactViewSet(
             schedule_note_mention_notifications(
                 team_id=self.team.id,
                 artefact_id=str(artefact.id),
-                author_id=request_mention_author_id(request, resolve_request_attribution(request, self.team.id)),
+                author_id=mention_author_id,
                 mentions=parse_note_mentions(parsed_content.note).added_since(
                     parse_note_mentions(note_text(artefact.type, previous_content) or "")
                 ),
