@@ -996,10 +996,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 return
             }
-            if (!background) {
-                // Starts the download now, so the stream logic is ready when the run exists.
-                void loadRunStreamLogic().catch(() => {})
-            }
+            // Starts the download now, so it overlaps the report refetch. The quick ask shows no thread.
+            const runStreamModule = background ? null : loadRunStreamLogic()
+            // The await below reports a failed download. This keeps an early return from leaving it unhandled.
+            runStreamModule?.catch(() => {})
             // The sidebar context can belong to another report, and the quick ask shows no attachments.
             const contextItems = background ? [] : chatSendItems(values.pageItems, values.picks)
             // The composer renders from a snapshot that can go stale between load and submit (the
@@ -1061,6 +1061,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 } else if (!background && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
+                // Before the task exists, so a failed download fails the ask with no run started, and no
+                // await sits between the panel check below and the optimistic stream.
+                const runStream = await runStreamModule
                 const { taskId, runId } = await createReportTask(
                     String(values.currentProjectId),
                     cache.disposables,
@@ -1079,10 +1082,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                         toastId: `report-quick-ask-${runId}`,
                         button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
                     })
-                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
+                } else if (runStream && panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
-                    const { runStreamLogic } = await loadRunStreamLogic()
-                    const stream = runStreamLogic({ streamKey })
+                    const stream = runStream.runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
