@@ -760,6 +760,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
@@ -769,6 +770,7 @@ class TestUserAPI(APIBaseTest):
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):

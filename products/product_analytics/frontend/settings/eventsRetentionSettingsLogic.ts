@@ -1,5 +1,6 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -140,10 +141,12 @@ export const eventsRetentionSettingsLogic = kea<eventsRetentionSettingsLogicType
     listeners(({ actions }) => ({
         updateProjectRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
+            posthog.capture('events retention updated', { level: 'project' })
             dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
         },
         updateOrganizationRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
+            posthog.capture('events retention updated', { level: 'organization' })
             actions.loadProjectRetention()
             dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
         },

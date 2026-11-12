@@ -292,6 +292,7 @@ export interface inboxSetupLogicMeta {
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
             scoutConfigs: SignalScoutConfigApi[] | null,
+            savedState: InboxOnboardingStateApi | null,
             featureFlags: FeatureFlagsSet,
             isGithubOptionalSetup: boolean
         ) => InboxOnboardingDraftApi | null
@@ -526,15 +527,21 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 !completed,
         ],
         quickSetupDraft: [
-            (s) => [s.sources, s.visionScanners, s.scoutConfigs, s.featureFlags, s.isGithubOptionalSetup],
+            (s) => [s.sources, s.visionScanners, s.scoutConfigs, s.savedState, s.featureFlags, s.isGithubOptionalSetup],
             (
                 sources: InboxSetupSource[],
                 scanners: ReplayScannerApi[] | null,
                 configs: SignalScoutConfigApi[] | null,
+                state: InboxOnboardingStateApi | null,
                 flags: FeatureFlagsSet,
                 pilot: boolean
             ): InboxOnboardingDraftApi | null => {
-                const quickDraft = quickInboxSetupDraft(sources, scanners ?? [], configs ?? [])
+                const quickDraft = quickInboxSetupDraft(
+                    sources,
+                    scanners ?? [],
+                    configs ?? [],
+                    state?.setup_default_skills
+                )
                 return quickDraft
                     ? {
                           ...quickDraft,

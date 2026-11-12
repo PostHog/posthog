@@ -18,7 +18,7 @@
             "type": "string"
         },
         "yaml_source": {
-            "description": "The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server compiles and validates this against the exact event before saving.",
+            "description": "The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server tests this against the exact event before saving.",
             "maxLength": 100000,
             "minLength": 1,
             "type": "string"
