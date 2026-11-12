@@ -45,7 +45,7 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import InternalCHQueryError, clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
@@ -372,6 +372,7 @@ def sync_execute(
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     external_tables: Optional[list[ClickHouseExternalTable]] = None,
     send_receive_timeout: Optional[int] = None,
+    sanitize_errors: bool = False,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -409,6 +410,7 @@ def sync_execute(
         ClickHouseUser.DEFAULT.
     external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
         sent alongside the query instead of inlined.
+    sanitize_errors (bool): Remove database error details before failures reach tracing.
 
     Returns:
     Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
@@ -615,6 +617,11 @@ def sync_execute(
             workload=workload.value if workload else "None",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
+        if sanitize_errors:
+            code = getattr(e, "code", None)
+            raise InternalCHQueryError(
+                "ClickHouse query failed. Retry the operation.", code=code if isinstance(code, int) else None
+            ) from None
         err = wrap_clickhouse_query_error(e)
         # The wrapper returns the same object for anything that is not a ServerException. Raising
         # that with `from e` makes the exception its own __cause__.
