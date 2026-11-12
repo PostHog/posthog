@@ -446,7 +446,10 @@ def test_cloud_subscription_traces_capture_to_the_deployment_region(
             team=MagicMock(id=7), user=MagicMock(distinct_id="user-1"), stage="synthesis", trace_correlation_id=None
         )
 
-    (handler,) = config["callbacks"]
+    callbacks = config["callbacks"]
+    assert isinstance(callbacks, list)
+    (handler,) = callbacks
+    assert isinstance(handler, MaxCallbackHandler)
     assert handler._ph_client.host == expected_host
 
 
