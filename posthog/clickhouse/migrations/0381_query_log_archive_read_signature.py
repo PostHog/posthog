@@ -1,5 +1,6 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.dataclasses import frozen
 from posthog.run_mode import run_mode
 
 # Archives the read_signature query tag in the v3 query_log_archive as lc_read_signature.
@@ -268,17 +269,27 @@ WHERE ql.type != 'QueryStart'
 """
 
 
-def _roles() -> tuple[list[NodeRole], list[NodeRole]]:
-    """(read table roles, write path roles) for the current deployment."""
+@frozen
+class _Roles:
+    read_table: list[NodeRole]
+    write_path: list[NodeRole]
+
+
+def _roles() -> _Roles:
+    """Read table and write path roles for the current deployment."""
     shared = [NodeRole.DATA, NodeRole.AUX, NodeRole.AI_EVENTS, NodeRole.SESSIONS, NodeRole.LOGS, NodeRole.OPS]
     if run_mode().is_deployed_cloud:
-        return shared, [*shared, NodeRole.METRICS, NodeRole.INGESTION_METRICS, NodeRole.APM]
+        return _Roles(
+            read_table=shared, write_path=[*shared, NodeRole.METRICS, NodeRole.INGESTION_METRICS, NodeRole.APM]
+        )
     # The multinode stack's logs node holds only the read table, and its ingestion nodes hold it too.
     read_roles = [*shared, NodeRole.INGESTION_EVENTS, NodeRole.INGESTION_SMALL, NodeRole.INGESTION_MEDIUM]
-    return read_roles, [role for role in shared if role is not NodeRole.LOGS]
+    return _Roles(read_table=read_roles, write_path=[role for role in shared if role is not NodeRole.LOGS])
 
 
-READ_TABLE_ROLES, WRITE_PATH_ROLES = _roles()
+_roles_for_deployment = _roles()
+READ_TABLE_ROLES = _roles_for_deployment.read_table
+WRITE_PATH_ROLES = _roles_for_deployment.write_path
 
 operations = [
     run_sql_with_exceptions(
