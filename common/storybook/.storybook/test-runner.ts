@@ -1,4 +1,4 @@
-import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
+import type { CDPSession, Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
@@ -880,6 +880,33 @@ async function takeSettledSnapshotImage(
     return previous
 }
 
+const cdpSessionByPage = new WeakMap<Page, CDPSession>()
+
+/**
+ * Pause or resume page script through the Chrome DevTools Protocol, and return whether it worked.
+ *
+ * Chromium captures a target that does not fit the viewport by resizing the page for the capture.
+ * Script that reacts to the resize renders again or reloads data during the capture, so the picture
+ * can show a loading state. Paused script cannot react, and the layout stays the one the story has at
+ * its own viewport. WebKit has no CDP, so there it does nothing.
+ */
+async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean> {
+    if (page.context().browser()?.browserType().name() !== 'chromium') {
+        return false
+    }
+    try {
+        let session = cdpSessionByPage.get(page)
+        if (!session) {
+            session = await page.context().newCDPSession(page)
+            cdpSessionByPage.set(page, session)
+        }
+        await session.send('Emulation.setScriptExecutionDisabled', { value: paused })
+        return true
+    } catch {
+        return false
+    }
+}
+
 /**
  * Screenshot the snapshot target, naming the one cause Playwright reports opaquely: a story that
  * renders nothing. `#storybook-root` is `display: inline-block` here, so an empty render collapses it
@@ -891,6 +918,8 @@ async function takeSnapshotImage(
     context: TestContext,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    const scriptPaused = await setPageScriptPaused(page, true)
     try {
         return await locator.screenshot({ ...options })
     } catch (error) {
@@ -902,6 +931,10 @@ async function takeSnapshotImage(
             )
         }
         throw error
+    } finally {
+        if (scriptPaused) {
+            await setPageScriptPaused(page, false)
+        }
     }
 }
 
