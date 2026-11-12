@@ -8,7 +8,7 @@ from django.db import transaction
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -2846,6 +2846,86 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         return ret
 
 
+COMPACT_ERROR_MAX_LENGTH = 500
+ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY = "error_redaction_values_by_source"
+
+
+def truncate_error(message: str | None, max_length: int = COMPACT_ERROR_MAX_LENGTH) -> str | None:
+    if message is None or len(message) <= max_length:
+        return message
+    return f"{message[:max_length]}… [truncated, {len(message)} characters]"
+
+
+class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
+    """One summary row per table, for the compact source responses that agents read.
+
+    It reads only stored schema columns, so it adds no query per row. The error is redacted, then truncated.
+    """
+
+    status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    latest_error = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            f"The latest sync error with secrets redacted, cut to {COMPACT_ERROR_MAX_LENGTH} characters. "
+            "Null when the last sync did not fail."
+        ),
+    )
+
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "latest_error"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, schema: ExternalDataSchema) -> str | None:
+        if not schema.latest_error:
+            return schema.latest_error
+        by_source: dict[uuid.UUID, frozenset[str]] = self.context.get(ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY, {})
+        secret_values = by_source.get(schema.source_id)
+        if secret_values is not None:
+            redacted = source_helpers.redact_error_message(schema.latest_error, secret_values)
+        else:
+            redacted = redact_schema_error(schema, self.context)
+        return truncate_error(redacted)
+
+
+class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
+    """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
+
+    class Meta(ExternalDataSchemaSummarySerializer.Meta):
+        fields = ["id", "name", "source_id", "should_sync", "sync_type", "status", "last_synced_at", "latest_error"]
+        read_only_fields = fields
+
+
+def error_redaction_values_by_source(schemas: Iterable[ExternalDataSchema]) -> dict[uuid.UUID, frozenset[str]]:
+    """The secret values of each source that has a failed table, read with one inputs query for all of them."""
+    sources = {schema.source_id: schema.source for schema in schemas if schema.latest_error}
+    if not sources:
+        return {}
+    inputs = SourceInputsStore.load_many(sources.values())
+    # A source left out of `inputs` falls back to the per-schema lookup, which handles unreadable inputs.
+    return {
+        source_id: source_helpers.get_error_redaction_values(source, inputs[source_id])
+        for source_id, source in sources.items()
+        if source_id in inputs
+    }
+
+
+class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at "
+            "and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+        ),
+    )
+
+
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
@@ -2889,6 +2969,7 @@ class WarehouseTableAccessPermission(AccessControlPermission):
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
+@extend_schema_view(list=extend_schema(parameters=[ExternalDataSchemaListQuerySerializer]))
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     permission_classes = [WarehouseTableAccessPermission]
@@ -2933,19 +3014,43 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def _is_compact_list(self) -> bool:
+        if getattr(self, "action", None) != "list" or getattr(self, "swagger_fake_view", False):
+            return False
+        cached: bool | None = getattr(self, "_compact_list", None)
+        if cached is None:
+            query = ExternalDataSchemaListQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
+            cached = bool(query.validated_data["compact"])
+            self._compact_list = cached
+        return cached
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self._is_compact_list():
+            return ExternalDataSchemaCompactSerializer
+        return super().get_serializer_class()
+
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
         if "context" not in kwargs:
             kwargs["context"] = self.get_serializer_context()
         if kwargs.get("many") and args:
             context = kwargs["context"]
-            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+            if self._is_compact_list():
+                schemas = list(args[0])
+                args = (schemas, *args[1:])
+                context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
+            else:
+                context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+                context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         if getattr(self, "swagger_fake_view", False):
+            return context
+        if self._is_compact_list():
+            # The compact row reads no columns, so it skips building the HogQL database.
             return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).

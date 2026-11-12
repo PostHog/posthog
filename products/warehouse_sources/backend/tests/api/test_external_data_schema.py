@@ -5602,6 +5602,74 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert [row["webhook_not_registered"] for row in rows] == [False, False, True, True]
 
+    @parameterized.expand(
+        [
+            ("default", "", False),
+            ("compact_false", "?compact=false", False),
+            ("compact", "?compact=true", True),
+            ("compact_with_search", "?compact=true&search=Cust", True),
+        ]
+    )
+    def test_list_compact_shape(self, _name: str, query: str, compact: bool) -> None:
+        source, schema = self._create()
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.should_sync = True
+        schema.latest_error = "failed for key 123 " + "y" * 2000
+        schema.save()
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()["results"]
+        assert len(rows) == 1
+        row = rows[0]
+        if compact:
+            assert set(row) == {
+                "id",
+                "name",
+                "source_id",
+                "should_sync",
+                "sync_type",
+                "status",
+                "last_synced_at",
+                "latest_error",
+            }
+            assert row["source_id"] == str(source.id)
+            assert row["status"] == ExternalDataSchema.Status.FAILED
+            assert row["latest_error"].endswith("[truncated, 2019 characters]")
+            assert len(row["latest_error"]) < 600
+        else:
+            assert {"table", "sync_frequency", "incremental_field", "webhook_not_registered"} <= set(row)
+            assert len(row["latest_error"]) > 2000
+
+    def test_list_compact_rejects_invalid_flag(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?compact=nope")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_compact_query_count_does_not_scale_with_failed_sources(self) -> None:
+        source, schema = self._create()
+        schema.latest_error = "err"
+        schema.save()
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/?compact=true"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as before:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
+        for index in range(4):
+            other_source, other_schema = self._create()
+            other_schema.name = f"Other {index}"
+            other_schema.latest_error = f"err {index}"
+            other_schema.save()
+
+        with CaptureQueriesContext(connection) as after:
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+
+        assert len(response.json()["results"]) == 5
+        assert len(after.captured_queries) == len(before.captured_queries)
+
     def test_list_omits_source_summary(self):
         self._create()
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/")

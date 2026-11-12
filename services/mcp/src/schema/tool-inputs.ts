@@ -131,9 +131,29 @@ export const ExternalDataJobsBeforeSchema = z
     .string()
     .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
 
+// Agents often send one comma-separated string ("users,orders") instead of a list. The preprocess splits it,
+// and the advertised JSON schema still shows the array.
 export const ExternalDataJobsSchemasSchema = z
-    .array(z.string())
+    .preprocess(
+        (value) =>
+            typeof value === 'string'
+                ? value
+                      .split(',')
+                      .map((name) => name.trim())
+                      .filter((name) => name !== '')
+                : value,
+        z.array(z.string())
+    )
     .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const EXTERNAL_DATA_JOBS_MAX_LIMIT = 100
+
+export const ExternalDataJobsLimitSchema = z
+    .preprocess(castStringToInt, z.number().int().min(1).max(EXTERNAL_DATA_JOBS_MAX_LIMIT))
+    .describe(
+        `Maximum number of jobs to return, from 1 to ${EXTERNAL_DATA_JOBS_MAX_LIMIT} (default 20). Jobs are newest first. ` +
+            'To get older jobs, pass the returned `next_before` as `before`.'
+    )
 
 export const BillingTeamIdsSchema = z
     .array(z.number().int().positive())

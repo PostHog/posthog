@@ -746,10 +746,10 @@
         }
     },
     "external-data-sources-jobs": {
-        "description": "List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status, duration, rows synced, and errors. Supports optional filtering by date range (after/before as ISO timestamps) and by schema name.",
+        "description": "List sync job history for a data warehouse source. Takes the source id (`id`, or `source_id`) from external-data-sources-list, not a table id. Returns `{results, has_more, next_before}`: jobs newest first, with status, rows synced, and errors cut to 500 characters. `limit` sets the page size (1-100, default 20). To get older jobs, pass `next_before` as `before`. Filter by date range (after/before as ISO timestamps) and by table names (`schemas`, a list such as [\"users\", \"orders\"]).",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "List sync job history for a source with optional date and schema filters.",
+        "summary": "List sync job history for a source, paged, with date and table filters.",
         "title": "List sync jobs for a source",
         "required_scopes": ["external_data_source:read"],
         "annotations": {
@@ -774,10 +774,10 @@
         }
     },
     "external-data-sync-logs": {
-        "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
+        "description": "Get sync logs for one data warehouse table. `schema_id` is a table (schema) id from external-data-schemas-list or from the `schemas` of external-data-sources-retrieve. It is not a source id. To read the logs of a whole source, pass `source_id` instead: the tool reads its failed or syncing tables (up to 10, failed tables first). By default repeated messages are grouped into one row with count, first_seen, last_seen and the job ids, and each message is cut to 1000 characters; set `dedupe` to false for raw entries. Filter by time (`since`/`until`, ISO 8601; default is the last 7 days), by job (`job_id`, a workflow_run_id from external-data-sources-jobs), by minimum level (DEBUG, INFO, WARNING, ERROR), and by message text (`search`).",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Get sync job logs for a data warehouse table.",
+        "summary": "Get de-duplicated sync logs for a data warehouse table or source.",
         "title": "Get sync job logs",
         "required_scopes": ["query:read"],
         "annotations": {
