@@ -32,6 +32,11 @@ export const getFlutterInstallSteps = (
                         ]}
                     />
                     <Markdown>posthog_flutter 6.0 requires Flutter 3.41 or later on every platform.</Markdown>
+                    <Markdown>
+                        If you embed Flutter in an iOS or macOS app as a module (`flutter create -t module`), stay on
+                        posthog_flutter 5.x for now. Flutter still installs module plugins with CocoaPods, and
+                        posthog_flutter 6.0 has no podspec.
+                    </Markdown>
                 </>
             ),
         },
