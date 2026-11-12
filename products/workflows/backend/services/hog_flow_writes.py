@@ -411,6 +411,7 @@ def update_workflow(
     base_live_updated_at: Optional[str],
     includes_staged_draft: bool,
     validated_status: str,
+    validated_disabled_from_active: Optional[bool] = None,
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
     before_write: Optional[Callable[[], None]] = None,
@@ -427,9 +428,15 @@ def update_workflow(
 
     with transaction.atomic():
         before_update = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
-        # Validation ran before this lock, and a draft validates leniently. If the status moved since
-        # and the payload does not set it, that lenient content would land on a live workflow.
-        if "status" not in validated_data and before_update.status != validated_status:
+        # Validation ran before this lock, and a draft validates leniently. If the status or the draft
+        # protection moved since and the payload does not set it, content would land on a live workflow.
+        if "status" not in validated_data and (
+            before_update.status != validated_status
+            or (
+                validated_disabled_from_active is not None
+                and before_update.disabled_from_active != validated_disabled_from_active
+            )
+        ):
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.
         instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
