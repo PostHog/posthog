@@ -379,14 +379,19 @@ class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
-    repos, so the mention becomes a repo-less task and the agent decides whether the
-    ask needs code. `agent_needed` → there are multiple candidates and no explicit
+    repos, or the needs-repo check said the ask needs no code, so the mention becomes a
+    repo-less task. `agent_needed` → there are multiple candidates and no explicit
     mention.
+
+    `needs_repo_classified` marks an `agent_needed` outcome whose ask the cascade already
+    judged to need code, so the workflow skips its own needs-repo check. It defaults to
+    False, so histories recorded before it existed decode to that check.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
+    needs_repo_classified: bool = False
 
 
 @dataclass(frozen=True)
