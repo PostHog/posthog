@@ -1,15 +1,7 @@
-"""Curated query: a team's daily time-to-merge trend via GitHub org team membership.
+"""A team's daily time-to-merge (``open_to_merge_seconds``), attributed through the ``team_members`` snapshot.
 
-Attributes merged PRs to a team through the ``team_members`` warehouse snapshot (PR author
-login → GitHub team slug), the one sanctioned place member data feeds a team surface. Only
-team-level aggregates leave this module (the daily median and average of the team's own
-merges): no per-member figures, no cross-team rankings (SPEC §2/§6). Bots are excluded per
-the default bot rule.
-
-The GitHub team slug and the ownership-map slug (``test.owner_team``) are two namespaces
-matched by exact slug. A team whose GitHub slug differs from its ownership slug gets no
-membership rows (an empty series), never another team's data. Time-to-merge is the coarse
-``open_to_merge_seconds`` (SPEC §6).
+Only team aggregates leave this module, never per-member figures (SPEC §2 and §6). ``owner_team``
+must equal the GitHub team slug exactly, and a slug with no membership rows gives an empty series.
 """
 
 from datetime import datetime
@@ -45,8 +37,7 @@ def query_team_merge_trend(
 ) -> TeamMergeTrend:
     members_source = curated.members_source()
     if members_source is None:
-        # The membership snapshot isn't synced, so there is no honest team attribution: return
-        # the flag instead of an empty series that implies the team merged nothing.
+        # An empty series alone would imply the team merged nothing, so the flag says the snapshot is unsynced.
         return TeamMergeTrend(owner_team=owner_team, has_membership_data=False, points=[])
 
     sql = f"WITH members AS (SELECT member_handle FROM {members_source} WHERE team_slug = {{owner_team}}) {_SELECT}"

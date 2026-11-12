@@ -14,6 +14,7 @@ from django.utils.functional import Promise
 from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
+    from products.signals.backend.facade.trial import TaskTrialAdmission
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
@@ -31,6 +32,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
+from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -342,15 +344,17 @@ class ChannelMembership(TeamScopedRootMixin):
 def clear_channel_repositories_on_github_integration_delete(
     sender: type[Integration], instance: Integration, **kwargs: Any
 ) -> None:
-    if instance.kind != Integration.IntegrationKind.GITHUB:
+    # The SDK calls the integration hook itself. This receiver is for the deletes that do not use the SDK.
+    if instance.kind != Integration.IntegrationKind.GITHUB or sdk_runs_hooks():
         return
+    clear_channel_repositories_of_github_integration(instance.team_id, instance.id)
 
+
+def clear_channel_repositories_of_github_integration(team_id: int, integration_id: int) -> None:
     affected = list(
-        Channel.objects.for_team(instance.team_id)
-        .filter(github_integration_id=instance.id)
-        .values_list("id", "repositories")
+        Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).values_list("id", "repositories")
     )
-    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+    Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).update(
         github_integration=None,
         repositories=[],
     )
@@ -361,13 +365,13 @@ def clear_channel_repositories_on_github_integration_delete(
     from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
 
     capture_repository_config_changed(
-        team=instance.team,
+        team=Team.objects.get(id=team_id),
         user_id=None,
         subject="space",
         trigger="github_integration_disconnected",
         previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
         repositories=[],
-        previous_integration_id=instance.id,
+        previous_integration_id=integration_id,
         integration_id=None,
         affected_space_count=len(affected),
     )
@@ -391,6 +395,18 @@ def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
     return list(TaskClientProvenance.choices)
 
 
+class TaskClient(models.TextChoices):
+    POSTHOG_DESKTOP = TaskClientProvenance.POSTHOG_DESKTOP.value, TaskClientProvenance.POSTHOG_DESKTOP.label
+    POSTHOG_MOBILE = TaskClientProvenance.POSTHOG_MOBILE.value, TaskClientProvenance.POSTHOG_MOBILE.label
+    POSTHOG_WEB = TaskClientProvenance.POSTHOG_WEB.value, TaskClientProvenance.POSTHOG_WEB.label
+    SLACK = "slack", "Slack"
+
+
+def task_client_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(TaskClient.choices)
+
+
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(Task.OriginProduct.choices)
@@ -411,6 +427,25 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        IDLE = "idle", "Idle"
+        DONE = "done", "Done"
+
+    class StatusReason(models.TextChoices):
+        TURN_CLOSED = "turn_closed", "Turn closed"
+        USER_STOPPED = "user_stopped", "User stopped"
+        PROVISION_FAILED = "provision_failed", "Provision failed"
+        UNEXPECTED_FAILURE = "unexpected_failure", "Unexpected failure"
+        TIMED_OUT = "timed_out", "Timed out"
+        BUDGET_SPENT = "budget_spent", "Budget spent"
+        CREDIT_SPENT = "credit_spent", "Credit spent"
+        ACCESS_CHANGED = "access_changed", "Access changed"
+        FINISHED = "finished", "Finished"
+        CLOSED = "closed", "Closed"
+        CANCELLED = "cancelled", "Cancelled"
 
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -530,6 +565,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         blank=True,
         editable=False,
     )
+    last_client = models.CharField(
+        max_length=32,
+        choices=task_client_choices,
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    last_client_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -588,6 +631,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     source_kind = models.CharField(max_length=32, null=True, blank=True)
     source_id = models.CharField(max_length=64, null=True, blank=True)
     idempotency_key = models.CharField(max_length=128, null=True, blank=True)
+
+    status = models.CharField(max_length=16, choices=Status, default=Status.IDLE, null=True, blank=True)
+    status_reason = models.CharField(max_length=32, choices=StatusReason, null=True, blank=True)
+    status_detail = models.TextField(null=True, blank=True)
+    status_changed_by = models.CharField(max_length=64, null=True, blank=True)
+    head_branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
 
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
@@ -679,6 +729,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 condition=models.Q(source_kind__isnull=False),
                 name="posthog_task_source_idx",
             ),
+            models.Index(
+                fields=["status"],
+                condition=models.Q(status__in=["queued", "running"]),
+                name="posthog_task_live_status_idx",
+            ),
+            models.Index(
+                fields=["head_branch"],
+                condition=models.Q(head_branch__isnull=False),
+                name="posthog_task_head_branch_idx",
+            ),
+            GinIndex(fields=["pr_urls"], name="posthog_task_pr_urls_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -708,6 +769,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if self.task_number is None:
             self._assign_task_number()
+
+        if is_new and self.last_client is None:
+            self.last_client = self.client_provenance or (
+                TaskClient.SLACK if self.origin_product == Task.OriginProduct.SLACK else None
+            )
+            self.last_client_at = django_timezone.now() if self.last_client else None
 
         super().save(*args, **kwargs)
 
@@ -862,6 +929,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 all_properties["signal_report_id"] = str(self.signal_report_source_id)
             if properties:
                 all_properties.update(properties)
+            if self.profile == "context_layer.dream" and event in {"task_created", "task_run_created"}:
+                all_properties["$update_person_last_seen_at"] = False
             (capture_fn or posthoganalytics.capture)(
                 distinct_id=distinct_id,
                 event=event,
@@ -982,6 +1051,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if live_run_ids:
             execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
 
+    def uses_self_driving_billing(self, mode: str) -> bool:
+        if mode != "background":
+            return False
+        if self.origin_product == self.OriginProduct.SIGNALS_SCOUT:
+            return not self.is_scout_experiment
+        if self.origin_product != self.OriginProduct.SIGNAL_REPORT:
+            return False
+        if self.internal or self.signal_report_source_id is None:
+            return True
+        from products.signals.backend.task_run_artefacts import (
+            is_report_implementation_task,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        return is_report_implementation_task(
+            team_id=self.team_id, report_id=str(self.signal_report_source_id), task_id=str(self.id)
+        )
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -994,6 +1080,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         subscription_owner_id: int | None = None,
         spend_signal_id: str | None = None,
         implementation_spend_kind: str | None = None,
+        _trial_admission: "TaskTrialAdmission | None | Literal[False]" = False,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -1003,11 +1090,30 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        effective_environment = environment or TaskRun.Environment.CLOUD
+        uses_self_driving_billing = self.uses_self_driving_billing(mode)
+        trial_admission = (
+            (
+                prepare_task_trial(
+                    team=self.team, origin=self.origin_product, report_id=self.signal_report_source_id, mode=mode
+                )
+                if _trial_admission is False
+                else _trial_admission
+            )
+            if effective_environment == TaskRun.Environment.CLOUD and uses_self_driving_billing
+            else None
+        )
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.signal_report_source_id)
             task = (
                 Task.objects.select_for_update(of=("self",))
                 .select_related("created_by", "team")
@@ -1016,7 +1122,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
 
-            effective_environment = environment or TaskRun.Environment.CLOUD
             if (
                 effective_environment == TaskRun.Environment.CLOUD
                 and task.origin_product not in Task.OriginProduct.values
@@ -1099,22 +1204,20 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if internal_stage and not state.get("ai_stage") and task.internal:
                 state["ai_stage"] = internal_stage
 
-            # A manual resume can share an internal Task with an automated run. Freeze billing
-            # on this run so historical PR charges and pipeline attribution do not change.
-            if (
-                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-                and state.get("ai_stage")
-                not in {
-                    "research",
-                    "implementation",
-                    "repo_selection",
-                    "custom_agent",
-                }
-            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+            if task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT):
+                state.pop("billing_product", None)
+                if not uses_self_driving_billing:
+                    state["billing_product"] = "posthog_ai"
+                elif task.origin_product == Task.OriginProduct.SIGNAL_REPORT and state.get("ai_stage") in {
+                    None,
+                    "inbox",
+                }:
+                    state["ai_stage"] = "implementation"
+            elif task.origin_product == Task.OriginProduct.SLACK:
                 state["billing_product"] = "posthog_ai"
 
             if (
-                environment == TaskRun.Environment.CLOUD
+                effective_environment == TaskRun.Environment.CLOUD
                 and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
                 and state.get("billing_product") != "posthog_ai"
             ):
@@ -1147,7 +1250,18 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
+            run_id = uuid.uuid4()
+            state.pop("self_driving_funding", None)
+            if trial_admission is not None:
+                state["self_driving_funding"] = trial_admission.bind(
+                    origin=task.origin_product,
+                    stage=state.get("ai_stage") or "implementation",
+                    report_id=task.signal_report_source_id,
+                    task_runtime=task.runtime,
+                    model_access=model_access.kind,
+                )
             task_run = TaskRun.objects.create(
+                id=run_id,
                 task=task,
                 team=task.team,
                 status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
@@ -1160,7 +1274,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
                 task.observe_run_started_beside_live_runs(task_run)
 
-            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_source_id:
+            if (
+                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and effective_environment == TaskRun.Environment.CLOUD
+                and (task.signal_report_source_id or state.get("ai_stage") == "custom_agent")
+                and state.get("billing_product") != "posthog_ai"
+            ):
                 from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
                     register_report_task_spend,
                 )
@@ -1168,7 +1287,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 register_report_task_spend(
                     team_id=task.team_id,
                     run_id=str(task_run.id),
-                    report_id=str(task.signal_report_source_id),
+                    report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
                     stage=state.get("ai_stage"),
                     signal_id=spend_signal_id,
                     implementation_kind=implementation_spend_kind,
@@ -1197,6 +1316,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "model": state.get("model"),
                         "runtime_adapter": state.get("runtime_adapter"),
                         "reasoning_effort": state.get("reasoning_effort"),
+                        # Read after commit, so a Slack thread mapping saved in the same transaction is visible.
+                        "slack_session_id": task_run._slack_session_id(),
                     },
                 )
 
@@ -1321,6 +1442,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     error_message="This scheduled run was canceled because the task was deleted.",
                     updated_at=deleted_at,
                 )
+                from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
+
+                sync_task_statuses_on_commit([self.id])
             self.deleted = True
             self.deleted_at = deleted_at
             self.save(update_fields=["deleted", "deleted_at", "updated_at"])
@@ -1431,7 +1555,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         github_access: GithubAccess | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
@@ -1537,8 +1661,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_agent_key = Task.mcp_agent_key_for(origin_product, profile)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
-        if profile is not None:
-            mcp_builtin_agent_key = expected_agent_key
+        mcp_builtin_agent_key = expected_agent_key
 
         initial_state: dict[str, Any] = {}
         if mcp_builtin_agent_key:
@@ -1558,7 +1681,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
-            profile=profile.key if profile else None,
+            profile=profile.key,
             client_provenance=client_provenance,
             created_by=created_by,
             github_integration_id=github_integration_id,
@@ -1575,6 +1698,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             source_kind=source.kind.value if source is not None else None,
             source_id=source.id if source is not None else None,
             idempotency_key=origin_key,
+            head_branch=wizard_head_branch or self_driving_head_branch or None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -1723,8 +1847,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         title: str,
         description: str,
         user_id: int,
-        origin_product: "Task.OriginProduct | None" = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         repository: str | None = None,
         repositories: list[str] | None = None,
         channel: Channel | None = None,
@@ -1733,7 +1856,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
@@ -1751,11 +1873,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
-        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        origin = resolve_task_origin(profile=profile)
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
-        if profile is not None:
-            check_task_source(profile=profile, source=columns.source)
-        runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+        check_task_source(profile=profile, source=columns.source)
+        runtime = profile.runtimes[0]
         validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
@@ -1814,8 +1935,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         title: str,
         description: str,
         user_id: int,
-        origin_product: "Task.OriginProduct | None" = None,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         repositories: list[str] | None = None,
@@ -1831,10 +1951,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         spend_signal_id: str | None = None,
         implementation_spend_kind: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
+        continue_admitted_pipeline: bool = False,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool | None = None,
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
@@ -1866,6 +1986,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
+        before_task_create: Callable[[], None] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
         options: TaskRunOptions | None = None,
         source: TaskSource | None = None,
@@ -1886,14 +2007,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if carried_template is not None:
                 sandbox_template = carried_template
 
-        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        origin = resolve_task_origin(profile=profile)
         origin_product = cast("Task.OriginProduct", origin.origin_product)
         internal = origin.internal
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
-        if profile is not None:
-            check_task_source(profile=profile, source=columns.source)
+        check_task_source(profile=profile, source=columns.source)
         validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
@@ -1932,7 +2052,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
             extra_run_state = settings.extra_run_state
         if runtime is None:
-            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+            runtime = profile.runtimes[0]
         task, extra_state = Task._build_task(
             team=team,
             title=title,
@@ -2010,7 +2130,21 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if run_extra_state.get("use_dedicated_stream") is None:
             run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals depends on Tasks
+        )
+
+        trial_admission = prepare_task_trial(
+            team=task.team,
+            origin=task.origin_product,
+            report_id=task.signal_report_source_id,
+            mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+            continue_admitted_pipeline=continue_admitted_pipeline,
+        )
         with transaction.atomic():
+            # Preparation can call GitHub, so admission locks must wait until it completes.
+            if before_task_create is not None:
+                before_task_create()
             task.save()
             task_run = task.create_run(
                 mode=mode,
@@ -2021,6 +2155,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 startup_requested_at=startup_requested_at,
                 spend_signal_id=spend_signal_id,
                 implementation_spend_kind=implementation_spend_kind,
+                _trial_admission=trial_admission,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)
@@ -3383,8 +3518,13 @@ class TaskRun(models.Model):
             return None
         from products.slack_app.backend.analytics import slack_session_id  # noqa: PLC0415
 
-        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
-        return slack_session_id(*thread) if thread else None
+        try:
+            thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+            return slack_session_id(*thread) if thread else None
+        except Exception:
+            # task_run_created reads this in a commit callback, where a raise would fail the caller after the run exists.
+            logger.warning("task_run.slack_session_id_lookup_failed", run_id=str(self.id), exc_info=True)
+            return None
 
     def capture_event(
         self,
@@ -3409,6 +3549,13 @@ class TaskRun(models.Model):
             all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
+            if self.task.profile == "context_layer.dream" and event in {
+                "task_run_created",
+                "task_run_completed",
+                "task_run_failed",
+                "task_run_structured_result",
+            }:
+                all_properties["$update_person_last_seen_at"] = False
             capture_kwargs: dict = {
                 "distinct_id": distinct_id,
                 "event": event,
@@ -3743,6 +3890,25 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskStatusChange(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="status_changes", db_constraint=False, db_index=False
+    )
+    run_id = models.UUIDField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Task.Status)
+    reason = models.CharField(max_length=32, choices=Task.StatusReason, null=True, blank=True)
+    detail = models.TextField(null=True, blank=True)
+    changed_by = models.CharField(max_length=64)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_status_change"
+        indexes = [
+            models.Index(fields=["task", "-created_at"], name="task_status_change_task_idx"),
+        ]
 
 
 class TaskRunGatewayRequest(TeamScopedRootMixin, UUIDModel):

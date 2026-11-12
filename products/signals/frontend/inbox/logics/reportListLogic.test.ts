@@ -53,6 +53,33 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
+    it('recovers when the first report page fails transiently', async () => {
+        let pageAttempts = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: ({ request }) => {
+                    const isPageRequest = new URL(request.url).searchParams.get('limit') !== '1'
+                    if (isPageRequest && ++pageAttempts === 1) {
+                        return [503, {}]
+                    }
+                    return [200, { count: 1, next: null, previous: null, results: [makeReport('recovered')] }]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = reportListLogic(sectionListLogicProps('needs-decision'))
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
+
+        expect(pageAttempts).toBe(2)
+        expect(logic.values).toMatchObject({
+            reports: [makeReport('recovered')],
+            reportsLoadFailed: false,
+        })
+        logic.unmount()
+    })
+
     it('loads monitoring from the server without a browser rollout flag', async () => {
         const requests: string[] = []
         useMocks({
@@ -117,10 +144,12 @@ describe('reportListLogic', () => {
         const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
+        let requestedRankingIds: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
             requestedOffsets = []
+            requestedRankingIds = []
             useMocks({
                 get: {
                     // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -131,6 +160,7 @@ describe('reportListLogic', () => {
                         // The header count fires a separate count-only request; not a page.
                         if (searchParams.get('limit') !== '1') {
                             requestedOffsets.push(offset)
+                            requestedRankingIds.push(searchParams.get('ranking_id'))
                         }
                         const firstPage = offset === '0' || offset === null
                         return [
@@ -141,6 +171,8 @@ describe('reportListLogic', () => {
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
                                 results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                                ranker: 'personal',
+                                ranking_id: 'personal-ranking-1',
                             },
                         ]
                     },
@@ -177,6 +209,8 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+            // A personal ranking rebuilt between pages must not reorder the rows already on screen.
+            expect(requestedRankingIds).toEqual([null, 'personal-ranking-1'])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
 
             // The second page came back with `next: null`, so a further loadMore fires no request.
@@ -185,22 +219,67 @@ describe('reportListLogic', () => {
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
         })
 
+        // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
+        // ranking of the states already on screen. Recommended gets a personal ranking in one flag arm.
+        it.each(['personal', 'recommended'] as const)(
+            'loads a later state from the personal ranking the loaded states use, sorted by %s',
+            async (sortField) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                    [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+                })
+                inboxFiltersLogic.actions.setSort(sortField, 'asc')
+                await expectLogic(logic).toFinishAllListeners()
+                // Only an explicit Personalized sort explains a fallback, so a personal order is never one.
+                expect([logic.values.loadedPersonalOrder, logic.values.loadedPersonalFallback]).toEqual([true, false])
+                const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
+                laterLogic.mount()
+                requestedRankingIds = []
+
+                laterLogic.actions.ensureLoaded()
+                await expectLogic(laterLogic).toFinishAllListeners()
+
+                expect(requestedRankingIds).toEqual(['personal-ranking-1'])
+                laterLogic.unmount()
+            }
+        )
+
+        // A teammate scope also names the teammate as the ranking owner, so `sort=personal` reads their ranking.
         it.each([
-            { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
-            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'mine' },
-            { scope: 'teammate:t-1', suggested_reviewers: 't-1', assignee: undefined },
-            { scope: INBOX_SCOPE_ENTIRE_PROJECT, suggested_reviewers: undefined, assignee: undefined },
-        ] as { scope: InboxScope; suggested_reviewers?: string; assignee?: string }[])(
-            'narrows the $scope request to suggested_reviewers=$suggested_reviewers and assignee=$assignee',
-            ({ scope, suggested_reviewers, assignee }) => {
+            { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
+            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            {
+                scope: 'teammate:t-1',
+                sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
+            },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: {} },
+        ] as { scope: InboxScope; sent: Record<string, string> }[])(
+            'narrows the $scope request to $sent',
+            ({ scope, sent }) => {
                 logic.actions.setScope(scope)
-                const { suggested_reviewers: sentReviewers, assignee: sentAssignee } = logic.values.listApiParams
-                expect({ suggested_reviewers: sentReviewers, assignee: sentAssignee }).toEqual({
-                    suggested_reviewers,
-                    assignee,
+                const { suggested_reviewers, assignee, scope: sentScope, teammate_uuid } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, scope: sentScope, teammate_uuid }).toEqual({
+                    suggested_reviewers: undefined,
+                    assignee: undefined,
+                    scope: undefined,
+                    teammate_uuid: undefined,
+                    ...sent,
                 })
             }
         )
+
+        it("does not send the viewer's personal ranking id when switching to a teammate scope", async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+            })
+            inboxFiltersLogic.actions.setSort('personal', 'asc')
+            await expectLogic(logic).toFinishAllListeners()
+            requestedRankingIds = []
+
+            logic.actions.setScope('teammate:t-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedRankingIds).toEqual([null])
+        })
 
         it.each([
             { name: 'tags the row with a new claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, assignee: myClaim },
@@ -772,7 +851,7 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
         })
     })
     // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved

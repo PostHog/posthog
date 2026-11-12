@@ -22,6 +22,7 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
     flagKey: string
     enabled: boolean
     payload: Record<string, any> | undefined
+    imageUrl?: string
 }
 
 const search = createFeaturePreviewSearch<EnrichedEarlyAccessFeature>()
@@ -32,13 +33,16 @@ export interface featurePreviewsLogicValues {
     user: UserType | null // userLogic
     activeFeedbackFlagKey: string | null
     activeFeedbackFlagKeyLoading: boolean
+    activePreviewFeatures: EnrichedEarlyAccessFeature[]
     conceptEnrollments: Record<string, boolean>
+    conceptPreviewFeatures: EnrichedEarlyAccessFeature[]
     conceptSurveySubmissions: Record<string, boolean>
     earlyAccessFeatures: EnrichedEarlyAccessFeature[]
     filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]
     rawEarlyAccessFeatures: EarlyAccessFeature[]
     rawEarlyAccessFeaturesLoading: boolean
     searchTerm: string
+    shouldShowEmptyState: boolean
     waitlistSurveysEnabled: boolean
 }
 
@@ -72,6 +76,9 @@ export interface featurePreviewsLogicActions {
     ) => {
         rawEarlyAccessFeatures: EarlyAccessFeature[]
         payload?: any
+    }
+    openFeaturePreviewImage: (flagKey: string) => {
+        flagKey: string
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
@@ -127,6 +134,17 @@ export interface featurePreviewsLogicMeta {
             earlyAccessFeatures: EnrichedEarlyAccessFeature[],
             searchTerm: string
         ) => EnrichedEarlyAccessFeature[]
+        activePreviewFeatures: (
+            filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]
+        ) => EnrichedEarlyAccessFeature[]
+        conceptPreviewFeatures: (
+            filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]
+        ) => EnrichedEarlyAccessFeature[]
+        shouldShowEmptyState: (
+            filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[],
+            rawEarlyAccessFeaturesLoading: boolean,
+            searchTerm: string
+        ) => boolean
         waitlistSurveysEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
@@ -155,6 +173,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
         copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
+        openFeaturePreviewImage: (flagKey: string) => ({ flagKey }),
         // Coming Soon (concept) waitlist: submit an email to the feature's linked survey
         // instead of the one-click enrollment.
         submitConceptSurvey: (flagKey: string, email: string) => ({ flagKey, email }),
@@ -277,6 +296,10 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 }
             }
         },
+        openFeaturePreviewImage: ({ flagKey }) => {
+            // Compare with $feature_enrollment_update to see if images lead to more opt-ins
+            posthog.capture('feature preview image opened', { flag_key: flagKey })
+        },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
         },
@@ -337,6 +360,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey,
                             // Use payload from early access feature, fallback to empty object
                             payload: ((feature as any).payload as Record<string, any> | undefined) || {},
+                            imageUrl: feature.imageUrl || undefined,
                             enabled: !!flag || isConceptEnrolled,
                         }
                     })
@@ -350,6 +374,30 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             (earlyAccessFeatures: EnrichedEarlyAccessFeature[], searchTerm: string): EnrichedEarlyAccessFeature[] => {
                 return search(earlyAccessFeatures, searchTerm)
             },
+        ],
+
+        // Active stages the enrollment toggle can unlock: alpha and beta both set feature
+        // enrollment on their flag.
+        activePreviewFeatures: [
+            (s) => [s.filteredEarlyAccessFeatures],
+            (filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]): EnrichedEarlyAccessFeature[] =>
+                filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta' || f.stage === 'alpha'),
+        ],
+
+        conceptPreviewFeatures: [
+            (s) => [s.filteredEarlyAccessFeatures],
+            (filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]): EnrichedEarlyAccessFeature[] =>
+                filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept'),
+        ],
+
+        // True only once loading finished with no features at all, not when a search hides them all
+        shouldShowEmptyState: [
+            (s) => [s.filteredEarlyAccessFeatures, s.rawEarlyAccessFeaturesLoading, s.searchTerm],
+            (
+                filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[],
+                rawEarlyAccessFeaturesLoading: boolean,
+                searchTerm: string
+            ): boolean => filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm,
         ],
 
         // When enabled, concept-stage ("Coming Soon") items collect an email via their

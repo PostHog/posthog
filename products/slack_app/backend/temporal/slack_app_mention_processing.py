@@ -31,6 +31,7 @@ from products.slack_app.backend.temporal import (
     discover_posthog_code_repository_via_agent_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
+    offer_slack_app_tool_connections_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
@@ -38,12 +39,21 @@ from products.slack_app.backend.temporal import (
     request_untagged_followup_confirmation_activity,
     request_untagged_question_confirmation_activity,
 )
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    finish_slack_report_implementation_activity,
+    prepare_slack_report_implementation_activity,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+# A person who ignores the connect offer still gets the answer, without the tool.
+SLACK_APP_CONNECT_TOOL_WAIT = timedelta(minutes=10)
+CONNECT_TOOL_FROM_CHAT_PATCH = "slack-app-connect-tool-from-chat-2026-11"
+# The cascade can now judge whether the ask needs code before it returns `agent_needed`.
+CASCADE_CLASSIFIES_NEEDS_REPO_PATCH = "slack-app-cascade-classifies-needs-repo-2026-11"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -51,6 +61,11 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
         self._repo_selection_resolved = False
+        self._tool_connection_resolved = False
+
+    @workflow.signal
+    async def tool_connection_resolved(self) -> None:
+        self._tool_connection_resolved = True
 
     @workflow.signal
     async def repo_selected(self, repository: str) -> None:
@@ -82,6 +97,7 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
         # An untagged question stays silent, error replies included, until its author's
         # mode lets the run answer. Old histories carry no such input, so they never skip.
         silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
+        implementation_started = False
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -111,8 +127,23 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     return
                 silent_on_error = False
 
-            prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
-            if prework is None:
+            prework: _NewThreadPrework | None
+            if inputs.report_implementation_message_ts:
+                if not await _execute_posthog_code_activity(prepare_slack_report_implementation_activity, inputs):
+                    return
+                if await _execute_posthog_code_activity(
+                    posthog_code_thread_has_task_activity, inputs, channel, thread_ts
+                ):
+                    implementation_started = await _forward_followup(inputs, channel, thread_ts, slack_user_id, None)
+                    return
+                prework = _NewThreadPrework(
+                    inputs=inputs,
+                    model_override=None,
+                    thread_messages=await _collect_thread_messages(inputs, channel, thread_ts),
+                )
+            else:
+                prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
+            if prework is None or not prework.thread_messages:
                 return
             inputs = prework.inputs
             model_override = prework.model_override
@@ -147,12 +178,15 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 # Multiple candidates and no explicit mention. Cheap Haiku
                 # check first to skip the agent entirely for analytics/config
                 # questions; otherwise hand off to the discovery agent.
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                    inputs,
-                )
+                if workflow.patched(CASCADE_CLASSIFIES_NEEDS_REPO_PATCH) and cascade.needs_repo_classified:
+                    needs_repo = True
+                else:
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
+                        thread_messages,
+                        inputs,
+                    )
                 if not needs_repo:
                     repository = None
                 else:
@@ -217,7 +251,25 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 ),
             )
 
-            await _execute_posthog_code_activity(
+            if workflow.patched(CONNECT_TOOL_FROM_CHAT_PATCH):
+                offered = await _execute_posthog_code_activity(
+                    offer_slack_app_tool_connections_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    user_id,
+                    workflow.info().workflow_id,
+                )
+                if offered:
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._tool_connection_resolved, timeout=SLACK_APP_CONNECT_TOOL_WAIT
+                        )
+                    except TimeoutError:
+                        pass
+
+            created = await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
                 channel,
@@ -231,6 +283,7 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 repo_research_run_id,
                 model_override,
             )
+            implementation_started = bool(created)
         except Exception as exc:
             workflow.logger.exception(
                 "posthog_code_workflow_unhandled_exception",
@@ -249,6 +302,11 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                 channel,
                 thread_ts,
             )
+        finally:
+            if inputs.report_implementation_message_ts:
+                await _execute_posthog_code_activity(
+                    finish_slack_report_implementation_activity, inputs, implementation_started
+                )
 
 
 @frozen

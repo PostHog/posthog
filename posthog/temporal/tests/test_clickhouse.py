@@ -206,6 +206,14 @@ def _mock_internal_session_post(return_value):
             "Code: 215. DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys. (NOT_AN_AGGREGATE) (version x.x.x.x (official build))",
             ClickHouseUserQueryError,
         ),
+        (
+            "Code: 48. DB::Exception: Correlated subqueries are not supported with remote tables. (NOT_IMPLEMENTED) (version x.x.x.x (official build))",
+            ClickHouseUserQueryError,
+        ),
+        (
+            "Code: 48. DB::Exception: Conditional functions with different Decimal scales. (NOT_IMPLEMENTED) (version x.x.x.x (official build))",
+            ClickHouseError,
+        ),
     ],
     ids=[
         "MEMORY_LIMIT_EXCEEDED",
@@ -216,6 +224,8 @@ def _mock_internal_session_post(return_value):
         "UNKNOWN_TABLE",
         "THERE_IS_NO_COLUMN",
         "NOT_AN_AGGREGATE",
+        "NOT_IMPLEMENTED_user_caused_shape",
+        "NOT_IMPLEMENTED_other_shape",
     ],
 )
 def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):

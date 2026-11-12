@@ -13,7 +13,6 @@ from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
 from posthog.admin.console.deletion_request_form import (
-    CLICKHOUSE_TEAM_GROUP,
     UNSUPPORTED_REQUEST_TYPES,
     DataDeletionRequestForm,
     initial_from_query,
@@ -40,8 +39,7 @@ from posthog.models.data_deletion_request import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse")
-CLICKHOUSE_TEAM = Gate.group(CLICKHOUSE_TEAM_GROUP)
+CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse", staff_group="ClickHouse Team")
 
 STATUS_TONES = {
     RequestStatus.PENDING: Tone.INFO,
@@ -117,6 +115,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -194,6 +193,7 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -222,7 +222,7 @@ class DeletionRequestStatsPanel(Panel):
                 label="Preview stats",
                 handler=preview_stats,
                 description="Counts the matching events without saving, for example while you change the criteria.",
-                gate=CLICKHOUSE_TEAM,
+                gate=Gate.owner(),
             ),
         ]
 
@@ -487,6 +487,8 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -527,7 +529,7 @@ class DeletionRequestWorkflowPanel(Panel):
                         "Until the deletion job picks it up, move the request back to draft. "
                         "Data that a run already deleted cannot be restored."
                     ),
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         if obj.status in (RequestStatus.PENDING, RequestStatus.APPROVED):
@@ -555,7 +557,7 @@ class DeletionRequestWorkflowPanel(Panel):
                         "Until the next run starts, move the request back to draft. Data that a run already "
                         "deleted cannot be restored."
                     ),
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         if obj.status != RequestStatus.COMPLETED and obj.request_type not in UNVERIFIABLE_TYPES:
@@ -565,12 +567,14 @@ class DeletionRequestWorkflowPanel(Panel):
                     label="Verify deletion",
                     handler=verify,
                     description="Counts the matching rows in ClickHouse. When none remain, the request is completed.",
-                    gate=CLICKHOUSE_TEAM,
+                    gate=Gate.owner(),
                 )
             )
         return operations
 
     def _submit(self, obj: DataDeletionRequest) -> Operation:
+        # Staff usually explain the request in its notes, so the reason starts from them.
+        form_initial: dict[str, object] | None = {"reason": obj.notes} if obj.notes.strip() else None
         if obj.request_type == RequestType.EVENT_REMOVAL:
             return Operation(
                 key="submit",
@@ -579,6 +583,7 @@ class DeletionRequestWorkflowPanel(Panel):
                 # Unless staff tick the opt-out, the auto-approval job can approve it with no other human step.
                 danger=True,
                 form_class=AutoApprovableSubmitForm,
+                form_initial=form_initial,
                 undo_hint=(
                     "Until the deletion job picks it up, move the request back to draft. Data that a run already "
                     "deleted cannot be restored."
@@ -595,6 +600,7 @@ class DeletionRequestWorkflowPanel(Panel):
             label="Submit for approval",
             handler=submit,
             form_class=ReasonForm,
+            form_initial=form_initial,
             description=(
                 "Moves the request to pending. Only event removals are approved automatically, so this one waits "
                 "for the ClickHouse Team."
@@ -613,9 +619,10 @@ def _show_notices(request: HttpRequest, notices: list[StaffEditNotice]) -> None:
 def _refuse_clickhouse_team_type(request: HttpRequest, form: DataDeletionRequestForm) -> HttpResponse | None:
     # The create form hides these types from everyone else, and the edit form cannot, because record forms are
     # built without the request. This check covers both, and a hand-built POST.
-    if not form.needs_clickhouse_team() or CLICKHOUSE_TEAM.allows(request):
+    staff_gate = Gate.owner().resolve(CLICKHOUSE)
+    if not form.needs_clickhouse_team() or staff_gate.allows(request):
         return None
-    form.add_error("request_type", f"Only {CLICKHOUSE_TEAM.label} can pick this type.")
+    form.add_error("request_type", f"Only {staff_gate.label} can pick this type.")
     return HttpResponse(status=400)
 
 
@@ -681,6 +688,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -718,7 +726,7 @@ class DeletionRequestCriteriaPanel(Panel):
                 description="Creates a draft with the same criteria and opens it.",
                 # A copy is a new request, so only ClickHouse Team members copy types the create form does not
                 # offer everyone.
-                gate=CLICKHOUSE_TEAM if obj.request_type in UNSUPPORTED_REQUEST_TYPES else None,
+                gate=Gate.owner() if obj.request_type in UNSUPPORTED_REQUEST_TYPES else None,
             )
         )
         return operations
@@ -749,9 +757,28 @@ class NewDeletionRequestTool(ConsoleTool):
                 key="create",
                 label="Create deletion request",
                 handler=create_request,
-                form_class=DataDeletionRequestForm.for_staff(CLICKHOUSE_TEAM.allows(request)),
+                form_class=DataDeletionRequestForm.for_staff(Gate.owner().resolve(self.owner).allows(request)),
                 # Support links prefill the form, for example ?team_id=2&events=$pageview.
                 form_initial={"request_type": RequestType.EVENT_REMOVAL.value, **initial_from_query(request.GET)},
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

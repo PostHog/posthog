@@ -4,11 +4,14 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from posthog.exceptions import QuotaLimitExceeded
+
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES
 from products.signals.backend.emission.direct_gate import steering_filters_signal
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.system_one_decision import SignalsDecisionError
+from products.signals.backend.trial.policy import TrialRefused
 
 GATE_MODULE_PATH = "products.signals.backend.emission.direct_gate"
 FACADE_MODULE_PATH = "products.signals.backend.facade.api"
@@ -29,7 +32,9 @@ def _make_team() -> MagicMock:
     return MagicMock(id=1, uuid=uuid.uuid4())
 
 
-async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", extra: dict | None = None):
+async def _run_gate(
+    source_config: dict, *, verdict: str = "NOT_ACTIONABLE", extra: dict | None = None, refusal: Exception | None = None
+):
     """Run the gate against a stubbed source config and LLM, returning (dropped, anthropic client)."""
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=_make_llm_response(verdict))
@@ -38,6 +43,9 @@ async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", ext
         patch(f"{GATE_MODULE_PATH}.afetch_source_config", AsyncMock(return_value=source_config)),
         patch(f"{GATE_MODULE_PATH}.build_async_anthropic_client", return_value=client),
         patch(f"{GATE_MODULE_PATH}.resolve_ai_gateway_config", return_value=None),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None, side_effect=refusal),
+        patch("products.signals.backend.emission.pipeline.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.record_llm_spend"),
         patch(f"{GATE_MODULE_PATH}.capture_pipeline_stage") as capture,
     ):
         dropped = await steering_filters_signal(
@@ -162,6 +170,13 @@ class TestSteeringFiltersSignal:
 
 class TestEmitSignalWiring:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("spend_exhausted")])
+    async def test_steering_drops_refused_work_without_calling_the_provider(self, refusal):
+        dropped, client, _capture = await _run_gate({"steering": "Keep application errors"}, refusal=refusal)
+        assert dropped is True
+        client.messages.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "source_product,source_type",
         [
@@ -183,6 +198,7 @@ class TestEmitSignalWiring:
             patch(f"{FACADE_MODULE_PATH}.posthoganalytics"),
             patch(f"{FACADE_MODULE_PATH}.async_connect", connect),
             patch(f"{FACADE_MODULE_PATH}.complete_signal_pipeline"),
+            patch(f"{FACADE_MODULE_PATH}.admit_signal"),
             patch(f"{FACADE_MODULE_PATH}.finalized_signal_ids", return_value=set()),
             patch(f"{FACADE_MODULE_PATH}.validate_signal_input", return_value=None),
             patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(return_value=True)) as gate,

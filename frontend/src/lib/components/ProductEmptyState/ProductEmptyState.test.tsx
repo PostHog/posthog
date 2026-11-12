@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
@@ -76,6 +79,27 @@ describe('ProductEmptyState', () => {
         render(<ProductEmptyState config={config} mode="needs-setup" />)
 
         expect(screen.getByTestId('create-experiment').getAttribute('aria-disabled')).toBe(expected)
+    })
+
+    // A restricted viewer would otherwise read "One click" above a button that cannot be clicked.
+    it('replaces the hint with the restriction reason when the primary action is restricted', async () => {
+        const memberTeam = { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member }
+        useMocks({ get: { '/api/environments/@current/': memberTeam } })
+        initKeaTests(true, memberTeam)
+        const restrictedConfig: ProductEmptyStateConfig = {
+            ...config,
+            text: { 'needs-setup': { headline: 'Headline', lead: 'Lead', hint: 'One click and it starts' } },
+            primaryAction: {
+                label: 'Enable',
+                onClick: () => {},
+                restriction: { scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin },
+            },
+        }
+
+        render(<ProductEmptyState config={restrictedConfig} mode="needs-setup" />)
+
+        expect(await screen.findByText(/Ask a project admin/)).toBeTruthy()
+        expect(screen.queryByText('One click and it starts')).toBeNull()
     })
 
     // A one-click opt-in ("Enable X") must not survive into `waiting-for-data`, where the

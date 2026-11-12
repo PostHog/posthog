@@ -124,13 +124,14 @@ Local Desktop Pi sessions retain their existing project-resource behavior.
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
 
 ```python
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import Task
 
 task = Task.create_and_run(
     team=team,
     title="Generate weekly signal report",
     description="Analyze error trends and generate a summary report with recommendations.",
-    origin_product=Task.OriginProduct.ERROR_TRACKING,  # or your product's origin
+    profile=get_task_profile("error_tracking"),  # or your product's profile
     user_id=user.id,
     posthog_mcp_scopes="read_only",  # or "full" if the agent needs write access
 )
@@ -143,7 +144,7 @@ task = Task.create_and_run(
 | `team`                   | Yes      | The team this task belongs to                                                                                                                                                                                                                                                                                                                                              |
 | `title`                  | Yes      | Human-readable task title                                                                                                                                                                                                                                                                                                                                                  |
 | `description`            | Yes      | Detailed description of what the agent should do                                                                                                                                                                                                                                                                                                                           |
-| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)                                                                                                                                                                                                                                                                                                         |
+| `profile`                | Yes      | The task profile for this kind of task, registered by your product in `task_profiles.py`. It sets the origin, limits and defaults                                                                                                                                                                                                                                          |
 | `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key                                                                                                                                                                                                                                                                                                 |
 | `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)                                                                                                                                                                                                                                                                                                              |
 | `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                                                                                                                                                                                                                                                                                                                    |
@@ -156,6 +157,9 @@ task = Task.create_and_run(
 
 ### Adding a new origin product
 
+Task creation needs a registered profile.
+A profile names the origin product and sets who can see the task, the sandbox limits and the defaults.
+
 If your product doesn't have an `OriginProduct` entry yet,
 add one to `Task.OriginProduct` in `products/tasks/backend/models.py`:
 
@@ -167,6 +171,25 @@ class OriginProduct(models.TextChoices):
 ```
 
 Then create and run a Django migration.
+
+Define a `TaskProfile` for your product in `products/your_product/backend/task_profiles.py`,
+with `origin_product="your_product"`.
+`products/autoresearch/backend/task_profiles.py` is a complete example.
+Give each kind of task its own profile key, such as `your_product.report`.
+
+Register the profiles from your product's `AppConfig.ready()`:
+
+```python
+def ready(self) -> None:
+    from products.your_product.backend import task_profiles
+
+    task_profiles.register()
+```
+
+`products/autoresearch/backend/apps.py` shows the same call.
+
+Pass the profile as `profile=` when you create the task.
+Import it from your module, or look it up by key with `get_task_profile("your_product.report")`.
 
 ### Starting a task from a deep link
 
@@ -188,6 +211,7 @@ In the AI chat view, the staff options menu sits beside the task actions, includ
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
 Tokens expire after 6 hours and are scoped to a single team.
+Task-bound tokens enforce organization IP restrictions. When a signed MCP client IP is present, restrictions apply to that verified address; direct requests are checked using their trusted client IP.
 
 ### Scope presets
 
@@ -228,6 +252,10 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 `experiment:write`, `feature_flag:write`, `insight:write`, `survey:write`, and others.
 
 Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
+
+Pre-warming through `warm_task_run` uses the task profile's MCP scopes. Pass `posthog_mcp_scopes` to narrow them for a run; warming refuses scopes beyond the profile. Tasks without a profile retain the `full` default. The selected scopes are saved before dispatch so the sandbox environment and MCP session receive the same permissions. Rewarming a completed run preserves its scopes, and a warm session cannot be reused for a different scope selection.
+
+Direct starts also use the task profile's MCP scopes, subject to the read-only limit for agent-started runs. Resumes keep their saved scopes and are rejected if those exceed the current profile or run-source limit.
 
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
@@ -424,6 +452,10 @@ DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 ```
 
 See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
+
+Signals report research stops retrying when GitHub still rejects repository credentials after the clone activity exhausts its retries.
+Transient clone failures remain retryable.
+When GitHub access is optional, research falls back to project data without code access.
 
 ## Code execution
 
@@ -648,7 +680,7 @@ task = Task.create_and_run(
     team=team,
     title="My restricted task",
     description="...",
-    origin_product=Task.OriginProduct.YOUR_PRODUCT,
+    profile=get_task_profile("your_product"),
     user_id=user.id,
     repository="org/repo",
     sandbox_environment_id=str(env.id),
@@ -775,14 +807,15 @@ System One reranks up to 32 returned candidates in one request. Candidate conten
 Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
 Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
 References link to the retrieved sources; skill references fetch the latest published version by name.
+Each reference also carries a `url` the user can open: the fetched page for a URL-backed Business Knowledge document, or the in-app page for a skill or metric. Text and file documents, certifications, and relationships have none.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
 Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
 Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
 A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
 This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
-The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
-It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+When a reference informs the answer, the agent is instructed to cite it by title and link its `url` when one exists, as it would any document it read.
+It ignores references that do not apply without commenting on them, and must not mention selection, suggestions, injection, or the hidden block's metadata, including in progress updates, tool-call explanations, and task summaries.
 
 Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
 Selection has an eight-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.

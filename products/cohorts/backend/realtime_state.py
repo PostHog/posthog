@@ -22,8 +22,10 @@ from datetime import datetime
 from typing import Any, TypeGuard
 from uuid import UUID
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Count, Max, Q
+from django.utils import timezone
 
 import structlog
 
@@ -42,6 +44,7 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
 from products.cohorts.backend.realtime_teams import is_serving_team
 
 logger = structlog.get_logger(__name__)
@@ -55,6 +58,10 @@ class CohortRealtimeState(models.TextChoices):
     REBUILDING = "rebuilding", "Rebuilding"
     READY = "ready", "Ready"
     NEEDS_ATTENTION = "needs_attention", "Needs attention"
+
+
+class CohortRealtimeUnavailableReason(models.TextChoices):
+    HISTORY_OVER_LIMIT = "history_over_limit", "History over limit"
 
 
 class CohortHistoryBuildPhase(models.TextChoices):
@@ -102,6 +109,8 @@ class CohortRealtimeReadiness:
     state: str
     ready_at: datetime | None
     build: CohortHistoryBuild | None
+    reason: CohortRealtimeUnavailableReason | None = None
+    history_limit_days: int | None = None
 
 
 def _has_event_criteria(cohort: Cohort) -> bool:
@@ -305,18 +314,27 @@ def _cohort_progress(
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
+    # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
+    # start date at the limit can read on the other side of it here, which changes only the reason.
+    today = timezone.now().date()
+    limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
 
     for cohort in cohorts:
         settled = _settled_state(cohort)
         if settled is None:
             pending.append(cohort)
         else:
+            over_limit = settled == CohortRealtimeState.DAILY and behavioral_history_over_limit(
+                (cohort.filters or {}).get("properties"), limit_days=limit_days, today=today
+            )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
                 # property cohort always was, and it can carry a stamp from an earlier definition.
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
+                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if over_limit else None,
+                history_limit_days=limit_days if over_limit else None,
             )
 
     if not pending:

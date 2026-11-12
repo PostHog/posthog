@@ -12,7 +12,7 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Min, Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -21,7 +21,7 @@ from posthog.tasks.alerts.utils import due_insight_alerts_q
 from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
-from products.alerts.backend.facade.destinations import choose_delivery_path
+from products.alerts.backend.facade.destinations import alert_has_enabled_destinations, choose_delivery_path
 from products.alerts.backend.insight_alert_state_machine import (
     FIRING_NOT_RENOTIFIED_KEY,
     apply_invalid_configuration,
@@ -29,6 +29,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
@@ -132,11 +133,17 @@ def _investigation_unsettled(alert: AlertConfiguration, at: datetime) -> bool:
     )
 
 
+def _has_firing_targets(alert: AlertConfiguration) -> bool:
+    return alert.subscribed_users.exists() or alert_has_enabled_destinations(
+        team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids={"$insight_alert_firing"}
+    )
+
+
 def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> bool:
     # A check's workflow notifies before its execution timeout ends, so past that the insight stack
     # has sent the notification or given up on it.
     horizon = alert_timeouts(alert.calculation_interval).workflow_execution
-    return (
+    unsent = (
         AlertCheck.objects.filter(
             alert_configuration=alert,
             created_at__gte=at - horizon,
@@ -147,6 +154,9 @@ def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> boo
         .exclude(triggered_metadata__has_key=FIRING_NOT_RENOTIFIED_KEY)
         .exists()
     )
+    # A firing check with nobody to tell never stamps `notification_sent_at`, so an alert firing on
+    # every check would otherwise never move.
+    return unsent and _has_firing_targets(alert)
 
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
@@ -220,9 +230,22 @@ def has_begun_cutover(team_id: int) -> bool:
     return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
 
 
-def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other insight alerts it still owns. None when it
+    owns none of them."""
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )
+
+
+def hand_over(alert: AlertConfiguration, at: datetime, *, shadow_from: datetime | None = None) -> bool:
     """Copies an insight alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `shadow_from` is the insight row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time.
 
     The caller checks `can_move` first.
     """
@@ -230,6 +253,7 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
     assert upsert is not None
     savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
+    sync_subscriber_destinations(alert)
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,
@@ -248,11 +272,12 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    owner_changed_at = shadow_from or at
     AlertConfiguration.objects.filter(team_id=alert.team_id, id=alert.id).update(
-        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
     )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 

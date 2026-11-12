@@ -233,6 +233,11 @@ FLASH_LENSES: dict[str, FlashLens] = {
     ),
 }
 
+DEVEX_LENS_NAME = "devex"
+DEVEX_OWNER_TEAM = "team-devex"
+# Not in FLASH_LENSES, because that table feeds the fan-out and the fingerprint of every single-agent turn.
+DEVEX_LENS = FlashLens(pass_number=2003, prompt_file="lens_devex.md", source="flash-lens-devex")
+
 # One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
 # at once by default, so a larger PR would lose the lenses past that.
 COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
@@ -318,12 +323,13 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a Stamphog handoff,
 # the CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# tool on someone's behalf counts as that person asking), an `@posthog review` comment, or a review
+# request for the `posthog-review` team. Inbox
 # and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment"})
+HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment", "review_request"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:

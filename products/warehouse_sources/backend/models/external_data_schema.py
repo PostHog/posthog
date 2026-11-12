@@ -291,6 +291,11 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 
 
+# Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
+# because a schema that left CDC keeps the mode it had there.
+INCREMENTAL_HISTORY_KEY = "incremental_history"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -384,6 +389,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     class Meta:
         db_table = "posthog_externaldataschema"
+        indexes = [
+            # Serves the staff list of schemas PostHog stopped itself, newest first. Only those rows carry
+            # a stamp, so the partial index stays small.
+            models.Index(
+                fields=["-auto_disabled_at"],
+                name="idx_extschema_auto_disabled",
+                condition=models.Q(auto_disabled_at__isnull=False),
+            ),
+        ]
 
     def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
         """Which stop-syncing transition this save performs, read from the DB before writing.
@@ -591,7 +605,9 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     @property
     def keeps_history(self) -> bool:
-        return self.is_cdc and self.cdc_table_mode in ("cdc_only", "both")
+        if self.cdc_table_mode not in ("cdc_only", "both"):
+            return False
+        return self.is_cdc or (self.is_incremental and bool(self.sync_type_config.get(INCREMENTAL_HISTORY_KEY)))
 
     @property
     def should_use_incremental_field(self):
@@ -1904,13 +1920,22 @@ def update_should_sync(
         sync_external_data_job_workflow,
         unpause_external_data_schedule,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (  # noqa: PLC0415
+        restore_missing_extraction_schedule,
+    )
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
+    if should_sync and schema.deleted:
+        raise ValueError(f"Schema {schema_id} is deleted, so its syncing cannot be turned on")
     schema.should_sync = should_sync
     # Turning syncing back on says the source is worth trying again, so the next run starts on
     # the full retry cap and the normal cadence.
     if should_sync:
         schema.clear_failure_streak()
+    elif not disable_error_message:
+        # Only a disable with an error message is PostHog stopping the schema. Any other disable is a
+        # decision to keep it off, so an earlier stop must not leave it eligible for a staff re-enable.
+        schema.auto_disabled_at = None
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
@@ -1927,6 +1952,14 @@ def update_should_sync(
     else:
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)
+
+    # A capture run that found no syncing CDC table deleted the source's extraction schedule.
+    if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        try:
+            restore_missing_extraction_schedule(schema.source)
+        except Exception:
+            # The table is already enabled, and the CDC sweeper recreates a missing schedule.
+            logger.exception("cdc_extraction_schedule_sync_failed", external_data_schema_id=str(schema.id))
 
     return schema
 

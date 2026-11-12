@@ -92,6 +92,11 @@ describe('format helpers', () => {
             ['negative thousands', -1500, `-1.5${NBSP}K`],
             ['rounded to 3 sig figs', 12345, `12.3${NBSP}K`],
             ['zero', 0, '0'],
+            ['infinity', Infinity, '∞'],
+            ['negative infinity', -Infinity, '-∞'],
+            ['not a number', NaN, 'NaN'],
+            ['past the largest suffix', 1.5e27, `1500${NBSP}Y`],
+            ['no float residue at a large magnitude', 4.73e21, `4.73${NBSP}Z`],
         ] as const)('%s', (_, value, expected) => {
             expect(compactNumber(value)).toBe(expected)
         })

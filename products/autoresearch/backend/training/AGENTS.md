@@ -10,7 +10,7 @@ The other half is `../inference/`, which consumes what this package produces and
 ## What lives here
 
 - `runner.py`
-  The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
+  The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with the unlisted `autoresearch.training` profile and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `run_training()` lowers the requested iterations to the project's `max_iterations_per_run` (`../limits.py`), so scheduled and manual runs share one ceiling. The daily run cap is checked by its callers, inside the pipeline row lock.
   The task runs on the model and reasoning effort that `agent_run_config_for()` in `agent_model.py` resolves, and the run records the runtime adapter, model and effort in `agent_runtime_adapter`, `agent_model` and `agent_reasoning_effort`.
@@ -43,6 +43,11 @@ The other half is `../inference/`, which consumes what this package produces and
   Every failure re-reads the run under its row lock and changes only an open run, so a run that completes at the same time keeps its outcome. Each closed run logs `autoresearch_stale_training_run_reaped` and increments `autoresearch_stale_training_runs_reaped_total`, both with the case.
   A run with no `task_run_id` (an external run from `open_training_run()`, or a stub) is not reaped.
   Coordinator discovery calls it for all teams. `activity_kickoff_training` and the facade's `start_training` call it for their pipeline before the live-run check.
+- `stop.py`
+  `stop_training_run()` ends a live run when a person asks, through the `stop` action on the training-run viewset.
+  It fails the run under the same row lock and with the same `_fail_if_open()` as `stale.py`, then cancels the `TaskRun` best-effort. A run that completed first keeps its outcome.
+  The `ingestion.py` receiver then skips the run, because it is no longer `RUNNING`, so a stopped run never promotes a model. A first run's pipeline goes back to `draft`, so its definition can change again.
+  A stopped run keeps its iterations and still counts against the daily training run limit.
 - `promotion.py`
   Champion selection. `complete_training_run()` is the single entry point, used both by the training-run `complete` API action and by `ingestion.py`.
   A challenger must beat the incumbent by `CHAMPION_PROMOTION_MARGIN` (0.005 holdout AUC) to be promoted — near-ties keep the incumbent rather than churning the champion on noise.

@@ -20,10 +20,23 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     summaryLabel: string
+    // A loading metric has no sparkline data yet, so this says whether the placeholder should reserve one.
+    trend: boolean
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
     subtitle?: string
+}
+
+// A tile that reads two queries reruns only the one that failed, so the other's pending request isn't duplicated.
+export function retryFailedSources(sources: { failed?: boolean; retry?: () => void }[]): void {
+    for (const { failed, retry } of sources) {
+        if (failed) {
+            retry?.()
+        }
+    }
 }
 
 export function kpiTileUrls(searchParams: Record<string, any>): {
@@ -62,6 +75,8 @@ function KPITile({
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                failed={tile.failed}
+                onRetry={tile.onRetry}
                 value={metric.value}
                 data={metric.sparkline}
                 labels={metric.sparklineLabels}
@@ -78,7 +93,7 @@ function KPITile({
                 }
                 hoverChangeFromPreviousPoint
                 restingSubtitle={tile.subtitle ?? tile.summaryLabel}
-                sparklineHeight={50}
+                sparklineHeight={tile.trend ? 50 : undefined}
                 sparklineDashedFromIndex={dashedFromIndex}
             />
         </Link>
@@ -91,6 +106,10 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisFailed,
+    usersFailed,
+    onRetryKpis,
+    onRetryUsers,
     showIntentClusters,
     theme,
     interval,
@@ -101,6 +120,10 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    kpisFailed?: boolean
+    usersFailed?: boolean
+    onRetryKpis?: () => void
+    onRetryUsers?: () => void
     showIntentClusters: boolean
     theme: ChartTheme
     interval: IntervalType
@@ -125,7 +148,10 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            failed: usersFailed,
+            onRetry: onRetryUsers,
             summaryLabel: 'Total',
+            trend: false,
         },
         {
             label: 'Sessions',
@@ -134,7 +160,10 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
+            trend: true,
         },
         {
             label: 'Tool calls',
@@ -143,7 +172,10 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Total',
+            trend: true,
         },
         {
             label: 'Error rate',
@@ -152,7 +184,10 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            failed: kpisFailed,
+            onRetry: onRetryKpis,
             summaryLabel: 'Overall',
+            trend: true,
         },
         {
             label: 'p95 latency',
@@ -161,7 +196,14 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
+            failed: kpisFailed || usersFailed,
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
             summaryLabel: 'Overall',
+            trend: true,
         },
         ...(showIntentClusters
             ? [
@@ -173,6 +215,7 @@ export function KpiTiles({
                       color: theme.colors[6],
                       loading: false,
                       summaryLabel: 'Total',
+                      trend: false,
                       // Clusters come from the latest clustering snapshot across all sessions, so
                       // unlike the other tiles this count isn't scoped by the date or test-account
                       // filters. Label it so the grid doesn't read as a single consistent scope.

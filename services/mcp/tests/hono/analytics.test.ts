@@ -208,6 +208,98 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     it.each([
+        ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
+        ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
+        [
+            'execute-sql querying metadata',
+            'execute-sql',
+            { query: 'SELECT name FROM system.information_schema.metrics' },
+            true,
+            true,
+        ],
+        ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false, false],
+        ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png' }, false, false],
+        ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
+        ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
+        [
+            'an email send through exec',
+            'exec',
+            { command: 'call workflows-send-email-prepare {"to":"ada@example.com"}' },
+            false,
+            false,
+        ],
+    ])(
+        'gates captured arguments and result for %s',
+        async (_case, toolName, parameters, sendsArguments, sendsResult) => {
+            await trackToolCall(toolName, 12, false, makeState(), undefined, { parameters, response: 'rows' })
+
+            const captured = mockCaptureToolCall.mock.calls[0]![0]
+            expect(captured.parameters).toEqual(sendsArguments ? parameters : undefined)
+            expect(captured.response).toEqual(sendsResult ? 'rows' : undefined)
+        }
+    )
+
+    it.each([
+        [
+            'a failed call',
+            true,
+            { parameters: { query: 'level:error' }, response: 'Error: upstream body' },
+            true,
+            false,
+        ],
+        [
+            'an argument nested past the capture depth',
+            false,
+            { parameters: JSON.parse('['.repeat(20_000) + ']'.repeat(20_000)), response: 'rows' },
+            true,
+            true,
+        ],
+    ])('captures what policy and size allow for %s', async (_case, isError, meta, sendsArguments, sendsResult) => {
+        await trackToolCall('query-logs', 12, isError, makeState(), undefined, meta)
+
+        const captured = mockCaptureToolCall.mock.calls[0]![0]
+        expect(captured.toolName).toBe('query-logs')
+        expect(captured.parameters !== undefined).toBe(sendsArguments)
+        expect(captured.response !== undefined).toBe(sendsResult)
+    })
+
+    it('bounds how much of a payload it walks before capture', async () => {
+        const wide = Array.from({ length: 10_000 }, (_, i) => ({ id: i, token: 'secret' }))
+        await trackToolCall('query-logs', 12, false, makeState(), undefined, { parameters: { rows: wide } })
+
+        const { rows } = mockCaptureToolCall.mock.calls[0]![0].parameters
+        expect(rows.length).toBeLessThan(wide.length)
+        expect(rows[0]).toEqual({ id: 0, token: '[redacted]' })
+    })
+
+    it('drops preloaded app data from the captured result for every consumer', async () => {
+        const appData = { rows: [{ value: 'widget-only-data' }] }
+        await trackToolCall('render-ui', 12, false, makeState(), undefined, {
+            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+        })
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
+            content: [{ type: 'text', text: 'ok' }],
+            _meta: {},
+        })
+    })
+
+    it('redacts secret-bearing fields from captured arguments and result', async () => {
+        await trackToolCall('user-settings-update', 12, false, makeState(), undefined, {
+            parameters: { first_name: 'Ada', password: 'hunter2', payload: { client_secret: 'oauth-secret' } },
+            response: { id: 1, api_key: 'phx_live_123' },
+        })
+
+        const { parameters, response } = mockCaptureToolCall.mock.calls[0]![0]
+        expect(parameters).toEqual({
+            first_name: 'Ada',
+            password: '[redacted]',
+            payload: { client_secret: '[redacted]' },
+        })
+        expect(response).toEqual({ id: 1, api_key: '[redacted]' })
+    })
+
+    it.each([
         [MCP_INTENT_PROMPT_FLAG, true],
         [MCP_INTENT_PROMPT_FLAG, false],
         [MCP_INTENT_PROMPT_FLAG, undefined],
@@ -555,6 +647,32 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            // Its args are raw Fivetran responses, with secrets in fields redaction can't name.
+            [
+                'the Fivetran upload tool',
+                'warehouse-migration-upload-connections',
+                { connections: [{ connection: { config: { pat: 'fake-token' } } }] },
+                false,
+            ],
+            [
+                'the Fivetran upload tool through exec',
+                'exec',
+                {
+                    command:
+                        'call warehouse-migration-upload-connections {"connections":[{"connection":{"config":{"pat":"fake-token"}}}]}',
+                },
+                false,
+            ],
+            [
+                'a Fivetran upload exec rejects for a missing verb',
+                'exec',
+                {
+                    command:
+                        'warehouse-migration-upload-connections {"connections":[{"connection":{"pat":"fake-token"}}]}',
+                },
+                false,
+            ],
+            ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
             [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',
@@ -694,6 +812,8 @@ describe('Hono MCP analytics contexts', () => {
             ['token', true],
             ['client_secret', true],
             ['connection_string', true],
+            ['webhook_url', true],
+            ['pagerduty_routing_key', true],
             ['client_certificate', true],
             ['app_id', true],
             ['api_id', true],

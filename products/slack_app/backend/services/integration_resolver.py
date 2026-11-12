@@ -207,25 +207,21 @@ def resolve_from_candidates(
     else:
         accessible = accessible_candidates(candidates, user=user)
         accessible_team_ids = {c.team_id for c in accessible}
-    candidate_ids = {c.id for c in candidates}
+    candidates_by_id = {c.id: c for c in candidates}
+    candidate_ids = set(candidates_by_id)
     candidates_by_team_id = {c.team_id: c for c in candidates}
 
     if channel and thread_ts and slack_team_id:
-        thread_match = (
-            SlackThreadTaskMapping.objects.filter(
-                slack_workspace_id=slack_team_id, channel=channel, thread_ts=thread_ts
-            )
-            .select_related("integration")
-            .first()
-        )
+        thread_match = SlackThreadTaskMapping.objects.filter(
+            slack_workspace_id=slack_team_id, channel=channel, thread_ts=thread_ts
+        ).first()
         if thread_match is not None:
             # If the mapped row is out of the current candidate set (kind drift),
             # route through the canonical candidate for the same team in this
             # workspace so the mapping's ``task_run`` linkage stays intact.
-            mapped = thread_match.integration
-            target: WorkspaceIntegration | None = (
-                mapped if mapped.id in candidate_ids else candidates_by_team_id.get(mapped.team_id)
-            )
+            target: WorkspaceIntegration | None = candidates_by_id.get(thread_match.integration_id)
+            if target is None:
+                target = candidates_by_team_id.get(thread_match.team_id)
             # Access check on the resolved target so a user whose access was
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
@@ -252,25 +248,18 @@ def resolve_from_candidates(
         defaults = list(
             SlackSettings.objects.filter(slack_workspace_id=slack_team_id)
             .filter(Q(slack_user_id=slack_user_id) | Q(slack_user_id__isnull=True))
-            .exclude(default_integration__isnull=True)
-            .select_related(
-                "default_integration",
-                "default_integration__team",
-                "default_integration__team__organization",
-            )
+            .exclude(default_integration_id__isnull=True)
         )
         defaults.sort(key=lambda d: d.slack_user_id is None)
         for default in defaults:
-            target = default.default_integration
-            if target is None:
-                continue
-            if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
-                continue
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
             # we were asked to resolve, or it was deleted+recreated. The user
             # can overwrite the row at any time with `/posthog project <id>`.
-            if target.id not in candidate_ids:
+            if default.default_integration_id is None or default.default_integration_id not in candidate_ids:
+                continue
+            target = candidates_by_id[default.default_integration_id]
+            if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
             return ResolutionResult(integration=target, source=source, candidates=accessible)

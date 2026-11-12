@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -780,6 +780,19 @@ describe('signalSourcesLogic', () => {
         arrange(logic)
 
         expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it.each([
+        { level: OrganizationMembershipLevel.Member, enableDisabledReason: 'Ask a project admin to turn on Support' },
+        { level: OrganizationMembershipLevel.Admin, enableDisabledReason: undefined },
+    ])('blocks turning on Support below project admin (level $level)', ({ level, enableDisabledReason }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            conversations_enabled: false,
+            effective_membership_level: level,
+        })
+
+        expect(logic.values.productStatusBySource.conversations?.enableDisabledReason).toBe(enableDisabledReason)
     })
 
     it('keeps loaded product statuses visible until a background refresh completes', async () => {

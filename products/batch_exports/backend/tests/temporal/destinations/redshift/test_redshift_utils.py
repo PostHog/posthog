@@ -22,13 +22,22 @@ from posthog.models.integration import (
     parse_redshift_host,
 )
 
-from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel
+from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel, BatchExportInsertInputs
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
+    CopyParameters,
     InsufficientS3PermissionsError,
+    RedshiftCopyActivityInputs,
+    RedshiftInsertInputs,
     RedshiftS3CopyError,
+    S3StageBucketParameters,
+    ServerConnectionParameters,
+    TableParameters,
+    _get_redshift_client_inputs,
     _get_redshift_credentials_policy_statements,
+    _get_s3_bucket_aws_credentials,
     _get_table_schemas,
+    _resolve_copy_authorization,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
     upload_manifest_file,
@@ -420,3 +429,51 @@ def test_serverless_workgroup_credentials_policy_rejects_mismatched_arn(workgrou
 
     with pytest.raises(IntegrationError):
         _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+
+async def test_client_inputs_require_an_integration():
+    inputs = RedshiftInsertInputs(
+        batch_export=BatchExportInsertInputs(
+            team_id=1,
+            data_interval_start=None,
+            data_interval_end="2024-01-01T00:00:00+00:00",
+            batch_export_id=str(uuid.uuid4()),
+        ),
+        connection=ServerConnectionParameters(database="db", port=5439, host="fake.example.com"),
+        table=TableParameters(schema_name="public", name="events"),
+    )
+
+    with pytest.raises(IntegrationError, match="no linked integration"):
+        await _get_redshift_client_inputs(inputs)
+
+
+@pytest.mark.parametrize("field_name", ["bucket_credentials", "authorization"])
+async def test_copy_rejects_inline_aws_keys(field_name: str):
+    """COPY must not stage or load with inline AWS keys left in `copy_inputs`."""
+    inline_keys = AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret")
+    integration_id = 1
+    inputs = RedshiftCopyActivityInputs(
+        batch_export=BatchExportInsertInputs(
+            team_id=1,
+            data_interval_start="2024-01-01T00:00:00+00:00",
+            data_interval_end="2024-01-01T01:00:00+00:00",
+        ),
+        connection=ServerConnectionParameters(database="dev", port=5439),
+        table=TableParameters(schema_name="public", name="events", properties_data_type="varchar"),
+        copy=CopyParameters(
+            s3_bucket=S3StageBucketParameters(
+                name="bucket",
+                region_name="us-east-1",
+                credentials=inline_keys if field_name == "bucket_credentials" else integration_id,
+            ),
+            s3_key_prefix="prefix",
+            authorization=inline_keys if field_name == "authorization" else integration_id,
+        ),
+        integration_id=1,
+    )
+    resolve = _get_s3_bucket_aws_credentials if field_name == "bucket_credentials" else _resolve_copy_authorization
+
+    with pytest.raises(IntegrationError, match=f"Inline AWS keys in the Redshift COPY '{field_name}'") as exc_info:
+        await resolve(inputs)
+
+    assert "secret" not in str(exc_info.value)

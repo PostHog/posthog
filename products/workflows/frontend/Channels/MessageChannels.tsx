@@ -7,7 +7,6 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -15,8 +14,11 @@ import { SupabaseAuthEmails } from '../SupabaseAuthEmails/SupabaseAuthEmails'
 import { ChannelCatalog } from './ChannelCatalog'
 import { ChannelSetupModal } from './ChannelSetupModal'
 import { PUSH_CHANNELS } from './channelSummary'
+import { EmailIntegrationsList } from './EmailIntegrationsList'
 import { pushTokenImportLogic } from './PushTokenImport/pushTokenImportLogic'
 import { PushTokenImportModal } from './PushTokenImport/PushTokenImportModal'
+import { SandboxEmailSenderRow } from './SandboxEmailSenderRow'
+import { sandboxSenderLogic } from './sandboxSenderLogic'
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
@@ -25,6 +27,7 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, setupModalType, selectedIntegration } = useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const { openImport } = useActions(pushTokenImportLogic)
+    const { sandboxStatus } = useValues(sandboxSenderLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -51,9 +54,10 @@ export function MessageChannels(): JSX.Element {
             <div className="flex flex-col gap-4" data-attr="message-channels">
                 <ChannelCatalog />
                 {supabaseAuthEmailsEnabled && <SupabaseAuthEmails />}
-                {allWorkflowIntegrations.length > 0 && (
+                {(allWorkflowIntegrations.length > 0 || !!sandboxStatus?.integration_id) && (
                     <h3 className="mb-0 text-base font-semibold">Your connections</h3>
                 )}
+                <SandboxEmailSenderRow />
                 <EmailIntegrationsList />
                 <IntegrationsList
                     titleText=""

@@ -31,6 +31,7 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
     # Recreate org/team/user per test: TransactionTestCase flushes the DB between tests, which would
     # otherwise leave class-level fixture data dangling.
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     def setUp(self):
         super().setUp()
@@ -61,7 +62,10 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         assert deleted_team_activity_response.status_code == 404
 
         # We can't query by API but can prove the deletion was recorded in the activity log
-        activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
+        activity = [
+            a.__dict__
+            for a in ActivityLog.objects.filter(team_id=team.pk, activity__in=["created", "deleted"]).order_by("scope")
+        ]
         assert activity == [
             {
                 "_state": ANY,

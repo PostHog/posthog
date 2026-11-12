@@ -10,21 +10,27 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import safe_cache_add
 
 from ..classifier import SnapshotClassifier
 from ..db import WRITER_DB
 from ..facade.contracts import CreateRunInput
-from ..facade.enums import RunStatus, SnapshotResult
+from ..facade.enums import AutoQuarantineMode, BaselineMode, RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import (
     artifact_store,
+    auto_lift,
+    auto_quarantine,
+    baseline_approvals,
+    baseline_record,
+    baseline_resolution,
     baselines,
     ci_status,
     errors,
     gating,
+    github_api,
     quarantine_lifts,
     repos,
     run_queries,
@@ -112,6 +118,40 @@ def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[
     return run, uploads
 
 
+def _lock_run(run: Run) -> None:
+    Run.objects.using(WRITER_DB).select_for_update().filter(id=run.id, team_id=run.team_id).exists()
+
+
+def _insert_new_snapshots(run: Run, snapshots: list[dict]) -> int:
+    first_snapshot_by_identifier: dict[str, dict] = {}
+    for snap in snapshots:
+        first_snapshot_by_identifier.setdefault(snap["identifier"], snap)
+
+    _lock_run(run)
+    existing_identifiers = set(
+        run.snapshots.using(WRITER_DB)
+        .filter(identifier__in=first_snapshot_by_identifier.keys())
+        .values_list("identifier", flat=True)
+    )
+    new_snapshots = [
+        RunSnapshot(
+            run=run,
+            team_id=run.team_id,
+            identifier=identifier,
+            current_hash=snap["content_hash"],
+            baseline_hash="",
+            result=SnapshotResult.NEW,  # Provisional — reclassified at complete time
+            current_width=snap.get("width"),
+            current_height=snap.get("height"),
+            metadata=snap.get("metadata") or {},
+        )
+        for identifier, snap in first_snapshot_by_identifier.items()
+        if identifier not in existing_identifiers
+    ]
+    RunSnapshot.objects.using(WRITER_DB).bulk_create(new_snapshots, ignore_conflicts=True)
+    return len(new_snapshots)
+
+
 def _register_snapshots(
     run: Run,
     repo: Repo,
@@ -124,29 +164,8 @@ def _register_snapshots(
     Idempotent per (run, identifier) via unique constraint — safe for retries.
     """
     repo_id = repo.id
-    all_hashes: set[str] = set()
-    added_count = 0
-
-    for snap in snapshots:
-        identifier = snap["identifier"]
-        current_hash = snap["content_hash"]
-        all_hashes.add(current_hash)
-
-        _snapshot, created = RunSnapshot.objects.get_or_create(
-            run=run,
-            team_id=repo.team_id,
-            identifier=identifier,
-            defaults={
-                "current_hash": current_hash,
-                "baseline_hash": "",
-                "result": SnapshotResult.NEW,  # Provisional — reclassified at complete time
-                "current_width": snap.get("width"),
-                "current_height": snap.get("height"),
-                "metadata": snap.get("metadata") or {},
-            },
-        )
-        if created:
-            added_count += 1
+    all_hashes = {snap["content_hash"] for snap in snapshots}
+    added_count = _insert_new_snapshots(run, snapshots)
 
     # Generate upload URLs for missing artifacts
     artifact_store.lock_artifact_registry(repo_id)
@@ -235,6 +254,14 @@ def record_completing_job(run_id: UUID, check_run_id: str) -> None:
         run.save(using=WRITER_DB, update_fields=["metadata"])
 
 
+def _fail_unresolved_baseline(run: Run, message: str, outcome: str) -> Run:
+    from ..tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    finish_processing(run.id, error_message=message)
+    emit_run_processing_metrics.delay(run.team_id, str(run.id), outcome, 0)
+    return run_queries.get_run(run.id)
+
+
 def complete_run(run_id: UUID) -> Run:
     """
     Complete a run: detect removals, classify snapshots, hand off to the diff task.
@@ -265,40 +292,8 @@ def complete_run(run_id: UUID) -> Run:
     # What this run rendered. Read before the baseline so healing can be limited
     # to it — an entry missing from both the branch baseline and the build is a
     # deliberate deletion, and healing it back only manufactures a REMOVED.
-    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
-
-    # Fetch baseline merged with merge-base to heal rebase-induced drift.
-    # Branch baseline tracks approvals; merge-base fills entries lost when
-    # git rebase replays a full-file bot commit destructively.
-    # Pass commit_sha so the baseline is read at the exact commit being tested,
-    # not at a branch tip that may have moved or been deleted.
-    try:
-        baseline, healed_count = baselines._resolve_baselines_with_merge_base(
-            repo,
-            run.run_type,
-            run.branch,
-            rendered_identifiers=run_identifiers,
-            commit_sha=run.commit_sha,
-        )
-    except GitHubRateLimitError:
-        # Roll back to PENDING so the caller can retry after the limit resets
-        Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
-        raise
-    except errors.BaselineEntriesLostError as e:
-        from ..tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
-
-        logger.warning("visual_review.baseline_entries_lost", run_id=str(run_id), count=len(e.identifiers))
-        finish_processing(run_id, error_message=str(e))
-        emit_run_processing_metrics.delay(run.team_id, str(run_id), "baseline_entries_lost", 0)
-        return run_queries.get_run(run_id)
-    if healed_count:
-        run.metadata["baseline_healed_from_merge_base"] = healed_count
-        run.save(using=WRITER_DB, update_fields=["metadata"])
-
-    # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
-    tolerated_lookup = toleration.build_tolerated_lookup(
-        repo.id, run_identifiers, set(baseline.values()), now=timezone.now()
-    )
+    rendered = dict(run.snapshots.using(WRITER_DB).values_list("identifier", "current_hash"))
+    run_identifiers = set(rendered)
 
     # is_partial is client-supplied and only suppresses removed-baseline
     # detection. Never honor it on the default branch (authoritative full
@@ -312,6 +307,9 @@ def complete_run(run_id: UUID) -> Run:
     # keys off context + state, not the human-facing description, so a separate
     # context is what actually keeps a one-flag subset run from turning the gate
     # green — the description annotation alone does not.
+    #
+    # Corrected before the baseline is resolved, because the ledger side of a shadow run records
+    # which identifiers it would report removed, and only a full run reports any.
     if run.is_partial and baselines._run_is_on_default_branch(repo, run.branch):
         logger.warning(
             "visual_review.is_partial_ignored_on_default_branch",
@@ -320,6 +318,38 @@ def complete_run(run_id: UUID) -> Run:
         )
         run.is_partial = False
         run.save(using=WRITER_DB, update_fields=["is_partial"])
+
+    # In yaml mode: the branch baseline merged with the merge-base baseline, to heal
+    # rebase-induced drift. The branch baseline tracks approvals; the merge-base fills
+    # entries lost when git rebase replays a full-file bot commit destructively. The
+    # baseline is read at the exact commit being tested, not at a branch tip that may
+    # have moved or been deleted.
+    try:
+        resolved = baseline_resolution.resolve(run, rendered)
+    except github_api.GITHUB_READ_REFUSED:
+        # Roll back to PENDING so the caller can retry after the limit resets
+        Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
+        raise
+    except errors.BaselineEntriesLostError as e:
+        logger.warning("visual_review.baseline_entries_lost", run_id=str(run_id), count=len(e.identifiers))
+        return _fail_unresolved_baseline(run, str(e), "baseline_entries_lost")
+    except errors.BaselineResolutionError as e:
+        logger.warning("visual_review.baseline_resolution_failed", run_id=str(run_id), error=str(e))
+        return _fail_unresolved_baseline(run, str(e), "baseline_resolution_failed")
+    baseline = resolved.baseline
+    if resolved.healed_count:
+        run.metadata["baseline_healed_from_merge_base"] = resolved.healed_count
+    if resolved.record is not None:
+        run.metadata[baseline_record.METADATA_KEY] = resolved.record.to_json()
+    if resolved.healed_count or resolved.record is not None:
+        run.save(using=WRITER_DB, update_fields=["metadata"])
+
+    # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
+    tolerated_lookup = resolved.tolerated_lookup
+    if tolerated_lookup is None:
+        tolerated_lookup = toleration.build_tolerated_lookup(
+            repo.id, run_identifiers, set(baseline.values()), now=timezone.now()
+        )
 
     classifier = SnapshotClassifier(run, baseline, tolerated_lookup, is_partial=run.is_partial)
     classifier.classify()
@@ -360,6 +390,45 @@ def complete_run(run_id: UUID) -> Run:
     return run_queries.get_run(run_id)
 
 
+def _compare_shadow(run: Run) -> None:
+    """Compare a shadow run with the ledger, after the status is posted. A failure is logged and never fails the run."""
+    if run.repo.baseline_mode != BaselineMode.SHADOW:
+        return
+    try:
+        baseline_resolution.compare_shadow(run)
+    except Exception:
+        logger.warning("visual_review.shadow_comparison_failed", run_id=str(run.id), exc_info=True)
+
+
+def _mark_failed(run: Run, message: str) -> None:
+    run.status = RunStatus.FAILED
+    run.error_message = message
+    run.completed_at = timezone.now()
+    run.save(update_fields=["status", "error_message", "completed_at"])
+
+
+def _record_ledger_writes(run: Run) -> None:
+    """Record the run's evidence and carried commits on the approvals before the run shows as completed.
+
+    Landing reads both, so a merge right after a green run must find them. In ledger mode a failure
+    fails the run, because without them a merge after this run lands or voids its approvals on
+    wrong facts. In shadow mode the failure is logged and the run completes.
+    """
+    mode = run.repo.baseline_mode
+    if mode == BaselineMode.YAML:
+        return
+    try:
+        baseline_approvals.record_evidence(run)
+        baseline_approvals.record_carried_commits(run)
+    except Exception as exc:
+        if mode != BaselineMode.LEDGER:
+            logger.warning("visual_review.ledger_writes_failed", run_id=str(run.id), exc_info=True)
+            return
+        logger.exception("visual_review.ledger_writes_failed", run_id=str(run.id))
+        _mark_failed(run, f"Recording the run on the baseline approvals failed: {exc}")
+        raise
+
+
 def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     run = run_queries.get_run_with_snapshots(run_id)
 
@@ -367,10 +436,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
         # A failing run has to reach FAILED even when the recount is what failed. The diff
         # task calls this from its exception handler, so recounting first would hit the same
         # failure again and leave the run in PROCESSING while clients poll it.
-        run.status = RunStatus.FAILED
-        run.error_message = error_message
-        run.completed_at = timezone.now()
-        run.save(update_fields=["status", "error_message", "completed_at"])
+        _mark_failed(run, error_message)
         gating._update_counts_and_post_status(run)
         return run
 
@@ -379,6 +445,13 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     # then reclassifies every snapshot whose diff came in under the threshold. A reader
     # that sees COMPLETED before the recount therefore gets counts that still report drift
     # the run no longer has, and the CLI fails CI on them.
+    # Before the recount, so a quarantine this run proves is stamped on this run and the run passes.
+    # A failure here must never fail the run or make it retry, because the gate works without it.
+    try:
+        auto_quarantine.quarantine_proven_flakes(run)
+    except Exception:
+        logger.exception("visual_review.auto_quarantine_failed", run_id=str(run_id))
+
     try:
         snapshots = gating._recount(run)
     except Exception as exc:
@@ -387,11 +460,10 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
         # that is already PROCESSING, so every later retry would be a no-op. Report the
         # failure rather than publish counts the recount did not settle.
         logger.exception("visual_review.recount_failed", run_id=str(run_id))
-        run.status = RunStatus.FAILED
-        run.error_message = f"Recount failed: {exc}"
-        run.completed_at = timezone.now()
-        run.save(update_fields=["status", "error_message", "completed_at"])
+        _mark_failed(run, f"Recount failed: {exc}")
         raise
+
+    _record_ledger_writes(run)
 
     run.status = RunStatus.COMPLETED
     run.error_message = ""
@@ -400,6 +472,8 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
 
     gating._post_status(run, snapshots)
     _enqueue_quarantine_lift_check(run)
+    _enqueue_clean_quarantine_release(run)
+    _compare_shadow(run)
 
     return run
 
@@ -421,6 +495,36 @@ def _enqueue_quarantine_lift_check(run: Run) -> None:
         reconcile_quarantine_lifts.delay(run.team_id, str(run.id))
     except Exception:
         logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
+
+
+# A clean window does not end within an hour, so a busy default branch skips the grouped read on most runs.
+_CLEAN_RELEASE_THROTTLE_SECONDS = 60 * 60
+
+
+def _enqueue_clean_quarantine_release(run: Run) -> None:
+    """Hand a completed full default-branch run to the task that lifts quarantines gone clean.
+
+    A failure here must never fail the run: a later default-branch run checks again.
+    """
+    if not auto_lift.may_release(run):
+        return
+    try:
+        if run.repo.auto_quarantine_mode == AutoQuarantineMode.OFF:
+            return
+        # Before the hourly slot, so a full run without a pull request on another branch cannot take it.
+        if github_api.default_branch_name(run.repo) != run.branch:
+            return
+        if not safe_cache_add(
+            f"visual_review:release_clean_quarantines:{run.repo_id}:{run.run_type}",
+            True,
+            timeout=_CLEAN_RELEASE_THROTTLE_SECONDS,
+        ):
+            return
+        from ..tasks.tasks import release_clean_quarantines  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        release_clean_quarantines.delay(run.team_id, str(run.id))
+    except Exception:
+        logger.warning("visual_review.clean_quarantine_release_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
 def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:

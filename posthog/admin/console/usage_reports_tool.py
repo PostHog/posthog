@@ -11,9 +11,6 @@ from posthog.admin.console.panels import Gate
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Notice, Page, ToolOperation
 
-# Usage reports go to the billing service and customers get invoiced on them, so only billing staff send one.
-BILLING_TEAM = Gate.group("Billing Team")
-
 
 class ReportDateForm(forms.Form):
     report_date = forms.DateField(
@@ -64,6 +61,15 @@ class UsageReportsTool(ConsoleTool):
                 handler=send_usage_report,
                 description="Queues the usage reports of every organization for one day.",
                 form_class=ReportDateForm,
-                gate=BILLING_TEAM,
+                # Usage reports go to the billing service and customers get invoiced on them, so only billing
+                # staff send one.
+                gate=Gate.owner(),
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/posthog/organization/send-usage-report/",
+    title="Sending usage reports",
+    url="/admin/console/tools/usage-reports/",
+)

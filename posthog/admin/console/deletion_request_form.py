@@ -9,8 +9,6 @@ from django.utils.dateparse import parse_datetime
 
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 
-CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
-
 # Types staff do not create by hand. An existing request of one of these types keeps its own type selectable.
 UNSUPPORTED_REQUEST_TYPES = (
     RequestType.HOGQL_EVENT_REMOVAL,

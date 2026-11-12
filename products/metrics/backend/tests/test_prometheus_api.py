@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.api.snuffle_proxy import snuffle_request
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -43,9 +44,9 @@ def _upstream() -> MagicMock:
 def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_token(
     settings, monkeypatch, tmp_path, registered, ch_user, expected
 ):
-    settings.SNUFFLE_APM_URL = "http://snuffle.test:9091"
-    settings.SNUFFLE_APM_USER = "reader"
-    settings.SNUFFLE_APM_PASSWORD = "secret"
+    settings.SNUFFLE_METRICS_URL = "http://snuffle.test:9091"
+    settings.SNUFFLE_METRICS_USER = "reader"
+    settings.SNUFFLE_METRICS_PASSWORD = "secret"
     token = tmp_path / "token"
     users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x")}
     if registered:
@@ -59,14 +60,16 @@ def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_t
     sent = []
     for rotation in ("token-1", "token-2"):
         token.write_text(rotation)
-        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user)
+        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user, workload=Workload.METRICS)
         auth = request.call_args.kwargs["auth"]
         sent.append((auth.username, auth.password))
 
     assert sent == expected
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
+@override_settings(
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+)
 class TestPrometheusQueryApi(APIBaseTest):
     def setUp(self):
         super().setUp()

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 export function useEditorGroupExpansion(
     defaultExpanded: boolean | undefined,
@@ -8,7 +8,7 @@ export function useEditorGroupExpansion(
 ): [boolean, (v: boolean) => void, boolean] {
     const [isRowExpanded, setIsRowExpanded] = useState(() => {
         // Snapshots should display all editor filter groups expanded by default
-        if (inStorybook() || inStorybookTestRunner()) {
+        if (inStorybook()) {
             return true
         }
         // Auto-expand when there's configured content, otherwise use the default

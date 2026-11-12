@@ -190,7 +190,8 @@
       reason String,
       recipient String,
       function_id String,
-      sending_domain LowCardinality(String)
+      sending_domain LowCardinality(String),
+      scheduled_at Nullable(DateTime64(6, 'UTC'))
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100,
@@ -1652,7 +1653,8 @@
       reason String,
       recipient String,
       function_id String,
-      sending_domain LowCardinality(String)
+      sending_domain LowCardinality(String),
+      scheduled_at Nullable(DateTime64(6, 'UTC'))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1677,7 +1679,8 @@
       reason String,
       recipient String,
       function_id String,
-      sending_domain LowCardinality(String)
+      sending_domain LowCardinality(String),
+      scheduled_at Nullable(DateTime64(6, 'UTC'))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1708,6 +1711,7 @@
       recipient,
       function_id,
       sending_domain,
+      scheduled_at,
       _timestamp,
       _offset,
       _partition
@@ -1964,7 +1968,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)),
@@ -2074,7 +2078,7 @@
   SELECT
   uuid,
   event,
-  ifNull(accurateCastOrNull(cleaned.properties, 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')) AS properties,
+  ifNull(accurateCastOrNull(cleaned.properties, 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')) AS properties,
   ifNull(accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'), CAST('{}', 'JSON(max_dynamic_paths = 32)')) AS temporary_properties,
   cleaned.properties_null_keys AS properties_null_keys,
   cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
@@ -2824,7 +2828,8 @@
       reason String,
       recipient String,
       function_id String,
-      sending_domain LowCardinality(String)
+      sending_domain LowCardinality(String),
+      scheduled_at Nullable(DateTime64(6, 'UTC'))
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100,
@@ -8318,7 +8323,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
@@ -9717,6 +9722,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -9734,7 +9740,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -9761,6 +9767,35 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -9920,6 +9955,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -9934,7 +9970,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -9962,6 +9998,36 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -10279,7 +10345,7 @@
       `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
       `max_lag` SimpleAggregateFunction(max, UInt64)
   )
-  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
   ORDER BY (_topic, _partition)
   SETTINGS
       index_granularity = 8192
@@ -10353,6 +10419,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -10660,6 +10727,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -10991,7 +11059,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)),
@@ -12232,7 +12300,8 @@
       reason String,
       recipient String,
       function_id String,
-      sending_domain LowCardinality(String)
+      sending_domain LowCardinality(String),
+      scheduled_at Nullable(DateTime64(6, 'UTC'))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -14295,7 +14364,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
@@ -15694,6 +15763,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -15711,7 +15781,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -15738,6 +15808,35 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -15897,6 +15996,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -15911,7 +16011,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -15939,6 +16039,36 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -16205,7 +16335,7 @@
       `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
       `max_lag` SimpleAggregateFunction(max, UInt64)
   )
-  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
   ORDER BY (_topic, _partition)
   SETTINGS
       index_granularity = 8192

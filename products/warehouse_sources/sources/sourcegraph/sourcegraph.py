@@ -4,6 +4,7 @@ import time
 import threading
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
@@ -18,7 +19,11 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.sources.sourcegraph.settings import SOURCEGRAPH_ENDPOINTS, SourcegraphEndpointConfig
+from products.warehouse_sources.sources.sourcegraph.settings import (
+    REPOSITORY_IDS_QUERY,
+    SOURCEGRAPH_ENDPOINTS,
+    SourcegraphEndpointConfig,
+)
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
@@ -151,7 +156,12 @@ class SourcegraphQueryError(Exception):
 @dataclasses.dataclass(frozen=False)
 class SourcegraphResumeConfig:
     # Relay `endCursor` of the last fully-yielded page. None means "start from the first page".
+    # For per-repository endpoints this is the cursor inside `repository_id`.
     cursor: str | None = None
+    # Per-repository endpoints: the repositories cursor of the parent page being walked, and the
+    # repository to continue from (None means the first repository of that page).
+    repositories_cursor: str | None = None
+    repository_id: str | None = None
 
 
 def normalize_host(host: str) -> str:
@@ -255,6 +265,87 @@ def _execute(
     return data
 
 
+def _dig(data: Any, path: str) -> Any:
+    for key in path.split("."):
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def _format_date_filter(value: Any) -> str:
+    if isinstance(value, datetime):
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return str(value)
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _is_older_than(value: Any, watermark: datetime) -> bool:
+    parsed = _parse_timestamp(value)
+    return parsed is not None and parsed < watermark
+
+
+def _shape_row(endpoint: str, node: dict[str, Any], repository: dict[str, Any] | None) -> dict[str, Any]:
+    """Lift the parent repository and the nested fields used as keys, partitions or cursors to the row root."""
+    row = dict(node)
+    if repository is not None:
+        row["repositoryId"] = repository.get("id")
+        row["repositoryName"] = repository.get("name")
+    if endpoint == "commits":
+        row["authoredAt"] = _dig(node, "author.date")
+        row["committedAt"] = _dig(node, "committer.date")
+    elif endpoint == "contributors":
+        row["name"] = _dig(node, "person.name")
+        row["email"] = _dig(node, "person.email")
+    elif endpoint == "exported_events":
+        row["timestamp"] = _dig(node, "payload.timestamp")
+    return row
+
+
+def _variables(
+    config: SourcegraphEndpointConfig, after: str | None, incremental_value: Any, first: int | None = None
+) -> dict[str, Any]:
+    variables: dict[str, Any] = {"first": first or config.page_size, "after": after}
+    if config.incremental_variable:
+        variables[config.incremental_variable] = (
+            _format_date_filter(incremental_value) if incremental_value is not None else None
+        )
+    return variables
+
+
+def _probe_endpoint(
+    session: requests.Session, url: str, headers: dict[str, str], config: SourcegraphEndpointConfig
+) -> None:
+    """Run an endpoint's query for one row, so a GraphQL error (missing permission, older schema) raises."""
+    if not config.paginated:
+        _execute(session, url, headers, config.query, {"first": 1}, module_logger)
+        return
+    if not config.per_repository:
+        _execute(session, url, headers, config.query, _variables(config, None, None, first=1), module_logger)
+        return
+    data = _execute(session, url, headers, REPOSITORY_IDS_QUERY, {"first": 1, "after": None}, module_logger)
+    repositories = _dig(data, "repositories.nodes") or []
+    if repositories:
+        variables = {**_variables(config, None, None, first=1), "id": repositories[0].get("id")}
+        _execute(session, url, headers, config.query, variables, module_logger)
+
+
 def validate_credentials(
     host: str, access_token: str, schema_name: Optional[str] = None, team_id: Optional[int] = None
 ) -> tuple[bool, str | None]:
@@ -280,17 +371,14 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    if schema_name is not None and schema_name in SOURCEGRAPH_ENDPOINTS:
-        endpoint_config = SOURCEGRAPH_ENDPOINTS[schema_name]
-        query = endpoint_config.query
-        variables: dict[str, Any] = {"first": 1, "after": None} if endpoint_config.paginated else {"first": 1}
-    else:
-        query = "query { currentUser { username } }"
-        variables = {}
-
     session = make_tracked_session()
+    url = _graphql_url(normalized)
+    headers = _get_headers(access_token)
     try:
-        _execute(session, _graphql_url(normalized), _get_headers(access_token), query, variables, module_logger)
+        if schema_name is not None and schema_name in SOURCEGRAPH_ENDPOINTS:
+            _probe_endpoint(session, url, headers, SOURCEGRAPH_ENDPOINTS[schema_name])
+        else:
+            _execute(session, url, headers, "query { currentUser { username } }", {}, module_logger)
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 401:
             return False, "Invalid Sourcegraph access token"
@@ -321,9 +409,8 @@ def get_endpoint_permissions(host: str, access_token: str, team_id: int, endpoin
         endpoint_config = SOURCEGRAPH_ENDPOINTS.get(endpoint)
         if endpoint_config is None:
             continue
-        variables: dict[str, Any] = {"first": 1, "after": None} if endpoint_config.paginated else {"first": 1}
         try:
-            _execute(session, url, headers, endpoint_config.query, variables, module_logger)
+            _probe_endpoint(session, url, headers, endpoint_config)
         except SourcegraphQueryError as e:
             results[endpoint] = str(e)
         except Exception:
@@ -333,6 +420,118 @@ def get_endpoint_permissions(host: str, access_token: str, team_id: int, endpoin
     return results
 
 
+class _RunBounds:
+    """Per-run page and wall-clock bounds for a customer-controlled host, as in the cursor loop of `get_rows`."""
+
+    def __init__(
+        self, endpoint: str, resumable_source_manager: ResumableSourceManager[SourcegraphResumeConfig]
+    ) -> None:
+        self._endpoint = endpoint
+        self._manager = resumable_source_manager
+        self._requests = 0
+        self._deadline = time.monotonic() + MAX_PAGINATION_SECONDS
+
+    def before_request(self) -> None:
+        if self._requests > 0:
+            if self._requests >= MAX_PAGES_PER_RUN:
+                self._manager.safe_point()
+                raise SourcegraphPaginationLimitError(
+                    f"Sourcegraph {self._endpoint} exceeded the per-run page limit ({MAX_PAGES_PER_RUN})"
+                )
+            if time.monotonic() > self._deadline:
+                self._manager.safe_point()
+                raise SourcegraphPaginationLimitError(
+                    f"Sourcegraph {self._endpoint} exceeded the per-run pagination deadline ({MAX_PAGINATION_SECONDS:g}s)"
+                )
+        self._requests += 1
+
+
+def _get_repository_rows(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    endpoint: str,
+    config: SourcegraphEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SourcegraphResumeConfig],
+    incremental_value: Any,
+) -> Iterator[Any]:
+    """Walk the repositories connection and page the endpoint's query for each repository."""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    repositories_after = resume.repositories_cursor if resume is not None else None
+    resume_repository_id = resume.repository_id if resume is not None else None
+    resume_cursor = resume.cursor if resume is not None else None
+
+    bounds = _RunBounds(endpoint, resumable_source_manager)
+
+    while True:
+        bounds.before_request()
+        data = _execute(
+            session,
+            url,
+            headers,
+            REPOSITORY_IDS_QUERY,
+            {"first": config.page_size, "after": repositories_after},
+            logger,
+        )
+        connection = data.get("repositories") or {}
+        repositories = [r for r in connection.get("nodes") or [] if isinstance(r, dict) and r.get("id")]
+        page_info = connection.get("pageInfo") or {}
+        next_repositories_cursor = page_info.get("endCursor") if page_info.get("hasNextPage") and repositories else None
+
+        start = 0
+        repository_ids = [repository["id"] for repository in repositories]
+        if resume_repository_id in repository_ids:
+            start = repository_ids.index(resume_repository_id)
+
+        for index in range(start, len(repositories)):
+            repository = repositories[index]
+            after = resume_cursor if repository["id"] == resume_repository_id else None
+            if index + 1 < len(repositories):
+                next_repository_state: SourcegraphResumeConfig | None = SourcegraphResumeConfig(
+                    repositories_cursor=repositories_after, repository_id=repositories[index + 1]["id"]
+                )
+            elif next_repositories_cursor:
+                next_repository_state = SourcegraphResumeConfig(repositories_cursor=next_repositories_cursor)
+            else:
+                next_repository_state = None
+
+            while True:
+                bounds.before_request()
+                variables = {**_variables(config, after, incremental_value), "id": repository["id"]}
+                data = _execute(session, url, headers, config.query, variables, logger)
+                # Null for a repository that is empty, still cloning, or gone since the parent page.
+                child = _dig(data, config.data_path) or {}
+                nodes = child.get("nodes") or []
+                child_page_info = child.get("pageInfo") or {}
+                end_cursor = child_page_info.get("endCursor")
+                has_more = bool(nodes and child_page_info.get("hasNextPage") and end_cursor)
+
+                state = (
+                    SourcegraphResumeConfig(
+                        cursor=end_cursor, repositories_cursor=repositories_after, repository_id=repository["id"]
+                    )
+                    if has_more
+                    else next_repository_state
+                )
+                if state is not None:
+                    resumable_source_manager.save_state(state)
+                if nodes:
+                    yield [_shape_row(endpoint, node, repository) for node in nodes]
+                else:
+                    resumable_source_manager.safe_point()
+
+                if not has_more:
+                    break
+                after = end_cursor
+
+        resume_repository_id = None
+        resume_cursor = None
+        if not next_repositories_cursor:
+            break
+        repositories_after = next_repositories_cursor
+
+
 def get_rows(
     host: str,
     access_token: str,
@@ -340,6 +539,8 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SourcegraphResumeConfig],
     team_id: int,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = SOURCEGRAPH_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
@@ -354,10 +555,21 @@ def get_rows(
     # One session reused across every page so urllib3 keeps the connection alive instead of
     # re-handshaking per request.
     session = make_tracked_session()
+    incremental_value = (
+        db_incremental_field_last_value
+        if should_use_incremental_field and db_incremental_field_last_value is not None
+        else None
+    )
+
+    if config.per_repository:
+        yield from _get_repository_rows(
+            session, url, headers, endpoint, config, logger, resumable_source_manager, incremental_value
+        )
+        return
 
     if not config.paginated:
         data = _execute(session, url, headers, config.query, {"first": UNPAGINATED_FETCH_LIMIT}, logger)
-        connection = data.get(config.data_path) or {}
+        connection = _dig(data, config.data_path) or {}
         nodes = connection.get("nodes") or []
         total_count = connection.get("totalCount")
         if isinstance(total_count, int) and total_count > len(nodes):
@@ -374,21 +586,31 @@ def get_rows(
     if after:
         logger.debug(f"Sourcegraph: resuming {endpoint} from cursor {after}")
 
+    watermark = _parse_timestamp(incremental_value) if config.stops_at_watermark else None
+    watermark_field = config.incremental_fields[0]["field"] if config.incremental_fields else None
+
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     pages_fetched = 0
 
     while True:
-        data = _execute(session, url, headers, config.query, {"first": config.page_size, "after": after}, logger)
-        connection = data.get(config.data_path) or {}
-        nodes = connection.get("nodes") or []
+        data = _execute(session, url, headers, config.query, _variables(config, after, incremental_value), logger)
+        connection = _dig(data, config.data_path) or {}
+        raw_nodes = connection.get("nodes") or []
         page_info = connection.get("pageInfo") or {}
         pages_fetched += 1
+
+        nodes = [_shape_row(endpoint, node, None) for node in raw_nodes]
+        reached_watermark = False
+        if watermark is not None and watermark_field is not None:
+            newer = [row for row in nodes if not _is_older_than(row.get(watermark_field), watermark)]
+            reached_watermark = len(newer) < len(nodes)
+            nodes = newer
 
         if nodes:
             yield nodes
 
         end_cursor = page_info.get("endCursor")
-        if not page_info.get("hasNextPage") or not end_cursor or not nodes:
+        if reached_watermark or not page_info.get("hasNextPage") or not end_cursor or not raw_nodes:
             break
 
         # Save AFTER yielding so a crash re-fetches (and re-yields) the last page rather than
@@ -419,6 +641,8 @@ def sourcegraph_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SourcegraphResumeConfig],
     team_id: int,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config: SourcegraphEndpointConfig = SOURCEGRAPH_ENDPOINTS[endpoint]
 
@@ -431,11 +655,11 @@ def sourcegraph_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             team_id=team_id,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # repositories is requested with orderBy: REPOSITORY_CREATED_AT ascending; the other
-        # endpoints are full-refresh only, so the watermark direction is unused for them.
-        sort_mode="asc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

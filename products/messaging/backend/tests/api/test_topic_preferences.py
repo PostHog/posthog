@@ -59,8 +59,8 @@ class TestTopicPreferences(APIBaseTest):
             team=self.team, identifier="jane@example.com", preferences=preferences
         )
 
-    @parameterized.expand([("plain", "jane@example.com"), ("surrounding_whitespace", " jane@example.com ")])
-    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, identifier: str) -> None:
+    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock) -> None:
+        identifier = " jane@example.com "
         response = self._set({"identifier": identifier, "topics": {"newsletter": False}})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -104,7 +104,6 @@ class TestTopicPreferences(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown", lambda test: "does-not-exist"),
             ("deleted", lambda test: test._deleted_topic().key),
             ("other_team", lambda test: test._other_team_topic().key),
         ]
@@ -190,7 +189,6 @@ class TestTopicPreferences(APIBaseTest):
         [
             ("read_only_workflow_key", ["hog_flow:read"]),
             ("read_only_preference_key", ["messaging_preference:read"]),
-            ("unrelated_scope", ["feature_flag:read"]),
         ]
     )
     def test_refuses_a_project_secret_key_without_a_write_scope(

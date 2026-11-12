@@ -38,11 +38,14 @@ tools:
             creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft
             creation by default and do not set start_date unless the user explicitly asks to launch immediately. For
             in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use
-            external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone
-            can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and
-            a hosted survey shows them on its public page. Tell the user before putting a customer name or other private
-            detail in a survey. For substantial visual changes, preview the final draft once before launch if browser
-            access is already available. Skip browser checks for small edits.
+            external_survey. Keep surveys short unless the user asks for a longer flow. For in-app surveys, start with a
+            single choice or rating question and put any open-text question after it, because surveys that open with
+            open text get far fewer responses. For a popover, recommend showing it after the event it asks about, and
+            ask before adding a trigger or audience the user did not request. Survey content is public: anyone can read
+            the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted
+            survey shows them on its public page. Tell the user before putting a customer name or other private detail
+            in a survey. For substantial visual changes, preview the final draft once before launch if browser access is
+            already available. Skip browser checks for small edits.
         include_params:
             - name
             - description
@@ -55,10 +58,12 @@ tools:
             - responses_limit
             - iteration_count
             - iteration_frequency_days
+            - repeat_until_stopped
             - enable_partial_responses
             - enable_iframe_embedding
             - linked_flag_id
             - targeting_flag_filters
+            - base_language
             - translations
             - form_content
         param_overrides:
@@ -75,16 +80,19 @@ tools:
             schedule:
                 description: >
                     How often a person can see the survey. Omit this to use the default once behavior. Use recurring
-                    only when the user explicitly asks for a repeated schedule, and set iteration_count and
-                    iteration_frequency_days with it. Use always when the user wants the survey to show every time its
-                    display conditions are met, also after the person responds or dismisses it. The survey editor calls
-                    this "Every time the display conditions are met". An always popover without display conditions or a
-                    wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.
+                    only when the user explicitly asks for a repeated schedule, and set iteration_frequency_days with
+                    it. Set iteration_count for a fixed number of repeats, or repeat_until_stopped=true to keep
+                    repeating (for example an ongoing NPS survey every 90 days). Use always when the user wants the
+                    survey to show every time its display conditions are met, also after the person responds or
+                    dismisses it. The survey editor calls this "Every time the display conditions are met". An always
+                    popover without display conditions or a wait period shows again and again, so suggest a URL
+                    condition or seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
                     survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the
-                    user wants structured answers. Questions can include inline translations on each question.
+                    user wants structured answers. Questions can include inline translations on each question, keyed by
+                    language codes other than base_language (default 'en').
             conditions:
                 description: >
                     Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or
@@ -114,7 +122,8 @@ tools:
                 description: >
                     Optional survey-level translations keyed by language code. Use for translated survey name,
                     description, thank-you message, and intro screen fields. Question text translations belong inside
-                    each question's translations object.
+                    each question's translations object. Never add a key for the base language: when the untranslated
+                    text is not English, set base_language to its language code instead of adding an 'en' entry.
             form_content:
                 description: >
                     Optional hosted-form content configuration for external_survey forms. Only include this when the
@@ -258,12 +267,14 @@ tools:
             - responses_limit
             - iteration_count
             - iteration_frequency_days
+            - repeat_until_stopped
             - enable_partial_responses
             - enable_iframe_embedding
             - linked_flag_id
             - targeting_flag_id
             - targeting_flag_filters
             - remove_targeting_flag
+            - base_language
             - translations
             - form_content
         param_overrides:
@@ -280,11 +291,12 @@ tools:
             schedule:
                 description: >
                     How often a person can see the survey: once, recurring, or always. Omit this to keep the current
-                    schedule. When setting recurring, also set iteration_count and iteration_frequency_days. Use always
-                    when the user wants the survey to show every time its display conditions are met, also after the
-                    person responds or dismisses it. The survey editor calls this "Every time the display conditions are
-                    met". When you change away from recurring, the iteration fields are cleared. An always popover
-                    without display conditions or a wait period shows again and again, so suggest a URL condition or
+                    schedule. When setting recurring, also set iteration_frequency_days, plus either iteration_count for
+                    a fixed number of repeats or repeat_until_stopped=true to keep repeating. Use always when the user
+                    wants the survey to show every time its display conditions are met, also after the person responds
+                    or dismisses it. The survey editor calls this "Every time the display conditions are met". When you
+                    change away from recurring, the iteration fields are cleared. An always popover without display
+                    conditions or a wait period shows again and again, so suggest a URL condition or
                     seenSurveyWaitPeriodInDays.
             questions:
                 description: >

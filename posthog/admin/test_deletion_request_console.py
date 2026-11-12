@@ -115,6 +115,32 @@ class TestDeletionRequestConsole(BaseTest):
         assert not obj.approved
         assert obj.requires_approval == requires_approval
 
+    @parameterized.expand(
+        [
+            ("event_removal_with_notes", RequestType.EVENT_REMOVAL, "Support ticket #12345", "Support ticket #12345"),
+            (
+                "property_removal_with_notes",
+                RequestType.PROPERTY_REMOVAL,
+                "Support ticket #12345",
+                "Support ticket #12345",
+            ),
+            ("blank_notes", RequestType.EVENT_REMOVAL, "  ", ""),
+        ]
+    )
+    def test_submit_form_starts_with_the_notes_as_reason(
+        self, _name: str, request_type: RequestType, notes: str, expected_reason: str
+    ) -> None:
+        obj = self._request(
+            request_type=request_type, notes=notes, properties=["$ip"] if request_type != "event_removal" else []
+        )
+
+        response = self.client.get(self._url(obj, "workflow", "submit"))
+
+        assert response.status_code == 200
+        reason = BeautifulSoup(response.content, "html.parser").find("textarea", attrs={"name": "reason"})
+        assert reason is not None
+        assert reason.get_text().strip() == expected_reason
+
     def test_submit_needs_a_reason(self) -> None:
         obj = self._request()
 
@@ -284,11 +310,12 @@ class TestDeletionRequestConsole(BaseTest):
         self.user.groups.clear()
 
         with patch(f"{PANELS}.count_remaining_for_request", return_value=0) as counted:
+            opened = self.client.get(self._url(obj, panel, operation))
             response = self.client.post(
                 self._url(obj, panel, operation), {"reason": "Ticket 123", "execution_mode": "deferred"}
             )
 
-        assert response.status_code == 403
+        assert (opened.status_code, response.status_code) == (403, 403)
         counted.assert_not_called()
         obj.refresh_from_db()
         assert obj.status == status
@@ -505,7 +532,7 @@ class TestDeletionRequestConsole(BaseTest):
         )
 
         assert response.status_code == 400
-        assert "Only the ClickHouse Team group can pick this type" in response.content.decode()
+        assert "Only members of the ClickHouse Team group can pick this type" in response.content.decode()
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 

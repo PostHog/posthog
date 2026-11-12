@@ -740,6 +740,11 @@ class TestReadDataTool(BaseTest):
                     "clickhouse": "Nullable(String)",
                     "schema_valid": True,
                 },
+                "receipt_email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
             },
         )
         await ExternalDataSchema.objects.acreate(
@@ -763,12 +768,18 @@ class TestReadDataTool(BaseTest):
             team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
-        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "warehouse-column-sensitivity",
+        ):
+            result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
 
         assert "Could not serialize" not in result
         assert "Table `stripe_charges` — Stripe charges with fields:" in result
         assert "- amount (integer) — charge amount in cents" in result
         assert "- currency (string)" in result
+        assert "- receipt_email (string) [sensitive: email]" in result
+        assert "Columns marked [sensitive: ...] likely hold personal or secret data." in result
 
     async def test_table_annotation_description_wins_over_source_schema_description(self):
         credential = await DataWarehouseCredential.objects.acreate(
@@ -1634,13 +1645,17 @@ class TestReadDataTool(BaseTest):
 
         tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
 
-        with patch.object(tool, "user_access_control") as mock_uac:
+        with (
+            patch.object(tool, "user_access_control") as mock_uac,
+            patch("ee.hogai.tools.read_data.tool.record_agent_insight_read") as mock_record,
+        ):
             mock_uac.check_access_level_for_object.return_value = True
 
             result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "allowed123", "execute": False})
 
             assert "Allowed Insight" in result
             mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+            mock_record.assert_called_once_with(team=team, user_id=user.id, insight_id=mock_insight.id)
 
     async def test_read_insight_skips_object_check_for_state_source(self):
         team = MagicMock()
@@ -1660,11 +1675,15 @@ class TestReadDataTool(BaseTest):
 
         tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
 
-        with patch.object(tool, "user_access_control") as mock_uac:
+        with (
+            patch.object(tool, "user_access_control") as mock_uac,
+            patch("ee.hogai.tools.read_data.tool.record_agent_insight_read") as mock_record,
+        ):
             result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "state123", "execute": False})
 
             assert "State Insight" in result
             mock_uac.check_access_level_for_object.assert_not_called()
+            mock_record.assert_not_called()
 
     async def test_read_dashboard_denied_when_user_lacks_object_access(self):
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Secret Dashboard")
@@ -1680,7 +1699,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
 
             with pytest.raises(MaxToolAccessDeniedError):
                 await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
@@ -1699,7 +1718,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = True
+            mock_uac.check_access_level_for_ref.return_value = True
 
             result, artifact = await tool._arun_impl(
                 {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}

@@ -56,6 +56,7 @@ from products.cdp.backend.internal_events import (
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
+    MAX_EXECUTION_ORDER,
     TYPES_THAT_CAN_RERUN,
     TYPES_WITH_EXECUTION_ORDER,
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -938,8 +939,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # For transformations, we need to determine the execution_order
             if requested_order is None:
                 # If no order specified, add at the end
-                highest_order = self._get_highest_execution_order(validated_data["team"].id, validated_data["type"])
-                validated_data["execution_order"] = highest_order + 1
+                validated_data["execution_order"] = self._get_next_execution_order(
+                    validated_data["team"].id, validated_data["type"]
+                )
 
             # Create the function with the execution_order
             return super().create(validated_data=validated_data)
@@ -957,6 +959,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         return highest_order or 0
 
+    def _get_next_execution_order(self, team_id: int, hog_type: str) -> int:
+        # Once a sibling holds the column's maximum, the function ties with it at the end of the
+        # sequence, because a higher value overflows the smallint column
+        return min(self._get_highest_execution_order(team_id, hog_type) + 1, MAX_EXECUTION_ORDER)
+
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
         # Handle undeletion or re-enabling by placing at the end when needed
         if instance.type in TYPES_WITH_EXECUTION_ORDER and (
@@ -967,8 +974,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 and "execution_order" not in validated_data
             )
         ):
-            highest_order = self._get_highest_execution_order(instance.team_id, instance.type)
-            validated_data["execution_order"] = highest_order + 1
+            validated_data["execution_order"] = self._get_next_execution_order(instance.team_id, instance.type)
 
         # `move_secret_inputs` keeps a stored secret out of the plaintext column by refusing any key
         # that still has an encrypted value, and the save has no request to tell a replacement the
@@ -1104,8 +1110,8 @@ class HogFunctionPublishResponseSerializer(serializers.Serializer):
 
 class HogFunctionRearrangeSerializer(serializers.Serializer):
     orders = serializers.DictField(
-        child=serializers.IntegerField(),
-        help_text="Map of hog function UUIDs to their new execution_order values.",
+        child=serializers.IntegerField(min_value=0, max_value=MAX_EXECUTION_ORDER),
+        help_text=f"Map of hog function UUIDs to their new execution_order values, from 0 to {MAX_EXECUTION_ORDER}.",
     )
 
 
@@ -1994,7 +2000,9 @@ class HogFunctionViewSet(
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
-        orders: dict[str, int] = request.data.get("orders", {})
+        rearrange_serializer = HogFunctionRearrangeSerializer(data=request.data)
+        rearrange_serializer.is_valid(raise_exception=True)
+        orders: dict[str, int] = rearrange_serializer.validated_data["orders"]
 
         if not orders:
             raise exceptions.ValidationError("No orders provided")

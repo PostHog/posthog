@@ -492,7 +492,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
 
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
-            oauth_integration.refresh_access_token()
+            integration = oauth_integration.refresh_access_token()
 
         if not integration.access_token:
             raise ValueError("Stripe access token not found")

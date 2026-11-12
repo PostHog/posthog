@@ -6,10 +6,10 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# A new scope object also needs UI data in frontend/src/lib/scopes.tsx:
-# - a row in `API_SCOPES`, or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`.
-# - a group in `API_SCOPE_GROUPS`.
-# frontend/src/lib/scopes.test.ts fails until both exist.
+# A new scope object also needs a `ScopeDoc` in the owning product's `backend/scopes.py`, or in
+# `posthog/scope_docs.py` for a core scope, unless it is in `SCOPE_OBJECTS_OMITTED_FROM_PICKERS`
+# below. The scope pickers take everything they show about the object from there.
+# posthog/test/repo_invariants/test_scope_docs.py fails until it exists.
 #
 # The frontend `APIScopeObject` type needs no edit. `hogli build:openapi` generates it from
 # `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
@@ -23,6 +23,9 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "account",
+    # Notes on Customer Analytics accounts, split off `account` so a note can be written without the rest of
+    # the account surface (rename, delete, properties, relationships).
+    "account_note",
     "activity_log",
     "alert",
     "annotation",
@@ -98,7 +101,7 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
-    "mcp_registry",
+    "mcp_registry",  # Endpoints are gone; kept advertised until OAuth clients stop requesting it.
     "messaging_preference",
     "metrics",
     "notebook",
@@ -144,7 +147,6 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -254,6 +256,36 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
+# Grantable scope objects that no scope picker offers, each with the reason. Together with
+# `OAUTH_HIDDEN_SCOPE_OBJECTS`, these are the grantable objects that `EXPOSED_SCOPE_OBJECTS` leaves out.
+SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
+    # Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from.
+    # The granular scopes are offered instead.
+    "warehouse_objects": "Umbrella resource: grant warehouse_view/warehouse_table instead.",
+    # Pending removal. No endpoint enforces these, so they do nothing when granted.
+    # Remove them from `APIScopeObject` whenever you like: `/authorize` drops a requested scope that no
+    # longer exists, and saving a personal API key drops one the key still holds.
+    "batch_import": "Pending removal: no endpoint enforces it (its viewset is INTERNAL).",
+    "mcp_registry": "Retired: no endpoint enforces it; kept for OAuth clients that still request it.",
+    "external_data_schema": "Pending removal: covered by external_data_source; no viewset uses it.",
+    "vision_action": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "link": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "live_debugger": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "loop": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "knowledge_writer": "Retired: its only endpoint was removed, so no endpoint enforces it.",
+    # Access control resources that no token check reads, so granting them to a token does nothing.
+    "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
+    "revenue_analytics": "Access control resource only: no endpoint checks it as a token scope.",
+}
+
+# The scope objects people see and choose in scope pickers, the scope reference and `/oauth/scopes/`.
+# Each one needs a `ScopeDoc` (see `posthog/scope_docs.py`).
+EXPOSED_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
+    obj
+    for obj in GRANTABLE_API_SCOPE_OBJECTS
+    if obj not in OAUTH_HIDDEN_SCOPE_OBJECTS and obj not in SCOPE_OBJECTS_OMITTED_FROM_PICKERS
+)
+
 # llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
@@ -294,6 +326,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK prompt fetches by name and by list, so a service does not need a credential tied
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
+    ("logs", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -522,6 +555,8 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
 LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    # Notes moved from `account:*` to `account_note:*`, so keys and tokens issued before the split keep working.
+    "account_note": "account",
     "inbox": "task",
     # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
     "messaging_preference": "hog_flow",

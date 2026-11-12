@@ -35,10 +35,22 @@ class UserNotOrganizationMemberError(ValueError):
 
 @dataclass(frozen=True)
 class RestrictedPropertyNames:
-    """Restricted property names grouped by event and person scope."""
+    """Restricted property names grouped by event, person, and group scope."""
 
     event: frozenset[str]
     person: frozenset[str]
+    # Keyed by group type index. Names under None are restricted for every group type.
+    group: dict[int | None, frozenset[str]] = field(default_factory=dict)
+
+    def is_group_property_restricted(self, name: str, group_type_index: int | None) -> bool:
+        """With no group type index, a name restricted for any group type counts as restricted."""
+        return name in self.group_property_names(group_type_index)
+
+    def group_property_names(self, group_type_index: int | None) -> frozenset[str]:
+        """Restricted names for one group type. With no group type index, names restricted for any group type."""
+        if group_type_index is None:
+            return frozenset().union(*self.group.values())
+        return self.group.get(None, frozenset()) | self.group.get(group_type_index, frozenset())
 
 
 @dataclass(frozen=True)

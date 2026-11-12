@@ -267,6 +267,94 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
+export interface HoglakeCredentialApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    name: string
+    /** read or write */
+    scope: string
+    /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+    kind?: string
+    /** A personal credential's owner */
+    owner_user_uuid?: string
+    /** The owner's email, while they are a member */
+    owner_email?: string
+    /** The owner's name, while they are a member */
+    owner_name?: string
+    /** A personal credential's projects */
+    team_ids?: number[]
+    created_at: string
+    last_rotated_at: string
+    expires_at: string
+    /**
+     * Set once revoked
+     * @nullable
+     */
+    revoked_at?: string | null
+}
+
+export interface HoglakeConnectApi {
+    /** The hoglake catalog (warehouse) these credentials reach */
+    catalog: string
+    /** Hoglake's public REST catalog URL */
+    hoglake_url?: string
+    /** OAuth token endpoint (client_credentials grant) */
+    token_url?: string
+}
+
+export interface HoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+}
+
+/**
+ * * `read` - Read
+ * * `write` - Read & write
+ */
+export type HoglakeCredentialScopeEnumApi =
+    (typeof HoglakeCredentialScopeEnumApi)[keyof typeof HoglakeCredentialScopeEnumApi]
+
+export const HoglakeCredentialScopeEnumApi = {
+    Read: 'read',
+    Write: 'write',
+} as const
+
+export interface HoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+}
+
+export interface HoglakeCredentialIssuedApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    /** The client secret — returned only here, never again */
+    client_secret: string
+    name: string
+    scope: string
+    expires_at: string
+    /** org or team */
+    kind?: string
+}
+
+export interface HoglakeCredentialRevokedApi {
+    /** The revoked client_id */
+    revoked: string
+}
+
 export interface JobStatsBucketApi {
     /** Runs that completed in this bucket. */
     successful: number
@@ -891,6 +979,46 @@ export interface ManagedWarehouseTrinoMonitoringSnapshotResponseApi {
     queries_truncated: boolean
 }
 
+export interface HoglakeProjectApi {
+    id: number
+    name: string
+    /** read or write: the most a credential gets on this project */
+    access: string
+}
+
+export interface MyHoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+    /** The projects you can put in a credential */
+    projects: HoglakeProjectApi[]
+}
+
+export interface MyHoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+    /**
+     * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+     * @minItems 1
+     * @maxItems 200
+     * @items.minimum 1
+     */
+    team_ids: number[]
+}
+
 export interface OnboardWarehouseTeamRequestApi {
     /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
     schema_name: string
@@ -1038,6 +1166,8 @@ export interface WarehouseTrinoStatusApi {
      * @nullable
      */
     ready_at: string | null
+    /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+    hoglake: boolean
     /** Trino connection target. Null until Trino is ready and reachable. */
     connection: WarehouseTrinoConnectionApi | null
 }
@@ -1620,6 +1750,86 @@ export const DataWarehouseSavedQueryOriginEnumApi = {
     ManagedViewset: 'managed_viewset',
 } as const
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `managed_trino` - Hosted Trino
+ * * `connection` - Direct connection
+ */
+export type ViewEngineTargetEnumApi = (typeof ViewEngineTargetEnumApi)[keyof typeof ViewEngineTargetEnumApi]
+
+export const ViewEngineTargetEnumApi = {
+    Clickhouse: 'clickhouse',
+    ManagedTrino: 'managed_trino',
+    Connection: 'connection',
+} as const
+
+/**
+ * * `hogql` - HogQL
+ * * `raw` - Raw SQL
+ */
+export type ViewEngineDialectEnumApi = (typeof ViewEngineDialectEnumApi)[keyof typeof ViewEngineDialectEnumApi]
+
+export const ViewEngineDialectEnumApi = {
+    Hogql: 'hogql',
+    Raw: 'raw',
+} as const
+
+export interface ViewCapabilityApi {
+    /** Whether the view supports this. */
+    available: boolean
+    /**
+     * Why the view does not support this, written for the user. Null when available.
+     * @nullable
+     */
+    reason: string | null
+}
+
+/**
+ * * `clickhouse_probe` - ClickHouse probe
+ * * `client_types` - Column types sent by the client
+ */
+export type ViewColumnSourceEnumApi = (typeof ViewColumnSourceEnumApi)[keyof typeof ViewColumnSourceEnumApi]
+
+export const ViewColumnSourceEnumApi = {
+    ClickhouseProbe: 'clickhouse_probe',
+    ClientTypes: 'client_types',
+} as const
+
+export interface ViewEngineCapabilitiesApi {
+    /** Whether the view can be materialized, run or scheduled. */
+    materialize: ViewCapabilityApi
+    /** Whether the view has lineage and a node in the data modeling DAG. */
+    lineage: ViewCapabilityApi
+    /** Whether HogQL queries on ClickHouse can read from this view by name. */
+    referenceable_from_clickhouse: ViewCapabilityApi
+    /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+     *
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client */
+    column_source: ViewColumnSourceEnumApi
+}
+
+export interface ViewEngineApi {
+    /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection */
+    target: ViewEngineTargetEnumApi
+    /** Whether the view stores HogQL or raw SQL for its engine.
+     *
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL */
+    dialect: ViewEngineDialectEnumApi
+    /**
+     * The direct connection that runs this view. Null for any other engine.
+     * @nullable
+     */
+    connection_id: string | null
+    /** What the rest of the product can do with this view. */
+    capabilities: ViewEngineCapabilitiesApi
+}
+
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
 
 /**
@@ -1677,8 +1887,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -1983,6 +2193,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2005,8 +2217,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended: DataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2109,6 +2321,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -2131,8 +2345,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino?: boolean
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine?: ViewEngineApi
 }
 
 /**
@@ -2616,6 +2830,22 @@ export interface PatchedTableApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface HistoryTableRefApi {
+    /** ID of the history table. */
+    id: string
+    /** Name the history table is queried by in HogQL. */
+    name: string
+    /** Whether you can change who can access the history table. */
+    user_can_manage_access: boolean
+}
+
+export interface TableHistoryTableApi {
+    /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+    main_table_has_copyable_rules: boolean
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
+    history_table: HistoryTableRefApi | null
 }
 
 /**

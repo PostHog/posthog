@@ -15,20 +15,17 @@ import { NavToastsContext } from './navToasts'
 import { TabsChrome } from './TabsChrome'
 import { TabsNavigation } from './TabsNavigation'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
-
-function tabFor(route: string | undefined): TabKey {
-    return route === 'chats' || route === 'views' || route === 'errors' || route === 'replay' ? route : 'inbox'
-}
+import { tabForRoute, tabRouteName } from './tabRoutes'
 
 function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
     const focused = state.routes[state.index]?.name
-    const goTo = (route: TabKey): void => {
-        const key = state.routes.find((item) => item.name === route)?.key
+    const goTo = (tab: TabKey): void => {
+        const key = state.routes.find((item) => item.name === tabRouteName(tab))?.key
         if (key) navigateToTab(key)
     }
 
     // A layout effect, so the header shows the new tab's title in the same frame as the new scene.
-    const tab = tabFor(focused)
+    const tab = tabForRoute(focused)
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setFocused(tab)
     }, [tab])
@@ -86,6 +83,8 @@ function CustomTabsLayout(): ReactElement {
                         {/* Always registered; the bar shows a slot only for a pinned list. */}
                         <Tabs.Screen name="errors" />
                         <Tabs.Screen name="replay" />
+                        <Tabs.Screen name="web-analytics" />
+                        <Tabs.Screen name="live" />
                     </Tabs>
                     <TabsChrome />
                 </SceneFrame>

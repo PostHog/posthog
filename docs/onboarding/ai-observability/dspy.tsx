@@ -21,7 +21,7 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install posthog
+                            pip install "posthog<8"
                         `}
                     />
                 </>
