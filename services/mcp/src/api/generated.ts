@@ -114300,11 +114300,11 @@ export namespace Schemas {
     } as const;
 
     export interface SurfaceMoreWarehouseSuggestions {
-      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+      /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
        *
        * * `models` - Models
        * * `catalog` - Data catalog */
-      surface: WarehouseSuggestionSurfaceEnum;
+      surface?: WarehouseSuggestionSurfaceEnum;
     }
 
     /**
@@ -142987,7 +142987,7 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog
