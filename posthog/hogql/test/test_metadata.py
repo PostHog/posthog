@@ -658,6 +658,21 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
             ),
             param(
+                "missing_field_on_a_scan_that_excludes_flag_calls_with_the_union_off",
+                "SELECT goe_0.properties FROM events WHERE NOT (event = '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+            param(
+                "sampled_scan_filtered_through_a_select_alias_fails_after_the_move",
+                "SELECT event AS name FROM events SAMPLE 0.1 WHERE name = '$feature_flag_called'",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                move_message=flag_called_fails_after_move_warning("it uses SAMPLE"),
+            ),
+            param(
                 "mixed_scan_the_union_would_decline_with_the_union_off",
                 "SELECT goe_0.properties FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
                 True,

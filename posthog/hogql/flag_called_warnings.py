@@ -18,8 +18,9 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EventsScan,
     ScanVisitor,
     filter_conjuncts,
+    select_aliases,
 )
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 
@@ -197,15 +198,38 @@ class _ScanCheck:
     scan: EventsScan
     literals: list[LiteralSpan]
     warning: str | None
+    # Whether the scan reads posthog.flag_evaluations, so a field that table lacks fails.
+    moves: bool
+
+
+class _AliasInliner(CloningVisitor):
+    """Copies an unresolved expression with each bare name of a select alias replaced by the expression it names. The
+    resolver reads a bare name as a select alias before it reads it as a column."""
+
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
+        super().__init__()
+        self.aliases = aliases
+        self._resolving: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        name = str(node.chain[0]) if len(node.chain) == 1 else None
+        if name is None or name not in self.aliases or name in self._resolving:
+            return super().visit_field(node)
+        self._resolving.add(name)
+        try:
+            return self.visit(self.aliases[name])
+        finally:
+            self._resolving.discard(name)
 
 
 class _ScanLiteralFinder(TraversingVisitor):
     """The `$feature_flag_called` literals that `root`, one SELECT, compares to the `event` column of `scan`."""
 
-    def __init__(self, root: ast.SelectQuery, scan: EventsScan) -> None:
+    def __init__(self, root: ast.SelectQuery, scan: EventsScan, inliner: _AliasInliner) -> None:
         super().__init__()
         self.root = root
         self.scan = scan
+        self.inliner = inliner
         self.literals: list[LiteralSpan] = []
         # Whether a comparison outside `NOT (...)` selects flag calls. A negated one excludes them.
         self.selects_flag_calls = False
@@ -232,7 +256,7 @@ class _ScanLiteralFinder(TraversingVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
-                if self.scan.column(field_side) == ["event"]:
+                if self.scan.column(self.inliner.visit(field_side)) == ["event"]:
                     constants = _flag_called_constants(value_side)
                     self.selects_flag_calls |= bool(constants) and not self._negations
                     self.literals.extend(
@@ -241,6 +265,13 @@ class _ScanLiteralFinder(TraversingVisitor):
                         if constant.start is not None and constant.end is not None
                     )
         super().visit_compare_operation(node)
+
+
+@frozen
+class _Mode2Read:
+    # Whether the swap or the union reads the scan from posthog.flag_evaluations.
+    moves: bool
+    warning: str | None
 
 
 @frozen
@@ -294,8 +325,10 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     return None
 
 
-def _mode_2_warning(node: ast.SelectQuery, found: _FoundScan, selects_flag_calls: bool, union_on: bool) -> str | None:
-    """The warning for the scan of `found` once flag calls are only in flag_evaluations, or None.
+def _mode_2_read(
+    node: ast.SelectQuery, found: _FoundScan, inliner: _AliasInliner, selects_flag_calls: bool, union_on: bool
+) -> _Mode2Read:
+    """How the scan of `found` reads flag calls once they are only in flag_evaluations.
 
     It follows the rules of `_EventsScanSwapper` and `_UnionRenamer`. The swap moves a scan whose filters pin `event` to
     flag calls. It moves a joined scan only when the query names it `events`. The union reads a sampled first scan and
@@ -304,15 +337,15 @@ def _mode_2_warning(node: ast.SelectQuery, found: _FoundScan, selects_flag_calls
     """
     scan, position = found.scan, found.position
     sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
-    if scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False) and not (
-        union_on and sampled and position == 0
-    ):
+    conjuncts = [inliner.visit(conjunct) for conjunct in filter_conjuncts(node)]
+    if scan.pins_flag_calls(conjuncts, needs_flag_key=False) and not (union_on and sampled and position == 0):
         refusal = _UNMOVABLE_SHAPE if position > 0 and found.name != "events" else scan.shape_refusal(node)
     elif union_on:
         refusal = _union_refusal(node, scan, position)
     else:
-        return FLAG_CALLED_STAYS_ON_EVENTS_WARNING if selects_flag_calls else None
-    return flag_called_fails_after_move_warning(refusal) if refusal is not None else None
+        return _Mode2Read(moves=False, warning=FLAG_CALLED_STAYS_ON_EVENTS_WARNING if selects_flag_calls else None)
+    warning = flag_called_fails_after_move_warning(refusal) if refusal is not None else None
+    return _Mode2Read(moves=True, warning=warning)
 
 
 class _MoveWarningFinder(ScanVisitor):
@@ -331,17 +364,20 @@ class _MoveWarningFinder(ScanVisitor):
                 self.warnings.update(dict.fromkeys(check.literals, check.warning))
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        inliner = _AliasInliner(dict(select_aliases(node, in_scope_only=True)))
         for found in _events_scans(node, self.ctes):
-            finder = _ScanLiteralFinder(node, found.scan)
+            finder = _ScanLiteralFinder(node, found.scan, inliner)
             finder.visit(node)
             if not finder.literals:
                 continue
-            warning = _mode_2_warning(node, found, finder.selects_flag_calls, self.union_on)
-            self.frames[-1].append(_ScanCheck(scan=found.scan, literals=finder.literals, warning=warning))
+            read = _mode_2_read(node, found, inliner, finder.selects_flag_calls, self.union_on)
+            self.frames[-1].append(
+                _ScanCheck(scan=found.scan, literals=finder.literals, warning=read.warning, moves=read.moves)
+            )
 
     def visit_field(self, node: ast.Field) -> None:
         for check in self.frames[-1] if self.frames else []:
-            if check.warning is not None:
+            if check.warning is not None or not check.moves:
                 continue
             chain = check.scan.column(node)
             missing = _missing_field(chain) if chain else None
