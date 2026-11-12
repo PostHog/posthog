@@ -113,24 +113,25 @@ def estimate_cost(
         for connection in connections
     }
 
-    total_rows = sum(rows or 0 for _, rows, _ in rows_by_item.values())
+    total_rows = sum(rows.monthly_rows or 0 for rows in rows_by_item.values())
     total_cost = _price(total_rows, tiers) if tiers is not None else None
     estimates: list[ConnectionEstimate] = []
     for connection in connections:
-        confidence, rows, notes = rows_by_item[connection.item_id]
+        rows = rows_by_item[connection.item_id]
         cost: Decimal | None = None
-        if rows is not None and total_cost is not None:
+        if rows.monthly_rows is not None and total_cost is not None:
             # A share of the total by rows, so the connections add up to it whatever tier they fall in.
-            cost = (total_cost * rows / total_rows).quantize(_CENT) if total_rows else Decimal(0).quantize(_CENT)
+            share = total_cost * rows.monthly_rows / total_rows if total_rows else Decimal(0)
+            cost = share.quantize(_CENT)
         estimates.append(
             ConnectionEstimate(
                 item_id=connection.item_id,
                 name=connection.name,
                 source_type=connection.proposal.source_type,
-                confidence=confidence,
-                monthly_rows=rows,
+                confidence=rows.confidence,
+                monthly_rows=rows.monthly_rows,
                 monthly_cost_usd=cost,
-                notes=notes,
+                notes=rows.notes,
             )
         )
     return CostEstimate(
@@ -140,6 +141,13 @@ def estimate_cost(
         unmatched_usage=tuple(unmatched),
         tiers=tuple(tiers) if tiers is not None else None,
     )
+
+
+@frozen
+class _ConnectionRows:
+    confidence: Confidence
+    monthly_rows: int | None
+    notes: tuple[str, ...]
 
 
 def _match_connections(
@@ -164,15 +172,17 @@ def _match_connections(
 
 def _connection_rows(
     connection: CostedConnection, reports: list[ReportedUsage], sync_types: Mapping[str, str]
-) -> tuple[Confidence, int | None, tuple[str, ...]]:
+) -> _ConnectionRows:
     proposal = connection.proposal
     if not reports:
-        return Confidence.UNKNOWN, None, ("No usage was reported for this connection.",)
+        return _ConnectionRows(
+            confidence=Confidence.UNKNOWN, monthly_rows=None, notes=("No usage was reported for this connection.",)
+        )
     if proposal.start_paused:
-        return (
-            Confidence.REPORTED,
-            0,
-            ("PostHog creates this connection with syncing off, so it costs nothing until you turn syncing on.",),
+        return _ConnectionRows(
+            confidence=Confidence.REPORTED,
+            monthly_rows=0,
+            notes=("PostHog creates this connection with syncing off, so it costs nothing until you turn syncing on.",),
         )
 
     notes: list[str] = []
@@ -183,7 +193,11 @@ def _connection_rows(
             "Usage was reported for the whole connection, not per table, so tables PostHog reloads in full each "
             "sync are counted once."
         )
-        return Confidence.ESTIMATED, sum(report.monthly_rows for report in connection_totals), tuple(notes)
+        return _ConnectionRows(
+            confidence=Confidence.ESTIMATED,
+            monthly_rows=sum(report.monthly_rows for report in connection_totals),
+            notes=tuple(notes),
+        )
     if connection_totals:
         notes.append("Usage was reported per table and for the whole connection, so only the per-table numbers count.")
 
@@ -229,7 +243,7 @@ def _connection_rows(
     if planned is None:
         confidence = Confidence.ESTIMATED
         notes.append("PostHog syncs its default tables for this connection, so every reported table counts.")
-    return confidence, int(rows), tuple(notes)
+    return _ConnectionRows(confidence=confidence, monthly_rows=int(rows), notes=tuple(notes))
 
 
 def _planned_tables(proposal: ItemProposal) -> dict[str, str] | None:
