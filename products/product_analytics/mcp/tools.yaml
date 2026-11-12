@@ -242,13 +242,14 @@ tools:
             number, never a placeholder such as X, for example "want me to alert you when daily signups drop below
             400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1.
             Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it,
-            offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw
-            pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
-            newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
-            already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
-            changes, check the final saved insight once if browser access is already available. Skip browser checks for
-            small edits.
+            offer a relative-change alert on a sudden increase or decrease. When neither fits because the metric is
+            noisy or seasonal, offer an anomaly detection alert on Trends and SQL insights. If you offer the AI
+            detector, say that each of its checks uses AI credits. Skip metrics nobody acts on, such as raw pageview or
+            event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly
+            created insight, or one the user just asked to see, is not throwaway for that reason. If the user already
+            declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing
+            about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check
+            the final saved insight once if browser access is already available. Skip browser checks for small edits.
         exclude_params:
             - query
         include_params:

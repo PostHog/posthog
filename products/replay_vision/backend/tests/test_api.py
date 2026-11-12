@@ -55,6 +55,7 @@ from products.replay_vision.backend.models.replay_observation_feed_impression im
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -5052,6 +5053,16 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items], [f"row-{i}" for i in range(len(expected_kinds))]
         )
 
+    def test_filler_the_reader_just_opened_is_not_labeled_new(self) -> None:
+        scanner = self._create_scanner(name="m")
+        opened = self._ranked_observation(scanner, "opened", 10)
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{opened.id}/viewed/").status_code == 204
+
+        items = self.client.get(self.feed_url).json()["results"]
+        self.assertEqual(
+            [(item["observation"]["session_id"], item["reason"]["kind"]) for item in items], [("opened", "recent")]
+        )
+
     def test_categories_drop_the_left_out_picks_between_loads(self) -> None:
         scanner = self._create_scanner(name="m")
         # Of 20 ranked rows the top four clear the percentile cut: two failures and two revenue rows.
@@ -5262,6 +5273,34 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # A later page of the same load ranks as of its first page, before the impression.
         assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
         assert load_picks()[0] == ["s-1", "s-0"]
+
+    def test_going_back_to_the_feed_twice_keeps_an_opened_pick_until_the_seen_grace_ends(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            category = "failure" if index < 2 else "routine"
+            set_rank(obs, category=category, contrast=0.5 - index * 0.01, group=None)
+            rows[f"s-{index}"] = obs
+        seen = [str(rows["s-0"].id), str(rows["s-1"].id)]
+
+        def load_and_show() -> list[str]:
+            items = self.client.get(self.feed_url).json()["results"]
+            resp = self.client.post(
+                f"{self.scanners_url}highlight_feed_impressions/",
+                {"feed_load_id": str(uuid.uuid4()), "observation_ids": seen},
+                format="json",
+            )
+            assert resp.status_code == 204, resp.content
+            return [item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"]
+
+        assert load_and_show() == ["s-0", "s-1"]
+        viewed_url = f"{self.observations_url(str(scanner.id))}{rows['s-0'].id}/viewed/"
+        assert self.client.post(viewed_url).status_code == 204
+        assert load_and_show() == ["s-0", "s-1"]
+        assert load_and_show() == ["s-0", "s-1"]
+        ReplayObservationView.objects.for_team(self.team.id).update(created_at=timezone.now() - timedelta(hours=2))
+        assert load_and_show() == ["s-1", "s-0"]
 
     def test_window_type_filter_and_limit(self) -> None:
         monitor = self._create_scanner(name="m")

@@ -792,6 +792,12 @@ def _normalize_webhook_row(endpoint: str, row: dict[str, Any]) -> dict[str, Any]
         if isinstance(message_type, str):
             row["message_type"] = MESSAGE_TYPE_TO_INT.get(message_type, message_type)
 
+    if endpoint == "conversations":
+        # REST serializes first_reply_created_at with `.to_i` (0 before the first reply). The
+        # webhook presenter sends the raw time (an ISO string, or null), which does not fit the
+        # int64 column that the first REST sync created.
+        row["first_reply_created_at"] = _iso_to_epoch(row.get("first_reply_created_at")) or 0
+
     if row.get("id") is None:
         return None
     return row

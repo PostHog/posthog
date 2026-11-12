@@ -7,15 +7,20 @@ from django.db.models.functions import Lower
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
+    canonical_file_system_ref,
+    entries_missing_access_level,
     filter_workflow_files_by_access_level,
+    keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import InsufficientScope
 from posthog.models import User
 from posthog.models.file_system.constants import (
     DEFAULT_SURFACE,
@@ -25,12 +30,20 @@ from posthog.models.file_system.constants import (
     workflows_list_v2_enabled,
 )
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
+from posthog.permissions import scopes_caller_lacks
 
 
 def reject_retired_type(value: str) -> str:
     if value in RETIRED_FILE_SYSTEM_TYPES:
         raise serializers.ValidationError(f"Shortcuts of type '{value}' can no longer be created.")
     return value
+
+
+def _with_canonical_workflow_ref(attrs: dict[str, Any], stored_type: str | None = None) -> dict[str, Any]:
+    entry_type = attrs.get("type", stored_type)
+    if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and attrs.get("ref"):
+        attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+    return attrs
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -65,6 +78,9 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
 
     def validate_type(self, value: str) -> str:
         return reject_retired_type(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _with_canonical_workflow_ref(attrs, self.instance.type if self.instance else None)
 
     def update(self, instance: FileSystemShortcut, validated_data: dict[str, Any]) -> FileSystemShortcut:
         instance.team_id = self.context["team_id"]
@@ -144,6 +160,9 @@ class FileSystemShortcutBulkItemSerializer(serializers.Serializer):
     def validate_type(self, value: str) -> str:
         return reject_retired_type(value)
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _with_canonical_workflow_ref(attrs)
+
 
 class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):
     add = serializers.ListField(
@@ -189,9 +208,35 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = cast(FileSystemShortcutSerializer, self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
+        self._authorize_workflow_shortcuts([serializer.validated_data])
         serializer.save()
         # Clients count a star as added only on 201, so a repeated star does not count twice.
         return Response(serializer.data, status=status.HTTP_201_CREATED if serializer.created else status.HTTP_200_OK)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        instance = cast(FileSystemShortcut, serializer.instance)
+        data = serializer.validated_data
+        self._authorize_workflow_shortcuts(
+            [{"type": data.get("type", instance.type), "ref": data.get("ref", instance.ref)}]
+        )
+        super().perform_update(serializer)
+
+    def _authorize_workflow_shortcuts(self, shortcuts: list[dict[str, Any]]) -> None:
+        """A starred workflow or template needs what a file tree shortcut to it needs: the workflow read scope
+        and viewer access to the object."""
+        targets = [
+            (shortcut["type"], canonical_file_system_ref(shortcut["type"], shortcut["ref"]), self.team.id)
+            for shortcut in shortcuts
+            if shortcut.get("type") in WORKFLOW_FILE_SYSTEM_TYPES and shortcut.get("ref")
+        ]
+        if not targets:
+            return
+        if missing := scopes_caller_lacks(self.request, ["hog_flow:read"]):
+            raise InsufficientScope(missing)
+        if self.user_access_control and entries_missing_access_level(
+            targets, self.user_access_control, self.team.project_id, "viewer"
+        ):
+            raise PermissionDenied("You need access to this to add a shortcut to it. Ask a project admin to grant it.")
 
     def _scope_by_project(self, queryset):
         return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)
@@ -209,6 +254,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
         # A starred row hidden by its product stays hidden here too.
         queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        queryset = keep_workflow_files_in_scoped_teams(queryset, self.request.successful_authenticator)
         # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
         if self.action != "destroy":
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
@@ -271,6 +317,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         items: list[dict[str, Any]] = serializer.validated_data["add"]
         remove_ids = {str(uuid) for uuid in serializer.validated_data["remove_ids"]}
+        self._authorize_workflow_shortcuts(items)
 
         user = cast(User, request.user)
         user_shortcuts_qs = FileSystemShortcut.objects.filter(
