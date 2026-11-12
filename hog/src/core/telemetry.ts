@@ -142,15 +142,16 @@ export class Telemetry {
     }
 
     // Sends one event a person asked hog to send, such as feedback, at once and outside the usage
-    // queue. It goes out with telemetry off too, but then under this run's random ID with no user,
-    // organization or install ID, so it ties nothing to the person or the machine.
+    // queue. Unless it belongs to the person's PostHog user, it goes out under this run's random ID
+    // with no install ID, because an earlier login can have linked the install ID to that user.
     async send(event: string, properties: Record<string, unknown>, debug = false): Promise<SentEvent> {
         if (this.runtime.telemetryToken === undefined) {
             return { sent: false, identified: false }
         }
 
-        const sender: Sender = this.enabled
-            ? await this.sender()
+        const known = this.enabled ? await this.sender() : undefined
+        const sender: Sender = known?.identified
+            ? known
             : {
                   distinctId: this.invocationId,
                   installId: this.invocationId,

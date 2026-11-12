@@ -99,6 +99,8 @@ export default defineCommand({
             return { sent: false, dryRun: true, identified: false, type, sentiment: sentiment ?? null, ...feedback }
         }
 
+        // Loads a stored login, so feedback from a logged-in person belongs to their PostHog user.
+        await ctx.credentials().catch(() => undefined)
         const { sent, identified } = await ctx.telemetry.send(FEEDBACK_EVENT, properties, ctx.globals.debug === true)
         if (!sent) {
             throw new HogError(

@@ -71,6 +71,51 @@ describe('hog feedback', () => {
         expect(result.files['/home/test/.posthog/hog-telemetry-id']).toBeUndefined()
     })
 
+    test.each([
+        ['telemetry on', []],
+        ['telemetry off', ['--no-telemetry']],
+    ])('anonymous feedback with %s never carries the install ID an earlier login linked', async (_name, flags) => {
+        const result = await runHog(['feedback', 'hog is slow to start', ...flags], {
+            ...ON,
+            env: AGENT,
+            files: { '/home/test/.posthog/hog-telemetry-id': 'linked-install-id\n' },
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ sent: true, identified: false })
+        const [event] = feedbackEvents(result)
+        expect(event?.distinct_id).not.toBe('linked-install-id')
+        expect(event?.properties).not.toHaveProperty('install_id')
+    })
+
+    test('feedback from a stored login belongs to that PostHog user', async () => {
+        const host = 'https://us.posthog.com'
+        const result = await runHog(['feedback', 'hog is slow to start'], {
+            ...ON,
+            env: AGENT,
+            files: {
+                '/home/test/.config/hog/settings.json': JSON.stringify({
+                    logins: {
+                        [host]: { '42': { store: 'keychain', type: 'personal_api_key', projectId: '42', host } },
+                    },
+                    host,
+                }),
+            },
+            keychain: { [`${host}#42`]: JSON.stringify({ apiKey: 'phx_secret' }) },
+            respond: (url) =>
+                url.endsWith('/api/users/@me/')
+                    ? { status: 200, body: { distinct_id: 'user-distinct-id', organization: { id: 'org-1' } } }
+                    : url.endsWith('/api/projects/42/')
+                      ? { status: 200, body: { organization: 'org-1', uuid: 'project-uuid' } }
+                      : { status: 200, body: {} },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ sent: true, identified: true })
+        expect(feedbackEvents(result)[0]?.distinct_id).toBe('user-distinct-id')
+    })
+
     test('fails when PostHog does not take the feedback', async () => {
         const result = await runHog(['feedback', 'hog is slow to start'], {
             ...ON,
