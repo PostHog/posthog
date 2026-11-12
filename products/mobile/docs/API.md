@@ -235,5 +235,7 @@ The numbers follow the web's `MetricsView/shared/utils.ts`:
 - The sample ratio warning shows when `sample_ratio_mismatch.p_value` is below 0.001, the threshold in the web's `exposureHealth.ts`.
   It does not show when the `srm` health check is `not_applicable`.
 - `sample_ratio_mismatch.expected` holds counts. The screen shows them as shares.
+- With an `ABSOLUTE` `difference_type`, a share shows percentage points (`+1.2 pts`), and other metrics show their own units (`+3.50`).
+  A list row does not know the metric kind, so it leaves out an absolute change.
 
 Chat opens `/chat` with `objectType: 'experiment'` and the experiment id, as the web's `SummarizeExperimentButton.tsx` does.

@@ -1,5 +1,5 @@
 import { metricAboutCopy, targetAboutCopy } from './aboutCopy'
-import type { CellModel, MetricCardModel, MetricDef, StatsSettings } from './detailModel'
+import type { CellModel, ChangeUnit, MetricCardModel, MetricDef, StatsSettings } from './detailModel'
 
 const BAYES: StatsSettings = { method: 'bayes', level: 0.95, alpha: 0.05 }
 const FREQ: StatsSettings = { method: 'freq', level: 0.95, alpha: 0.05 }
@@ -53,8 +53,17 @@ function variant(overrides: Partial<CellModel> = {}): CellModel {
     }
 }
 
-function card(cell: CellModel, metric: MetricDef = def()): MetricCardModel {
-    return { def: metric, state: 'ready', baseline, variants: [cell], leaderKey: cell.key, scale: 0.25, error: null }
+function card(cell: CellModel, metric: MetricDef = def(), unit: ChangeUnit = 'relative'): MetricCardModel {
+    return {
+        def: metric,
+        state: 'ready',
+        baseline,
+        variants: [cell],
+        leaderKey: cell.key,
+        unit,
+        scale: 0.25,
+        error: null,
+    }
 }
 
 describe('aboutCopy', () => {
@@ -154,6 +163,24 @@ describe('aboutCopy', () => {
         })
         expect(copy?.lead).toContain('The 95% confidence interval for the real change runs from −5.0% to +20.0%.')
         expect(copy?.foot).toContain('A variant is significant when the whole range sits on one side of 0.')
+    })
+
+    it('states an absolute change on a share in percentage points', () => {
+        const cell = variant({ delta: 0.012, interval: [0.003, 0.021] })
+        const copy = metricAboutCopy({
+            what: 'delta',
+            card: card(cell, def(), 'points'),
+            variantKey: cell.key,
+            settings: BAYES,
+            runAt: null,
+        })
+        expect(copy?.title).toBe('+1.2 pts change')
+        expect(copy?.lead).toBe(
+            "The best estimate is that start-trial's conversion rate is 1.2 pts higher than control's. There's a 95% chance the real change is between +0.3 pts and +2.1 pts."
+        )
+        expect(copy?.foot).toContain(
+            "The change is in percentage points: +2 pts means 2 points more than control's conversion rate."
+        )
     })
 
     it('explains the baseline with its own counts', () => {

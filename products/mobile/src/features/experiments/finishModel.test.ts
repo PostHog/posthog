@@ -39,6 +39,7 @@ function variant(key: string, overrides: Partial<VariantResult> = {}): VariantRe
         samples: 1000,
         value: 0.1,
         delta: 0.05,
+        differenceType: 'relative',
         interval: [0.01, 0.09],
         significant: false,
         better: true,

@@ -43,6 +43,21 @@ test.each<[string, Partial<ExperimentRow>, string, string | null]>([
         'Significant · comparison −14.0% · p = 0.009',
         'losing',
     ],
+    [
+        'a significant absolute change, which the row cannot label',
+        {
+            headline: {
+                kind: 'significant',
+                leader: 'comparison',
+                delta: -1.4,
+                differenceType: 'absolute',
+                better: false,
+                pValue: 0.009,
+            },
+        },
+        'Significant · comparison · p = 0.009',
+        'losing',
+    ],
     ['a row still reading', { headline: 'loading' }, 'loading', null],
     ['too early to tell', {}, 'Needs more data · ~3 days to target', null],
     ['a fresh launch', { isNew: true, headline: { kind: 'not_yet' } }, 'No results yet · exposures arriving', 'new'],

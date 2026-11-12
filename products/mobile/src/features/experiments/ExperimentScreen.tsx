@@ -75,6 +75,7 @@ import { ExperimentSkeleton } from './ExperimentSkeleton'
 import { ExposuresCard } from './ExposuresCard'
 import { experimentMenuItems } from './experimentMenu'
 import {
+    differenceTypeOf,
     type ExperimentStatus,
     experimentStatusOf,
     freshnessOf,
@@ -292,13 +293,14 @@ function ExperimentLoaded({
     const settings = useMemo(() => statsSettingsOf(experiment, latestData), [experiment, latestData])
     const variantOrder = useMemo(() => variantKeysOf(experiment), [experiment])
     const defs = useMemo(() => metricDefsOf(experiment), [experiment])
+    const differenceType = useMemo(() => differenceTypeOf(experiment, latestData), [experiment, latestData])
     const primaryCards = useMemo(
-        () => defs.primary.map((def) => metricCardOf(def, latestData, variantOrder)),
-        [defs, latestData, variantOrder]
+        () => defs.primary.map((def) => metricCardOf(def, latestData, variantOrder, differenceType)),
+        [defs, latestData, variantOrder, differenceType]
     )
     const secondaryCards = useMemo(
-        () => defs.secondary.map((def) => metricCardOf(def, latestData, variantOrder)),
-        [defs, latestData, variantOrder]
+        () => defs.secondary.map((def) => metricCardOf(def, latestData, variantOrder, differenceType)),
+        [defs, latestData, variantOrder, differenceType]
     )
     const exposureModel = useMemo(
         () => exposureModelOf(exposures.query.data, variantOrder),

@@ -91,6 +91,7 @@ function AboutBody({ copy }: { copy: AboutCopy }): ReactElement {
                     <IntervalBar
                         interval={copy.figure.interval}
                         delta={copy.figure.delta}
+                        unit={copy.figure.unit}
                         scale={copy.figure.scale}
                         side={copy.figure.side}
                         size="large"

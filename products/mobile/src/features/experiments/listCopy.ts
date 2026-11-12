@@ -157,7 +157,13 @@ export function rowLine(row: ExperimentRow, now: number): RowLine | 'loading' {
                 lead: 'Significant',
                 parts: [
                     { text: leader },
-                    { text: signedPercent(headline.delta ?? 0), strong: true, glue: leader !== '' },
+                    // The row does not know the metric's kind, so it cannot label an absolute change in points or
+                    // units. The detail screen shows that change.
+                    {
+                        text: headline.differenceType === 'absolute' ? '' : signedPercent(headline.delta ?? 0),
+                        strong: true,
+                        glue: leader !== '',
+                    },
                     ...pValue,
                 ].filter((part) => part.text !== ''),
             }

@@ -9,6 +9,7 @@ import { calendarDaysBetween, formatClock, formatMonthDay } from '@/lib/dates'
 import { isRecord } from '@/lib/records'
 
 import {
+    type ExperimentDifferenceType,
     type ExperimentMethod,
     type ExperimentStatus,
     freshnessOf,
@@ -57,14 +58,38 @@ function formatDecimal(value: number, digits: number): string {
     return (value < 0 ? MINUS : '') + (fraction ? `${grouped}.${fraction}` : grouped)
 }
 
-/** A signed relative change: `+12.4%`, `−6.2%`. */
-export function formatDelta(fraction: number): string {
-    const percent = fraction * 100
-    const rounded = Math.abs(percent).toFixed(1)
-    if (rounded === '0.0') {
-        return '0.0%'
+/**
+ * How a change against the baseline reads. `relative` is a fraction of the baseline's value. An absolute change is in
+ * the metric's units: `points` for a share, because 0.012 is 1.2 percentage points, and `units` for every other kind.
+ */
+export type ChangeUnit = 'relative' | 'points' | 'units'
+
+export function changeUnitOf(differenceType: ExperimentDifferenceType, kind: MetricKind): ChangeUnit {
+    if (differenceType === 'relative') {
+        return 'relative'
     }
-    return `${percent > 0 ? '+' : MINUS}${rounded}%`
+    return kind === 'rate' ? 'points' : 'units'
+}
+
+export function formatChangeSize(change: number, unit: ChangeUnit): string {
+    const magnitude = Math.abs(change)
+    switch (unit) {
+        case 'relative':
+            return `${(magnitude * 100).toFixed(1)}%`
+        case 'points':
+            return `${(magnitude * 100).toFixed(1)} pts`
+        case 'units':
+            return formatDecimal(magnitude, magnitude >= 1000 ? 0 : magnitude >= 100 ? 1 : 2)
+    }
+}
+
+/** A signed change: `+12.4%`, `−1.2 pts`, `+3.50`. A change that rounds to zero has no sign. */
+export function formatDelta(change: number, unit: ChangeUnit): string {
+    const size = formatChangeSize(change, unit)
+    if (size === formatChangeSize(0, unit)) {
+        return size
+    }
+    return `${change > 0 ? '+' : MINUS}${size}`
 }
 
 /** The web's `formatChanceToWin`. */
@@ -327,7 +352,8 @@ export interface MetricCardModel {
     baseline: CellModel | null
     variants: CellModel[]
     leaderKey: string | null
-    /** Half the width of the interval axis, as a fraction: every bar on the card shares it. */
+    unit: ChangeUnit
+    /** Half the width of the interval axis, in the card's unit: every bar on the card shares it. */
     scale: number
     error: string | null
 }
@@ -355,7 +381,8 @@ export function intervalScale(intervals: readonly [number, number][]): number {
 export function metricCardOf(
     def: MetricDef,
     latest: ExperimentResultsRunApi | null | undefined,
-    variantOrder: readonly string[]
+    variantOrder: readonly string[],
+    differenceType: ExperimentDifferenceType
 ): MetricCardModel {
     const empty: MetricCardModel = {
         def,
@@ -363,6 +390,7 @@ export function metricCardOf(
         baseline: null,
         variants: [],
         leaderKey: null,
+        unit: changeUnitOf(differenceType, def.kind),
         scale: 0.05,
         error: null,
     }
@@ -377,7 +405,7 @@ export function metricCardOf(
         return { ...empty, state: 'failed', error: row.error_message ?? null }
     }
     const raw = metricResultOf(latest, def)
-    const result = resultOf(def, raw)
+    const result = resultOf(def, raw, differenceType)
     if (!result || !raw?.baseline) {
         return { ...empty, state: 'not_enough' }
     }
@@ -424,6 +452,7 @@ export function metricCardOf(
         baseline,
         variants,
         leaderKey: leaderOf(result)?.key ?? null,
+        unit: empty.unit,
         scale: intervalScale(variants.flatMap((variant) => (variant.interval ? [variant.interval] : []))),
         error: null,
     }

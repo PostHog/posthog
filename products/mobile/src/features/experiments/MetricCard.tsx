@@ -242,7 +242,7 @@ function DeltaCell({
     testID?: string
 }): ReactElement {
     const styles = useStyles()
-    const delta = cell.delta === null ? '—' : formatDelta(cell.delta)
+    const delta = cell.delta === null ? '—' : formatDelta(cell.delta, card.unit)
     const toneStyle = cell.significant ? (cell.better ? styles.good : styles.bad) : null
     return (
         <Cell
@@ -250,7 +250,7 @@ function DeltaCell({
             onPress={onPress}
             label={
                 cell.interval
-                    ? `${cell.key} change ${delta}, range ${formatDelta(cell.interval[0])} to ${formatDelta(cell.interval[1])}`
+                    ? `${cell.key} change ${delta}, range ${formatDelta(cell.interval[0], card.unit)} to ${formatDelta(cell.interval[1], card.unit)}`
                     : `${cell.key} change ${delta}`
             }
             testID={testID ? `${testID}-delta-${cell.key}` : undefined}
@@ -259,7 +259,13 @@ function DeltaCell({
                 {delta}
             </Text>
             {cell.interval && cell.delta !== null ? (
-                <IntervalBar interval={cell.interval} delta={cell.delta} scale={card.scale} side={cell.side} />
+                <IntervalBar
+                    interval={cell.interval}
+                    delta={cell.delta}
+                    unit={card.unit}
+                    scale={card.scale}
+                    side={cell.side}
+                />
             ) : null}
         </Cell>
     )

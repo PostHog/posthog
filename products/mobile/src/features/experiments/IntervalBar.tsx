@@ -4,11 +4,12 @@ import { Text, View } from 'react-native'
 import { createStyles, type ThemeColors, useColors } from '@/ui/theme'
 import { type } from '@/ui/tokens'
 
-import { axisPosition, formatDelta, type IntervalSide } from './detailModel'
+import { axisPosition, type ChangeUnit, formatDelta, type IntervalSide } from './detailModel'
 
 interface IntervalBarProps {
     interval: [number, number]
     delta: number
+    unit: ChangeUnit
     /** Half the axis width, shared by every bar on one card. */
     scale: number
     side: IntervalSide
@@ -28,7 +29,7 @@ function percent(position: number): `${number}%` {
  * The interval of a variant's change as a band against 0. Green when the whole range is on the good side of 0, red on
  * the bad side, gray when it crosses 0. Plain views, so it costs nothing to draw in a list of cells.
  */
-export function IntervalBar({ interval, delta, scale, side, size = 'small' }: IntervalBarProps): ReactElement {
+export function IntervalBar({ interval, delta, unit, scale, side, size = 'small' }: IntervalBarProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const low = axisPosition(interval[0], scale)
@@ -63,7 +64,7 @@ export function IntervalBar({ interval, delta, scale, side, size = 'small' }: In
     return (
         <View
             accessible
-            accessibilityLabel={`Range from ${formatDelta(interval[0])} to ${formatDelta(interval[1])}, best estimate ${formatDelta(delta)}`}
+            accessibilityLabel={`Range from ${formatDelta(interval[0], unit)} to ${formatDelta(interval[1], unit)}, best estimate ${formatDelta(delta, unit)}`}
             style={styles.large}
         >
             <View style={styles.labelRow}>
@@ -72,10 +73,10 @@ export function IntervalBar({ interval, delta, scale, side, size = 'small' }: In
             {band}
             <View style={styles.labelRow}>
                 <Text style={[styles.endLabel, { left: percent(low) }]} numberOfLines={1}>
-                    {formatDelta(interval[0])}
+                    {formatDelta(interval[0], unit)}
                 </Text>
                 <Text style={[styles.endLabel, { left: percent(high) }]} numberOfLines={1}>
-                    {formatDelta(interval[1])}
+                    {formatDelta(interval[1], unit)}
                 </Text>
             </View>
         </View>

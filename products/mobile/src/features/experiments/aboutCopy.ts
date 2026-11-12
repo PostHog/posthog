@@ -2,8 +2,10 @@ import { formatClock, formatMonthDay } from '@/lib/dates'
 
 import {
     type CellModel,
+    type ChangeUnit,
     formatAlpha,
     formatChance,
+    formatChangeSize,
     formatCount,
     formatDelta,
     formatLevel,
@@ -35,6 +37,7 @@ export interface AboutFigure {
     caption: string
     interval: [number, number]
     delta: number
+    unit: ChangeUnit
     scale: number
     side: IntervalSide
 }
@@ -172,8 +175,8 @@ function comparisonRows(
     if (cell.delta !== null && cell.interval) {
         rows.push({
             label: 'Change',
-            value: formatDelta(cell.delta),
-            sub: `${formatDelta(cell.interval[0])} to ${formatDelta(cell.interval[1])}, ${formatLevel(settings.level)}`,
+            value: formatDelta(cell.delta, card.unit),
+            sub: `${formatDelta(cell.interval[0], card.unit)} to ${formatDelta(cell.interval[1], card.unit)}, ${formatLevel(settings.level)}`,
         })
     }
     rows.push(significanceRow(cell, settings))
@@ -251,6 +254,7 @@ export function metricAboutCopy(input: MetricAboutInput): AboutCopy | null {
         caption: `Change vs ${baseline.key} · ${level} ${intervalName(settings)}`,
         interval: cell.interval,
         delta: cell.delta,
+        unit: card.unit,
         scale: card.scale,
         side: cell.side,
     }
@@ -274,26 +278,31 @@ export function metricAboutCopy(input: MetricAboutInput): AboutCopy | null {
     }
 
     if (what === 'delta') {
-        const size = Math.abs(cell.delta * 100).toFixed(1)
+        const { unit } = card
+        const size = formatChangeSize(cell.delta, unit)
         const estimate =
-            size === '0.0'
+            size === formatChangeSize(0, unit)
                 ? `The best estimate is that ${cell.key}'s ${noun} is about the same as ${baseline.key}'s.`
-                : `The best estimate is that ${cell.key}'s ${noun} is ${size}% ${cell.delta > 0 ? 'higher' : 'lower'} than ${baseline.key}'s.`
+                : `The best estimate is that ${cell.key}'s ${noun} is ${size} ${cell.delta > 0 ? 'higher' : 'lower'} than ${baseline.key}'s.`
         const range = freq
-            ? `The ${level} confidence interval for the real change runs from ${formatDelta(low)} to ${formatDelta(high)}.`
-            : `There's a ${level} chance the real change is between ${formatDelta(low)} and ${formatDelta(high)}.`
-        const relative = `The change is relative to ${baseline.key}: +10% means 10% more than ${baseline.key}'s ${noun}${def.kind === 'rate' ? ', not 10 points more' : ''}.`
+            ? `The ${level} confidence interval for the real change runs from ${formatDelta(low, unit)} to ${formatDelta(high, unit)}.`
+            : `There's a ${level} chance the real change is between ${formatDelta(low, unit)} and ${formatDelta(high, unit)}.`
+        const unitNote: Record<ChangeUnit, string> = {
+            relative: `The change is relative to ${baseline.key}: +10% means 10% more than ${baseline.key}'s ${noun}${def.kind === 'rate' ? ', not 10 points more' : ''}.`,
+            points: `The change is in percentage points: +2 pts means 2 points more than ${baseline.key}'s ${noun}.`,
+            units: `The change is in the metric's units: +2 means 2 more than ${baseline.key}'s ${noun}.`,
+        }
         const rule = freq
             ? 'A variant is significant when the whole range sits on one side of 0.'
             : `A variant is significant when its chance to win is above ${level} or below ${formatLevel(1 - settings.level)}.`
         return {
             ...base,
             what,
-            title: `${formatDelta(cell.delta)} change`,
+            title: `${formatDelta(cell.delta, unit)} change`,
             tone,
             lead: `${estimate} ${range}`,
             rows,
-            foot: `${relative} ${rule}`,
+            foot: `${unitNote[unit]} ${rule}`,
         }
     }
 

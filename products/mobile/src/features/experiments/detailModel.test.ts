@@ -134,7 +134,7 @@ describe('detailModel', () => {
             if (!def) {
                 throw new Error('missing metric')
             }
-            const card = metricCardOf(def, latest([row()]), ['control', 'test'])
+            const card = metricCardOf(def, latest([row()]), ['control', 'test'], 'relative')
             expect(card.state).toBe('ready')
             expect(card.baseline).toMatchObject({ key: 'control', numerator: 40, samples: 2000 })
             const [test] = card.variants
@@ -143,6 +143,13 @@ describe('detailModel', () => {
             expect(test?.side).toBe('good')
             expect(test?.numerator).toBe(30)
             expect(card.scale).toBeCloseTo(0.4)
+        })
+
+        it('reads an absolute difference on a share in percentage points', () => {
+            if (!def) {
+                throw new Error('missing metric')
+            }
+            expect(metricCardOf(def, latest([row()]), ['control', 'test'], 'absolute').unit).toBe('points')
         })
 
         test.each([
@@ -162,7 +169,7 @@ describe('detailModel', () => {
             if (!def) {
                 throw new Error('missing metric')
             }
-            expect(metricCardOf(def, latest([metricRow]), ['control', 'test']).state).toBe(state)
+            expect(metricCardOf(def, latest([metricRow]), ['control', 'test'], 'relative').state).toBe(state)
         })
 
         it('names an unnamed metric after its event, like the web', () => {
@@ -326,8 +333,10 @@ describe('detailModel', () => {
     })
 
     test.each([
-        [formatDelta(-0.062), '−6.2%'],
-        [formatDelta(0.124), '+12.4%'],
+        [formatDelta(-0.062, 'relative'), '−6.2%'],
+        [formatDelta(0.124, 'relative'), '+12.4%'],
+        [formatDelta(0.012, 'points'), '+1.2 pts'],
+        [formatDelta(-3.5, 'units'), '−3.50'],
         [formatChance(0.9995), '> 99.9%'],
         [formatChance(0.991), '99.1%'],
         [formatPValue(0.0004), '< 0.001'],

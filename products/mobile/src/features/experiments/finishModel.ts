@@ -10,6 +10,7 @@ import { formatMonthDay } from '@/lib/dates'
 import { isRecord } from '@/lib/records'
 
 import { CONCLUSION_COPY } from './conclusionCopy'
+import { type ChangeUnit, changeUnitOf, formatDelta, metricDefsOf } from './detailModel'
 import {
     type ExperimentMethod,
     leaderOf,
@@ -57,6 +58,7 @@ export interface FinishContext {
     /** The leader is ahead in the metric's good direction, so the sheet may call it leading. */
     leaderAhead: boolean
     suggested: ExperimentConclusionApi | null
+    changeUnit: ChangeUnit
 }
 
 interface FlagGroupShape {
@@ -130,6 +132,10 @@ export function finishContextOf(experiment: ExperimentApi, primary: PrimaryResul
         leader: leader?.key ?? null,
         leaderAhead: leader?.better === true,
         suggested: suggestedConclusion(primary),
+        changeUnit: changeUnitOf(
+            primary?.variants[0]?.differenceType ?? 'relative',
+            metricDefsOf(experiment).primary[0]?.kind ?? 'mean'
+        ),
     }
 }
 
@@ -343,11 +349,6 @@ function percent(fraction: number): string {
     return `${(fraction * 100).toFixed(1)}%`
 }
 
-function signedPercent(fraction: number): string {
-    const sign = fraction > 0 ? '+' : fraction < 0 ? '−' : ''
-    return `${sign}${Math.abs(fraction * 100).toFixed(1)}%`
-}
-
 function pValueText(value: number): string {
     return value < 0.001 ? 'p < 0.001' : `p = ${value.toFixed(3)}`
 }
@@ -407,7 +408,8 @@ export function variantOptions(
                     : result.chanceToWin === undefined
                       ? null
                       : `${percent(result.chanceToWin)} chance to win`
-            meta = stat ? `${stat} · ${signedPercent(result.delta)}` : signedPercent(result.delta)
+            const change = formatDelta(result.delta, context.changeUnit)
+            meta = stat ? `${stat} · ${change}` : change
         }
         return { key, meta, leading: key === context.leader && context.leaderAhead }
     })
