@@ -1,17 +1,19 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
-import { platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
+import { platformAlertsPartialUpdate, platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
 import { PlatformAlertApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { platformAlertLogic } from './platformAlertLogic'
 
 jest.mock('posthog-js')
 jest.mock('./generated/api', () => ({
+    platformAlertsPartialUpdate: jest.fn(),
     platformAlertsRetrieve: jest.fn(),
     platformAlertsSnoozeGroupCreate: jest.fn(),
 }))
@@ -21,6 +23,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 
 const mockRetrieve = platformAlertsRetrieve as jest.MockedFunction<typeof platformAlertsRetrieve>
 const mockSnooze = platformAlertsSnoozeGroupCreate as jest.MockedFunction<typeof platformAlertsSnoozeGroupCreate>
+const mockPartialUpdate = platformAlertsPartialUpdate as jest.MockedFunction<typeof platformAlertsPartialUpdate>
 
 const GROUP: PlatformAlertApi = {
     id: 'group-1',
@@ -186,4 +189,42 @@ describe('platformAlertLogic', () => {
             expect(mockRetrieve).toHaveBeenCalledTimes(reloads ? 1 : 0)
         }
     )
+
+    test.each<[string, ApiError | null, boolean, Record<string, string | undefined>]>([
+        ['a save closes the modal and reloads the alert', null, false, {}],
+        [
+            'a 400 on annotations keeps the modal open with the message on that field',
+            new ApiError('Bad request', 400, undefined, { attr: 'annotations', detail: 'Must start with https://.' }),
+            true,
+            { annotations: 'Must start with https://.' },
+        ],
+    ])('rule metadata: %s', async (_, failure, staysOpen, manualErrors) => {
+        if (failure) {
+            mockPartialUpdate.mockRejectedValue(failure)
+        } else {
+            mockPartialUpdate.mockResolvedValue(CONFIGURATION)
+        }
+        logic.actions.loadConfigurationSuccess({ ...CONFIGURATION, labels: { team: 'apm' } })
+        logic.actions.openRuleMetadataModal()
+        logic.actions.setRuleMetadataFormValues({
+            labels: [
+                { name: 'team', value: 'apm' },
+                { name: '', value: '' },
+            ],
+            annotations: [{ name: 'runbook_url', value: 'http://example.com' }],
+        })
+        mockRetrieve.mockClear()
+
+        logic.actions.submitRuleMetadataForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockPartialUpdate).toHaveBeenCalledWith(expect.any(String), CONFIGURATION.id, {
+            source_kind: 'logs',
+            labels: { team: 'apm' },
+            annotations: { runbook_url: 'http://example.com' },
+        })
+        expect(logic.values.ruleMetadataModalOpen).toBe(staysOpen)
+        expect(logic.values.ruleMetadataFormManualErrors).toEqual(manualErrors)
+        expect(mockRetrieve).toHaveBeenCalledTimes(staysOpen ? 0 : 1)
+    })
 })

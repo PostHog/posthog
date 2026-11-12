@@ -147,3 +147,33 @@ export function describeOverflowDetail(configuration: PlatformAlertConfiguration
 
 export const GROUP_SNOOZE_EXPLANATION =
     'The group keeps being checked, and a firing group stays firing. Only its notifications are held.'
+
+export interface RuleMetadataEntry {
+    name: string
+    value: string
+}
+
+export interface RuleMetadataForm {
+    labels: RuleMetadataEntry[]
+    annotations: RuleMetadataEntry[]
+}
+
+export function ruleMetadataEntries(record: Record<string, string>): RuleMetadataEntry[] {
+    return Object.entries(record).map(([name, value]) => ({ name, value }))
+}
+
+export function ruleMetadataRecord(entries: RuleMetadataEntry[]): Record<string, string> {
+    return Object.fromEntries(
+        entries.filter(({ name, value }) => name.trim() || value).map(({ name, value }) => [name.trim(), value])
+    )
+}
+
+// Names and values are checked by the API. Only a nameless row and a repeated name are lost before the request.
+export function ruleMetadataEntriesError(entries: RuleMetadataEntry[]): string | undefined {
+    if (entries.some(({ name, value }) => !name.trim() && value)) {
+        return 'Give each entry a name'
+    }
+    const names = entries.map(({ name }) => name.trim()).filter(Boolean)
+    const repeated = names.find((name, index) => names.indexOf(name) !== index)
+    return repeated ? `"${repeated}" is used more than once` : undefined
+}

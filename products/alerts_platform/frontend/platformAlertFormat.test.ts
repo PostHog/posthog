@@ -11,6 +11,7 @@ import {
     describeOverflow,
     describeSchedule,
     groupLabels,
+    ruleMetadataEntriesError,
 } from './platformAlertFormat'
 
 function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {}): PlatformAlertConfigurationApi {
@@ -147,5 +148,27 @@ describe('platformAlertFormat', () => {
     ])('groupLabels: %s', (_, labels, keys, expected) => {
         const alert = { ...makeAlert(PlatformAlertStateApi.Firing), labels }
         expect(groupLabels(alert, keys).map(({ name, value }) => `${name}: ${value}`)).toEqual(expected)
+    })
+
+    test.each<[string, { name: string; value: string }[], string | undefined]>([
+        [
+            'accepts distinct names and a blank row',
+            [
+                { name: 'team', value: 'apm' },
+                { name: '', value: '' },
+            ],
+            undefined,
+        ],
+        ['refuses a value without a name', [{ name: ' ', value: 'apm' }], 'Give each entry a name'],
+        [
+            'refuses a repeated name, which would drop one value',
+            [
+                { name: 'team', value: 'apm' },
+                { name: 'team ', value: 'logs' },
+            ],
+            '"team" is used more than once',
+        ],
+    ])('ruleMetadataEntriesError: %s', (_, entries, expected) => {
+        expect(ruleMetadataEntriesError(entries)).toEqual(expected)
     })
 })
