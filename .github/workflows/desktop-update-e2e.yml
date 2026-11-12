@@ -63,8 +63,7 @@ jobs:
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/checkout@v6.0.2
               with:
-                  fetch-depth: 0
-                  filter: blob:none
+                  fetch-depth: 1
                   persist-credentials: false
 
             - name: Setup pnpm
