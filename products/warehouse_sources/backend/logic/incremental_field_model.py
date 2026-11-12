@@ -55,10 +55,15 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-# Both endpoints block a person's screen, so _ask_all gives every request together this long.
+# The sync settings form waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
+# The open tables one call asks about, so a caller sending more gets no answer for the rest.
+MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
+# Callers send their own names, so the model reads at most this much of each one. Picks map back by
+# position, so a cut name still resolves to its full column.
+MAX_NAME_CHARS = 256
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
@@ -87,6 +92,40 @@ def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team
         capture_exception(error, {"team_id": team.pk})
 
 
+def recommend_for_candidates(
+    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team"
+) -> dict[str, list[IncrementalField]]:
+    """The reordered candidates of each table where the model made a pick, keyed by table name.
+
+    For callers that already hold the ranked candidates, such as the source wizard after discovery,
+    so the model call needs no second discovery.
+    """
+    # A caller's `picked_by_model` is dropped, so an earlier answer sent back cannot pass as a new pick.
+    schemas = [
+        SourceSchema(
+            name=name,
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[_without_model_pick(field) for field in fields],
+        )
+        for name, fields in tables
+    ]
+    recommend_incremental_fields(schemas, team=team)
+    return {
+        schema.name: schema.incremental_fields
+        for schema in schemas
+        if schema.incremental_fields and schema.incremental_fields[0].get("picked_by_model")
+    }
+
+
+def _without_model_pick(field: IncrementalField) -> IncrementalField:
+    cleaned: IncrementalField = {**field}
+    cleaned.pop("picked_by_model", None)
+    if "notes" in cleaned:
+        cleaned["notes"] = [note for note in cleaned["notes"] if note != MODEL_PICK_NOTE]
+    return cleaned
+
+
 def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
     pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
@@ -95,7 +134,7 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
     keys = {index: _cache_key(team.pk, schema) for index, schema in enumerate(pending)}
     cached = _cache_get_many(list(keys.values()))
     picks = {index: cached[key] for index, key in keys.items() if cached.get(key)}
-    uncached = [index for index, key in keys.items() if key not in cached][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
+    uncached = [index for index, key in keys.items() if key not in cached][:MAX_TABLES_PER_CALL]
     batches = [
         uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
     ]
@@ -170,11 +209,11 @@ def _within_team_budget(team_id: int, requests: int) -> bool:
 
 def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     return {
-        "table": schema.name,
+        "table": schema.name[:MAX_NAME_CHARS],
         "columns": [
             {
                 "option": f"c{position}",
-                "name": field["field"],
+                "name": field["field"][:MAX_NAME_CHARS],
                 "type": str(field.get("field_type") or field["type"]),
                 "indexed": field.get("is_indexed", True),
                 "nullable": field.get("nullable", False),

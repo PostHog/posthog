@@ -29,8 +29,6 @@ from posthog.api.test.test_log_entries import create_log_entry
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
-from posthog.llm.system_one_client import GatewaySystemOneClient
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -84,18 +82,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     PrefixScopedS3Client,
     bucket_root_store,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    rank_incremental_fields,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
-from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.tests.api.utils import (
+    create_external_data_source_ok,
+    fake_decision_model,
+    open_orders_schema,
+)
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 _PH_HISTORY_NAMING_FLAG = (
@@ -745,38 +743,11 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             sync_type_config=sync_type_config,
         )
-        discovered = SourceSchema(
-            name="orders",
-            supports_incremental=True,
-            supports_append=True,
-            incremental_fields=rank_incremental_fields(
-                [
-                    {"label": n, "type": t, "field": n, "field_type": t, "nullable": False}
-                    for n, t in [
-                        ("created_at", IncrementalFieldType.Timestamp),
-                        ("fecha_actualizacion", IncrementalFieldType.Timestamp),
-                    ]
-                ]
-            ),
-        )
-        model_calls = []
-
-        async def adecide(_self, *, state, questions):
-            model_calls.append(questions)
-            choice = ChoiceAnswer(choice="c1", confidence=0.9, probabilities={"c1": 0.9})
-            return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, choice), input_tokens=1)
-
-        gateway = GatewaySystemOneClient(
-            url="https://gateway.example.com/v1/systemone", api_key="test-key", headers={}, model="m", timeout=1.0
-        )
-        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        discovered = open_orders_schema()
         with (
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(StripeSource, "get_schemas", return_value=[discovered]),
-            mock.patch(f"{recommender}.system_one_configured", return_value=True),
-            mock.patch(f"{recommender}.feature_enabled_or_false", return_value=True),
-            mock.patch(f"{recommender}.build_system_one_client", return_value=gateway),
-            mock.patch.object(GatewaySystemOneClient, "adecide", new=adecide),
+            fake_decision_model() as model_calls,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
