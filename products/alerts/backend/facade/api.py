@@ -25,6 +25,7 @@ from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertState
+from posthog.scopes import scopes_not_covered
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
@@ -59,7 +60,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import native_insight_alert_view, native_insight_alert_views
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
     enabled_native_configurations,
@@ -429,6 +430,42 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
         )
         for candidate in islice(viewable, limit)
     ]
+
+
+def workflow_trigger_refusal(
+    *, team: Team, alert_ids: Collection[str], user: User | None, token_scopes: list[str] | None
+) -> str | None:
+    """Why the caller may not start a workflow from these alerts' `$insight_alert_firing` events, or None.
+
+    The event carries the alert's insight name and the values the check saw, so the caller needs
+    what reading the alert needs: `alert:read` on an API key, and viewer access to each insight.
+    Pass None for `user` when no person is behind the call, and for `token_scopes` on session auth.
+    """
+    try:
+        ids = {uuid.UUID(str(alert_id)) for alert_id in alert_ids}
+    except ValueError:
+        return "Pick alerts from the list for this trigger."
+    scopes = token_scopes if token_scopes is not None and "*" not in token_scopes else None
+    if scopes is not None and scopes_not_covered(scopes, ["alert:read"]):
+        return "This API key needs the alert:read scope to trigger a workflow from an alert."
+    alerts: dict[uuid.UUID, AlertConfiguration] = {
+        alert.id: alert
+        for alert in AlertConfiguration.objects.filter(team_id=team.id, id__in=ids).select_related("insight")
+    }
+    alerts.update(
+        AlertConfiguration.from_platform_views(
+            native_insight_alert_views(team.id, ids - alerts.keys()), team_id=team.id
+        )
+    )
+    if alerts.keys() != ids or any(alert.insight.deleted for alert in alerts.values()):
+        return "One of these alerts does not exist in this project."
+    access = UserAccessControl(user, team=team) if user is not None else None
+    for alert in alerts.values():
+        if access is not None and not access.check_access_level_for_object(alert.insight, "viewer"):
+            return "You need access to the insight of each alert to trigger a workflow from it."
+        if scopes is not None and _is_metrics_insight(alert.insight) and scopes_not_covered(scopes, ["metrics:read"]):
+            return "This API key needs the metrics:read scope to trigger a workflow from an alert on a metrics insight."
+    return None
 
 
 @frozen

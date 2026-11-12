@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
@@ -34,6 +35,9 @@ from posthog.test.fixtures import create_app_metric2
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
+from products.alerts.backend.facade.destinations import choose_delivery_path
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -59,6 +63,7 @@ from products.cohorts.backend.models.team_access import (
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
+from products.product_analytics.backend.facade.models import Insight
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
@@ -74,6 +79,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
+    set_workflow_enabled,
 )
 from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
@@ -4447,7 +4453,6 @@ class TestHogFlowAPI(APIBaseTest):
             ("error_tracking", "$error_tracking_issue_created"),
             ("discussion", "$discussion_mention_created"),
             ("logs_alert", "$logs_alert_firing"),
-            ("insight_alert", "$insight_alert_firing"),
         ]
     )
     def test_hog_flow_internal_event_trigger_rejects_events_it_does_not_own(self, _name, event_id):
@@ -4658,6 +4663,172 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+
+    def _insight_alert(self, team: Team | None = None) -> AlertConfiguration:
+        team = team or self.team
+        insight = Insight.objects.create(team=team, name="Signups")
+        return AlertConfiguration.objects.create(team=team, insight=insight, name="Signups drop", created_by=self.user)
+
+    def _post_insight_alert_flow(
+        self, properties: Any, status: str = "active", headers: dict | None = None, events: list | None = None
+    ) -> Any:
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": events or [{"id": "$insight_alert_firing", "type": "events"}],
+                    "properties": properties,
+                },
+            },
+        }
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Alert flow", "status": status, "actions": [trigger_action]},
+            format="json",
+            headers=headers or {},
+        )
+
+    @staticmethod
+    def _alert_id_filter(value: Any, **overrides: Any) -> list[dict]:
+        return [{"key": "alert_id", "value": value, "operator": "exact", "type": "event", **overrides}]
+
+    def test_hog_flow_insight_alert_trigger_stores_the_alerts_it_names_in_canonical_form(self):
+        alert = self._insight_alert()
+
+        response = self._post_insight_alert_flow(self._alert_id_filter([str(alert.id).upper()]))
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["filters"]["properties"][0]["value"] == [str(alert.id)]
+
+    @parameterized.expand(
+        [
+            ("no_alert", lambda alert, other: [], "Pick an alert"),
+            # Neither a person filter nor a negation narrows the trigger to the alerts it names.
+            (
+                "person_filter",
+                lambda alert, other: [{"key": "alert_id", "value": [str(alert.id)], "type": "person"}],
+                "Pick an alert",
+            ),
+            (
+                "negated",
+                lambda alert, other: [
+                    {"key": "alert_id", "value": [str(alert.id)], "operator": "is_not", "type": "event"}
+                ],
+                "Pick an alert",
+            ),
+            (
+                "not_an_alert_id",
+                lambda alert, other: [{"key": "alert_id", "value": ["signups"], "type": "event"}],
+                "Pick alerts from the list",
+            ),
+            (
+                "unknown_alert",
+                lambda alert, other: [{"key": "alert_id", "value": [str(uuid4())], "type": "event"}],
+                "does not exist",
+            ),
+            (
+                "another_projects_alert",
+                lambda alert, other: [{"key": "alert_id", "value": [str(other.id)], "type": "event"}],
+                "does not exist",
+            ),
+        ]
+    )
+    def test_hog_flow_insight_alert_trigger_refuses_what_it_cannot_scope(self, _name, properties_for, message):
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+
+        response = self._post_insight_alert_flow(properties_for(self._insight_alert(), self._insight_alert(other_team)))
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json()["detail"]
+
+    def test_hog_flow_insight_alert_trigger_ignores_an_alert_filter_on_one_of_several_firing_entries(self):
+        # The compiler ORs event entries, so the bare second entry would match every alert in the project.
+        alert = self._insight_alert()
+        events = [
+            {"id": "$insight_alert_firing", "type": "events", "properties": self._alert_id_filter([str(alert.id)])},
+            {"id": "$insight_alert_firing", "type": "events"},
+        ]
+
+        response = self._post_insight_alert_flow([], events=events)
+
+        assert response.status_code == 400, response.json()
+        assert "Pick an alert" in response.json()["detail"]
+
+    def test_resuming_an_insight_alert_workflow_without_a_request_checks_the_acting_user(self):
+        alert = self._insight_alert()
+        draft = self._post_insight_alert_flow(self._alert_id_filter([str(alert.id)]), status="draft")
+        assert draft.status_code == 201, draft.json()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(alert.insight_id), access_level="none"
+        )
+
+        with self.assertRaisesMessage(ValidationError, "access to the insight"):
+            set_workflow_enabled(
+                team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(draft.json()["id"]), enabled=True
+            )
+
+    def test_hog_flow_insight_alert_trigger_draft_saves_without_an_alert(self):
+        response = self._post_insight_alert_flow([], status="draft")
+
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [("api_key_without_alert_read", "alert:read"), ("restricted_insight", "access to the insight")]
+    )
+    def test_hog_flow_insight_alert_trigger_needs_read_access_to_the_alert(self, name, message):
+        alert = self._insight_alert()
+        headers: dict = {}
+        if name == "api_key_without_alert_read":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="flows only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+            )
+            headers = {"authorization": f"Bearer {key}"}
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team, resource="insight", resource_id=str(alert.insight_id), access_level="none"
+            )
+
+        response = self._post_insight_alert_flow(self._alert_id_filter([str(alert.id)]), headers=headers)
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json()["detail"]
+
+    def test_live_insight_alert_workflow_moves_its_alert_onto_the_hog_function_delivery_path(self):
+        # The alerts platform emits $insight_alert_firing only on that path, so without it the workflow never runs.
+        watched, drafted, unwatched = self._insight_alert(), self._insight_alert(), self._insight_alert()
+        assert self._post_insight_alert_flow(self._alert_id_filter([str(watched.id)])).status_code == 201
+        assert (
+            self._post_insight_alert_flow(self._alert_id_filter([str(drafted.id)]), status="draft").status_code == 201
+        )
+
+        paths = [
+            choose_delivery_path(
+                source=SourceKind.INSIGHT,
+                team_id=self.team.id,
+                alert_id=str(alert.id),
+                allowed_event_ids=["$insight_alert_firing"],
+            )
+            for alert in (watched, drafted, unwatched)
+        ]
+
+        assert paths == [DeliveryPath.HOG_FUNCTION, DeliveryPath.NATIVE, DeliveryPath.NATIVE]
 
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person

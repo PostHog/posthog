@@ -1,5 +1,7 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { triggersOnInternalEvent } from './internalEventTriggerConfig'
+
 /** pinned: analytics event name emitted by the GitHub trigger */
 const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
@@ -13,25 +15,8 @@ export type InternalEventGithubTriggerConfig = {
     }
 }
 
-// Callers pass whatever trigger a workflow carries, including malformed shapes, so every level is
-// checked before it is read.
 export function isGithubEventTriggerConfig(config: unknown): config is InternalEventGithubTriggerConfig {
-    if (!config || typeof config !== 'object') {
-        return false
-    }
-    const { type, filters } = config as { type?: unknown; filters?: unknown }
-    if (type !== 'internal-event' || !filters || typeof filters !== 'object') {
-        return false
-    }
-    const { source, events } = filters as { source?: unknown; events?: unknown }
-    return (
-        source === 'internal-events' &&
-        Array.isArray(events) &&
-        events.some(
-            (event) =>
-                event && typeof event === 'object' && (event as { id?: unknown }).id === GITHUB_EVENT_RECEIVED_EVENT
-        )
-    )
+    return triggersOnInternalEvent(config, GITHUB_EVENT_RECEIVED_EVENT)
 }
 
 /** Who is allowed to start a run. Each mode compiles to exactly one property filter. */

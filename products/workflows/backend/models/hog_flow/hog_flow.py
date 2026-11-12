@@ -89,6 +89,9 @@ WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset(
         "$github_event_received",
         # A public support reply. Its payload omits the reply body and matches the analytics event.
         "$conversation_message_sent",
+        # An insight alert's notification. The trigger must name its alerts, and saving it checks the
+        # caller can read each one (see the hog flow serializer).
+        "$insight_alert_firing",
     }
 )
 

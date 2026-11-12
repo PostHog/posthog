@@ -17,6 +17,7 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/apps.py",
+                "backend/services/insight_alert_trigger.py",
                 "backend/console.py"
             ],
             "outputs": [],

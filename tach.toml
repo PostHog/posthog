@@ -1218,6 +1218,9 @@ depends_on = [
     "products.replay_vision",
     # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
     "products.today",
+    # Facade-only: an insight alert trigger checks the caller can read each alert, and tells alert
+    # delivery which alerts a live workflow starts on.
+    "products.alerts",
 ]
 layer = "modules"
 
