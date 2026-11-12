@@ -438,7 +438,7 @@ class GitLabIntegration:
                 break
         return projects
 
-    def get_pushable_project(self, project_path: str) -> GitLabProject | None:
+    def get_pushable_project(self, project_path: str, *, timeout: float = 10) -> GitLabProject | None:
         """The project at ``project_path``, or None when it is missing or the token cannot push to it."""
         response = self._request(
             "GET",
@@ -446,6 +446,7 @@ class GitLabIntegration:
             f"projects/{quote(project_path, safe='')}",
             self._access_token(),
             endpoint="/api/v4/projects/{id}",
+            timeout=timeout,
         )
         if response.status_code == 404:
             return None
@@ -466,7 +467,7 @@ class GitLabIntegration:
             default_branch=project.get("default_branch"),
         )
 
-    def token_reaches_only_connected_project(self) -> bool:
+    def token_reaches_only_connected_project(self, *, timeout: float = 10) -> bool:
         """Whether the token can reach the connected project and no other project.
 
         A project access token passes. A group or personal token that reaches more fails, because
@@ -479,6 +480,7 @@ class GitLabIntegration:
             self._access_token(),
             endpoint="/api/v4/projects",
             params={"membership": "true", "simple": "true", "per_page": 2},
+            timeout=timeout,
         )
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to list projects: {response.text[:300]}")

@@ -1,3 +1,4 @@
+import time
 import logging
 
 import requests
@@ -21,15 +22,23 @@ def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> 
         return (
             f"This GitLab connection covers {gitlab.project_path} only. Connect {repository} as its own GitLab project."
         )
+    deadline = time.monotonic() + 10
+
+    def remaining() -> float:
+        timeout = deadline - time.monotonic()
+        if timeout <= 0:
+            raise GitLabIntegrationError("GitLab access check timed out")
+        return timeout
+
     try:
-        token_info = gitlab.credentials.describe()
+        token_info = gitlab.credentials.describe(timeout=remaining())
         if token_info is not None and token_info.missing_task_scopes:
             scopes = ", ".join(token_info.missing_task_scopes)
             return (
                 f"The GitLab token is missing the {scopes} scope. Create a token with that scope and connect it again."
             )
-        project = gitlab.get_pushable_project(repository)
-        bound = project is not None and gitlab.token_reaches_only_connected_project()
+        project = gitlab.get_pushable_project(repository, timeout=remaining())
+        bound = project is not None and gitlab.token_reaches_only_connected_project(timeout=remaining())
     except (GitLabIntegrationError, requests.RequestException):
         logger.warning(
             "gitlab_repository_access_check_unavailable",
