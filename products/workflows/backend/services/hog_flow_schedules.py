@@ -208,6 +208,7 @@ def process_due_schedules() -> ProcessedSchedules:
                         "Skipped a scheduled run over the workflow quota",
                         schedule_id=str(schedule_id),
                         team_id=schedule_invocation_params["team_id"],
+                        hog_flow_id=schedule_invocation_params["hog_flow_id"],
                     )
                 else:
                     response.raise_for_status()
