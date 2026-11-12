@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
@@ -480,6 +481,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -1001,6 +1003,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig

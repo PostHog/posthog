@@ -9,7 +9,7 @@ from django.db.models import BooleanField, Case, F, Q, Value, When
 from products.aeo.backend.brand import mention_filter
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engines import is_target_url, top_domains
-from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
+from products.aeo.backend.facade.contracts import CheckMode, CitationGap, EngineAnswer
 from products.aeo.backend.models import AEOCitationCheck, AEOPromptVersion
 from products.aeo.backend.seeding import prompt_hash
 
@@ -47,7 +47,7 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     )
     checks_in_window = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=since, check_failed=False, prompt__active=True)
+        .filter(created_at__gte=since, check_failed=False, prompt__active=True, mode=CheckMode.WEB_SEARCH)
         .filter(current_version)
     )
     rows = (

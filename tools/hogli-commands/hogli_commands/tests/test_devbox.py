@@ -1443,7 +1443,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
         monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
@@ -1586,7 +1586,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
         monkeypatch.setattr(devbox_mutagen, "sync_list", lambda label_selector=None: [])
@@ -3470,37 +3470,105 @@ class TestDevboxCommands:
         # The box without region metadata renders the unknown placeholder.
         assert "unknown" in result.output
 
-    def test_devbox_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
+    @staticmethod
+    def _forward(monkeypatch: pytest.MonkeyPatch, name: str, busy: set[int], args: list[str] | None = None) -> Any:
+        captured: dict[str, int] = {}
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: (name, []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: port not in busy)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(
             devbox_cli,
             "port_forward_replace",
             lambda name, local_port, remote_port: captured.update(
-                {"name": name, "local_port": local_port, "remote_port": remote_port}
+                {"local_port": local_port, "remote_port": remote_port}
             ),
         )
+        result = runner.invoke(cli, ["devbox:forward", *(args or [])])
+        result.captured = captured
+        return result
 
-        result = runner.invoke(cli, ["devbox:forward"])
+    def test_devbox_forward_keeps_8010_for_the_default_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-test-user", busy=set())
 
         assert result.exit_code == 0
         assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
-        assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
+        assert "Without forwarding, open https://app--devbox-test-user--test-user.coder.example.com" in result.output
+        assert result.captured == {"local_port": 8010, "remote_port": 8010}
 
-    def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
-        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+    @pytest.mark.parametrize("name", ["devbox-test-user", "devbox-test-user-feature-x"])
+    def test_devbox_forward_picks_a_free_port_kept_per_box(self, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+        busy = {8010}
+        first = self._forward(monkeypatch, name, busy=busy)
+        again = self._forward(monkeypatch, name, busy=busy)
+        busy.add(first.captured["local_port"])
+        bumped = self._forward(monkeypatch, name, busy=busy)
 
-        result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
+        assert first.exit_code == again.exit_code == bumped.exit_code == 0
+        assert 18000 <= first.captured["local_port"] < 19000
+        assert again.captured == first.captured
+        assert bumped.captured["local_port"] not in busy
+
+    def test_devbox_forward_gives_each_box_its_own_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ports = {
+            self._forward(monkeypatch, f"devbox-test-user-{label}", busy=set()).captured["local_port"]
+            for label in ("a", "b", "c")
+        }
+
+        assert len(ports) == 3
+
+    def test_devbox_forward_fails_early_when_the_chosen_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-test-user", busy={8010}, args=["--port", "8010"])
 
         assert result.exit_code == 1
         assert "Local port 8010 is already in use." in result.output
-        assert "hogli devbox:forward --port 8011" in result.output
+        assert "rerun without --port" in result.output
+        assert result.captured == {}
+
+    def test_devbox_forward_hides_the_app_url_for_a_shared_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-other", busy=set(), args=["@other"])
+
+        assert result.exit_code == 0
+        assert "app--" not in result.output
+
+    @pytest.mark.parametrize(
+        "owner, expected",
+        [
+            ("test-user", "App:     https://app--devbox-test-user--test-user.coder.example.com (healthy)"),
+            ("someone-else", None),
+        ],
+    )
+    def test_devbox_status_shows_the_app_url_of_your_own_box(
+        self, monkeypatch: pytest.MonkeyPatch, owner: str, expected: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {
+                "owner_name": owner,
+                "latest_build": {
+                    "status": "stopped",
+                    "resources": [
+                        {"agents": [{"status": "connected", "apps": [{"slug": "app", "health": "healthy"}]}]}
+                    ],
+                },
+            },
+        )
+
+        result = runner.invoke(cli, ["devbox:status"])
+
+        assert result.exit_code == 0
+        if expected is None:
+            assert "App:" not in result.output
+        else:
+            assert expected in result.output
 
 
 class TestDevboxOpenHerdr:

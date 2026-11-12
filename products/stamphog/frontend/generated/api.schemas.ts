@@ -560,7 +560,7 @@ export const ReviewRunVerdictEnumApi = {
  * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
  *
  * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
- * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+ * repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
  * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
  * access must not read. Only the terminal decision is exposed.
  */
