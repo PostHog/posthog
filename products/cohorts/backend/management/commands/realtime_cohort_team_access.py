@@ -27,12 +27,8 @@ from products.cohorts.backend.models.team_access import (
 )
 from products.cohorts.backend.realtime_enablement import (
     AlreadyServing,
-    NothingToBackfill,
-    RunAlreadyCreated,
-    RunCreated,
-    RunOutcome,
-    RunRefused,
     TeamEnablement,
+    describe_enablement,
     enable_realtime_cohorts,
 )
 from products.cohorts.backend.realtime_teams import (
@@ -118,7 +114,8 @@ class Command(BaseCommand):
                 case AlreadyServing():
                     self.stdout.write(f"Team {team_id}: already serving")
                 case TeamEnablement() as enablement:
-                    self._write_enablement(team_id, enablement)
+                    for line in describe_enablement(team_id, enablement):
+                        self.stdout.write(line)
                     if not enablement.promoted:
                         not_serving.append(team_id)
                     if enablement.resave.rebuild_dispatch_failed:
@@ -134,22 +131,6 @@ class Command(BaseCommand):
             )
         if failures:
             raise CommandError(" ".join(failures))
-
-    def _write_enablement(self, team_id: int, enablement: TeamEnablement) -> None:
-        level = RealtimeCohortLevel.SERVING if enablement.promoted else RealtimeCohortLevel.PROCESSING
-        self.stdout.write(f"Team {team_id}: {level}")
-        resave = enablement.resave
-        resave_line = (
-            f"  Resave: {resave.total} cohorts, {resave.changed} changed, {resave.errors} errors, "
-            f"{resave.validation_errors} validation errors"
-        )
-        if resave.rebuild_dispatch_failed:
-            resave_line += ", flags cache rebuild not enqueued"
-        self.stdout.write(resave_line)
-        for refusal in enablement.refused_cohorts:
-            self.stdout.write(f"  Not backfilled: cohort {refusal.cohort_id}, {refusal.kind}, {refusal.reason}")
-        self.stdout.write(f"  Behavioral run: {_run_outcome(enablement.behavioral)}")
-        self.stdout.write(f"  Person run: {_run_outcome(enablement.person)}")
 
     def _grant(self, options: dict[str, Any]) -> None:
         granted = grant_realtime_cohort_access(
@@ -176,18 +157,6 @@ class Command(BaseCommand):
             values = [str(row.team_id), row.level, row.purpose, str(row.save_triggers_backfill)]
             values += [_timestamp(row.processing_since), _timestamp(row.off_since), _timestamp(row.changed_at)]
             self.stdout.write("\t".join(values))
-
-
-def _run_outcome(outcome: RunOutcome) -> str:
-    match outcome:
-        case RunCreated(run_id=run_id):
-            return f"created {run_id}"
-        case RunAlreadyCreated(run_id=run_id):
-            return f"already created {run_id}"
-        case NothingToBackfill():
-            return "nothing to backfill"
-        case RunRefused(reason=reason):
-            return f"refused, {reason}"
 
 
 def _team_list(team_ids: list[int]) -> str:

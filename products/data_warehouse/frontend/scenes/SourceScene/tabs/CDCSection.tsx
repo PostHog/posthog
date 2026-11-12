@@ -11,19 +11,19 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
+    Link,
 } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanizeBytes } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
@@ -127,6 +127,13 @@ CREATE PUBLICATION ${pub} FOR TABLE ${tableList}
 -- ALTER PUBLICATION ${pub} ADD TABLE ${sch}.${quoteIdent('new_table')};`
 }
 
+const TABLES_DONT_SWITCH_AUTOMATICALLY =
+    "Tables won't switch to CDC automatically. Once CDC is on, switch each table to CDC from the Schemas tab."
+
+function SchemasTabLink({ source }: { source: ExternalDataSource }): JSX.Element {
+    return <Link to={urls.dataWarehouseSource(`managed-${source.id}`, 'schemas')}>Schemas tab</Link>
+}
+
 function confirmThen(opts: {
     title: string
     description: React.ReactNode
@@ -149,16 +156,12 @@ function confirmThen(opts: {
 }
 
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { sourceFieldConfig } = useValues(sourceSettingsLogic)
 
     if (!sourceFieldConfig?.cdcEngine) {
         return null
     }
     if (source.access_method !== 'warehouse') {
-        return null
-    }
-    if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC]) {
         return null
     }
 
@@ -168,12 +171,15 @@ export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Elem
         <div className="mt-6 rounded border p-4">
             <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-base font-semibold mb-0">Change data capture (CDC)</h3>
-                <LemonTag type="completion">Beta</LemonTag>
                 {cdc.enabled && <LemonTag type="success">Enabled</LemonTag>}
             </div>
+            <p className="text-sm text-secondary mb-2">
+                Streams inserts, updates, and <strong>deletes</strong> through PostgreSQL logical replication. Changes
+                are captured all the time and loaded into each table on its sync schedule, every 5 minutes by default.
+            </p>
             <p className="text-sm text-secondary mb-3">
-                Real-time sync via PostgreSQL logical replication. Captures inserts, updates, and{' '}
-                <strong>deletes</strong> with no full table scans.
+                Turning on CDC here doesn't change any table. Switch each table to CDC from the{' '}
+                <SchemasTabLink source={source} />.
             </p>
             <LemonDivider className="my-3" />
             {cdc.enabled ? <EnabledControls source={source} /> : <DisabledControls source={source} />}
@@ -335,6 +341,8 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
     const lagTagType =
         lagBytes == null ? 'muted' : lagBytes >= critBytes ? 'danger' : lagBytes >= warnBytes ? 'warning' : 'success'
 
+    const cdcTables = (source.schemas ?? []).filter((schema) => schema.sync_type === 'cdc')
+
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -350,6 +358,27 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                     <div className="text-secondary text-xs">Publication</div>
                     <code className="text-xs">{cdc.publication_name}</code>
                 </div>
+            </div>
+
+            <div>
+                <div className="text-secondary text-xs mb-1">
+                    Tables using CDC{cdcTables.length > 0 ? ` (${cdcTables.length})` : ''}
+                </div>
+                {cdcTables.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                        {cdcTables.map((schema) => (
+                            <LemonTag key={schema.id} type="muted">
+                                <Link to={urls.dataWarehouseSourceSchema(`managed-${source.id}`, schema.id)}>
+                                    <code className="text-xs">{schema.label ?? schema.name}</code>
+                                </Link>
+                            </LemonTag>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-xs text-secondary m-0">
+                        No tables use CDC yet. Switch each table to CDC from the <SchemasTabLink source={source} />.
+                    </p>
+                )}
             </div>
 
             <LemonDivider />
@@ -601,10 +630,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
                         <li>Create a replication slot and publication on your source database.</li>
                         <li>Start the CDC extraction schedule.</li>
                     </ul>
-                    <p className="m-0 text-sm">
-                        Schemas won't switch to CDC automatically — pick CDC as the sync type on the Schemas tab once
-                        this finishes.
-                    </p>
+                    <p className="m-0 text-sm">{TABLES_DONT_SWITCH_AUTOMATICALLY}</p>
                 </div>
             ),
             primaryText: 'Enable CDC',
@@ -786,6 +812,8 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
                     <pre className="text-xs bg-surface-primary p-3 rounded overflow-x-auto whitespace-pre-wrap border border-border">
                         {selfManagedSql}
                     </pre>
+
+                    <p className="m-0 text-sm">{TABLES_DONT_SWITCH_AUTOMATICALLY}</p>
 
                     <LemonCheckbox
                         checked={sqlConfirmed}

@@ -221,7 +221,6 @@ frontend/src/lib/components/Scenes/InsightSubscribeProminentButton.tsx -> produc
 frontend/src/lib/components/Scenes/SceneMenuBarAddToNotebook.tsx -> frontend/src/scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic.ts
 frontend/src/lib/components/Scenes/SceneMenuBarAddToNotebook.tsx -> frontend/src/scenes/notebooks/types.ts
 frontend/src/lib/components/Scenes/SceneMenuBarPinItem.tsx -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
-frontend/src/lib/components/Scenes/SceneMenuBarPinItem.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/lib/components/Search/searchItems.tsx -> products/customer_analytics/frontend/components/Accounts/accountStatusTags.ts
 frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/settings/flagGating.ts
 frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
@@ -386,7 +385,6 @@ frontend/src/queries/nodes/HogQLQuery/HogQLQueryEditor.tsx -> frontend/src/scene
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic.tsx
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/savedQueryNameValidation.ts
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
-frontend/src/queries/nodes/HogQLX/render.tsx -> products/mcp_analytics/frontend/components/BrandMarkLabel.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/FlagCallsRetentionNotice.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts

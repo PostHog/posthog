@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import SourceKind
 
@@ -76,6 +77,7 @@ def backfill_platform_insight_alert_configurations(
         # One alert the copy rejects, such as a start time it cannot parse, must not stop the rest.
         try:
             was_created = upsert_configuration(upsert)
+            sync_subscriber_destinations(alert)
         except Exception:
             logger.exception("platform_insight_alert_backfill.failed", alert_id=str(alert.id), team_id=alert.team_id)
             failed += 1
@@ -123,3 +125,4 @@ def follow_insight_alert(alert: AlertConfiguration) -> None:
     upsert = platform_upsert_of(alert)
     if upsert is not None:
         upsert_if_running(upsert, revive=True, admit_new_teams=True)
+        sync_subscriber_destinations(alert)

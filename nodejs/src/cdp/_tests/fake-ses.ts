@@ -1,137 +1,40 @@
-import http from 'http'
-import { AddressInfo } from 'net'
+import { FaultRule, SesAttachment, SesMessage, startProviderEdge } from '~/tests/scenarios/provider-edge'
 
-import { parseJSON } from '~/common/utils/json-parse'
+export type FakeSesAttachment = SesAttachment
 
-export interface FakeSesMessage {
-    messageId: string
-    from: string
-    feedbackForwardingAddress: string | undefined
-    to: string[]
-    cc: string[] | undefined
-    bcc: string[] | undefined
-    replyTo: string[] | undefined
-    subject: string
-    text: string | undefined
-    html: string | undefined
-    charsets: { subject?: string; text?: string; html?: string }
-    headers: Record<string, string>
-    tags: Record<string, string>
-    tenant: string | undefined
-    configurationSet: string | undefined
-    tracked: boolean
-}
+export type FakeSesMessage = SesMessage
 
-export type FakeSesFault = { status: number; type: string; message: string } | 'drop-connection'
+export type FakeSesFault =
+    | { status: number; type: string; message: string }
+    | 'drop-connection'
+    | 'no-answer'
+    | 'stalled-body'
 
 export interface FakeSes {
     endpoint: string
-    sent: FakeSesMessage[]
-    failWith(fault: FakeSesFault): void
+    readonly sent: FakeSesMessage[]
+    failWith(fault: FakeSesFault | null): void
     close(): Promise<void>
 }
 
 type ConfigurationSets = Record<string, { tracking: boolean }>
 
-const SEND_EMAIL_PATH = '/v2/email/outbound-emails'
-
-function respond(res: http.ServerResponse, status: number, body: object, errorType?: string): void {
-    res.writeHead(status, {
-        'content-type': 'application/json',
-        ...(errorType ? { 'x-amzn-errortype': errorType } : {}),
-    })
-    res.end(JSON.stringify(body))
-}
-
-type NameValueList = { Name: string; Value: string }[]
-
-function isNameValueList(entries: unknown): entries is NameValueList | undefined {
-    return (
-        entries === undefined ||
-        (Array.isArray(entries) &&
-            entries.every((entry) => typeof entry?.Name === 'string' && typeof entry?.Value === 'string'))
-    )
-}
-
-function toRecord(entries: NameValueList | undefined): Record<string, string> {
-    return Object.fromEntries((entries ?? []).map(({ Name, Value }) => [Name, Value]))
+function faultRuleOf(fault: FakeSesFault): FaultRule {
+    const dose = { share: 1 }
+    switch (fault) {
+        case 'drop-connection':
+            return { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose }
+        case 'no-answer':
+            return { name: 'ses.no_answer', answer: { kind: 'no-answer' }, dose }
+        case 'stalled-body':
+            return { name: 'ses.stalled_body', answer: { kind: 'stalled-body' }, dose }
+        default:
+            return { name: 'ses.status', answer: { kind: 'status', answer: fault }, dose }
+    }
 }
 
 export async function startFakeSes(configurationSets: ConfigurationSets): Promise<FakeSes> {
-    const sent: FakeSesMessage[] = []
-    // A fault answers every later request, because the SDK retries throttles, 5xx responses and dropped
-    // connections on its own before the caller sees an error.
-    let fault: FakeSesFault | null = null
-
-    const server = http.createServer((req, res) => {
-        const chunks: Buffer[] = []
-        req.on('data', (chunk: Buffer) => chunks.push(chunk))
-        req.on('end', () => {
-            if (fault === 'drop-connection') {
-                req.socket.destroy()
-                return
-            }
-            if (fault) {
-                respond(res, fault.status, { message: fault.message }, fault.type)
-                return
-            }
-            if (req.method !== 'POST' || req.url !== SEND_EMAIL_PATH) {
-                respond(res, 404, { message: `No route for ${req.method} ${req.url}` }, 'NotFoundException')
-                return
-            }
-
-            const request = parseJSON(Buffer.concat(chunks).toString())
-            const configurationSetName: string | undefined = request.ConfigurationSetName
-            const configurationSet =
-                configurationSetName === undefined ? { tracking: false } : configurationSets[configurationSetName]
-            if (!configurationSet) {
-                respond(
-                    res,
-                    404,
-                    { message: `Configuration set <${configurationSetName}> does not exist.` },
-                    'NotFoundException'
-                )
-                return
-            }
-            const simple = request.Content?.Simple
-            const contentParts = [simple?.Subject, simple?.Body?.Text, simple?.Body?.Html]
-            if (!simple?.Subject || contentParts.some((part) => part !== undefined && typeof part.Data !== 'string')) {
-                respond(res, 400, { message: 'Every subject and body part needs Data.' }, 'BadRequestException')
-                return
-            }
-            if (!isNameValueList(request.EmailTags) || !isNameValueList(simple.Headers)) {
-                respond(res, 400, { message: 'Every tag and header needs a Name and a Value.' }, 'BadRequestException')
-                return
-            }
-
-            const messageId = `fake-ses-${sent.length + 1}`
-            sent.push({
-                messageId,
-                from: request.FromEmailAddress,
-                feedbackForwardingAddress: request.FeedbackForwardingEmailAddress,
-                to: request.Destination?.ToAddresses ?? [],
-                cc: request.Destination?.CcAddresses,
-                bcc: request.Destination?.BccAddresses,
-                replyTo: request.ReplyToAddresses,
-                subject: simple.Subject?.Data,
-                text: simple.Body?.Text?.Data,
-                html: simple.Body?.Html?.Data,
-                charsets: {
-                    subject: simple.Subject?.Charset,
-                    text: simple.Body?.Text?.Charset,
-                    html: simple.Body?.Html?.Charset,
-                },
-                headers: toRecord(simple.Headers),
-                tags: toRecord(request.EmailTags),
-                tenant: request.TenantName,
-                configurationSet: configurationSetName,
-                tracked: configurationSet.tracking,
-            })
-            respond(res, 200, { MessageId: messageId })
-        })
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const { port } = server.address() as AddressInfo
+    const edge = await startProviderEdge({ port: 0, configurationSets })
 
     // The SDK signs every request, so it needs credentials even though the fake accepts any. It ignores
     // the key pair while AWS_PROFILE is set, so the profile is unset until the fake closes.
@@ -154,15 +57,21 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
     setVariables(credentialVariables)
 
     return {
-        endpoint: `http://127.0.0.1:${port}`,
-        sent,
-        failWith: (next) => {
-            fault = next
+        endpoint: edge.url,
+        get sent() {
+            return [...edge.sent]
+        },
+        // A fault answers every later send, because the SDK retries throttles, 5xx responses and dropped
+        // connections on its own before the caller sees an error.
+        failWith: (fault) => {
+            edge.clearFaults()
+            if (fault) {
+                edge.addFault(faultRuleOf(fault))
+            }
         },
         close: async () => {
             setVariables(previousCredentials)
-            server.closeAllConnections()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
+            await edge.close()
         },
     }
 }

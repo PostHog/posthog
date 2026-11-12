@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
     delete_cdc_extraction_schedule,
@@ -35,6 +36,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairInProgress,
     CDCSourceAdapter,
     PostgresSource,
+    cdc_supported_source_types,
     get_cdc_adapter,
     history_tables,
     incremental_history_table,
@@ -43,7 +45,49 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
-from . import base
+from . import base, credential_store
+from .setup_errors import SourceSetupErrorCode, setup_error_response
+from .source_setup import ExternalDataSourceErrorResponseSerializer
+
+
+class CdcPrerequisitesRequestSerializer(serializers.Serializer):
+    source_type = serializers.CharField(
+        help_text="A CDC-capable source type, for example 'Postgres'. Other source types are rejected."
+    )
+    payload = serializers.DictField(
+        required=False,
+        help_text=(
+            "Connection details as flat keys for the source_type, the same fields the create flow takes in its "
+            "payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with "
+            "'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the "
+            "user stored via the connect-link page: it is merged in server-side and is not consumed by this check, "
+            "so the same id still works for source setup afterwards."
+        ),
+    )
+    cdc_management_mode = serializers.CharField(
+        required=False,
+        help_text=(
+            "Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or "
+            "'self_managed' (the user created them)."
+        ),
+    )
+    tables = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tables to check against the publication. Omit to check the database-level prerequisites only.",
+    )
+    cdc_slot_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Self-managed replication slot name to check. Ignored in 'posthog' mode.",
+    )
+    cdc_publication_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Self-managed publication name to check. Ignored in 'posthog' mode.",
+    )
 
 
 class CdcPrerequisitesResponseSerializer(serializers.Serializer):
@@ -63,12 +107,96 @@ class CdcEnableResponseSerializer(serializers.Serializer):
     )
 
 
+class CdcManagementMode(models.TextChoices):
+    POSTHOG = "posthog", "PostHog"
+    SELF_MANAGED = "self_managed", "Self managed"
+
+
+class CdcEnableRequestSerializer(serializers.Serializer):
+    cdc_management_mode = serializers.ChoiceField(
+        choices=CdcManagementMode.choices,
+        required=False,
+        default=CdcManagementMode.POSTHOG,
+        help_text=(
+            "Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, "
+            "which needs a database user that can manage replication. 'self_managed' expects the customer to have "
+            "created the publication already; PostHog only creates the slot."
+        ),
+    )
+    cdc_slot_name = serializers.CharField(
+        required=False,
+        help_text="Name of the replication slot to use. Defaults to a name derived from the source id.",
+    )
+    cdc_publication_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Name of the publication to read changes from. Defaults to a name derived from the source id, or "
+            "'posthog_pub' in self_managed mode."
+        ),
+    )
+    cdc_auto_drop_slot = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether PostHog drops the replication slot automatically when lag is critical, to protect the "
+            "source database disk. Only applies in 'posthog' management mode. Defaults to true."
+        ),
+    )
+    cdc_lag_warning_threshold_mb = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Replication lag in MB above which a warning shows. Must be lower than the critical threshold.",
+    )
+    cdc_lag_critical_threshold_mb = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.",
+    )
+
+
+class CdcUpdateSettingsRequestSerializer(serializers.Serializer):
+    cdc_auto_drop_slot = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether PostHog drops the replication slot automatically when lag is critical. Only applies in "
+            "'posthog' management mode."
+        ),
+    )
+    cdc_lag_warning_threshold_mb = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Replication lag in MB above which a warning shows. Must be lower than the critical threshold.",
+    )
+    cdc_lag_critical_threshold_mb = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.",
+    )
+
+
+class CdcDisableResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether CDC is now disabled on the source.")
+    already_disabled = serializers.BooleanField(
+        required=False, help_text="True when CDC was already off, so nothing changed."
+    )
+
+
+class CdcResumeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the extraction schedule was unpaused.")
+
+
+class CdcUpdateSettingsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the request was accepted.")
+    unchanged = serializers.BooleanField(
+        required=False, help_text="True when the request held no setting to change, so nothing was written."
+    )
+
+
 class CdcStatusSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether CDC is enabled on this source.")
 
     # Absent when enabled is false — CDC is off, so nothing else is known.
     management_mode = serializers.ChoiceField(
-        choices=["posthog", "self_managed"],
+        choices=CdcManagementMode.choices,
         required=False,
         help_text="Who owns the slot and publication: PostHog or the customer.",
     )
@@ -103,6 +231,37 @@ class CdcStatusSerializer(serializers.Serializer):
         required=False,
         help_text="Tables in the publication, when the source was reachable and a publication exists.",
     )
+
+
+def parse_cdc_tuning(
+    data: Any, *, current_warning: Any = None, current_critical: Any = None
+) -> tuple[dict[str, Any], str | None]:
+    """Validate the CDC tuning fields in a request body.
+
+    Returns the validated fields that were present, or an error message. A threshold that is
+    absent is checked against the current value, so the warning stays below the critical one.
+    """
+    tuning: dict[str, Any] = {}
+
+    if "cdc_auto_drop_slot" in data:
+        tuning["cdc_auto_drop_slot"] = str_to_bool(data["cdc_auto_drop_slot"])
+
+    for field in ("cdc_lag_warning_threshold_mb", "cdc_lag_critical_threshold_mb"):
+        if field in data:
+            try:
+                value = int(data[field])
+            except (TypeError, ValueError):
+                return {}, f"{field} must be an integer."
+            if value < 1:
+                return {}, f"{field} must be >= 1."
+            tuning[field] = value
+
+    warn = tuning.get("cdc_lag_warning_threshold_mb", current_warning)
+    crit = tuning.get("cdc_lag_critical_threshold_mb", current_critical)
+    if warn is not None and crit is not None and int(warn) >= int(crit):
+        return {}, "Warning threshold must be less than critical threshold."
+
+    return tuning, None
 
 
 class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
@@ -162,13 +321,19 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         return None
 
     @extend_schema(
-        request=None,
+        request=CdcPrerequisitesRequestSerializer,
         responses={
             200: OpenApiResponse(
                 response=CdcPrerequisitesResponseSerializer,
                 description="Whether the Postgres database satisfies CDC prerequisites.",
             ),
-            400: OpenApiResponse(description="Invalid config, disallowed host, or connection failure."),
+            400: OpenApiResponse(
+                response=ExternalDataSourceErrorResponseSerializer,
+                description=(
+                    "The check could not run: unsupported source type, invalid config, stored credential problem, "
+                    "disallowed host, or connection failure. `code` names the cause."
+                ),
+            ),
         },
     )
     @action(methods=["POST"], detail=False)
@@ -178,35 +343,58 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         Used by the source wizard to surface ✅/❌ checks before source creation,
         and by the self-managed setup popup to verify user-created publications.
         """
-        source_type = request.data.get("source_type")
-        if not isinstance(source_type, str) or not source_type_supports_cdc(source_type):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
+        serializer = CdcPrerequisitesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_type = serializer.validated_data["source_type"]
+
+        if not source_type_supports_cdc(source_type):
+            supported = ", ".join(sorted(str(supported_type) for supported_type in cdc_supported_source_types()))
+            return setup_error_response(
+                SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
+                f"Source type '{source_type}' does not support change data capture (CDC). "
+                f"CDC prerequisite checks work for: {supported}.",
             )
+
+        # Connection details go in `payload`. Top-level keys stay accepted for the in-app wizard, which
+        # sends them flat. `payload` wins on a clash.
+        config_data = {
+            **{key: value for key, value in dict(request.data).items() if key != "payload"},
+            **(serializer.validated_data.get("payload") or {}),
+        }
+
+        secret_ref_response = credential_store._unresolved_secret_ref_response(config_data)
+        if secret_ref_response is not None:
+            return secret_ref_response
+
+        # The check only reads the stored credential, so it stays usable for source setup afterwards.
+        resolved = self._resolve_stored_credential(source_type, config_data)
+        if resolved.error_response is not None:
+            return resolved.error_response
+        config_data = resolved.payload
 
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
         source_impl = base.SourceRegistry.get_source(source_type)
         if not isinstance(source_impl, PostgresSource):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"CDC prerequisite checks are not supported for source type: {source_type}"},
+            return setup_error_response(
+                SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
+                f"CDC prerequisite checks are not supported for source type: {source_type}",
             )
-        is_valid, errors = source_impl.validate_config(request.data)
+        is_valid, errors = source_impl.validate_config(config_data)
         if not is_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            return setup_error_response(
+                SourceSetupErrorCode.INVALID_CONFIG,
+                f"Invalid source config: {', '.join(errors)}. Pass the connection details in 'payload'. Call "
+                "'external-data-sources-wizard' with this source_type to see the required fields, or pass a "
+                "credential_id from 'data-warehouse-source-connect-link'.",
             )
-        config = source_impl.parse_config(request.data)
+        config = source_impl.parse_config(config_data)
 
         # SSRF protection: reject internal/private hosts (same as validate_credentials).
         is_ssh_valid, ssh_errors = source_impl.ssh_tunnel_is_valid(config, self.team_id)
         if not is_ssh_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": ssh_errors or "SSH tunnel host not allowed"},
+            return setup_error_response(
+                SourceSetupErrorCode.HOST_NOT_ALLOWED, ssh_errors or "SSH tunnel host not allowed"
             )
         valid_host, host_errors = source_impl.is_database_host_valid(
             config.host,
@@ -214,26 +402,23 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False,
         )
         if not valid_host:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": host_errors or "Host not allowed"},
-            )
+            return setup_error_response(SourceSetupErrorCode.HOST_NOT_ALLOWED, host_errors or "Host not allowed")
 
-        management_mode = request.data.get("cdc_management_mode", "posthog")
+        management_mode = config_data.get("cdc_management_mode", "posthog")
         if management_mode not in ("posthog", "self_managed"):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
+            return setup_error_response(
+                SourceSetupErrorCode.INVALID_CDC_MANAGEMENT_MODE,
+                "cdc_management_mode must be 'posthog' or 'self_managed'.",
             )
 
-        tables = request.data.get("tables") or []
+        tables = config_data.get("tables") or []
 
         try:
             prereq_errors = source_impl.check_cdc_prerequisites(
                 config,
                 management_mode=management_mode,
                 tables=tables,
-                setup=request.data,
+                setup=config_data,
                 team_id=self.team_id,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
@@ -241,15 +426,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
             # problems, not bugs in our code, and capturing every one floods error tracking.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
+            return setup_error_response(
+                SourceSetupErrorCode.CONNECTION_FAILED, f"Could not connect to Postgres to check prerequisites: {e}"
             )
         except Exception as e:
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
+            return setup_error_response(
+                SourceSetupErrorCode.CONNECTION_FAILED, f"Could not connect to Postgres to check prerequisites: {e}"
             )
 
         return Response(
@@ -326,7 +509,20 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             data=CdcPrerequisitesResponseSerializer({"valid": len(prereq_errors) == 0, "errors": prereq_errors}).data,
         )
 
-    @extend_schema(responses=CdcEnableResponseSerializer)
+    @extend_schema(
+        request=CdcEnableRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=CdcEnableResponseSerializer,
+                description="CDC enabled. schedules_ready is false when CDC is on but scheduling failed.",
+            ),
+            400: OpenApiResponse(
+                description="Source type has no CDC support, bad management mode, prerequisites not met, "
+                "source unreachable, or slot setup failed."
+            ),
+            409: OpenApiResponse(description="CDC is already enabled on this source."),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def enable_cdc(self, request: Request, *arg: Any, **kwargs: Any):
         """Enable CDC on an existing source.
@@ -349,12 +545,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
 
-        if not base.is_cdc_enabled_for_team(self.team):
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"message": "CDC is not enabled for this team."},
-            )
-
         existing = adapter.parse_cdc_config(instance)
         if existing.enabled:
             return Response(
@@ -369,6 +559,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
             )
 
+        tuning, tuning_error = parse_cdc_tuning(
+            request.data,
+            current_warning=DEFAULT_LAG_WARNING_THRESHOLD_MB,
+            current_critical=DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+        )
+        if tuning_error is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": tuning_error})
+        payload = {**dict(request.data.items()), **tuning}
+
         # Validate prerequisites server-side — never trust a client-only check.
         schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
@@ -377,7 +576,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                setup=request.data,
+                setup=payload,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
@@ -400,7 +599,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "CDC prerequisites not met.", "errors": prereq_errors},
             )
 
-        cdc_error = self._setup_cdc_resources(adapter, instance, request.data)
+        cdc_error = self._setup_cdc_resources(adapter, instance, payload)
         if cdc_error is not None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -427,6 +626,17 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             data=CdcEnableResponseSerializer({"success": True, "schedules_ready": schedules_ok}).data,
         )
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=CdcDisableResponseSerializer,
+                description="CDC disabled, or already off.",
+            ),
+            400: OpenApiResponse(description="Source type has no CDC support."),
+            503: OpenApiResponse(description="Table syncs could not be paused, so CDC is still on. Retry."),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def disable_cdc(self, request: Request, *arg: Any, **kwargs: Any):
         """Disable CDC on an existing source.
@@ -643,7 +853,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         request=None,
         responses={
             200: OpenApiResponse(
-                response={"type": "object", "properties": {"success": {"type": "boolean"}}},
+                response=CdcResumeResponseSerializer,
                 description="CDC resumed; the extraction schedule is unpaused.",
             ),
             400: OpenApiResponse(
@@ -752,6 +962,18 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
+    @extend_schema(
+        request=CdcUpdateSettingsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=CdcUpdateSettingsResponseSerializer,
+                description="Settings saved, or unchanged when the request held none.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, a threshold is not a positive integer, or warning is not below critical."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):
         """Update CDC tuning fields without enabling/disabling.
@@ -776,34 +998,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         job_inputs = SourceInputsStore.load_settings(instance)
-        updates: dict[str, Any] = {}
-
-        if "cdc_auto_drop_slot" in request.data:
-            updates["cdc_auto_drop_slot"] = bool(request.data["cdc_auto_drop_slot"])
-
-        for field in ("cdc_lag_warning_threshold_mb", "cdc_lag_critical_threshold_mb"):
-            if field in request.data:
-                try:
-                    value = int(request.data[field])
-                except (TypeError, ValueError):
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": f"{field} must be an integer."},
-                    )
-                if value < 1:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": f"{field} must be >= 1."},
-                    )
-                updates[field] = value
-
-        warn = updates.get("cdc_lag_warning_threshold_mb", job_inputs.get("cdc_lag_warning_threshold_mb"))
-        crit = updates.get("cdc_lag_critical_threshold_mb", job_inputs.get("cdc_lag_critical_threshold_mb"))
-        if warn is not None and crit is not None and int(warn) >= int(crit):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Warning threshold must be less than critical threshold."},
-            )
+        updates, tuning_error = parse_cdc_tuning(
+            request.data,
+            current_warning=job_inputs.get("cdc_lag_warning_threshold_mb"),
+            current_critical=job_inputs.get("cdc_lag_critical_threshold_mb"),
+        )
+        if tuning_error is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": tuning_error})
 
         if not updates:
             return Response(status=status.HTTP_200_OK, data={"success": True, "unchanged": True})
@@ -812,7 +1013,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
-    @extend_schema(responses=CdcStatusSerializer)
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=CdcStatusSerializer,
+                description="CDC health. Only 'enabled' is set when CDC is off.",
+            ),
+            400: OpenApiResponse(description="Source type has no CDC support, or the source database is unreachable."),
+        },
+    )
     @action(methods=["GET"], detail=True)
     def cdc_status(self, request: Request, *arg: Any, **kwargs: Any):
         """Live CDC health for an existing source: slot/publication existence and WAL lag.

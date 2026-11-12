@@ -3,24 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface QuillAccountDetailActionsProps {
     projectId: number
 }
 
-export function QuillAccountDetailActions({ projectId }: QuillAccountDetailActionsProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function QuillAccountDetailActions({ projectId }: QuillAccountDetailActionsProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { accountDetailTabs, config, configError, configLoading } = useValues(logic)
     const { openConfigure, openCreateEditor } = useActions(logic)
-
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]) {
-        return null
-    }
 
     return (
         <>

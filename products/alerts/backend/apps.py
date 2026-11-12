@@ -20,6 +20,7 @@ class AlertsConfig(AppConfig):
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
             list_delivery_destination_groups,
+            live_hog_function_ids,
         )
         from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
         from products.alerts.backend.platform_hooks import (  # noqa: PLC0415
@@ -28,6 +29,7 @@ class AlertsConfig(AppConfig):
             insight_alert_viewer,
             insight_chart_image,
             render_insight_slack_message,
+            subscribers_with_insight_access,
         )
         from products.alerts.backend.platform_source_config import load_insight_source_config  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
@@ -36,19 +38,23 @@ class AlertsConfig(AppConfig):
             register_destination_resolver,
             register_image_resolver,
             register_legacy_event_emitter,
+            register_live_hog_function_lookup,
             register_source_alert_creator,
             register_source_describer,
             register_source_slack_renderer,
+            register_subscriber_access,
         )
         from products.alerts_platform.backend.facade.source_access import register_source_alert_viewer  # noqa: PLC0415
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
         register_destination_resolver(list_delivery_destination_groups)
         register_delivery_path_chooser(choose_delivery_path)
+        register_live_hog_function_lookup(live_hog_function_ids)
         register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_describer(SourceKind.INSIGHT, describe_insight_transition)
         register_image_resolver(SourceKind.INSIGHT, insight_chart_image)
         register_source_slack_renderer(SourceKind.INSIGHT, render_insight_slack_message)
+        register_subscriber_access(SourceKind.INSIGHT, subscribers_with_insight_access)
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)
         register_source_alert_creator(SourceKind.INSIGHT, insight_alert_creator)
         register_source_alert_viewer(SourceKind.INSIGHT, insight_alert_viewer)

@@ -6,13 +6,26 @@ experiments config through here instead of importing the models. Ids go in and i
 The helpers write rows directly. `facade.api.create_experiment` is the production door, but it
 creates the feature flag from a key and validates the metrics, and the outside suites bring a
 flag they made themselves.
+
+The `patch_*` helpers patch one internal step for a suite, so the suite does not name an internal
+module path that a move inside the product would break. They take the keyword arguments of
+`unittest.mock.patch`, such as `return_value` or `side_effect`, and yield the mock.
 """
 
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
+from django.db.models import QuerySet
+
 from asgiref.sync import sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.experiments.backend import replay_linkage
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -93,6 +106,18 @@ def delete_experiment(*, team_id: int, experiment_id: int) -> None:
     Experiment.objects.get(team_id=team_id, id=experiment_id).delete()
 
 
+@contextmanager
+def hide_experiment_from_access_filter(experiment_id: int) -> Iterator[None]:
+    """Patch `UserAccessControl.filter_queryset_by_access_level` so that it drops this experiment from
+    experiment querysets, as for a viewer without access to it, and passes every other queryset through."""
+
+    def filter_queryset(queryset: QuerySet[Any], **_: Any) -> QuerySet[Any]:
+        return queryset.exclude(pk=experiment_id) if queryset.model is Experiment else queryset
+
+    with patch.object(UserAccessControl, "filter_queryset_by_access_level", side_effect=filter_queryset):
+        yield
+
+
 def create_holdout(
     *,
     team_id: int,
@@ -141,3 +166,17 @@ def set_team_experiments_config(*, team_id: int, **fields: Any) -> None:
     changes from the defaults, the same as a row created in the Django admin.
     """
     TeamExperimentsConfig.objects.update_or_create(team_id=team_id, defaults=fields)
+
+
+def patch_replay_precompute(**kwargs: Any) -> AbstractContextManager[MagicMock]:
+    """Patch the precompute call that the replay exposure linkage makes for a precomputing team."""
+    return patch.object(replay_linkage, "ensure_precomputed", **kwargs)
+
+
+def patch_live_exposure_scan(**kwargs: Any) -> AbstractContextManager[MagicMock]:
+    """Patch the live events scan that selects an experiment's exposures.
+
+    A precomputing team reads the preaggregated table instead, so a `side_effect` that raises proves
+    which path a read took.
+    """
+    return patch.object(ExposureQueryBuilder, "_build_exposure_select_query", **kwargs)

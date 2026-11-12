@@ -24,7 +24,10 @@ import type {
     PlatformAlertCreateDestinationApi,
     PlatformAlertDeleteDestinationApi,
     PlatformAlertDestinationApi,
+    PlatformAlertEventApi,
     PlatformAlertGroupSnoozeApi,
+    PlatformAlertSnoozeApi,
+    PlatformAlertsEventsListParams,
     PlatformAlertsListParams,
 } from './api.schemas'
 
@@ -193,6 +196,10 @@ export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAle
         : `/api/projects/${projectId}/platform_alerts/`
 }
 
+/**
+ * List the alerts of the project that the caller can read.
+ * @summary List alerts
+ */
 export const platformAlertsList = async (
     projectId: string,
     params?: PlatformAlertsListParams,
@@ -208,6 +215,10 @@ export const getPlatformAlertsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/platform_alerts/`
 }
 
+/**
+ * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
+ * @summary Create an alert
+ */
 export const platformAlertsCreate = async (
     projectId: string,
     platformAlertConfigurationCreateApi?: PlatformAlertConfigurationCreateApi,
@@ -225,6 +236,10 @@ export const getPlatformAlertsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Get one alert with the runtime state of each of its groups.
+ * @summary Get an alert
+ */
 export const platformAlertsRetrieve = async (
     projectId: string,
     id: string,
@@ -240,6 +255,10 @@ export const getPlatformAlertsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Replace every setting of an alert the platform owns. source_kind must match the stored value.
+ * @summary Replace an alert's settings
+ */
 export const platformAlertsUpdate = async (
     projectId: string,
     id: string,
@@ -258,6 +277,10 @@ export const getPlatformAlertsPartialUpdateUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Change some settings of an alert the platform owns. Settings left out keep their stored value. A source_kind that is sent must match the stored value.
+ * @summary Change an alert
+ */
 export const platformAlertsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -276,6 +299,10 @@ export const getPlatformAlertsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Delete an alert the platform owns, with its destinations.
+ * @summary Delete an alert
+ */
 export const platformAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getPlatformAlertsDestroyUrl(projectId, id), {
         ...options,
@@ -340,6 +367,82 @@ export const platformAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(platformAlertDeleteDestinationApi),
+    })
+}
+
+export const getPlatformAlertsEventsListUrl = (
+    projectId: string,
+    id: string,
+    params?: PlatformAlertsEventsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/platform_alerts/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/platform_alerts/${id}/events/`
+}
+
+/**
+ * The alert's history over the past 30 days, newest first: checks that moved its state or failed, and the changes people made to it. Checks that changed nothing are left out.
+ * @summary List an alert's history
+ */
+export const platformAlertsEventsList = async (
+    projectId: string,
+    id: string,
+    params?: PlatformAlertsEventsListParams,
+    options?: RequestInit
+): Promise<PlatformAlertEventApi[]> => {
+    return apiMutator<PlatformAlertEventApi[]>(getPlatformAlertsEventsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/reset/`
+}
+
+/**
+ * Clears a broken alert's failure count so it is checked again.
+ * @summary Reset a broken alert
+ */
+export const platformAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPlatformAlertsSnoozeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/snooze/`
+}
+
+/**
+ * @summary Snooze a whole alert
+ */
+export const platformAlertsSnoozeCreate = async (
+    projectId: string,
+    id: string,
+    platformAlertSnoozeApi: PlatformAlertSnoozeApi,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsSnoozeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertSnoozeApi),
     })
 }
 

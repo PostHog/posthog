@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import HealthContext, load_health_context
+from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -47,6 +47,10 @@ def evaluate_experiment_health(
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
     flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
     experiment = _load_experiment(team_id, experiment_id)
+    if experiment.is_rule_linked:
+        # The checks and the setup read the release conditions and the variants of a v1 flag. None reads a
+        # feature flag rule yet, so such an experiment has no findings instead of failed checks.
+        return ExperimentHealth(findings=(), checks=())
     health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
     return replace(health, setup=_health_setup(experiment))
 
@@ -119,7 +123,10 @@ def _health_context(
 ) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
     context = load_health_context(
-        experiment, flag_history=flag_history, can_read_flag_history=reader_access.can_read_flag_history
+        experiment,
+        flag_history=flag_history,
+        can_read_flag_history=reader_access.can_read_flag_history,
+        can_read_flag_calls=flag_calls_readable(reader_access),
     )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
     latest_calculation = load_latest_calculation(experiment)

@@ -55,6 +55,7 @@ from posthog.temporal.cleanup_property_definitions import (
 )
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
@@ -81,10 +82,6 @@ from posthog.temporal.dlq_replay import (
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
-)
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
 )
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
@@ -236,7 +233,7 @@ from products.error_tracking.backend.facade.temporal import (
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
-from products.experiments.backend.temporal import (
+from products.experiments.backend.facade.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
@@ -245,6 +242,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    TIMESERIES_WORKFLOWS as EXPERIMENTS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
@@ -514,6 +513,16 @@ _task_queue_specs = [
         EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
+        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
         settings.HEALTH_CHECK_TASK_QUEUE,
         HEALTH_CHECK_WORKFLOWS,
         HEALTH_CHECK_ACTIVITIES,
@@ -618,10 +627,14 @@ _task_queue_specs = [
         WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
-        # AEO brand sentiment rides this queue because its image is the one that carries the ONNX sentiment model.
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS + AEO_BRAND_SENTIMENT_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES + AEO_BRAND_SENTIMENT_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    ),
+    (
+        settings.AEO_TASK_QUEUE,
+        AEO_BRAND_SENTIMENT_WORKFLOWS,
+        AEO_BRAND_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
@@ -1021,7 +1034,10 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
+            internal_logs = InternalLogsSink.from_settings()
+            stop_log_producer = configure_logger(
+                loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=internal_logs
+            )
 
             logger = LOGGER.bind(
                 host=temporal_host,
@@ -1132,6 +1148,11 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                # The logger's own shutdown hook waits on an activity context, which this loop never has.
+                # Only workers that send internal logs run this, so other workers shut down as before.
+                if internal_logs is not None and stop_log_producer is not None:
+                    runner.run(stop_log_producer())
 
                 logger.info("Listing active threads at shutdown:")
                 for t in threading.enumerate():

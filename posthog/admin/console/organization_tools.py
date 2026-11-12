@@ -200,3 +200,10 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
                 undo_hint="To undo, reactivate each organization on its Django admin page.",
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/posthog/organization/bulk-deactivate/",
+    title="Bulk deactivation",
+    url="/admin/console/tools/bulk-deactivate-organizations/",
+)

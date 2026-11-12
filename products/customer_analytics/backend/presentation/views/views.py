@@ -57,9 +57,11 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    is_scout_sandbox_request,
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import (
@@ -71,9 +73,13 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
-    CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
+)
+from products.customer_analytics.backend.presentation.scout_notes import (
+    refuse_scout_note_delete,
+    scout_retag,
+    with_scout_tags,
 )
 from products.customer_analytics.backend.presentation.views.account_automations import AccountAutomationSerializer
 from products.customer_analytics.backend.presentation.views.serializers import (
@@ -895,8 +901,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     queryset = None
     pagination_class = None
-    permission_classes = [PostHogFeatureFlagPermission, CanonicalTeamAccessPermission]
-    posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+    permission_classes = [CanonicalTeamAccessPermission]
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -918,7 +923,6 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             APIScopePermission(),
             AccountViewChangePermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
             CanonicalTeamAccessPermission(),
         ]
 
@@ -2408,8 +2412,32 @@ def _account_tags_input(serializer) -> list[str] | None:
     return serializer.initial_data.get("tags")
 
 
+class AccountNoteAccessControlPermission(AccessControlPermission):
+    """Checks access rules on `account`, while the token scope check stays on `account_note`.
+
+    Access rules are written against accounts, never against notes. The base class looks up object
+    grants by the view's scope object, so on `account_note` it finds no grant. A member with
+    Customer analytics set to none and a grant on one account then gets 403 on that account's notes.
+    The facade still checks access to each parent account."""
+
+    def _get_scope_object(self, request: Request, view: Any) -> APIScopeObjectOrNotSupported:
+        return "account"
+
+
+class AccountNoteAccessMixin:
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccountNoteAccessControlPermission(),
+            TeamMemberAccessPermission(),
+            *(permission() for permission in getattr(self, "permission_classes", ())),
+        ]
+
+
 @extend_schema(tags=["customer_analytics"])
 class AccountNotebookViewSet(
+    AccountNoteAccessMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     mixins.CreateModelMixin,
@@ -2418,7 +2446,7 @@ class AccountNotebookViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "account"
+    scope_object = "account_note"
     serializer_class = AccountNotebookSerializer
     path_parameters = {"account_id": _PARENT_ACCOUNT_ID}
     queryset = None
@@ -2506,11 +2534,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        tags = data.get("tags")
+        if tags is not None and is_scout_sandbox_request(request):
+            current = api.get_account_notebook(
+                self.team_id,
+                self.parents_query_dict["account_id"],
+                self.kwargs["short_id"],
+                user_access_control=self.user_access_control,
+            )
+            if current is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            tags = scout_retag(tags, current.tags)
         notebook = api.update_account_notebook(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
             short_id=self.kwargs["short_id"],
-            input=contracts.UpdateAccountNotebookInput(tags=data.get("tags")),
+            input=contracts.UpdateAccountNotebookInput(tags=tags),
             user=cast(User, request.user),
             user_access_control=self.user_access_control,
         )
@@ -2543,7 +2582,7 @@ class AccountNotebookViewSet(
                     content=data.content,
                     text_content=data.text_content,
                     synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-                    tags=data.tags,
+                    tags=with_scout_tags(is_scout_sandbox_request(request), data.tags),
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,
@@ -2555,6 +2594,7 @@ class AccountNotebookViewSet(
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        refuse_scout_note_delete(is_scout_sandbox_request(request))
         deleted = api.delete_account_notebook(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
@@ -2613,12 +2653,13 @@ def _parse_uuid_param(request: Request, name: str) -> UUID | None:
 
 @extend_schema(tags=["customer_analytics"])
 class AccountNotesViewSet(
+    AccountNoteAccessMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "account"
+    scope_object = "account_note"
     serializer_class = AccountNoteSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
     pagination_class = FacadeLimitOffsetPagination

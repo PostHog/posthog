@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -11,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../__mocks__/inboxMocks'
+import { inboxSetupLogic } from './inboxSetupLogic'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 
 describe('reportGithubAccessLogic', () => {
@@ -113,6 +116,12 @@ describe('reportGithubAccessLogic', () => {
             const pending = new Promise<void>((resolve) => (finish = resolve))
             useMocks({
                 get: {
+                    '/api/projects/:project/signals/trial/': {
+                        enabled: true,
+                        eligible: true,
+                        grant_status: 'not_claimed',
+                        scout_limit: 3,
+                    },
                     '/api/projects/:project/signals/onboarding/': async () => {
                         await pending
                         return { draft: null, completed_at: null, github_optional_available: false }
@@ -122,6 +131,7 @@ describe('reportGithubAccessLogic', () => {
             if (!teamLoaded) {
                 teamLogic.actions.loadCurrentTeamSuccess(null)
             }
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: true })
             logic = reportGithubAccessLogic({ report: makeReport() })
             logic.mount()
             try {
@@ -130,12 +140,41 @@ describe('reportGithubAccessLogic', () => {
                 expect(logic.values.failed).toBe(false)
                 expect(logic.values.repairNeeded).toBe(false)
                 expect(logic.values.disabledReason).toBeNull()
+                if (!teamLoaded) {
+                    teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+                }
+                await waitFor(() => expect(inboxSetupLogic.values.scoutLimit.limit).toBe(3))
             } finally {
                 finish()
                 await expectLogic(logic).toFinishAllListeners()
             }
         }
     )
+
+    it.each([
+        ['no installation', []],
+        ['an unavailable installation', [{ id: 1, kind: 'github', installation_status: 'unavailable' }]],
+    ])('asks to connect GitHub outside the pilot with %s', async (_, results) => {
+        let installations: Record<string, unknown>[] = results
+        githubOptional = false
+        useMocks({
+            get: {
+                '/api/projects/:project/integrations/': () => [200, { results: installations, next: null }],
+            },
+        })
+        logic = reportGithubAccessLogic({ report: makeReport({ repo_slug: null }) })
+        logic.mount()
+        await waitFor(() => expect(logic.values.loading).toBe(false))
+        expect(logic.values.repairNeeded).toBe(true)
+        expect(logic.values.disabledReason).toBe('Connect or repair GitHub access to create a pull request')
+
+        logic.actions.setConnectionOpen(true)
+        installations = [{ id: 1, kind: 'github', installation_status: 'connected' }]
+        logic.actions.retryAccess()
+        await waitFor(() => expect(logic.values.connectionOpen).toBe(false))
+        expect(logic.values.repairNeeded).toBe(false)
+        expect(logic.values.disabledReason).toBeNull()
+    })
 
     it('enables implementation before an unrelated installation finishes checking', async () => {
         let finishSlowCheck!: () => void

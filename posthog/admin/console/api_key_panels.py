@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from kombu.exceptions import OperationalError
 
+from posthog.admin.console.moved import MovedRecord
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
@@ -93,6 +94,7 @@ class PersonalApiKeysPanel(Panel):
     key = "personal-api-keys"
     title = "Personal API keys"
     owner = DEV_EXPERIENCE
+    order = 40
     danger = True
 
     def _keys(self, user: User) -> list[PersonalAPIKey]:
@@ -145,6 +147,7 @@ class ProjectSecretApiKeysPanel(Panel):
     key = "secret-api-keys"
     title = "Project secret API keys"
     owner = DEV_EXPERIENCE
+    order = 40
     danger = True
 
     def _keys(self, team: Team) -> list[ProjectSecretAPIKey]:
@@ -488,3 +491,33 @@ class OrganizationPersonalApiKeysTool(ConsoleTool):
                 *OrganizationPersonalApiKeys(organization).blocks(),
             )
         )
+
+
+class MovedKeyOwners:
+    """API keys have no console page of their own. An old roll URL leads to the page of the user or team that owns the key."""
+
+    @staticmethod
+    def personal_api_key(pk: str) -> MovedRecord | None:
+        # nosemgrep: idor-lookup-without-user -- staff-only redirect behind admin_view; it finds the key's owner to link there
+        user_id = PersonalAPIKey.objects.filter(pk=pk).values_list("user_id", flat=True).first()
+        return MovedRecord(pk=user_id) if user_id is not None else None
+
+    @staticmethod
+    def project_secret_api_key(pk: str) -> MovedRecord | None:
+        # nosemgrep: idor-lookup-without-team -- staff-only redirect behind admin_view; it finds the key's team to link there
+        team_id = ProjectSecretAPIKey.objects.filter(pk=pk).values_list("team_id", flat=True).first()
+        return MovedRecord(pk=team_id) if team_id is not None else None
+
+
+console.register_moved_action(
+    old_path="admin/posthog/personalapikey/<str:pk>/roll/",
+    record="user",
+    target="#panel-personal-api-keys",
+    resolver=MovedKeyOwners.personal_api_key,
+)
+console.register_moved_action(
+    old_path="admin/posthog/projectsecretapikey/<str:pk>/roll/",
+    record="team",
+    target="#panel-secret-api-keys",
+    resolver=MovedKeyOwners.project_secret_api_key,
+)

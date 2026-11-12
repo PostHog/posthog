@@ -101,7 +101,7 @@ from posthog.errors import (
     ExposedCHQueryError,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -277,9 +277,9 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
+            if self.variables or find_placeholders(self.select_query).has_variables:
                 self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
+                    node=self.select_query, variables=list((self.variables or {}).values()), team=self.team
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
@@ -940,7 +940,8 @@ class HogQLQueryExecutor:
                 self,
                 query=query,
                 settings=settings,
-                context=dataclasses.replace(self.context, limit_top_select=False),
+                # The source query gets its own set, so its flag-call reads do not tag the query that embeds its rows.
+                context=dataclasses.replace(self.context, limit_top_select=False, flag_calls_read=set()),
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
@@ -1061,6 +1062,9 @@ class HogQLQueryExecutor:
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
         timings_dict = self.timings.to_dict()
+        # The connection host follows the events table the SQL was printed against, which a query modifier can
+        # set differently from the project's switch.
+        printed_events_route = HogQLQueryModifiers(useNewEventsSchema=clickhouse_context.uses_new_events_schema())
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
@@ -1085,16 +1089,17 @@ class HogQLQueryExecutor:
                 workload = table_workload
 
             def run_clickhouse_query() -> Any:
-                return sync_execute(
-                    self.clickhouse_sql,
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
+                with events_route_scope(printed_events_route):
+                    return sync_execute(
+                        self.clickhouse_sql,
+                        clickhouse_context.values,
+                        with_column_types=True,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    )
 
             stats = query_stats.get_active()
             if stats is not None:
@@ -1136,17 +1141,18 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
-                explain_results = sync_execute(
-                    f"EXPLAIN {self.clickhouse_sql}",
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
+                with events_route_scope(printed_events_route):
+                    # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
+                    explain_results = sync_execute(
+                        f"EXPLAIN {self.clickhouse_sql}",
+                        clickhouse_context.values,
+                        with_column_types=True,
+                        workload=workload,
+                        team_id=self.team.pk,
+                        readonly=True,
+                        ch_user=self.ch_user,
+                        external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata

@@ -22,6 +22,8 @@ export const AeoBrandsListParams = () => zod.object({
 
 export const aeoBrandsListQueryLimitMax = 1000
 
+export const aeoBrandsListQuerySearchMax = 200
+
 export const AeoBrandsListQueryParams = () => zod.object({
     kind: zod
         .enum(['own', 'competitor', 'publisher', 'unknown'])
@@ -31,6 +33,11 @@ export const AeoBrandsListQueryParams = () => zod.object({
         ),
     limit: zod.number().max(aeoBrandsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .max(aeoBrandsListQuerySearchMax)
+        .optional()
+        .describe('Only list brands whose domain or name contains this text, ignoring case.'),
     status: zod
         .enum(['suggested', 'confirmed', 'ignored'])
         .optional()
@@ -345,7 +352,7 @@ export const AeoPromptsBulkImportBody = () => zod.object({
 })
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
  * @summary Get the AEO prompt set overview
  */
 export const AeoPromptsOverviewParams = () => zod.object({
