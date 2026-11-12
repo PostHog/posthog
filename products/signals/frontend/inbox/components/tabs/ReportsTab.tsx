@@ -3,6 +3,8 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
@@ -37,6 +39,7 @@ import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
+import { QuillReportsList, QuillReportsListState } from './QuillReportsList'
 
 /**
  * The states that make up "the inbox" for the `Inbox viewed` event. Not actionable is left out: it
@@ -238,6 +241,29 @@ const ReportRow = memo(function ReportRow({
     )
 })
 
+function quillListState({
+    inboxIsEmpty,
+    loading,
+    hasRows,
+    failed,
+}: {
+    inboxIsEmpty: boolean
+    loading: boolean
+    hasRows: boolean
+    failed: boolean
+}): QuillReportsListState {
+    if (inboxIsEmpty) {
+        return 'empty-inbox'
+    }
+    if (loading) {
+        return 'loading'
+    }
+    if (hasRows) {
+        return 'rows'
+    }
+    return failed ? 'failed' : 'no-match'
+}
+
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
         return 'No reports match the current filters.'
@@ -262,6 +288,7 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -398,6 +425,53 @@ export function ReportsTab(): JSX.Element {
     }, [])
     useEffect(() => () => observerRef.current?.disconnect(), [])
 
+    const listBanners = (
+        <>
+            <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
+                <div className="min-w-0" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={firstReportProgress}
+                        notificationEmail={savedState?.first_report_notification_email}
+                    />
+                </div>
+            )}
+
+            {personalFallback && !inboxIsEmpty && (
+                <LemonBanner type="info">
+                    Your personalized list isn't ready yet, so this is the Recommended order.
+                </LemonBanner>
+            )}
+        </>
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillReportsList
+                state={quillListState({
+                    inboxIsEmpty: inboxIsEmpty && !anyLoadFailed,
+                    loading: showFirstLoadSkeleton,
+                    hasRows: rows.length > 0,
+                    failed: anyLoadFailed,
+                })}
+                rows={rows}
+                totalCount={selectedSections.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)}
+                timestampField={timestampField}
+                emptyCopy={emptyListCopy(scope, narrowed)}
+                emptyInbox={showActivation ? null : <InboxWaitingForWork />}
+                banners={listBanners}
+                pageLoading={pageLoading}
+                someLoadFailed={anyLoadFailed}
+                pageLoadFailed={pageLoadFailed}
+                hasMore={hasMore}
+                sentinelRef={sentinelRef}
+                onRetry={retryFailedSections}
+                onRetryPage={retryFailedPages}
+            />
+        )
+    }
+
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
             {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
@@ -424,22 +498,7 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
-            <InboxMcpBanner />
-            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
-                <div className="min-w-0" data-attr="inbox-first-report-progress">
-                    <FirstReportProgress
-                        result={firstReportProgress}
-                        notificationEmail={savedState?.first_report_notification_email}
-                    />
-                </div>
-            )}
-
-            {personalFallback && !inboxIsEmpty && (
-                <LemonBanner type="info">
-                    Your personalized list isn't ready yet, so this is the Recommended order.
-                </LemonBanner>
-            )}
+            {listBanners}
 
             {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (

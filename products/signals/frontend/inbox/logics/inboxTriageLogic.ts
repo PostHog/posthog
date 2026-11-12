@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
+import { toast } from '@posthog/quill'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -14,6 +15,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
 import { canCreateImplementationPr, canUnassignMe, implementationClaimDisabledReason } from '../utils/reportActions'
+import { isReportClaimable, reportClaimant } from '../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -137,6 +139,17 @@ export interface inboxTriageLogicActions {
         reason: import('../utils/dismissalReasons').ResolveReasonValue
         reportId: string
     } // reportListLogic
+    setReportClaimed: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        takeover?: boolean | undefined
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: import('../inboxAnalytics').InboxReportActionSurface
+        takeover: boolean
+    } // reportListLogic
     unassignMe: (
         reportId: string,
         surface: import('../inboxAnalytics').InboxReportActionSurface,
@@ -146,6 +159,9 @@ export interface inboxTriageLogicActions {
         reportId: string
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // reportListLogic
+    claimCurrent: () => {
+        value: true
+    }
     createPrForCurrent: () => {
         value: true
     }
@@ -185,6 +201,9 @@ export interface inboxTriageLogicActions {
         value: true
     }
     unassignCurrent: () => {
+        value: true
+    }
+    unclaimCurrent: () => {
         value: true
     }
 }
@@ -259,6 +278,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'dismissReport',
                 'resolveReport',
                 'unassignMe',
+                'setReportClaimed',
                 'removeReport',
                 'loadReportsSuccess',
                 'loadMoreReportsSuccess',
@@ -283,6 +303,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         dismissCurrent: true,
         resolveCurrent: true,
         unassignCurrent: true,
+        claimCurrent: true,
+        unclaimCurrent: true,
         createPrForCurrent: true,
         openCurrent: true,
     }),
@@ -507,6 +529,30 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                         prefetchNearEnd()
                     },
                 })
+            },
+            claimCurrent: () => {
+                const report = values.currentReport
+                if (!report || !isReportClaimable(report, userLogic.values.user?.uuid ?? null)) {
+                    return
+                }
+                // A claim is a triage decision, so triage moves on. The report stays in the queue, which
+                // is why the next report is pinned by id and not left to take this index.
+                const next = values.nextReport
+                actions.setReportClaimed(report, true, 'triage_mode')
+                toast.success({
+                    title: 'You claimed this report',
+                    action: { label: 'Undo', onClick: () => actions.setReportClaimed(report, false, 'triage_mode') },
+                })
+                if (next) {
+                    actions.goToReport(next.id, values.currentIndex + 1)
+                }
+                prefetchNearEnd()
+            },
+            unclaimCurrent: () => {
+                const report = values.currentReport
+                if (report && reportClaimant(report)?.uuid === userLogic.values.user?.uuid) {
+                    actions.setReportClaimed(report, false, 'triage_mode')
+                }
             },
             createPrForCurrent: () => {
                 const report = values.currentReport

@@ -191,6 +191,27 @@ describe('inboxTriageLogic', () => {
         expect(bodies).toEqual([{ removal_reason: 'wrong_area' }])
     })
 
+    it('moves to the next report after a claim, and sends one claim for the report it left', async () => {
+        const reports = FIRST_PAGE.slice(0, 5)
+        const claimed: string[] = []
+        useMocks({
+            get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
+                    claimed.push(String(params.id))
+                    return [200, { ...reports[2], assignee: null }]
+                },
+            },
+        })
+        await mountAt({ report: 'r-2', at: 2 })
+
+        logic.actions.claimCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentReport?.id).toBe('r-3')
+        await waitFor(() => expect(claimed).toEqual(['r-2']))
+    })
+
     it('sends one unassign request for the last report while the first one is pending', async () => {
         const report = { ...makeReport('last'), is_suggested_reviewer: true }
         const deleted: string[] = []

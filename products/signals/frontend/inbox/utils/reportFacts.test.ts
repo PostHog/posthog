@@ -1,6 +1,6 @@
 import { myAgentClaim, myClaim, teammateClaim, makeReport } from '../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../types'
-import { claimKeyIntent, reportFactStatus, reportOwnerKind } from './reportFacts'
+import { claimKeyIntent, isForYouReport, reportFactStatus, reportOwnerKind } from './reportFacts'
 
 describe('reportFacts', () => {
     const openPullRequest = { url: 'https://github.com/example/repo/pull/7', state: 'open' as const, merged: false }
@@ -53,6 +53,29 @@ describe('reportFacts', () => {
         ['Shift+U does nothing', key({ shiftKey: true }), true, { canClaim: true, canUnclaim: true }, null],
     ])('%s', (_name, event, isMac, state, expected) => {
         expect(claimKeyIntent(event, isMac, state)).toBe(expected)
+    })
+
+    test.each([
+        ['a report suggested to me', { is_suggested_reviewer: true }, true],
+        ['a report I claimed', { assignee: myClaim }, true],
+        ['a report my agent claimed', { assignee: myAgentClaim }, true],
+        ['a report a teammate claimed', { assignee: teammateClaim }, false],
+        ['a report with no relation to me', {}, false],
+        [
+            'a suggested report still in research',
+            { is_suggested_reviewer: true, status: SignalReportStatus.IN_PROGRESS },
+            false,
+        ],
+        [
+            'a suggested report that is already addressed',
+            { is_suggested_reviewer: true, already_addressed: true },
+            false,
+        ],
+    ])('%s is for me: %s', (_name, overrides, expected) => {
+        const report = makeReport({ status: SignalReportStatus.READY, ...overrides } as Parameters<
+            typeof makeReport
+        >[0])
+        expect(isForYouReport(report, myClaim.user?.uuid ?? null)).toBe(expected)
     })
 
     test.each([
