@@ -1,0 +1,59 @@
+import { quillExportMap, rewriteQuillImports } from './quillImports.mjs'
+
+const INDEX = `/* empty css */
+import { Button as e, buttonVariants as t } from "./button2.js";
+import { Drawer as n } from "./drawer2.js";
+export { e as Button, n as Drawer, t as buttonVariants };
+export { cn } from "./lib/utils.js";
+`
+
+describe('quillImports', () => {
+    const primitives = quillExportMap(INDEX, '/dist')
+    const maps = new Map([
+        ['@posthog/quill', primitives],
+        ['lib/ui/quill', primitives],
+    ])
+
+    it('maps each export of a built index to the file that defines it', () => {
+        expect(Object.fromEntries(primitives)).toEqual({
+            Button: { file: '/dist/button2.js', imported: 'Button' },
+            buttonVariants: { file: '/dist/button2.js', imported: 'buttonVariants' },
+            Drawer: { file: '/dist/drawer2.js', imported: 'Drawer' },
+            cn: { file: '/dist/lib/utils.js', imported: 'cn' },
+        })
+    })
+
+    it.each([
+        {
+            name: 'one statement per defining file',
+            source: `import { Button, Drawer, buttonVariants } from '@posthog/quill'\n`,
+            expected: `import { Button, buttonVariants } from "/dist/button2.js"; import { Drawer } from "/dist/drawer2.js"\n`,
+        },
+        {
+            name: 'the app re-export file and a local alias',
+            source: `    import { Button as QuillButton } from 'lib/ui/quill'\n`,
+            expected: `    import { Button as QuillButton } from "/dist/button2.js"\n`,
+        },
+        {
+            name: 'unknown names and inline types stay on the index',
+            source: `import { Button, type ButtonProps, Unknown } from '@posthog/quill'\n`,
+            expected: `import { Button } from "/dist/button2.js"; import { type ButtonProps, Unknown } from '@posthog/quill'\n`,
+        },
+        {
+            // A changed line count would shift every later line in the file's source map.
+            name: 'a statement over several lines keeps its line count',
+            source: `import {\n    Button,\n    Drawer,\n} from '@posthog/quill'\nconst after = 1\n`,
+            expected: `import { Button } from "/dist/button2.js"; import { Drawer } from "/dist/drawer2.js"\n\n\n\nconst after = 1\n`,
+        },
+    ])('rewrites $name', ({ source, expected }) => {
+        expect(rewriteQuillImports(source, maps)).toEqual(expected)
+    })
+
+    it.each([
+        ['a type-only import', `import type { ButtonProps } from '@posthog/quill'\n`],
+        ['another package', `import { Button } from '@posthog/lemon-ui'\n`],
+        ['an import in a string', `const text = "import { Button } from '@posthog/quill'"\n`],
+    ])('leaves %s alone', (_name, source) => {
+        expect(rewriteQuillImports(source, maps)).toBeNull()
+    })
+})

@@ -21,6 +21,7 @@ import { minifySeparately } from '@posthog/esbuilder/minify.mjs'
 
 import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
 import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
+import { quillImportsEsbuildPlugin } from './bin/quillImports.mjs'
 import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
@@ -94,6 +95,11 @@ async function buildWorkers() {
 // lib/utils/createWorker.ts loads each worker by its hashed name, so the app bundles need the names at build time.
 const appBundle = {
     ...workerBundle,
+    // Not in the worker bundles, because no worker imports quill. Not in dev, where bundle size does not matter.
+    extraPlugins: [
+        ...workerBundle.extraPlugins,
+        ...(isDev ? [] : [quillImportsEsbuildPlugin(path.resolve(__dirname, '..'))]),
+    ],
     define: { ...commonConfig.define, __POSTHOG_WORKER_FILES__: JSON.stringify(await buildWorkers()) },
 }
 

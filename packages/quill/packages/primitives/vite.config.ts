@@ -32,6 +32,13 @@ export default defineConfig({
             fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
+            // One ES file per source module. The app's bundler splits code by file, so a single-file build
+            // puts every primitive on a page that uses one. frontend/plugins/quillImports.mjs relies on
+            // this layout: it reads dist/index.js to find the file that defines each export.
+            output: [
+                { format: 'es', preserveModules: true, preserveModulesRoot: 'src', entryFileNames: '[name].js' },
+                { format: 'cjs', entryFileNames: 'index.cjs' },
+            ],
             external: [
                 'react',
                 'react-dom',
