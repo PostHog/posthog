@@ -36,8 +36,8 @@ from products.data_warehouse.backend.logic.data_load.service import (
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
+    is_cdc_extraction_schedule_missing,
     is_cdc_extraction_schedule_paused,
-    missing_cdc_extraction_schedules,
     pause_cdc_extraction_schedule,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
@@ -393,30 +393,24 @@ def test_a_missing_schedule_reads_as_not_paused() -> None:
         assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is False
 
 
-def test_missing_cdc_extraction_schedules_checks_every_source_over_one_connection() -> None:
-    def _handle(schedule_id: str) -> MagicMock:
-        handle = MagicMock()
-        missing = schedule_id == _get_cdc_extraction_schedule_id("source-without-schedule")
-        handle.describe = AsyncMock(side_effect=_not_found() if missing else None)
-        return handle
+@pytest.mark.parametrize("describe_side, missing", [(None, False), (_not_found(), True)])
+def test_cdc_schedule_missing_reads_the_sources_schedule(describe_side: BaseException | None, missing: bool) -> None:
+    source_id = "01a0393e-a79f-0000-0361-2cabb703888f"
 
-    client = MagicMock()
-    client.get_schedule_handle.side_effect = _handle
-    with patch(f"{SERVICE}.async_connect", AsyncMock(return_value=client)) as mock_connect:
-        missing = missing_cdc_extraction_schedules(["source-with-schedule", "source-without-schedule"])
+    with _temporal_with_schedule(describe_side=describe_side) as mock_connect:
+        assert is_cdc_extraction_schedule_missing(source_id) is missing
 
-    assert missing == {"source-without-schedule"}
-    mock_connect.assert_awaited_once()
+    mock_connect.return_value.get_schedule_handle.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))
 
 
-def test_missing_cdc_extraction_schedules_gives_up_on_a_stalled_server() -> None:
+def test_cdc_schedule_missing_gives_up_on_a_stalled_server() -> None:
     async def _never_answers() -> None:
         await asyncio.Event().wait()
 
-    with _temporal_with_schedule(describe_side=None) as mock_connect:
+    with _temporal_with_schedule() as mock_connect:
         mock_connect.return_value.get_schedule_handle.return_value.describe = AsyncMock(side_effect=_never_answers)
         with pytest.raises(TimeoutError):
-            missing_cdc_extraction_schedules(["source-id"], timeout=dt.timedelta(milliseconds=50))
+            is_cdc_extraction_schedule_missing("source-id", timeout=dt.timedelta(milliseconds=50))
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---

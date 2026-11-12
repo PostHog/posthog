@@ -684,27 +684,15 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
 
 
 @async_to_sync
-async def missing_cdc_extraction_schedules(
-    source_ids: list[str], timeout: timedelta = timedelta(minutes=1)
-) -> set[str]:
-    """The ids of the sources whose CDC extraction schedule does not exist, checked over one connection.
+async def is_cdc_extraction_schedule_missing(source_id: str, timeout: timedelta = timedelta(seconds=10)) -> bool:
+    """Whether the source's CDC extraction schedule does not exist. A paused schedule exists.
 
-    A paused schedule exists. Raises `TimeoutError` when the whole check takes longer than `timeout`.
-    Recreating a missing schedule is the caller's job, as for `cdc_extraction_schedule_exists`.
+    Raises `TimeoutError` when Temporal does not answer within `timeout`. Recreating a missing
+    schedule is the caller's job, as for `cdc_extraction_schedule_exists`.
     """
-    if not source_ids:
-        return set()
-
     async with asyncio.timeout(timeout.total_seconds()):
         temporal = await async_connect()
-        semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
-
-        async def _is_missing(source_id: str) -> bool:
-            async with semaphore:
-                return not await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
-
-        results = await asyncio.gather(*(_is_missing(source_id) for source_id in source_ids))
-    return {source_id for source_id, missing in zip(source_ids, results) if missing}
+        return not await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
 
 
 @async_to_sync

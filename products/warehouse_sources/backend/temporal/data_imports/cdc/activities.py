@@ -1630,35 +1630,29 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
 # ---------------------------------------------------------------------------
 
 
-def sources_missing_extraction_schedule() -> set[str]:
-    """The ids of the live sources that have syncing CDC tables but no extraction schedule.
+def restore_missing_extraction_schedule(source: ExternalDataSource) -> bool:
+    """Recreate the extraction schedule of a source that has syncing CDC tables but no schedule.
 
     Without the schedule nothing reads the slot, while the tables' own load jobs keep succeeding,
-    so nothing else notices.
+    so nothing else notices. Returns whether the schedule was recreated.
     """
-    from products.data_warehouse.backend.facade.api import missing_cdc_extraction_schedules
+    from products.data_warehouse.backend.facade.api import (
+        is_cdc_extraction_schedule_missing,
+        sync_cdc_extraction_schedule,
+    )
 
-    source_ids = (
+    has_syncing_tables = (
         ExternalDataSchema.objects.filter(
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=True,
-            source__deleted=False,
-            source__source_type__in=cdc_supported_source_types(),
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
         )
         .exclude(deleted=True)
-        .values_list("source_id", flat=True)
-        .distinct()
+        .exists()
     )
-    return missing_cdc_extraction_schedules([str(source_id) for source_id in source_ids])
-
-
-def restore_missing_extraction_schedule(source: ExternalDataSource, missing_schedules: set[str]) -> bool:
-    """Recreate the extraction schedule of a source in `missing_schedules`. Returns whether it did."""
-    from products.data_warehouse.backend.facade.api import sync_cdc_extraction_schedule
-
     # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
     # against the lost slot, so Repair CDC recreates the schedule instead.
-    if str(source.id) not in missing_schedules or tables_wait_for_repair(source):
+    if not has_syncing_tables or tables_wait_for_repair(source):
+        return False
+    if not is_cdc_extraction_schedule_missing(str(source.id)):
         return False
     sync_cdc_extraction_schedule(source)
     return True
@@ -1695,14 +1689,6 @@ def cleanup_orphan_slots_activity() -> None:
     # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
     # stalled source would starve heartbeats and Temporal would kill the whole sweep.
     with HeartbeaterSync(logger=log):
-        try:
-            missing_schedules = sources_missing_extraction_schedule()
-        except Exception:
-            # The lag checks below still run. Only the schedule restore waits for the next sweep.
-            log.exception("failed_to_find_missing_cdc_extraction_schedules")
-            metrics.get_sweeper_source_errors_metric().add(1)
-            missing_schedules = set()
-
         for source in sources:
             try:
                 adapter = get_cdc_adapter(source)
@@ -1786,16 +1772,6 @@ def cleanup_orphan_slots_activity() -> None:
                     metrics.get_sweeper_source_errors_metric().add(1)
                     sources_errored += 1
 
-            schedule_restored = False
-            try:
-                schedule_restored = restore_missing_extraction_schedule(source, missing_schedules)
-                if schedule_restored:
-                    source_log.warning("cdc_extraction_schedule_restored")
-            except Exception:
-                source_log.exception("failed_to_restore_cdc_extraction_schedule")
-                metrics.get_sweeper_source_errors_metric().add(1)
-                sources_errored += 1
-
             # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
@@ -1818,6 +1794,18 @@ def cleanup_orphan_slots_activity() -> None:
             critical_threshold_mb = cdc_config.lag_critical_threshold_mb
             if retention_cap_mb is not None:
                 critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
+
+            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup.
+            schedule_restored = False
+            if lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+                try:
+                    schedule_restored = restore_missing_extraction_schedule(source)
+                    if schedule_restored:
+                        source_log.warning("cdc_extraction_schedule_restored", lag_mb=round(lag_mb, 1))
+                except Exception:
+                    source_log.exception("failed_to_restore_cdc_extraction_schedule")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
 
             if lag_mb >= critical_threshold_mb:
                 source_log.error(

@@ -1189,8 +1189,8 @@ class TestCleanupOrphanSlotsRetentionCap:
         return source, mock_adapter
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.sources_missing_extraction_schedule",
-        return_value=set(),
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.restore_missing_extraction_schedule",
+        return_value=False,
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
@@ -1211,7 +1211,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_activity,
         mock_heartbeater,
         _billing,
-        _missing_schedules,
+        _restore,
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
@@ -1224,8 +1224,8 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_mark_broken.assert_called_once()
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.sources_missing_extraction_schedule",
-        return_value=set(),
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.restore_missing_extraction_schedule",
+        return_value=False,
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
@@ -1246,7 +1246,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_activity,
         mock_heartbeater,
         _billing,
-        _missing_schedules,
+        _restore,
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
