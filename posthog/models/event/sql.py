@@ -510,8 +510,20 @@ def _cast_temporary_properties(field: str) -> str:
     )
 
 
-def _events_json_rows_sql(kafka_table: str) -> str:
-    return """SELECT
+def EVENTS_JSON_TABLE_MV_SQL(
+    mv_name="events_json_table_mv",
+    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_JSON_TABLE
+
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {database}.{target_table}
+AS
+SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
 FROM
@@ -568,9 +580,14 @@ arrayMap(
 FROM {database}.{kafka_table}
 ) AS source
 )
+SETTINGS {insert_settings}
 """.format(
+        mv_name=mv_name,
         kafka_table=kafka_table,
+        target_table=target_table,
+        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
+        insert_settings=EVENTS_JSON_INSERT_SETTINGS,
         cleaner=EVENTS_JSON_CLEANER,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
         temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
@@ -579,23 +596,6 @@ FROM {database}.{kafka_table}
             "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
         ),
     )
-
-
-def EVENTS_JSON_TABLE_MV_SQL(
-    mv_name="events_json_table_mv",
-    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
-    target_table=None,
-    on_cluster=True,
-):
-    if target_table is None:
-        target_table = WRITABLE_EVENTS_JSON_TABLE
-    on_cluster_clause = f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else ""
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
-TO {settings.CLICKHOUSE_DATABASE}.{target_table}
-AS
-{_events_json_rows_sql(kafka_table)}SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
-"""
 
 
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
@@ -824,21 +824,19 @@ def EVENTS_JSON_RECENT_TABLE_SQL() -> str:
     )
 
 
-def EVENTS_JSON_RECENT_MV_SQL(kafka_table: str = KAFKA_EVENTS_NATIVE_JSON_TABLE) -> str:
-    # Casting to the events_json types and printing the result back keeps the stored text the same as
-    # toJSONString on an events_json row.
+def EVENTS_JSON_RECENT_MV_SQL(source_table: str = WRITABLE_EVENTS_JSON_TABLE) -> str:
+    # Reads the rows events_json receives, not the Kafka table, so both tables hold the same deduplicated rows
+    # with the same inserted_at.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {EVENTS_JSON_RECENT_MV}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
-AS
-SELECT * REPLACE (
+AS SELECT * REPLACE (
     toJSONString(properties) AS properties,
     toJSONString(temporary_properties) AS temporary_properties,
     toJSONString(person_properties) AS person_properties
 )
-FROM (
-{_events_json_rows_sql(kafka_table)})
-SETTINGS {EVENTS_JSON_INSERT_SETTINGS}, output_format_json_escape_forward_slashes = 0
+FROM {settings.CLICKHOUSE_DATABASE}.{source_table}
+SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
 """
 
 
