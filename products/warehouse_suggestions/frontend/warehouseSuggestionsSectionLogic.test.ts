@@ -14,6 +14,7 @@ import {
     warehouseSuggestionsStatusRetrieve,
 } from './generated/api'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './generated/api.schemas'
+import { warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
 import { SuggestionsSectionFilters, warehouseSuggestionsSectionLogic } from './warehouseSuggestionsSectionLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
@@ -151,6 +152,30 @@ describe('warehouseSuggestionsSectionLogic', () => {
             [DEPRECATE_VIEW.id, { keep_materialized: true }],
         ])
         expect(lemonToast.success).toHaveBeenCalledWith('Approved 3 suggestions.')
+    })
+
+    it('reserves every queued row before the first request returns and skips a row already being saved', async () => {
+        let finishFirst: () => void = () => {}
+        const firstReturns = new Promise<void>((resolve) => (finishFirst = resolve))
+        mockAccept.mockImplementation(async (_project, id) => {
+            if (id === MATERIALIZE.id) {
+                await firstReturns
+            }
+            return { ...ALL.find((item) => item.id === id)!, status: 'accepted' }
+        })
+        const mainLogic = warehouseSuggestionsLogic({})
+        mainLogic.actions.setActionInFlight(CERTIFY.id, true)
+        logic.actions.setSelected(
+            ALL.map(({ id }) => id),
+            true
+        )
+
+        logic.actions.confirmBulkAccept()
+
+        expect(mainLogic.values.actionsInFlight[DEPRECATE_VIEW.id]).toBe(true)
+        finishFirst()
+        await expectLogic(logic).toDispatchActions(['setBulkActionRunning', 'setBulkActionRunning'])
+        expect(mockAccept.mock.calls.map(([, id]) => id)).toEqual([MATERIALIZE.id, DEPRECATE_VIEW.id])
     })
 
     it('keeps the failed rows selected and names the failure in one toast', async () => {

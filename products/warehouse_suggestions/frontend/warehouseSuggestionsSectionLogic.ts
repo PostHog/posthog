@@ -442,15 +442,15 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
             request: (suggestion: WarehouseSuggestionApi) => Promise<WarehouseSuggestionApi | void>,
             onDone: (suggestion: WarehouseSuggestionApi, result: WarehouseSuggestionApi | void) => void
         ): Promise<void> => {
-            const suggestions = values.selectedSuggestions
+            const suggestions = values.selectedSuggestions.filter(({ id }) => !values.actionsInFlight[id])
             if (values.bulkActionRunning || suggestions.length === 0) {
                 return
             }
             actions.setBulkActionRunning(action)
+            suggestions.forEach(({ id }) => actions.setActionInFlight(id, true))
             const doneIds: string[] = []
             const failures: BulkFailure[] = []
             for (const suggestion of suggestions) {
-                actions.setActionInFlight(suggestion.id, true)
                 try {
                     onDone(suggestion, await request(suggestion))
                     doneIds.push(suggestion.id)
