@@ -155,6 +155,7 @@ def join_with_group_n_table(
     if outer_prefilter is not None:
         prefilter_where, prefilter_source = outer_prefilter
         key_subquery = ast.SelectQuery(
+            distinct=True,
             select=[ast.Field(chain=[f"$group_{group_index}"])],
             select_from=prefilter_source,
             where=prefilter_where,
