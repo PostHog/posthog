@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team, resolve_team_metadata
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.funding import TrialFunding
@@ -247,7 +247,7 @@ class TestTrialPolicy(BaseTest):
 
     @parameterized.expand([("enabled_before_claim", 3), ("enabled_after_claim", 2)])
     def test_operational_scout_takes_no_trial_slot(self, _name: str, enabled_before_claim: int) -> None:
-        self._operational_skill(seeded=True)
+        self._operational_skill("shipped")
         operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
         chosen = [
             SignalScoutConfig.objects.create(
@@ -270,8 +270,9 @@ class TestTrialPolicy(BaseTest):
         with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
             assert max_enabled_scouts_for_team(self.team.id) == 4
 
-    def test_team_skill_under_an_operational_name_takes_a_trial_slot(self) -> None:
-        self._operational_skill(seeded=False)
+    @parameterized.expand([("team_authored",), ("edited_after_seed",)])
+    def test_operational_scout_the_team_wrote_takes_a_trial_slot(self, origin: str) -> None:
+        self._operational_skill(origin)
         SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
         for index in range(2):
             SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
@@ -284,14 +285,14 @@ class TestTrialPolicy(BaseTest):
         with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
             assert max_enabled_scouts_for_team(self.team.id) == 3
 
-    def _operational_skill(self, *, seeded: bool) -> None:
-        LLMSkill.objects.create(
-            team=self.team,
-            name=_INBOX_VALIDATION,
-            description="d",
-            body="b",
-            metadata={"seeded_by": HARNESS_SEEDED_BY} if seeded else {},
-        )
+    def _operational_skill(self, origin: str) -> None:
+        skill = LLMSkill.objects.create(team=self.team, name=_INBOX_VALIDATION, description="d", body="shipped body")
+        if origin == "team_authored":
+            return
+        skill.metadata = {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": _compute_row_hash(skill, [])}
+        if origin == "edited_after_seed":
+            skill.body = "the team's own body"
+        skill.save()
 
     @parameterized.expand([(None, 3), (2, 2), (10, 3)])
     def test_scout_metadata_matches_the_enforced_trial_limit(self, configured_limit: int | None, expected: int) -> None:

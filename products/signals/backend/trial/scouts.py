@@ -22,14 +22,17 @@ def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
     """Enabled scouts that take a trial slot.
 
     An operational scout is seeded enabled for every project, so nobody chose it and it takes no slot.
+    A team that edits one owns the result, so it takes a slot like any custom scout.
     """
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
     from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        operational_config_q,
+        unedited_operational_skill_names,
     )
 
     return (
-        SignalScoutConfig.objects.for_team(team_id, canonical=True).filter(enabled=True).exclude(operational_config_q())
+        SignalScoutConfig.objects.for_team(team_id, canonical=True)
+        .filter(enabled=True)
+        .exclude(skill_name__in=unedited_operational_skill_names(team_id))
     )
 
 
@@ -37,18 +40,20 @@ def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
 def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
     from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        is_operational_config,
+        unedited_operational_skill_names,
     )
 
     if not config.enabled:
         yield
         return
     team = config.team
+    # An unsaved config can still point at a child environment, because the model moves it to the
+    # parent project only inside `save()`.
+    team_id = team.parent_team_id or team.id
     policy = TrialPolicy(team)
-    if not policy.enabled() or is_operational_config(config):
+    if not policy.enabled() or config.skill_name in unedited_operational_skill_names(team_id):
         yield
         return
-    team_id = team.parent_team_id or team.id
     with transaction.atomic():
         previous = (
             SignalScoutConfig.objects.for_team(team_id, canonical=True).select_for_update().filter(id=config.id).first()
