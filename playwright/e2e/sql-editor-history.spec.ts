@@ -52,7 +52,7 @@ test.describe('SQL editor history', () => {
                 window.dispatchEvent(new PopStateEvent('popstate'))
             })
 
-            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeVisible()
+            await expect(page.getByRole('button', { name: 'Save as', exact: true })).toBeVisible()
             await expect(page.getByRole('button', { name: 'Update insight' })).toHaveCount(0)
         })
 
@@ -65,7 +65,7 @@ test.describe('SQL editor history', () => {
         await test.step('browser forward restores the plain SQL query state', async () => {
             await page.goForward()
             await page.waitForURL((url) => url.hash.includes('q=SELECT%201') && !url.hash.includes('insight='))
-            await expect(page.getByRole('button', { name: 'Save as insight' })).toBeVisible()
+            await expect(page.getByRole('button', { name: 'Save as', exact: true })).toBeVisible()
             await expect(page.getByRole('button', { name: 'Update insight' })).toHaveCount(0)
         })
     })

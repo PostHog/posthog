@@ -70,7 +70,7 @@ test.describe('SQL Editor', () => {
 
             await expect(page.getByTestId('sql-editor-save-options-button')).toBeEnabled()
             await page.getByTestId('sql-editor-save-options-button').click()
-            await page.getByText('Save as view', { exact: true }).click()
+            await page.getByTestId('sql-editor-save-view-button').click()
 
             const uniqueViewName = `materialized_test_view_${test.info().repeatEachIndex}_${Date.now()}`
             const nameInput = page.getByTestId('sql-editor-input-save-view-name')

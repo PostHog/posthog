@@ -294,7 +294,7 @@ const openEditedInsightSaveMenu = async (canvasElement: HTMLElement, menuText = 
 export const SaveAsFlowQuill: Story = {
     beforeEach: pinEditorViewport,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
         msw: {
             mocks: {
                 get: {
@@ -507,7 +507,6 @@ export const EditedView: Story = {
 
 export const EditedInsight: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
@@ -551,7 +550,6 @@ export const EditedInsight: Story = {
 export const EditedInsightSaveAsFlow: Story = {
     beforeEach: pinEditorViewport,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
@@ -561,48 +559,11 @@ export const EditedInsightSaveAsFlow: Story = {
 export const EditedInsightSaveAsFlowQuill: Story = {
     beforeEach: pinEditorViewport,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => openEditedInsightSaveMenu(canvasElement),
-}
-
-export const EditedInsightLegacySaveMenu: Story = {
-    beforeEach: pinEditorViewport,
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false },
-        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
-        msw: { mocks: discardMocks },
-    },
-    play: async ({ canvasElement }) => {
-        await openEditedInsightSaveMenu(canvasElement, 'Save as new insight...')
-        const menu = within(canvasElement.ownerDocument.body)
-        await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
-            'aria-disabled',
-            'false'
-        )
-        await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
-        await expect(menu.getByRole('menuitem', { name: 'Save as endpoint...' })).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
-        await expect(menu.queryByText('Save query as')).not.toBeInTheDocument()
-    },
-}
-
-export const EditedInsightLegacySaveMenuQuill: Story = {
-    ...EditedInsightLegacySaveMenu,
-    parameters: {
-        ...EditedInsightLegacySaveMenu.parameters,
-        featureFlags: {
-            [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false,
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-        },
-    },
 }
 
 const SETTINGS_VIEW = {
