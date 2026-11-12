@@ -1,11 +1,16 @@
 import functools
 
+from django.conf import settings
+from django.core.cache import cache
+
 import structlog
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.git import get_git_commit_full
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, cdc_engine
@@ -25,8 +30,41 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
 
     The catalog is deploy-static (it only changes when source code ships), so the result is
-    memoized per process — callers must treat it as read-only.
+    memoized per process and shared across processes of the same commit through the cache.
+    Callers must treat it as read-only.
     """
+    # A cold build imports every source module and takes seconds. Web processes restart often,
+    # so processes of one commit share one build instead of each process paying for it.
+    shared_key = _shared_cache_key(include_tables)
+    if shared_key is not None:
+        try:
+            cached = cache.get(shared_key)
+        except Exception:
+            logger.warning("build_source_configs: shared cache read failed", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
+    results = _build_source_configs(include_tables=include_tables)
+    if shared_key is not None:
+        try:
+            cache.set(shared_key, results, timeout=_SHARED_CACHE_TTL_SECONDS)
+        except Exception:
+            logger.warning("build_source_configs: shared cache write failed", exc_info=True)
+    return results
+
+
+_SHARED_CACHE_TTL_SECONDS = 60 * 60 * 24
+
+
+def _shared_cache_key(include_tables: bool) -> str | None:
+    commit = get_git_commit_full()
+    # In local dev the commit does not change when source code is edited.
+    if commit is None or settings.DEBUG:
+        return None
+    return f"warehouse_sources:source_configs:v1:{commit}:{int(include_tables)}"
+
+
+def _build_source_configs(*, include_tables: bool) -> dict[str, dict]:
     with tracer.start_as_current_span("warehouse_sources.catalog.registry"):
         sources = SourceRegistry.get_all_sources()
 
