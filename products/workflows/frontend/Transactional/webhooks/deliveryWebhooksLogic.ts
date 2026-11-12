@@ -8,13 +8,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { isHttpsUrl } from 'lib/utils/url'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
+import { listAllPages } from 'scenes/settings/environment/cloudEnvironmentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
 import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
-import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import {
     DELIVERY_WEBHOOK_EVENTS,
@@ -44,8 +44,6 @@ export const DELIVERY_WEBHOOK_LIST_PROPS = {
     forceFilterGroups: DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
     type: 'destination' as const,
 }
-
-const TEMPLATES_PAGE_SIZE = 100
 
 const withoutFinalPeriod = (message: string): string => message.replace(/\.+$/, '')
 
@@ -218,15 +216,9 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             {
                 loadTransactionalEmailOptions: async () => {
                     const projectId = String(values.currentTeamId)
-                    const templates: MessageTemplateApi[] = []
-                    let offset = 0
-                    let hasMore = true
-                    while (hasMore) {
-                        const page = await messagingTemplatesList(projectId, { limit: TEMPLATES_PAGE_SIZE, offset })
-                        templates.push(...page.results.filter((template) => template.transactional_hog_flow_id))
-                        offset += page.results.length
-                        hasMore = !!page.next && page.results.length > 0
-                    }
+                    const templates = await listAllPages((params) =>
+                        messagingTemplatesList(projectId, { ...params, transactional: true, basic: true })
+                    )
                     const nameCounts = new Map<string, number>()
                     for (const { name } of templates) {
                         nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)

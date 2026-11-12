@@ -30,6 +30,15 @@ const HAND_BUILT_WEBHOOK = {
     filters: { events: [{ id: '$pageview', type: 'events' }] },
 }
 
+const SERVER_PAGE_SIZE = 2
+
+const STORED_TEMPLATES = [
+    { id: '0190e3a1-aaaa-7000-8000-00000000abcd', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt' },
+    { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null },
+    { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset' },
+    { id: '0190e3a1-aaaa-7000-8000-00000000ef01', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt-copy' },
+]
+
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
@@ -43,44 +52,13 @@ describe('deliveryWebhooksLogic', () => {
             get: {
                 '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
                     requestedTeamIds.add(String(params.team_id))
-                    const offset = new URL(request.url).searchParams.get('offset')
-                    return offset === '0'
-                        ? [
-                              200,
-                              {
-                                  next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
-                                  results: [
-                                      {
-                                          id: '0190e3a1-aaaa-7000-8000-00000000abcd',
-                                          name: 'Receipt',
-                                          transactional_hog_flow_id: 'flow-receipt',
-                                      },
-                                      {
-                                          id: 'template-newsletter',
-                                          name: 'Newsletter',
-                                          transactional_hog_flow_id: null,
-                                      },
-                                  ],
-                              },
-                          ]
-                        : [
-                              200,
-                              {
-                                  next: null,
-                                  results: [
-                                      {
-                                          id: 'template-reset',
-                                          name: 'Password reset',
-                                          transactional_hog_flow_id: 'flow-reset',
-                                      },
-                                      {
-                                          id: '0190e3a1-aaaa-7000-8000-00000000ef01',
-                                          name: 'Receipt',
-                                          transactional_hog_flow_id: 'flow-receipt-copy',
-                                      },
-                                  ],
-                              },
-                          ]
+                    const query = new URL(request.url).searchParams
+                    const matching = STORED_TEMPLATES.filter(
+                        (template) => query.get('transactional') !== 'true' || template.transactional_hog_flow_id
+                    )
+                    const offset = Number(query.get('offset') ?? 0)
+                    const limit = Math.min(Number(query.get('limit') ?? 100), SERVER_PAGE_SIZE)
+                    return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]
                 },
                 '/api/environments/:team_id/hog_functions/': ({ request }) => {
                     const groups = JSON.parse(new URL(request.url).searchParams.get('filter_groups') ?? '[]')
