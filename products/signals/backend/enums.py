@@ -230,6 +230,11 @@ class SignalSourceProduct(StrEnum):
     GITHUB_DEPENDABOT = "github_dependabot"
     GITHUB_CODE_SCANNING = "github_code_scanning"
     GITHUB_SECRET_SCANNING = "github_secret_scanning"
+    # Monitoring alerts and error tracking
+    AIRBRAKE = "airbrake"
+    AMAZON_CLOUDWATCH = "amazon_cloudwatch"
+    LOGICMONITOR = "logicmonitor"
+    MUX = "mux"
 
 
 class SignalSourceType(StrEnum):
@@ -389,6 +394,10 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
     SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
     SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
+    SignalSourceProduct.AIRBRAKE: "Airbrake",
+    SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
+    SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
+    SignalSourceProduct.MUX: "Mux",
 }
 
 

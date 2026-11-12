@@ -132,6 +132,16 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
+    # Monitoring alerts and error tracking
+    (ExternalDataSourceType.NEWRELIC, "alert_issues", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "javascript_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "transaction_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "performance_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", "amazon_cloudwatch", "incident"),
+    (ExternalDataSourceType.LOGICMONITOR, "alerts", "logicmonitor", "incident"),
+    (ExternalDataSourceType.AIRBRAKE, "groups", "airbrake", "issue"),
+    (ExternalDataSourceType.MUX, "errors", "mux", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -164,6 +174,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name == "messages":
             record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
+        elif name == "action_names":
+            record[name] = '["UsersController#show"]'
+        elif name == "trigger":
+            record[name] = '{"name": "High error rate", "metricName": "transaction_exception_rate"}'
         elif name == "bugs_found":
             record[name] = 2
         elif name == "dry_run":
