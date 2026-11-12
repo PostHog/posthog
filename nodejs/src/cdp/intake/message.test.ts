@@ -12,7 +12,6 @@ const jobState = {
         actionStepCount: 0,
         variables: { first_name: 'Ada' },
         acceptedAt: '2026-11-11T10:00:00.000Z',
-        sendBy: '2026-11-11T10:15:00.000Z',
     },
     queueMetadata: { teamCapped: false },
 }
@@ -80,7 +79,7 @@ describe('intake message', () => {
             throw new Error(`expected a decoded message, got ${decoded.status}`)
         }
         expect(decoded.message.fingerprint).toBe('abc123')
-        expect(decoded.message.job.state?.state?.sendBy).toBe('2026-11-11T10:15:00.000Z')
+        expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
         const { state, ...rest } = intakeJobInit(decoded.message)
         const { state: originalState, ...originalRest } = job()
         expect(rest).toEqual(originalRest)
@@ -141,10 +140,10 @@ describe('intake message', () => {
             'schema_invalid',
         ],
         [
-            'a send-by time that is not an ISO time',
+            'an accept time that is not an ISO time',
             wireValue({
                 ...validWireMessage,
-                job: { ...validWireMessage.job, state: { state: { ...jobState.state, sendBy: 'soon' } } },
+                job: { ...validWireMessage.job, state: { state: { ...jobState.state, acceptedAt: 'earlier' } } },
             }),
             'schema_invalid',
         ],
