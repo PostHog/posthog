@@ -21,6 +21,13 @@ class DetectAdjustedRunsInput:
 
 
 @frozen
+class CollectTopicsInput:
+    team_id: int
+    snapshot_id: uuid.UUID
+    telemetry_team_id: int = DEFAULT_TELEMETRY_TEAM_ID
+
+
+@frozen
 class SectionWritten:
     """What a scan step wrote. The section itself stays in the snapshot row, out of the workflow history."""
 

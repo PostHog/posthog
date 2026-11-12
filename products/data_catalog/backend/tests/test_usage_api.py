@@ -12,7 +12,13 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.data_catalog.backend.facade.contracts import AdjustedRun, MetricRunCounts, UsageSnapshotPayload
+from products.data_catalog.backend.facade.contracts import (
+    AdjustedRun,
+    MetricRunCounts,
+    TableSource,
+    TopicDefinition,
+    UsageSnapshotPayload,
+)
 from products.data_catalog.backend.facade.enums import JudgeRelation, UsageSnapshotStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.usage_snapshots import (
@@ -76,6 +82,30 @@ class TestVisiblePayload(SimpleTestCase):
 
         assert [counts.metric_id for counts in visible.metric_runs or []] == [_VISIBLE]
         assert [run.metric_id for run in visible.adjusted_runs or []] == ([_VISIBLE] if kept else [])
+
+    def test_reader_does_not_see_a_source_over_a_denied_table(self) -> None:
+        payload = UsageSnapshotPayload(
+            table_sources=[
+                TableSource(name="billing", sessions=3, people=2),
+                TableSource(name="revenue_daily", sessions=2, people=1),
+            ]
+        )
+
+        visible = visible_payload(
+            payload, UsageReader(visible_metric_ids=frozenset(), denied_tables=frozenset({"billing"}))
+        )
+
+        assert [source.name for source in visible.table_sources or []] == ["revenue_daily"]
+
+    @parameterized.expand([("open_reader", frozenset(), 1), ("reader_with_a_denied_table", frozenset({"billing"}), 0)])
+    def test_topic_titles_reach_only_readers_without_denied_tables(
+        self, _name: str, denied: frozenset[str], kept: int
+    ) -> None:
+        payload = UsageSnapshotPayload(topic_definitions=[TopicDefinition(title="Payroll", description="Salaries.")])
+
+        visible = visible_payload(payload, UsageReader(visible_metric_ids=frozenset(), denied_tables=denied))
+
+        assert len(visible.topic_definitions or []) == kept
 
 
 class TestUsageSnapshotAPI(APIBaseTest):

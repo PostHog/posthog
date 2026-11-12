@@ -254,7 +254,7 @@ def fetch_agent_queries(
             sql=sql,
             is_scout=source == SCOUT_SOURCE,
         )
-        for occurred_at, trace_id, distinct_id, intent, sql, source in _paged_rows(
+        for occurred_at, trace_id, distinct_id, intent, sql, source in paged_rows(
             _AGENT_SQL_QUERY, team, telemetry_team, window_start, window_end, "DataCatalogUsageAgentSQL"
         )
         if sql
@@ -265,7 +265,7 @@ def fetch_catalog_calls(
     *, team: Team, telemetry_team: Team, window_start: datetime, window_end: datetime
 ) -> dict[str, list[CatalogCall]]:
     calls: dict[str, list[CatalogCall]] = defaultdict(list)
-    for trace_id, occurred_at, tool, metric_name in _paged_rows(
+    for trace_id, occurred_at, tool, metric_name in paged_rows(
         _CATALOG_CALLS_QUERY, team, telemetry_team, window_start, window_end, "DataCatalogUsageCatalogCalls"
     ):
         calls[trace_id].append(
@@ -274,18 +274,30 @@ def fetch_catalog_calls(
     return calls
 
 
-def _paged_rows(
-    query: str, team: Team, telemetry_team: Team, window_start: datetime, window_end: datetime, query_type: str
+def paged_rows(
+    query: str,
+    team: Team,
+    telemetry_team: Team,
+    window_start: datetime,
+    window_end: datetime,
+    query_type: str,
+    placeholders: dict[str, ast.Expr] | None = None,
 ) -> Iterator[tuple]:
     page_start = window_start
     while page_start < window_end:
         page_end = min(page_start + _PAGE, window_end)
-        yield from _page_rows(query, team, telemetry_team, page_start, page_end, query_type)
+        yield from _page_rows(query, team, telemetry_team, page_start, page_end, query_type, placeholders)
         page_start = page_end
 
 
 def _page_rows(
-    query: str, team: Team, telemetry_team: Team, page_start: datetime, page_end: datetime, query_type: str
+    query: str,
+    team: Team,
+    telemetry_team: Team,
+    page_start: datetime,
+    page_end: datetime,
+    query_type: str,
+    placeholders: dict[str, ast.Expr] | None = None,
 ) -> Iterator[tuple]:
     with tags_context(product=Product.DATA_CATALOG, feature=Feature.ENRICHMENT, team_id=team.id):
         response = execute_hogql_query(
@@ -296,6 +308,7 @@ def _page_rows(
                 "end": ast.Constant(value=page_end),
                 "project": ast.Constant(value=str(team.uuid)),
                 "row_limit": ast.Constant(value=_PAGE_ROW_LIMIT),
+                **(placeholders or {}),
             },
             query_type=query_type,
             workload=Workload.OFFLINE,
@@ -312,8 +325,8 @@ def _page_rows(
             f"{query_type} returned {len(rows)} rows for the page that starts at {page_start.isoformat()}."
         )
     middle = page_start + half
-    yield from _page_rows(query, team, telemetry_team, page_start, middle, query_type)
-    yield from _page_rows(query, team, telemetry_team, middle, page_end, query_type)
+    yield from _page_rows(query, team, telemetry_team, page_start, middle, query_type, placeholders)
+    yield from _page_rows(query, team, telemetry_team, middle, page_end, query_type, placeholders)
 
 
 @frozen
