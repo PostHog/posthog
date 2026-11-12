@@ -560,7 +560,7 @@ def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
         delete_ses_identity_if_unused,  # noqa: PLC0415 - breaks circular import with the tasks module
     )
 
-    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain, row.team_id))
 
 
 register_delete_hook(clear_default_email_sender_of_integration)

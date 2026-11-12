@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError, connection
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,6 +16,8 @@ from posthog.egress.limiter.policies import Priority
 from posthog.integrations import CrossTeamFilter
 from posthog.integrations.accessors import IntegrationReader
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration.email import lock_sender_domain
+from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.integrations import (
     delete_ses_identity_if_unused,
@@ -266,6 +269,45 @@ class TestIntegrationsTasks(APIBaseTest):
 
         assert Integration.objects.filter(id=sender.id).exists()
         mock_delete_identity.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("another_project_still_sends", "other", False, True),
+            ("the_same_project_still_sends", "same", False, False),
+            ("nobody_sends", None, True, False),
+        ]
+    )
+    def test_delete_ses_identity_if_unused_keeps_only_the_links_of_projects_that_still_send(
+        self, _name: str, remaining_sender: Optional[str], identity_deleted: bool, link_removed: bool
+    ) -> None:
+        if remaining_sender:
+            team = self.team if remaining_sender == "same" else Team.objects.create(organization=self.organization)
+            Integration.objects.create(team=team, kind="email", config={"domain": "example.com"})
+        with (
+            patch("posthog.tasks.integrations.delete_ses_identity") as mock_delete,
+            patch("posthog.tasks.integrations.remove_ses_tenant_associations") as mock_remove_links,
+        ):
+            delete_ses_identity_if_unused("example.com", self.team.id)
+
+        assert mock_delete.called is identity_deleted
+        assert [call.kwargs["team_ids"] for call in mock_remove_links.call_args_list] == (
+            [[self.team.id]] if link_removed else []
+        )
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_identity_cleanup_waits_for_a_sender_create_in_progress_on_the_domain(self, mock_delete_identity) -> None:
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                delete_ses_identity_if_unused("example.com")
+            mock_delete_identity.assert_not_called()
+        finally:
+            other.rollback()
+            other.close()
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})

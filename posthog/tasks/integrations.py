@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 import structlog
@@ -17,12 +17,12 @@ from posthog.models.integration import (
     OauthIntegration,
     refresh_backoff_active,
 )
-from posthog.models.integration.email import lock_sender_if_unverified
+from posthog.models.integration.email import lock_sender_domain, lock_sender_if_unverified
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
-from products.workflows.backend.facade.api import delete_ses_identity
+from products.workflows.backend.facade.api import delete_ses_identity, remove_ses_tenant_associations
 
 logger = structlog.get_logger(__name__)
 
@@ -134,13 +134,19 @@ def refresh_integration(id: int, team_id: int | None = None) -> int:
     max_retries=5,
 )
 @skip_team_scope_audit
-def delete_ses_identity_if_unused(domain: str) -> None:
-    # Re-check at execution time: the domain may have been re-added since this
-    # task was enqueued, and deleting the identity would break the new sender.
-    if IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}, limit=1)):
-        return
-
-    delete_ses_identity(domain)
+def delete_ses_identity_if_unused(domain: str, team_id: int | None = None) -> None:
+    # Under the domain lock, a sender added at the same time either commits before this check and keeps the
+    # identity, or waits until the identity is gone and creates it again.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            lock_sender_domain(cursor, domain)
+        senders = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}))
+        if not senders:
+            delete_ses_identity(domain)
+        elif team_id is not None and all(sender.team_id != team_id for sender in senders):
+            # The identity stays for the other projects. A link to a project that no longer sends from the domain
+            # would look like another organization's claim when someone else adds the domain.
+            remove_ses_tenant_associations(domain, team_ids=[team_id])
 
 
 # A sender that never verifies keeps the identity of its domain at the email provider, and the provider caps
