@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
+from enum import Enum, StrEnum, auto
 from typing import Any
 from uuid import UUID
 
@@ -37,7 +37,10 @@ _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
 class _CancelMark(StrEnum):
     CANCELED = "canceled"
     ATTEMPTED = "attempted"
-    UNREADABLE = "unreadable"
+
+
+class _UnreadableMark(Enum):
+    UNREADABLE = auto()
 
 
 def cancel_email(team_id: int, message_id: UUID) -> None:
@@ -70,7 +73,7 @@ def _answer_a_gone_job(team_id: int, message_id: UUID, queued: datetime) -> None
     email_status = get_email_status(team_id, message_id)
     if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
         return
-    if mark in (_CancelMark.ATTEMPTED, _CancelMark.UNREADABLE) and _may_still_wait(email_status, queued):
+    if mark in (_CancelMark.ATTEMPTED, _UnreadableMark.UNREADABLE) and _may_still_wait(email_status, queued):
         raise DeliveryUnavailable()
     raise EmailNotFound()
 
@@ -106,14 +109,14 @@ def _write_cancel_mark(team_id: int, message_id: UUID, mark: _CancelMark, *, onl
         )
 
 
-def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | None:
+def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | _UnreadableMark | None:
     try:
         stored = _cancel_marks().get(_cancel_mark_key(team_id, message_id))
     except Exception:
         logger.exception("transactional_email_cancel_mark_read_failed", team_id=team_id, message_id=str(message_id))
-        return _CancelMark.UNREADABLE
+        return _UnreadableMark.UNREADABLE
     mark = stored.decode() if isinstance(stored, bytes) else None
-    return _CancelMark(mark) if mark in (_CancelMark.CANCELED, _CancelMark.ATTEMPTED) else None
+    return _CancelMark(mark) if mark in set(_CancelMark) else None
 
 
 def reschedule_email(team_id: int, message_id: UUID, scheduled_at: datetime) -> datetime:
