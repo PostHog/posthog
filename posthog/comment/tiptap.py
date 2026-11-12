@@ -262,9 +262,7 @@ def _parse_inline(text: str) -> list[dict]:
     buf: list[str] = []
     i = 0
     n = len(text)
-    # An escape that survives the parse is escaped again on the way back out, which reaches the
-    # customer as a visible backslash. The set is the wide one the composer used before, so a
-    # reply stored then still parses now.
+    # An escape that survives the parse is escaped again on the way out, and the customer sees it.
     escapable = "\\`*_{}[]()#+-.!|"
     # -1 means no closer exists at or after the cached start.
     bracket_at = -2

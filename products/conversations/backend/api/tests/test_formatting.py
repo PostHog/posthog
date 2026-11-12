@@ -706,10 +706,13 @@ class TestRichContentBlockNodes(SimpleTestCase):
     @parameterized.expand(
         [
             ("prose_punctuation_kept_clean", "Use v2.5 (not v1), e.g. query-time properties!", None),
+            ("pipe_in_prose_kept_clean", "Open Settings | Project | Danger zone", None),
             ("formatting_characters_escaped", "2 * 3, a_b, [label]", "2 \\* 3, a\\_b, \\[label\\]"),
             ("numbered_line_start_escaped", "1. not a list", "1\\. not a list"),
             ("bullet_line_start_escaped", "- not a bullet", "\\- not a bullet"),
             ("heading_line_start_escaped", "# not a heading", "\\# not a heading"),
+            ("piped_table_delimiter_row_escaped", "| --- | --- |", "\\| --- | --- |"),
+            ("bare_table_delimiter_row_escaped", ":--- | ---:", ":\\--- | ---:"),
         ]
     )
     def test_rich_content_to_markdown_escapes_only_what_markdown_acts_on(
@@ -717,15 +720,31 @@ class TestRichContentBlockNodes(SimpleTestCase):
     ) -> None:
         assert rich_content_to_markdown({"type": "doc", "content": [_paragraph(text)]}) == (expected or text)
 
-    def test_unescape_markdown_clears_the_wide_set_a_stored_reply_carries(self) -> None:
-        # A reply stored before the escape set narrowed still holds an escape for each of these,
-        # and the text/plain part of a reply email has to shed all of them.
-        escaped = "e\\.g\\. query\\-time \\(v2\\) \\{a\\} \\| 2 \\* 3\\!"
-        assert unescape_markdown(escaped) == "e.g. query-time (v2) {a} | 2 * 3!"
+    @parameterized.expand(
+        [
+            (
+                "wide_set_a_stored_reply_carries",
+                "e\\.g\\. query\\-time \\(v2\\) \\{a\\} \\| 2 \\* 3\\!",
+                "e.g. query-time (v2) {a} | 2 * 3!",
+            ),
+            ("code_span_keeps_its_backslash", "Match `^\\d+\\.\\d+$` in \\(v2\\)", "Match `^\\d+\\.\\d+$` in (v2)"),
+            ("double_tick_span_keeps_its_backslash", "Use `` `\\d` `` in \\(v2\\)", "Use `` `\\d` `` in (v2)"),
+            (
+                "escaped_backtick_is_not_a_code_span",
+                "Wrap it in \\`\\` and drop \\(v2\\)",
+                "Wrap it in `` and drop (v2)",
+            ),
+            (
+                "fenced_block_keeps_its_backslash",
+                "Try \\(this\\):\n```\nre.sub(r'\\.', '', s)\n```",
+                "Try (this):\n```\nre.sub(r'\\.', '', s)\n```",
+            ),
+        ]
+    )
+    def test_unescape_markdown_clears_prose_and_keeps_code(self, _name: str, escaped: str, expected: str) -> None:
+        assert unescape_markdown(escaped) == expected
 
     def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
-        # An AI reply arrives as markdown, becomes a tiptap doc, and is serialized back out. A
-        # parser that keeps the backslash escapes it again, and the customer sees the backslash.
         assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
 
     def test_slack_payload_falls_back_to_text_when_blocks_cannot_represent_doc(self) -> None:

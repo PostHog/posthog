@@ -313,11 +313,12 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
     },
 }
 
-// Emphasis, code spans, links and the escape character act anywhere in a line. A `!` only makes
-// an image when a link follows it.
+// Emphasis, code, links and the escape character act anywhere in a line; a `!` only before a link.
 const INLINE_MARKDOWN = /[\\`*_[\]]|!(?=\[)/g
 // A heading, a bullet, a thematic break and a numbered marker act only at the start of a line.
 const LINE_START_MARKDOWN = /^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?=[ \t]*$)|\d{1,9}[.)](?=[ \t]|$))/gm
+// A GFM table needs its delimiter row, and that row holds only pipes, hyphens, colons and spaces.
+const TABLE_DELIMITER_ROW = /^([ \t]*)([-:|][-:|\t ]*)$/gm
 
 /**
  * Escape the markdown characters that would otherwise change how a reply renders.
@@ -327,6 +328,9 @@ const LINE_START_MARKDOWN = /^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?
  * up for the customer on those surfaces, so a character is escaped only where markdown acts on it.
  * This must match `_escape_markdown` in posthog/comment/formatting.py, which serializes the same
  * content on the backend.
+ *
+ * The two line regexes anchor on this string, which is one text node rather than a whole line, so a
+ * marker in a node that follows a mark on the same line still takes a backslash it does not need.
  */
 function escapeMarkdown(text: string): string {
     return text
@@ -335,6 +339,15 @@ function escapeMarkdown(text: string): string {
             // A numbered marker takes the backslash on its delimiter, because `\1` is not an escape.
             /^\d/.test(marker) ? `${indent}${marker.slice(0, -1)}\\${marker.slice(-1)}` : `${indent}\\${marker}`
         )
+        .replace(TABLE_DELIMITER_ROW, (match, indent: string, row: string) => {
+            // A table needs a pipe and a hyphen in the row, so a rule of only hyphens starts nothing.
+            if (!row.includes('|') || !row.includes('-')) {
+                return match
+            }
+            // The backslash takes a character `unescape_markdown` knows, so a leading `:` keeps it forever.
+            const cut = Math.min(row.indexOf('|'), row.indexOf('-'))
+            return `${indent}${row.slice(0, cut)}\\${row.slice(cut)}`
+        })
 }
 
 /**

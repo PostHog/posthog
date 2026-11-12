@@ -69,6 +69,16 @@ describe('SupportEditor serialization and preview schema', () => {
             '1\\. not a list',
         ],
         [
+            'a pipe in prose left alone, because no table follows from it',
+            { type: 'doc', content: [paragraph('Open Settings | Project | Danger zone')] },
+            'Open Settings | Project | Danger zone',
+        ],
+        [
+            'a delimiter row that would turn the rows above it into a table',
+            { type: 'doc', content: [paragraph('| --- | --- |')] },
+            '\\| --- | --- |',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',
