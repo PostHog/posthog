@@ -69,7 +69,7 @@ return {'channel': res.body.channel, 'ts': res.body.ts};
             integration: 'slack',
             label: 'Slack workspace',
             requiredScopes: 'chat:write',
-            auth: { scheme: 'bearer' },
+            auth: true,
             secret: false,
             hidden: false,
             required: true,

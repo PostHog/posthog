@@ -86,19 +86,17 @@ describe('credential auth', () => {
         expect(routedOrigins({ url, headers: headers as Record<string, string>, body: undefined })).toEqual(origins)
     })
 
-    it('knows the scheme of every connection kind a template applies as a credential', () => {
-        const declared = HOG_FUNCTION_TEMPLATES.flatMap((template) =>
+    it('knows every connection kind a template marks with auth', () => {
+        const marked = HOG_FUNCTION_TEMPLATES.flatMap((template) =>
             (template.inputs_schema ?? [])
                 .filter((schema) => schema.type === 'integration' && schema.auth)
-                .map((schema) => ({ template: template.id, kind: schema.integration, auth: schema.auth }))
+                .map((schema) => ({
+                    template: template.id,
+                    known: Object.hasOwn(INTEGRATION_AUTH, schema.integration ?? ''),
+                }))
         )
 
-        expect(declared.length).toBeGreaterThan(0)
-        for (const { template, kind, auth } of declared) {
-            expect({ template, scheme: INTEGRATION_AUTH[kind ?? '']?.declaration.scheme }).toEqual({
-                template,
-                scheme: auth?.scheme,
-            })
-        }
+        expect(marked.length).toBeGreaterThan(0)
+        expect(marked.filter(({ known }) => !known)).toEqual([])
     })
 })

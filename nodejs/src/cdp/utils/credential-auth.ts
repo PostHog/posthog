@@ -14,10 +14,6 @@ export type CredentialAuthDeclaration = {
     field?: string
 }
 
-// A template's `auth` on a connection input only marks the input. Mirrors AuthDeclarationSchemaSerializer in
-// products/cdp/backend/validation.py.
-export type CredentialAuthMarker = Pick<CredentialAuthDeclaration, 'scheme'>
-
 export type ResolvedCredential = {
     inputKey: string
     declaration: CredentialAuthDeclaration

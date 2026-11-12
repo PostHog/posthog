@@ -14,7 +14,6 @@ import {
     Team,
 } from '../types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
-import type { CredentialAuthMarker } from './utils/credential-auth'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
@@ -672,7 +671,8 @@ export type HogFunctionInputSchemaType = {
      * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
      */
     templating?: boolean | 'hog' | 'liquid'
-    auth?: CredentialAuthMarker
+    /** Marks a connection whose credential the worker applies by its kind, so code never reads it. */
+    auth?: boolean
 }
 
 export type HogFunctionTypeType =
