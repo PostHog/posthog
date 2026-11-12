@@ -72,8 +72,6 @@ class InvalidFactsError(ValueError):
 
 @dataclass(frozen=True, kw_only=True)
 class RejectedConcern:
-    """A reviewer bot's finding that the PR author rejected in its thread, as the reviewer judged it."""
-
     thread: str
     concern: str
     category: str
@@ -100,7 +98,6 @@ class RejectedConcern:
         )
 
     def why_open(self, rebuttable_threads: Mapping[str, str]) -> str | None:
-        """Why this finding still blocks, or None when the author's rejection resolves it."""
         if self.thread not in rebuttable_threads:
             return (
                 "only a thread that a reviewer bot opened, and that only it and the author wrote in, resolves this way"

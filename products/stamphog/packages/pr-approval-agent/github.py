@@ -186,20 +186,11 @@ def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
 
 
 def bot_handle(login: str) -> str:
-    """A login in one spelling: GraphQL drops the `[bot]` suffix that REST writes."""
     handle = login.strip().lstrip("@").lower()
     return handle.removesuffix("[bot]")
 
 
 def rebuttable_threads(pr: PRData) -> dict[str, str]:
-    """The open review threads whose finding an author's rejection can resolve, mapped to the bot's login.
-
-    A thread qualifies when GitHub marks its root comment's author as a bot that is not the PR author,
-    every comment in it comes from that bot or the PR author, and the PR author replied in it. A
-    person's comment anywhere in the thread keeps it out, so a person's concern never resolves this way.
-    Each comment matches on its login and GitHub's bot flag together, because dropping `[bot]` lets a
-    person and a bot share a login. Commenters the trust gate drops never reach this check.
-    """
     author = bot_handle(pr.author)
     by_thread: dict[str, list[dict]] = {}
     for comment in pr.review_comments:
