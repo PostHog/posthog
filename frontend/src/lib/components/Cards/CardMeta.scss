@@ -1,5 +1,11 @@
 .DashboardTileCard {
     min-height: 0;
+
+    // Tile contents are still LemonUI, so the quill card keeps the app's text size.
+    &[data-quill] {
+        font-size: inherit;
+        line-height: inherit;
+    }
 }
 
 .CardMeta {
