@@ -1,4 +1,5 @@
 import { build } from 'esbuild'
+import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { copyInstructions } from './copy-instructions'
@@ -19,7 +20,12 @@ Promise.all(
             entryPoints: [resolve(process.cwd(), entry)],
             // The server's request logs would land on the CLI's stderr. Failures reach the caller as results instead.
             drop: ['console'],
-        }).then(() => console.info(`Built the PostHog CLI library -> ${outfile}`))
+            // The source files each bundle compiles in, which CI reads to tell when hog needs a release.
+            metafile: true,
+        }).then((result) => {
+            writeFileSync(outfile.replace(/\.mjs$/, '.metafile.json'), JSON.stringify(result.metafile))
+            console.info(`Built the PostHog CLI library -> ${outfile}`)
+        })
     )
 ).catch((err: unknown) => {
     console.error('Build failed:', err)

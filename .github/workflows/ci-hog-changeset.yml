@@ -1,0 +1,154 @@
+name: hog changeset
+
+# A pull request that changes code compiled into hog, which the downloadable tool catalog can't
+# deliver, needs a hog release. When it carries no hog changeset, this job commits one to the branch,
+# as the OpenAPI job in ci-backend commits generated types. Its own commit starts CI again, and that
+# run finds the changeset and passes. A fork gets the sampo command to run instead.
+on:
+    pull_request:
+        paths:
+            - 'hog/**'
+            - 'services/mcp/**'
+            - '.github/workflows/ci-hog-changeset.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    changeset:
+        name: hog changeset
+        # Bots never get one: the hog release pull request deletes changesets, and adding one back
+        # would release again.
+        if: github.event.pull_request.user.type != 'Bot' && github.event.pull_request.head.ref != 'chore/release-hog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            # Bounded history, enough to diff against where the branch left master.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  fetch-depth: 1000
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Find the changeset and the base
+              id: changeset
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_SHA"
+                  base=$(git merge-base "$BASE_SHA" HEAD)
+                  echo "base=$base" >> "$GITHUB_OUTPUT"
+                  if git diff --name-only --diff-filter=AM "$base...HEAD" -- 'hog/.sampo/changesets/*.md' | grep -q .; then
+                      echo "present=true" >> "$GITHUB_OUTPUT"
+                      echo "The pull request carries a hog changeset."
+                  else
+                      echo "present=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Install pnpm dependencies
+              if: steps.changeset.outputs.present == 'false'
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='@posthog/hog...' install --frozen-lockfile
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              if: steps.changeset.outputs.present == 'false'
+              with:
+                  bun-version: 1.4.2
+
+            # Both builds write a metafile listing every source file they compile in.
+            - name: Build hog and the CLI library
+              if: steps.changeset.outputs.present == 'false'
+              working-directory: hog
+              run: |
+                  pnpm run build:mcp
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+
+            - name: Check what the catalog can't deliver
+              id: gap
+              if: steps.changeset.outputs.present == 'false'
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.changeset.outputs.base }}
+              run: |
+                  set -euo pipefail
+                  result=$(bun release/catalog-gap.ts --base "$BASE")
+                  echo "$result" | jq .
+                  {
+                      echo "needed=$(echo "$result" | jq -r '.needsRelease')"
+                      echo "bump=$(echo "$result" | jq -r '.bump')"
+                  } >> "$GITHUB_OUTPUT"
+                  {
+                      echo "### hog release"
+                      echo "$result" | jq -r '.reasons[] | "- `\(.file)`: \(.why)"'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Write the changeset
+              id: write
+              if: steps.gap.outputs.needed == 'true'
+              env:
+                  BUMP: ${{ steps.gap.outputs.bump }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  TITLE: ${{ github.event.pull_request.title }}
+              run: |
+                  set -euo pipefail
+                  message=$(printf '%s' "$TITLE" | tr '\r\n' '  ')
+
+                  if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+                      echo "::error::This pull request changes code compiled into hog, so it needs a hog changeset. CI can't commit to a fork. From hog/, run:"
+                      quoted="'${message//\'/\'\\\'\'}'"
+                      echo "  sampo add --package npm/@posthog/hog --bump $BUMP --message $quoted"
+                      echo "Then commit the file it writes under hog/.sampo/changesets/ and push."
+                      exit 1
+                  fi
+
+                  # A push to a merge queue branch ends the queue attempt.
+                  if [[ "$BRANCH" == trunk-merge/* ]]; then
+                      echo "::error::This change needs a hog changeset. Add one to the pull request branch: sampo add --package npm/@posthog/hog --bump $BUMP"
+                      exit 1
+                  fi
+
+                  current=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$current" != "$HEAD_SHA" ]; then
+                      echo "::error::The branch moved while this job ran, so it can't add the hog changeset. The run for the new commit adds it."
+                      exit 1
+                  fi
+
+                  file="hog/.sampo/changesets/pr-$PR_NUMBER.md"
+                  printf -- '---\nnpm/@posthog/hog: %s\n---\n\n%s\n' "$BUMP" "$message" > "$file"
+                  echo "file=$file" >> "$GITHUB_OUTPUT"
+
+            - name: Get app token for the changeset commit
+              if: steps.write.outputs.file != ''
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Disable auto-merge before the changeset commit
+              if: steps.write.outputs.file != ''
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: gh pr merge --disable-auto "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" || echo "Auto-merge was not enabled"
+
+            - name: Commit the changeset via GitHub API (signed)
+              if: steps.write.outputs.file != ''
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(cli): add a hog changeset'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.write.outputs.file }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
