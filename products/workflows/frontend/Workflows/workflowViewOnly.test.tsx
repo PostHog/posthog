@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { LemonCollapse } from '@posthog/lemon-ui'
 
@@ -11,7 +13,6 @@ import {
     DataWarehouseColumnsHintProps,
 } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
 import { useMocks } from '~/mocks/jest'
@@ -31,9 +32,6 @@ import { HogFlow, HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
-jest.mock('lib/utils/copyToClipboard', () => ({
-    copyToClipboard: jest.fn(() => Promise.resolve(true)),
-}))
 jest.mock('./hogflows/steps/components/InstructionsDiff', () => ({
     InstructionsDiff: () => null,
 }))
@@ -85,6 +83,48 @@ function setWorkflowResourceAccess(level: AccessControlLevel): void {
     } as AppContext
 }
 
+function MonacoLikeEditor(): JSX.Element {
+    const codeRef = useRef<HTMLTextAreaElement>(null)
+
+    useEffect(() => {
+        const code = codeRef.current!
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Tab') {
+                event.preventDefault()
+                code.value = event.shiftKey ? code.value.replace(/^ {4}/, '') : `    ${code.value}`
+            }
+            if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                code.dataset.findWidget = 'open'
+            }
+        }
+        code.addEventListener('keydown', onKeyDown)
+        return () => code.removeEventListener('keydown', onKeyDown)
+    }, [])
+
+    return (
+        <div className="monaco-editor">
+            <textarea ref={codeRef} aria-label="Code" defaultValue="    return event" />
+        </div>
+    )
+}
+
+function fakeClipboard(): () => Promise<string> {
+    let copied = ''
+    Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+            writeText: async (text: string): Promise<void> => {
+                copied = text
+            },
+        },
+    })
+    return async () => {
+        await waitFor(() => expect(copied).not.toBe(''))
+        return copied
+    }
+}
+
 function renderForViewer(children: JSX.Element): void {
     render(
         <Provider>
@@ -115,6 +155,7 @@ describe('view-only workflow', () => {
 
     afterEach(() => {
         cleanup()
+        Reflect.deleteProperty(navigator, 'clipboard')
         logic?.unmount()
     })
 
@@ -192,7 +233,8 @@ describe('view-only workflow', () => {
         expect(logic.values.currentSchedule?.id).toBe('weekly')
     })
 
-    it('lets a viewer copy a warehouse column reference', () => {
+    it('lets a viewer copy a warehouse column reference', async () => {
+        const copiedText = fakeClipboard()
         renderForViewer(
             <ViewOnlyArea>
                 <DataWarehouseColumnsHint
@@ -206,7 +248,7 @@ describe('view-only workflow', () => {
         fireEvent.click(screen.getByText('Reference table columns'))
         fireEvent.click(screen.getByText('email'))
 
-        expect(copyToClipboard).toHaveBeenCalledWith('{record.email}', 'column reference')
+        expect(await copiedText()).toBe('{record.email}')
     })
 
     it('lets a viewer compare AI task instructions with another version', async () => {
@@ -351,26 +393,42 @@ describe('view-only workflow', () => {
     })
 
     it.each([
-        ['opens the browser find bar instead of the code editor find', { key: 'f', metaKey: true }],
-        ['tabs out of a code editor instead of indenting', { key: 'Tab' }],
-        ['shift-tabs out of a code editor instead of outdenting', { key: 'Tab', shiftKey: true }],
-    ])('%s for a viewer', (_, keyPress) => {
-        const onEditorKey = jest.fn()
+        ['tabs out of a code editor instead of indenting', '{Tab}', 'After code'],
+        ['shift-tabs out of a code editor instead of outdenting', '{Shift>}{Tab}{/Shift}', 'Before code'],
+    ])('%s for a viewer', async (_, keys, nextFieldLabel) => {
+        const user = userEvent.setup()
         renderForViewer(
             <ViewOnlyArea>
-                <div className="monaco-editor">
-                    <textarea aria-label="Code" onKeyDown={onEditorKey} />
-                </div>
+                <input aria-label="Before code" />
+                <MonacoLikeEditor />
+                <input aria-label="After code" />
             </ViewOnlyArea>
         )
+        const code = screen.getByLabelText<HTMLTextAreaElement>('Code')
+        code.focus()
 
-        const reachedDefault = fireEvent.keyDown(screen.getByLabelText('Code'), keyPress)
+        await user.keyboard(keys)
 
-        expect(reachedDefault).toBe(true)
-        expect(onEditorKey).not.toHaveBeenCalled()
+        expect(screen.getByLabelText(nextFieldLabel)).toHaveFocus()
+        expect(code.value).toBe('    return event')
     })
 
-    it('lets a viewer copy a webhook URL from a step', () => {
+    it('opens the browser find bar instead of the code editor find for a viewer', () => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <MonacoLikeEditor />
+            </ViewOnlyArea>
+        )
+        const code = screen.getByLabelText('Code')
+
+        const reachedBrowserFind = fireEvent.keyDown(code, { key: 'f', metaKey: true })
+
+        expect(reachedBrowserFind).toBe(true)
+        expect(code).not.toHaveAttribute('data-find-widget')
+    })
+
+    it('lets a viewer copy a webhook URL from a step', async () => {
+        const copiedText = fakeClipboard()
         renderForViewer(
             <ViewOnlyArea>
                 <CodeSnippet thing="Webhook URL">https://hooks.example.com/workflows/abc</CodeSnippet>
@@ -379,7 +437,7 @@ describe('view-only workflow', () => {
 
         fireEvent.click(document.querySelector<HTMLElement>('[data-attr="copy-code-button"]')!)
 
-        expect(copyToClipboard).toHaveBeenCalledWith('https://hooks.example.com/workflows/abc', 'Webhook URL')
+        expect(await copiedText()).toBe('https://hooks.example.com/workflows/abc')
     })
 
     it('shows a viewer the body of a plain-text email step', () => {
@@ -434,7 +492,8 @@ describe('view-only workflow', () => {
         expect(tile).toHaveAttribute('draggable', 'false')
     })
 
-    it('lets a viewer copy the error details of a step that fails to render', () => {
+    it('lets a viewer copy the error details of a step that fails to render', async () => {
+        const copiedText = fakeClipboard()
         const FailingConfiguration = (): JSX.Element => {
             throw new Error('Step settings failed to render')
         }
@@ -455,10 +514,7 @@ describe('view-only workflow', () => {
         )
         fireEvent.click(screen.getByText('Copy error details'))
 
-        expect(copyToClipboard).toHaveBeenCalledWith(
-            expect.stringContaining('Step settings failed to render'),
-            'error details'
-        )
+        expect(await copiedText()).toContain('Step settings failed to render')
         editorLogic.unmount()
         jest.restoreAllMocks()
     })
