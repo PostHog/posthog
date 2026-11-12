@@ -88,7 +88,6 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.alerts.backend.activity_logging import log_destination_changes
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -124,6 +123,7 @@ from products.alerts.backend.facade.destinations import (
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    log_destination_changes,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -2573,8 +2573,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise as_drf_validation_error(error)
 
         log_destination_changes(
-            alert,
-            user=user,
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=user.id,
             was_impersonated=is_impersonated(request),
             action="created",
             destination_types=dict.fromkeys(hog_function_ids, data["type"]),
@@ -2615,8 +2616,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise as_drf_validation_error(error)
 
         log_destination_changes(
-            alert,
-            user=cast(User, request.user),
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
             was_impersonated=is_impersonated(request),
             action="deleted",
             destination_types=removed,

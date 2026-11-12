@@ -128,21 +128,30 @@ def handle_alert_subscription_change(
 
 
 def log_destination_changes(
-    alert: AlertConfiguration,
     *,
-    user: User,
+    team_id: int,
+    alert_id: UUID,
+    actor_id: int,
     was_impersonated: bool,
     action: Literal["created", "deleted"],
     destination_types: Mapping[UUID, str | None],
 ) -> None:
-    """Logs destinations added to or removed from an alert. Each one is named by id and type only,
-    because its settings hold webhook URLs and routing keys."""
+    """Logs destinations added to or removed from an insight alert, with or without an insight row. Each
+    one is named by id and type only, because its settings hold webhook URLs and routing keys."""
+    # Deferred to keep this module import-light, because `ready()` imports it in every process.
+    from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+
     if not destination_types:
+        return
+    alert = AlertConfiguration.objects.select_related("insight", "team").filter(team_id=team_id, id=alert_id).first()
+    if alert is None and (view := native_insight_alert_view(team_id, alert_id)) is not None:
+        alert = AlertConfiguration.from_platform_view(view, team_id=team_id)
+    if alert is None:
         return
     log_activity(
         organization_id=alert.team.organization_id,
         team_id=alert.team_id,
-        user=user,
+        user=User.objects.filter(id=actor_id).first(),
         was_impersonated=was_impersonated,
         item_id=alert.id,
         scope="AlertConfiguration",

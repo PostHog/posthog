@@ -1428,7 +1428,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             detail__type="alert_destination_change",
         ).order_by("created_at")
         assert [
-            (row.user_id, [(change["action"], change["before"] or change["after"]) for change in row.detail["changes"]])
+            (
+                row.user_id,
+                [(change["action"], change["before"] or change["after"]) for change in (row.detail or {})["changes"]],
+            )
             for row in logged
         ] == [
             (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),

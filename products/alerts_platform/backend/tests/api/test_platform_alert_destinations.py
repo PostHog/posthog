@@ -85,7 +85,10 @@ class TestPlatformAlertDestinations(APIBaseTest):
             detail__changes__contains=[{"field": "destinations"}],
         ).order_by("created_at")
         assert [
-            (row.user_id, [(change["action"], change["before"] or change["after"]) for change in row.detail["changes"]])
+            (
+                row.user_id,
+                [(change["action"], change["before"] or change["after"]) for change in (row.detail or {})["changes"]],
+            )
             for row in logged
         ] == [
             (self.user.id, [("created", {"id": slack.json()["id"], "type": "slack"})]),
