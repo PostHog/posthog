@@ -1517,6 +1517,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
 
     def soft_delete(self):
+        # Discovery revives a deleted row when the table comes back, which must not bring back live queries.
+        self.live_query_enabled = False
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()

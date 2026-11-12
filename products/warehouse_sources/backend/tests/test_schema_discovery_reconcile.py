@@ -294,8 +294,14 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert revived.pk != tombstone.pk
         assert SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in (revived.sync_type_config or {}).get("schema_metadata", {})
 
-    @parameterized.expand([("never_synced", False), ("retains_synced_table", True)])
-    def test_live_only_table_dropped_upstream_comes_back_not_live(self, _name: str, retains_table: bool) -> None:
+    @parameterized.expand(
+        [
+            ("dropped_upstream", False, False),
+            ("dropped_upstream_keeping_synced_table", True, False),
+            ("deleted_by_user", False, True),
+        ]
+    )
+    def test_live_only_table_comes_back_not_live(self, _name: str, retains_table: bool, deleted_by_user: bool) -> None:
         source = self._make_source()
         if retains_table:
             live_only = self._make_synced_schema(source, "invoices")
@@ -307,7 +313,10 @@ class TestSchemaDiscoveryReconcile(BaseTest):
                 team_id=self.team.pk, source_id=source.pk, name="invoices", should_sync=False, live_query_enabled=True
             )
 
-        sync_old_schemas_with_new_schemas({"contacts": None}, source_id=str(source.pk), team_id=self.team.pk)
+        if deleted_by_user:
+            live_only.soft_delete()
+        else:
+            sync_old_schemas_with_new_schemas({"contacts": None}, source_id=str(source.pk), team_id=self.team.pk)
         sync_old_schemas_with_new_schemas(
             {"contacts": None, "invoices": None}, source_id=str(source.pk), team_id=self.team.pk
         )
