@@ -37,6 +37,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.client_build_middleware import ClientBuildSkewMiddleware
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
 from posthog.middleware import (
@@ -740,6 +741,57 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         )
 
 
+@patch("posthog.client_build_middleware.get_git_commit_short", return_value="abc1234567")
+class TestClientBuildSkewMiddleware(SimpleTestCase):
+    def _skew_counts(self) -> dict[tuple[str, str], float]:
+        return {
+            (builds, status_class): REGISTRY.get_sample_value(
+                "posthog_api_requests_by_client_build_total", {"builds": builds, "status_class": status_class}
+            )
+            or 0.0
+            for builds in ("same", "different")
+            for status_class in ("2xx", "5xx")
+        }
+
+    @parameterized.expand(
+        [
+            ("same_build", "abc1234567", 200, ("same", "2xx")),
+            ("different_build", "0123456789", 500, ("different", "5xx")),
+            ("no_client_build", None, 200, None),
+            ("not_hex", "abc123456z", 200, None),
+            ("too_long", "a" * 41, 200, None),
+        ]
+    )
+    def test_counts_api_requests_by_client_build(
+        self,
+        _mock_commit: MagicMock,
+        _name: str,
+        client_build: str | None,
+        status_code: int,
+        expected_labels: tuple[str, str] | None,
+    ) -> None:
+        headers = {"X-PostHog-Client-Build": client_build} if client_build else None
+        request = RequestFactory().get("/api/projects/2/insights/", headers=headers)
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse(status=status_code))(request)
+
+        expected_counts = dict(counts_before)
+        if expected_labels:
+            expected_counts[expected_labels] += 1
+        assert self._skew_counts() == expected_counts
+        assert response["X-PostHog-Build"] == "abc1234567"
+
+    def test_leaves_non_api_responses_alone(self, _mock_commit: MagicMock) -> None:
+        request = RequestFactory().get("/insights", HTTP_X_POSTHOG_CLIENT_BUILD="0123456789")
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse())(request)
+
+        assert self._skew_counts() == counts_before
+        assert "X-PostHog-Build" not in response
+
+
 class TestFix204Middleware(SimpleTestCase):
     def test_no_content_response_has_no_body_or_content_length(self) -> None:
         def get_response(request: HttpRequest) -> HttpResponse:
@@ -926,7 +978,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
 
     def test_project_switched_when_accessing_insight_of_another_accessible_team(self):
-        insight = Insight.objects.create(team=self.second_team)
+        # short_id is unique per team only, and this insight has the lower id, so an unscoped lookup finds it first
+        Insight.objects.create(team=self.no_access_team, short_id="shared1")
+        insight = Insight.objects.create(team=self.second_team, short_id="shared1")
 
         response_app = self.client.get(f"/insights/{insight.short_id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -938,6 +992,18 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_insights_api.status_code, 200)
+
+    def test_staff_get_users_to_log_in_as_when_accessing_insight_of_off_limits_team(self):
+        self.user.is_staff = True
+        self.user.save()
+        member = User.objects.create_and_join(self.no_access_team.organization, "member@example.com", None)
+        insight = Insight.objects.create(team=self.no_access_team)
+
+        response_app = self.client.get(f"/insights/{insight.short_id}")
+
+        self.assertEqual(response_app.status_code, 200)
+        suggested_users = self.app_context(response_app)["suggested_users_with_access"]
+        self.assertEqual([user["email"] for user in suggested_users], [member.email])
 
     def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(
         self,
@@ -1061,10 +1127,14 @@ class TestAutoProjectMiddleware(APIBaseTest):
         )
 
         response = self.client.get(f"/project/{self.second_team.pk}/home")
+        fetched = self.client.get(f"/project/{self.second_team.pk}/_app_context")
 
         assert response.status_code == 200
-        assert self.app_context(response)["current_team"] is None
-        assert self.app_context(response)["current_project"] is None
+        assert self.app_context(response)["deferred"] is True
+        assert fetched.status_code == 200
+        merged_app_context = {**self.app_context(response), **fetched.json()["app_context"]}
+        assert merged_app_context["current_team"] is None
+        assert merged_app_context["current_project"] is None
         self.user.refresh_from_db()
         assert self.user.current_team_id is None
 

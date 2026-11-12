@@ -16,6 +16,7 @@ import {
     splitReportCheckRows,
 } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
+import { ReportStartMonitoringPrompt } from './ReportStartMonitoringPrompt'
 
 /**
  * What is still watching this report, and what the checks that already ran decided. A check is the
@@ -64,6 +65,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             }
         >
             <div className="flex flex-col gap-1.5">
+                <ReportStartMonitoringPrompt report={report} />
                 {(showRetired ? rows : visible).map((row) => (
                     <ReportCheckRow
                         key={row.check.id}
