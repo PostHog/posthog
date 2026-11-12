@@ -388,7 +388,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
 
         # A `credential_id` references connection details stored for this user via the connect flow.
         # Discovery only reads the stored secrets: the credential stays so `setup` or `create` can still use it.
-        resolved = self._resolve_stored_credential(source_type, dict(request.data))
+        # `.items()` keeps scalar values when a form-encoded body arrives as a QueryDict.
+        resolved = self._resolve_stored_credential(source_type, dict(request.data.items()))
         if resolved.error_response is not None:
             return resolved.error_response
         payload = resolved.payload

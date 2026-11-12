@@ -13692,6 +13692,22 @@ class TestExternalDataSourceSetup(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
+    def test_database_schema_form_encoded_body_keeps_scalar_values(self, mock_validate):
+        credential = self._store_stripe_credential()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "Stripe", "credential_id": str(credential.pk)},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
     def test_database_schema_stored_credential_overrides_inline_secret(self, mock_validate):
         credential = self._store_stripe_credential()
 
