@@ -1,6 +1,6 @@
-import { ColumnDef } from '@tanstack/react-table'
+import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
@@ -103,7 +103,14 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
                 ))}
                 {!open && (
                     <ReleaseTrackMarkers
-                        events={row.events.filter((event) => !(steps.length && event.kind === 'schedule'))}
+                        events={row.events.filter(
+                            (event) =>
+                                !(
+                                    steps.length &&
+                                    event.kind === 'schedule' &&
+                                    event.href === urls.featureFlag(row.flags[0]?.id)
+                                )
+                        )}
                         scale={scale}
                         top={3}
                     />
@@ -117,6 +124,32 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
         </div>
     )
 }
+
+interface CalendarState {
+    expanded: Record<string, true>
+    stepsByFlag: Map<number, RolloutStep[]>
+}
+
+const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map() })
+
+function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
+    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
+    return <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+}
+
+function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
+    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
+    return <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+}
+
+function TimelineHeader(): JSX.Element {
+    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />
+}
+
+const COLUMNS: ColumnDef<ReleaseRow>[] = [
+    { id: 'release', header: 'Release', size: NAME, enableSorting: false, meta: { sticky: 'left' }, cell: ReleaseCell },
+    { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
+]
 
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags, scheduledChanges } = useValues(releaseLogic)
@@ -151,55 +184,35 @@ export function ReleaseTimeline(): JSX.Element {
         return steps
     }, [flags, flagActivity, scheduledChanges])
 
-    const columns = useMemo<ColumnDef<ReleaseRow>[]>(
-        () => [
-            {
-                id: 'release',
-                header: 'Release',
-                size: NAME,
-                enableSorting: false,
-                meta: { sticky: 'left' },
-                cell: ({ row }) => (
-                    <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
-                ),
-            },
-            {
-                id: 'timeline',
-                header: () => <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />,
-                enableSorting: false,
-                cell: ({ row }) => (
-                    <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
-                ),
-            },
-        ],
-        [expanded, stepsByFlag]
-    )
+    const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
 
     return (
         <div
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
-            <DataTable
-                columns={columns}
-                data={filteredRows}
-                size="sm"
-                stickyHeader
-                className="max-h-[75vh]"
-                pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
-                getRowId={(row) => row.id}
-                onRowClick={(row) => toggleExpanded(row.id)}
-                rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
-                empty={
-                    <Text size="xs" variant="muted">
-                        {dataLoading
-                            ? 'Loading releases…'
-                            : releases.length
-                              ? 'No release matches these filters.'
-                              : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
-                    </Text>
-                }
-            />
+            <CalendarStateContext.Provider value={state}>
+                <DataTable
+                    columns={COLUMNS}
+                    data={filteredRows}
+                    size="sm"
+                    stickyHeader
+                    className="max-h-[75vh]"
+                    pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                    getRowId={(row) => row.id}
+                    onRowClick={(row) => toggleExpanded(row.id)}
+                    rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
+                    empty={
+                        <Text size="xs" variant="muted">
+                            {dataLoading
+                                ? 'Loading releases…'
+                                : releases.length
+                                  ? 'No release matches these filters.'
+                                  : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
+                        </Text>
+                    }
+                />
+            </CalendarStateContext.Provider>
         </div>
     )
 }

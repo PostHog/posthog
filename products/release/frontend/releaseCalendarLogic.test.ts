@@ -29,11 +29,13 @@ describe('releaseCalendarLogic', () => {
         logic.actions.loadFlagActivity([1])
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.flagActivity[1]).toBeUndefined()
+        expect(logic.values.failedFlagIds).toEqual([1])
 
         logic.actions.loadFlagActivity([1])
         await expectLogic(logic).toFinishAllListeners()
         expect(mockedRetrieve).toHaveBeenCalledTimes(2)
         expect(logic.values.flagActivity[1]).toEqual([])
+        expect(logic.values.failedFlagIds).toEqual([])
     })
 
     it('keeps at most six history requests in flight across loads', async () => {
