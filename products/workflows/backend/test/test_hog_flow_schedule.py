@@ -285,23 +285,44 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         response = self.client.post(self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "INVALID"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def _create_schedule_trigger_workflow(self):
+        return HogFlow.objects.create(
+            team=self.team, name="Uptime check", status="active", trigger={"type": "schedule"}, actions=[]
+        )
+
     @parameterized.expand(
         [
-            ("FREQ=MINUTELY;INTERVAL=1",),
-            ("FREQ=SECONDLY;INTERVAL=1",),
+            ("batch_minutely", "batch", "FREQ=MINUTELY;INTERVAL=1", status.HTTP_400_BAD_REQUEST),
+            ("batch_secondly", "batch", "FREQ=SECONDLY;INTERVAL=1", status.HTTP_400_BAD_REQUEST),
+            ("batch_hourly", "batch", "FREQ=HOURLY;INTERVAL=1", status.HTTP_201_CREATED),
+            # Runs at 9:00, 12:00 and 12:30: the first two are 3 hours apart, the next two 30 minutes.
+            (
+                "batch_close_later_runs",
+                "batch",
+                "FREQ=DAILY;BYHOUR=9,12;BYMINUTE=0,30;BYSETPOS=1,3,4",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("schedule_minutely", "schedule", "FREQ=MINUTELY;INTERVAL=1", status.HTTP_201_CREATED),
+            ("schedule_secondly", "schedule", "FREQ=SECONDLY;INTERVAL=30", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_rejects_too_frequent_schedules(self, rrule_str):
-        workflow = self._create_batch_workflow()
-        response = self.client.post(self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": rrule_str})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    def test_schedule_frequency_floor_depends_on_trigger(self, _name, trigger, rrule_str, expected):
+        if trigger == "batch":
+            workflow_id = self._create_batch_workflow()["id"]
+        else:
+            workflow_id = self._create_schedule_trigger_workflow().id
+        response = self.client.post(self._schedules_url(workflow_id), {**SCHEDULE_DATA, "rrule": rrule_str})
+        assert response.status_code == expected, response.json()
 
-    def test_accepts_hourly_schedule(self):
+    def test_update_to_minutely_is_rejected_on_a_batch_trigger(self):
         workflow = self._create_batch_workflow()
-        response = self.client.post(
-            self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "FREQ=HOURLY;INTERVAL=1"}
+        schedule = HogFlowSchedule.objects.create(
+            team=self.team, hog_flow_id=workflow["id"], rrule="FREQ=DAILY", starts_at=timezone.now()
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        response = self.client.patch(
+            self._schedule_detail_url(workflow["id"], schedule.id), {"rrule": "FREQ=MINUTELY;INTERVAL=5"}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_rejects_exhausted_schedule(self):
         workflow = self._create_batch_workflow()
@@ -574,6 +595,17 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
         assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+    def test_overdue_schedule_skips_missed_runs(self, mock_invocation):
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=timezone.now() - timedelta(minutes=30), rrule="FREQ=MINUTELY;INTERVAL=1"
+        )
+        before = timezone.now()
+        self._post()
+
+        mock_invocation.assert_called_once()
+        schedule.refresh_from_db()
+        assert schedule.next_run_at > before
 
     def test_schedule_trigger_uses_variable_overrides(self, mock_invocation):
         hog_flow, schedule = self._create_workflow_with_schedule(

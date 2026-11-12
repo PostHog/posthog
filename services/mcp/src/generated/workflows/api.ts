@@ -1392,7 +1392,7 @@ export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
         .string()
         .optional()
         .describe(
-            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."
+            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart on a schedule trigger, and at least 1 hour apart on a batch trigger."
         ),
     starts_at: zod.iso.datetime({ offset: true }).optional().describe('ISO 8601 datetime the schedule starts from.'),
     timezone: zod

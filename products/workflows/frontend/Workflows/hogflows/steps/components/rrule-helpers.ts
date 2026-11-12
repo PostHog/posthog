@@ -13,11 +13,13 @@ export function isOneTimeSchedule(rruleStr: string): boolean {
     }
 }
 
-export type FrequencyOption = 'daily' | 'weekly' | 'monthly' | 'yearly'
+export type FrequencyOption = 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 export type MonthlyMode = 'day_of_month' | 'nth_weekday' | 'last_day'
 export type EndType = 'never' | 'on_date' | 'after_count'
 
 export const FREQUENCY_OPTIONS: { value: FrequencyOption; label: string }[] = [
+    { value: 'minutely', label: 'Minute' },
+    { value: 'hourly', label: 'Hour' },
     { value: 'daily', label: 'Day' },
     { value: 'weekly', label: 'Week' },
     { value: 'monthly', label: 'Month' },
@@ -58,6 +60,10 @@ export const DEFAULT_STATE: ScheduleState = {
 
 export function frequencyToRRule(freq: FrequencyOption): Frequency {
     switch (freq) {
+        case 'minutely':
+            return RRule.MINUTELY
+        case 'hourly':
+            return RRule.HOURLY
         case 'daily':
             return RRule.DAILY
         case 'weekly':
@@ -85,6 +91,12 @@ export function parseRRuleToState(rruleStr: string): ScheduleState {
 
         let frequency: FrequencyOption = 'weekly'
         switch (opts.freq) {
+            case RRule.MINUTELY:
+                frequency = 'minutely'
+                break
+            case RRule.HOURLY:
+                frequency = 'hourly'
+                break
             case RRule.DAILY:
                 frequency = 'daily'
                 break
@@ -216,6 +228,26 @@ export function computePreviewOccurrences(
         // timezone), so convert each to a real moment before comparing against now —
         // otherwise an occurrence still pending today is wrongly treated as already past.
         const now = dayjs()
+        if (!isFinite && (state.frequency === 'minutely' || state.frequency === 'hourly')) {
+            // Jump to the last step before now, or an old start uses up the iteration budget before reaching now.
+            const stepMs = state.interval * (state.frequency === 'minutely' ? 60_000 : 3_600_000)
+            const nowInScheduleTz = timezone ? now.tz(timezone) : now
+            const nowFakeUtc = Date.UTC(
+                nowInScheduleTz.year(),
+                nowInScheduleTz.month(),
+                nowInScheduleTz.date(),
+                nowInScheduleTz.hour(),
+                nowInScheduleTz.minute(),
+                nowInScheduleTz.second()
+            )
+            const steps = Math.max(0, Math.floor((nowFakeUtc - dtstart.getTime()) / stepMs))
+            options.dtstart = new Date(dtstart.getTime() + steps * stepMs)
+            const rebased = new RRule(options as ConstructorParameters<typeof RRule>[0])
+            return rebased
+                .all((_, i) => i < limit + 1)
+                .filter((d) => fakeUtcToReal(d, timezone).isAfter(now))
+                .slice(0, limit)
+        }
         if (fakeUtcToReal(dtstart, timezone).isBefore(now)) {
             const all = rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit * 50))
             const future = all.filter((d) => fakeUtcToReal(d, timezone).isAfter(now))
@@ -277,10 +309,9 @@ export function buildSummary(state: ScheduleState, startsAt: string | null, time
     return summary + '.'
 }
 
-/** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
-// parseRRuleToState falls back to weekly outside these four, and the API accepts any rule
+// parseRRuleToState falls back to weekly outside these, and the API accepts any rule
 // dateutil parses, so anything else is shown as written rather than described wrongly.
-const SUMMARIZABLE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
+const SUMMARIZABLE_FREQUENCIES = ['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 
 export function summarizeSchedule(rrule: string, startsAt: string | null, timezone?: string): string {
     if (isOneTimeSchedule(rrule)) {
@@ -294,6 +325,7 @@ export function summarizeSchedule(rrule: string, startsAt: string | null, timezo
     return buildSummary(parseRRuleToState(rrule), startsAt, timezone)
 }
 
+/** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
 export function parseNaturalLanguage(text: string): ScheduleState | null {
     const trimmed = text.trim().toLowerCase()
     if (!trimmed || !trimmed.includes('every')) {

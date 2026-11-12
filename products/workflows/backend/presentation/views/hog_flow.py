@@ -2785,7 +2785,8 @@ class HogFlowScheduleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     rrule = serializers.CharField(
         help_text=(
-            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."
+            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Occurrences must be at least 1 minute apart "
+            "on a schedule trigger, and at least 1 hour apart on a batch trigger."
         )
     )
     starts_at = serializers.DateTimeField(help_text="ISO 8601 datetime the schedule starts from.")
@@ -2827,14 +2828,19 @@ class HogFlowScheduleSerializer(serializers.Serializer):
             raise serializers.ValidationError({"starts_at": "Start date is required."})
 
         try:
-            sample = compute_next_occurrences(rrule_str, starts_at, timezone_str=timezone_str, count=2)
+            sample = compute_next_occurrences(rrule_str, starts_at, timezone_str=timezone_str, count=10)
         except (KeyError, ValueError):
             raise serializers.ValidationError({"timezone": "Invalid or unknown timezone."})
 
         if len(sample) == 0:
             raise serializers.ValidationError({"rrule": "Schedule produces no future occurrences."})
-        if len(sample) == 2 and (sample[1] - sample[0]) < timedelta(hours=1):
-            raise serializers.ValidationError({"rrule": "Schedules must run at most once per hour."})
+        # A batch run sends to a whole audience, so only a schedule trigger may run every minute.
+        if self.context.get("trigger_type") == "schedule":
+            min_gap, floor_text = timedelta(minutes=1), "once per minute"
+        else:
+            min_gap, floor_text = timedelta(hours=1), "once per hour"
+        if any(later - earlier < min_gap for earlier, later in zip(sample, sample[1:])):
+            raise serializers.ValidationError({"rrule": f"Schedules must run at most {floor_text}."})
 
         return data
 
@@ -7967,7 +7973,9 @@ class HogFlowViewSet(
                     )
                 self._require_audience_confirm_token(request, hog_flow)
 
-            serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
+            serializer = HogFlowScheduleSerializer(
+                data=request.data, context={**self.get_serializer_context(), "trigger_type": hog_flow.trigger_type}
+            )
             serializer.is_valid(raise_exception=True)
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
@@ -8006,7 +8014,10 @@ class HogFlowViewSet(
             return Response(status=204)
 
         serializer = HogFlowScheduleSerializer(
-            schedule, data=request.data, partial=True, context=self.get_serializer_context()
+            schedule,
+            data=request.data,
+            partial=True,
+            context={**self.get_serializer_context(), "trigger_type": hog_flow.trigger_type},
         )
         serializer.is_valid(raise_exception=True)
         if "variables" in serializer.validated_data:
