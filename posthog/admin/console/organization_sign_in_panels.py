@@ -2,7 +2,6 @@ import re
 from typing import Any, cast
 
 from django import forms
-from django.contrib.admin.models import CHANGE, LogEntry
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 
@@ -157,23 +156,10 @@ def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.F
 
 def change_member_emails(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | Page | None:
     assert isinstance(obj, Organization) and form is not None
-    results = _migration(obj, form).apply(notify=form.cleaned_data["notify"])
-    changed = 0
-    for result in results:
-        if not result.changes or result.user is None:
-            continue
-        changed += 1
-        # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin page shows the change.
-        LogEntry.objects.log_actions(
-            user_id=cast(User, request.user).pk,
-            queryset=[result.user],
-            action_flag=CHANGE,
-            change_message=(
-                f"Changed email from {result.current_email} to {result.new_email} "
-                f"for organization '{obj.name}'. Reason: {form.cleaned_data['reason']}"
-            ),
-            single_object=True,
-        )
+    results = _migration(obj, form).apply(
+        notify=form.cleaned_data["notify"], changed_by=cast(User, request.user), reason=form.cleaned_data["reason"]
+    )
+    changed = sum(1 for result in results if result.changes)
     skipped = len(results) - changed
     summary = f"Changed the email of {pluralize(changed, 'member')}."
     if skipped:

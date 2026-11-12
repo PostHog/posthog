@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.admin.models import LogEntry
 from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
@@ -116,6 +117,9 @@ class TestChangeMemberEmails(BaseTest):
         assert not UserSocialAuth.objects.filter(user=self.member).exists()
         assert not Session.objects.filter(user_id=self.member.pk).exists()
         assert send.call_args.args[1:] == ("Ada", "ada@old.example.com", "ada@new.example.com")
+        assert LogEntry.objects.filter(
+            object_id=str(self.member.pk), user_id=self.user.pk, change_message__contains="IdP migration"
+        ).exists()
 
     def test_a_new_email_on_the_line_wins_over_the_new_domain(self, _send: MagicMock) -> None:
         self._change("ada@old.example.com A.Lovelace@new.example.com")
@@ -136,6 +140,7 @@ class TestChangeMemberEmails(BaseTest):
             ("current_domain_not_verified", "grace@other.example.com"),
             ("new_email_taken_by_another_account", "grace@old.example.com taken@new.example.com"),
             ("new_email_taken_by_an_earlier_line", "grace@old.example.com ada@new.example.com"),
+            ("new_email_too_long", f"grace@old.example.com {'g' * 250}@new.example.com"),
             ("not_a_member", "outsider@old.example.com"),
             ("staff_account", "staff@old.example.com"),
         ]
@@ -155,6 +160,38 @@ class TestChangeMemberEmails(BaseTest):
         assert User.objects.filter(email=current_email).exists()
         self.member.refresh_from_db()
         assert self.member.email == "ada@new.example.com"
+
+    @parameterized.expand(
+        [
+            ("another_case_matches_neither_account", "GRACE@old.example.com", None),
+            ("the_stored_case_matches_that_account", "Grace@old.example.com", "mixed"),
+        ]
+    )
+    def test_emails_that_differ_only_by_case_are_separate_accounts(
+        self, _send: MagicMock, _name: str, typed: str, expected: str | None
+    ) -> None:
+        lower = self._create_user("grace@old.example.com")
+        mixed = self._create_user("grace.two@old.example.com")
+        User.objects.filter(pk=mixed.pk).update(email="Grace@old.example.com")
+
+        self._change(f"ada@old.example.com\n{typed}")
+
+        lower.refresh_from_db()
+        mixed.refresh_from_db()
+        assert lower.email == "grace@old.example.com"
+        assert mixed.email == ("grace@new.example.com" if expected == "mixed" else "Grace@old.example.com")
+
+    def test_a_failed_notice_keeps_the_history_and_the_rest_of_the_list(self, send: MagicMock) -> None:
+        send.side_effect = RuntimeError("broker down")
+        grace = self._create_user("grace@old.example.com")
+
+        response = self._change("ada@old.example.com\ngrace@old.example.com")
+
+        assert response.status_code == 200
+        for member in (self.member, grace):
+            member.refresh_from_db()
+            assert member.email.endswith("@new.example.com")
+            assert LogEntry.objects.filter(object_id=str(member.pk)).exists()
 
     def test_refuses_a_list_where_nothing_can_change(self, _send: MagicMock) -> None:
         response = self._preview("outsider@old.example.com")

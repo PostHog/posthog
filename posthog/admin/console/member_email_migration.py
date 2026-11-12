@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
 
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
+import structlog
 from rest_framework import serializers
 from social_django.models import UserSocialAuth
 
@@ -22,6 +24,10 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_email_change_emails
+
+logger = structlog.get_logger(__name__)
+
+AMBIGUOUS_MEMBER = "More than one member has this email in a different case. Type it exactly as the account stores it"
 
 
 def _domain(email: str) -> str:
@@ -83,14 +89,23 @@ class MemberEmailMigration:
 
     def plan(self) -> list[MemberEmailChange]:
         verified = self.verified_domains(self.organization)
-        members = {member.email.lower(): member for member in self.organization.members.all()}
+        # Legacy accounts can differ only by case, so one folded address can hold more than one member.
+        members: dict[str, list[User]] = {}
+        for member in self.organization.members.all():
+            members.setdefault(member.email.lower(), []).append(member)
         seen_users: set[int] = set()
         seen_targets: set[str] = set()
         changes = []
         for request in self.requested:
-            user = members.get(request.current_email.lower())
+            matches = members.get(request.current_email.lower(), [])
+            exact = [member for member in matches if member.email == request.current_email]
+            candidates = exact or matches
+            user = candidates[0] if len(candidates) == 1 else None
             new_email = self._new_email(request, user)
-            skip_reason = self._skip_reason(user, new_email, verified, seen_users, seen_targets)
+            if len(candidates) > 1:
+                skip_reason: str | None = AMBIGUOUS_MEMBER
+            else:
+                skip_reason = self._skip_reason(user, new_email, verified, seen_users, seen_targets)
             if user is not None:
                 seen_users.add(user.pk)
             if skip_reason is None and new_email is not None:
@@ -105,40 +120,69 @@ class MemberEmailMigration:
             )
         return changes
 
-    def apply(self, notify: bool) -> list[MemberEmailChange]:
+    def apply(self, *, notify: bool, changed_by: User, reason: str) -> list[MemberEmailChange]:
         """Runs the plan against the current state, so a member who changed since the preview is skipped."""
         results = []
         for change in self.plan():
             if not change.changes or change.user is None or change.new_email is None:
                 results.append(change)
                 continue
-            user = change.user
-            old_email = user.email
-            had_pending_email = bool(user.pending_email)
-            try:
-                with transaction.atomic():
-                    user.email = EmailNormalizer.normalize(change.new_email)
-                    user.pending_email = None
-                    user.save(update_fields=["email", "pending_email"])
-                    # Delete social auth so the identity at the old provider can't keep logging in.
-                    UserSocialAuth.objects.filter(user=user).delete()
-            except IntegrityError:
+            skip_reason = self._change_email(change.user.pk, change.current_email, change.new_email, changed_by, reason)
+            if skip_reason is not None:
                 results.append(
                     MemberEmailChange(
-                        current_email=old_email,
+                        current_email=change.current_email,
                         new_email=change.new_email,
-                        user=user,
-                        skip_reason="Another account already uses this email",
+                        user=change.user,
+                        skip_reason=skip_reason,
                     )
                 )
                 continue
-            revoke_other_sessions(user, keep_session_key=None)
-            if had_pending_email:
-                email_verification_code_verifier.invalidate(user)
+            revoke_other_sessions(change.user, keep_session_key=None)
+            if change.user.pending_email:
+                email_verification_code_verifier.invalidate(change.user)
             if notify:
-                send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
+                try:
+                    send_email_change_emails.delay(
+                        datetime.now(UTC).isoformat(), change.user.first_name, change.current_email, change.new_email
+                    )
+                except Exception:
+                    # The email already changed. A failed notice must not stop the rest of the list.
+                    logger.exception("member_email_change_notification_failed", user_id=change.user.pk)
             results.append(change)
         return results
+
+    def _change_email(
+        self, user_id: int, current_email: str, new_email: str, changed_by: User, reason: str
+    ) -> str | None:
+        """Changes one member's email. Returns the reason when it does not change."""
+        try:
+            with transaction.atomic():
+                # The plan read this member before earlier rows ran. Read it again under a lock, so a
+                # change the member made in between is not overwritten.
+                user = User.objects.select_for_update().get(pk=user_id)
+                if user.email != current_email or user.is_staff:
+                    return "The account changed while this ran"
+                user.email = EmailNormalizer.normalize(new_email)
+                user.pending_email = None
+                user.save(update_fields=["email", "pending_email"])
+                # Delete social auth so the identity at the old provider can't keep logging in.
+                UserSocialAuth.objects.filter(user=user).delete()
+                # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin
+                # page shows the change. It commits with the change, so no change is left without history.
+                LogEntry.objects.log_actions(
+                    user_id=changed_by.pk,
+                    queryset=[user],
+                    action_flag=CHANGE,
+                    change_message=(
+                        f"Changed email from {current_email} to {user.email} "
+                        f"for organization '{self.organization.name}'. Reason: {reason}"
+                    ),
+                    single_object=True,
+                )
+        except IntegrityError:
+            return "Another account already uses this email"
+        return None
 
     def _new_email(self, request: RequestedEmailChange, user: User | None) -> str | None:
         if request.new_email:
@@ -167,6 +211,8 @@ class MemberEmailMigration:
             reject_lookalike_email_characters(new_email)
         except (ValidationError, serializers.ValidationError):
             return "The new email is not a valid address"
+        if len(new_email) > (User._meta.get_field("email").max_length or 0):
+            return "The new email is too long"
         if _domain(new_email) not in verified:
             return f"The organization has not verified the new domain {_domain(new_email)}"
         if new_email == user.email:
