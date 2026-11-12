@@ -29,7 +29,11 @@ import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
-import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
+import {
+    SourceWebhookError,
+    getCustomHttpResponse,
+    isUnexpectedWebhookError,
+} from '../consumers/cdp-source-webhooks.consumer'
 import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
@@ -93,6 +97,19 @@ describe('getCustomHttpResponse', () => {
             makeResult({ httpResponse: { status: 400, body: { error: 'bad request' } } })
         )
         expect(result?.body).toEqual({ error: 'bad request' })
+    })
+})
+
+describe('isUnexpectedWebhookError', () => {
+    it.each([
+        ['a 400 rejection', new SourceWebhookError(400, 'Bad request'), false],
+        ['a 404 rejection', new SourceWebhookError(404, 'Not found'), false],
+        ['a 429 rejection', new SourceWebhookError(429, 'Disabled'), false],
+        ['a 499 rejection', new SourceWebhookError(499, 'Client closed'), false],
+        ['a 500 webhook error', new SourceWebhookError(500, 'Delayed processing not supported'), true],
+        ['any other error', new Error('connection refused'), true],
+    ])('classifies %s', (_name, error, expected) => {
+        expect(isUnexpectedWebhookError(error)).toBe(expected)
     })
 })
 
@@ -224,6 +241,21 @@ describe('SourceWebhooksConsumer', () => {
                     error: 'Not found',
                 })
                 expect(capture).not.toHaveBeenCalled()
+            })
+
+            it('should 500 and report the exception once when the lookup fails unexpectedly', async () => {
+                const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+                const failure = new Error('connection refused')
+                jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['hogFunctionManager'],
+                    'getHogFunction'
+                ).mockRejectedValueOnce(failure)
+
+                const res = await doPostRequest({})
+
+                expect(res.status).toEqual(500)
+                expect(capture).toHaveBeenCalledTimes(1)
+                expect(capture).toHaveBeenCalledWith(failure)
             })
 
             it('should 404 if the hog function is deleted', async () => {

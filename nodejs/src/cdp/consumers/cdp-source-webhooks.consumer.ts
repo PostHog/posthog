@@ -113,7 +113,7 @@ export class SourceWebhookError extends Error {
 }
 
 // A 4xx rejection is the API answering the caller as designed, so it stays out of error tracking.
-function isUnexpectedWebhookError(error: unknown): boolean {
+export function isUnexpectedWebhookError(error: unknown): boolean {
     return !(error instanceof SourceWebhookError && error.status < 500)
 }
 
