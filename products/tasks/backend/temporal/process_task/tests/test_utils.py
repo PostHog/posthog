@@ -2038,6 +2038,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.profile = "business_knowledge"
         self.task.save(update_fields=["profile"])
 
+    def _gitlab_task(self) -> None:
+        self.connect_personal_github()
+        self.task.repository_integration_id = 5
+        self.task.save(update_fields=["repository_integration_id"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -2052,6 +2057,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("signal_report_origin",),
             ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
+            ("gitlab_task",),
         ]
     )
     def test_nothing_is_promoted(self, case: str) -> None:
