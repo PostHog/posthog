@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -65,4 +65,50 @@ describe('TransactionalEmailsTable', () => {
             expect(row.querySelectorAll('[data-attr=button-add-tag]')).toHaveLength(editButtons)
         }
     )
+
+    it('says the emails failed to load instead of showing the first-run intro, and loads them on retry', async () => {
+        let templatesLoad: 'fails' | 'succeeds' = 'fails'
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () =>
+                    templatesLoad === 'fails'
+                        ? [500, { detail: 'A server error occurred.' }]
+                        : [
+                              200,
+                              {
+                                  count: 1,
+                                  next: null,
+                                  results: [
+                                      {
+                                          id: 'template-1',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-1',
+                                          has_draft: false,
+                                          tags: [],
+                                      },
+                                  ],
+                              },
+                          ],
+                '/api/projects/:team_id/transactional_code_emails/': [],
+                '/api/projects/:team_id/tags': [],
+            },
+        })
+        initKeaTests()
+        const { container } = render(
+            <Provider>
+                <TransactionalEmailsTable />
+            </Provider>
+        )
+
+        expect(
+            await screen.findByText("Your emails couldn't load. Check your connection and try again.")
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/Use them for emails a person triggers/)).not.toBeInTheDocument()
+
+        templatesLoad = 'succeeds'
+        fireEvent.click(container.querySelector('[data-attr=transactional-emails-templates-retry]')!)
+
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+        expect(screen.queryByText(/couldn't load/)).not.toBeInTheDocument()
+    })
 })

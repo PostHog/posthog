@@ -1473,6 +1473,16 @@ export interface ExternalDataJobSerializersApi {
     readonly destination_ids: readonly string[]
 }
 
+/**
+ * Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.
+ */
+export type UpdateWebhookInputsRequestApiInputs = { [key: string]: string }
+
+export interface UpdateWebhookInputsRequestApi {
+    /** Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank. */
+    inputs: UpdateWebhookInputsRequestApiInputs
+}
+
 export interface UpdateWebhookInputsResponseApi {
     /** Whether the inputs were saved and pushed to the external service. */
     success: boolean
