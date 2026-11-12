@@ -34,10 +34,12 @@ from posthog.temporal.tests.utils.events import (
     insert_sessions_in_clickhouse,
 )
 
+from products.batch_exports.backend.custom_events_schema import build_events_query_schema
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
     BackfillDetails,
+    BatchExportEventsCustomModel,
     BatchExportEventsModel,
     BatchExportHogQLModel,
     BatchExportModel,
@@ -159,6 +161,66 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize(
+    "backfill_days_ago,expected_table,reads_native_table",
+    [(3, "distributed_events_recent", False), (10, "events_json", True)],
+    ids=["legacy-recent-table", "native-table"],
+)
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
+    mock_clickhouse_client,
+    interval,
+    activity_environment,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    backfill_days_ago: int,
+    expected_table: str,
+    reads_native_table: bool,
+):
+    schema = await database_sync_to_async(build_events_query_schema)(
+        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
+    )
+    model = BatchExportEventsCustomModel(
+        schema=schema,
+        filters=[{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}],
+    )
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=model,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=(data_interval_end - dt.timedelta(days=backfill_days_ago)).isoformat(),
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        ),
+        destination_default_fields=None,
+    )
+
+    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    mock_clickhouse_client.expect_select_from_table(expected_table)
+    query = mock_clickhouse_client.calls[0].query
+    browser_field = re.search(r"SELECT\s+(.*?) AS browser,", query, re.DOTALL)
+    assert browser_field is not None, query
+    if reads_native_table:
+        assert "events.properties.`$browser`" in browser_field.group(1)
+        assert "events.properties.`$feature_flags`" in query
+        assert "JSONExtractRaw(events.properties" not in query
+    else:
+        assert browser_field.group(1).strip() == schema["fields"][0]["expression"]
+        assert "JSONExtractRaw(events.properties" in query
+        assert "$feature_flags" not in query
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)

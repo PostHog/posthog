@@ -482,11 +482,11 @@ class BatchExportsDebugger:
             filters_str = ""
             if filters is not None and len(filters) > 0:
                 filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters
+                    filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
                 )
 
             if native_source:
-                query = native_events_export_query(query_fields, filters_str)
+                query = native_events_export_query(fields + control_fields, filters_str)
             else:
                 if filters_str:
                     filters_str = f"AND {filters_str}"

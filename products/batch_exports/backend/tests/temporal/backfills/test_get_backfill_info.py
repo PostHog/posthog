@@ -1,9 +1,12 @@
+import re
 import uuid
 import typing as t
 import datetime as dt
 
 import pytest
 from unittest.mock import AsyncMock, patch
+
+from django.test.utils import override_settings
 
 from temporalio.testing import ActivityEnvironment
 
@@ -243,6 +246,38 @@ class TestGetBackfillInfoForEvents:
                 "query_type": "backfill_estimate",
             }
         )
+
+    @pytest.mark.parametrize(
+        "use_new_events_schema,table_pattern,filter_snippet",
+        [
+            (False, r"FROM\s+events\s+WHERE", "JSONExtractRaw(events.properties"),
+            (True, r"FROM\s+events_json AS events\s+WHERE", "events.properties.`$feature_flags`"),
+        ],
+        ids=["legacy-schema", "new-schema"],
+    )
+    async def test_query_reads_the_team_events_table_with_matching_filters(
+        self,
+        mock_clickhouse_client,
+        run_get_backfill_info,
+        create_batch_export,
+        use_new_events_schema: bool,
+        table_pattern: str,
+        filter_snippet: str,
+    ):
+        batch_export = await create_batch_export()
+        batch_export.filters = [{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}]
+        await batch_export.asave()
+
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+            await run_get_backfill_info(
+                batch_export,
+                start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+                end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+            )
+
+        query = mock_clickhouse_client.calls[0].query
+        assert re.search(table_pattern, query), query
+        assert filter_snippet in query, query
 
     async def test_query_caps_max_execution_time(
         self, mock_clickhouse_client, run_get_backfill_info, create_batch_export

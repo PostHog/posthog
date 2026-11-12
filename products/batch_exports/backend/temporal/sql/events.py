@@ -1,8 +1,11 @@
 """SQL for the events batch export model."""
 
+import typing
+from collections.abc import Sequence
 from string import Template
 
-from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
+if typing.TYPE_CHECKING:
+    from products.batch_exports.backend.service import BatchExportField
 
 SELECT_FROM_EVENTS_VIEW = Template(
     """
@@ -483,44 +486,47 @@ SETTINGS
 """
 
 
-# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
-# which is why the native query's SETTINGS carry it.
-_PROPERTIES_DOCUMENT = event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties")
-SERIALIZED_EVENTS_JSON_SOURCE = """(
-    SELECT *,
-        nullIf(JSONExtractRaw(properties, '$set'), '') AS set,
-        nullIf(JSONExtractRaw(properties, '$set_once'), '') AS set_once,
-        nullIf(JSONExtractRaw(properties, '$unset'), '') AS unset,
-        nullIf(JSONExtractRaw(properties, '$group_set'), '') AS group_set
-    FROM (
-        SELECT * REPLACE (
-            toString(uuid) AS uuid,
-            toString(person_id) AS person_id,
-            __PROPERTIES_DOCUMENT__ AS properties,
-            __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
-        )
-        FROM events_json
-    )
-)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
-    "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
-)
+# The native table exports `properties` and `person_properties` as stored:
+# - flags are sent in one `$feature_flags` map
+# - every declared path carries its default
+# - temporary properties are not exported, so the legacy `set`, `set_once`, `unset` and `group_set`
+#   fields are always empty.
+# - `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets
+#   `json_type_escape_dots_in_keys`, which is why the native query's SETTINGS carry it.
+_NATIVE_EVENTS_FIELD_EXPRESSIONS = {
+    "properties": "toJSONString(events.properties)",
+    "person_properties": "toJSONString(events.person_properties)",
+    "set": "CAST(NULL, 'Nullable(String)')",
+    "set_once": "CAST(NULL, 'Nullable(String)')",
+    "unset": "CAST(NULL, 'Nullable(String)')",
+    "group_set": "CAST(NULL, 'Nullable(String)')",
+}
 
 
 def native_events_export_query(
-    fields: str,
+    fields: Sequence["BatchExportField"],
     filters: str = "",
     *,
     order: str = "",
     s3_function: str | None = None,
 ) -> str:
+    """The export query for the native events table.
+
+    `filters` and any custom field expressions must be printed for the new events schema. They read the typed
+    `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
+    own `properties` and `person_properties` fields.
+    """
+    select = ", ".join(
+        f"{_NATIVE_EVENTS_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+        for field in fields
+    )
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
-SELECT {fields}
+SELECT {select}
 FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        *, timestamp AS _inserted_at
-    FROM {SERIALIZED_EVENTS_JSON_SOURCE} AS events
+        * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), timestamp AS _inserted_at
+    FROM events_json AS events
     WHERE team_id = {{team_id:Int64}}
         AND (%(interval_start)s::Nullable(DateTime64) IS NULL OR timestamp >= %(interval_start)s::Nullable(DateTime64))
         AND timestamp < {{interval_end:DateTime64}}

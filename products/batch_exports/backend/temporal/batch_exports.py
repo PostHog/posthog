@@ -234,6 +234,29 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
+def reads_native_events_table(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    use_new_events_schema: bool,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether `iter_records` reads the native events table, so its filters must be printed for the new schema."""
+    return (
+        use_new_events_schema
+        and select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+        )
+        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    )
+
+
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -285,14 +308,12 @@ def iter_records(
         events_to_include_array = []
 
     if fields is None:
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
+        select_fields = default_fields()
+    elif "_inserted_at" not in [field["alias"] for field in fields]:
+        select_fields = [*fields, BatchExportField(expression="_inserted_at", alias="_inserted_at")]
     else:
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+        select_fields = fields
+    query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
 
     base_query_parameters = {
         "team_id": team_id,
@@ -315,8 +336,16 @@ def iter_records(
             team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
         )
 
-    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
-        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
+    native_source = reads_native_events_table(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        use_new_events_schema=use_new_events_schema,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
+    )
+    if native_source:
+        query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
         if filters_str:
             filters_str = f"AND {filters_str}"

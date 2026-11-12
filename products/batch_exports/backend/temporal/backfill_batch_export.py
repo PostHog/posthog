@@ -21,6 +21,7 @@ from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -232,8 +233,12 @@ async def _get_backfill_info_for_events(
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
     log_comment: str,
+    use_new_events_schema: bool = False,
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for events model.
+
+    `filters_str` must be printed for the table this reads: the native events table with `use_new_events_schema`,
+    the legacy events table otherwise.
 
     Returns:
         A tuple of (min_timestamp, estimated_records_count).
@@ -255,7 +260,7 @@ async def _get_backfill_info_for_events(
         SELECT
             MIN(timestamp) as min_timestamp,
             count() as record_count
-        FROM events
+        FROM {"events_json AS events" if use_new_events_schema else "events"}
         WHERE team_id = %(team_id)s
         AND timestamp > '2000-01-01'
         AND (length(%(include_events)s) = 0 OR event IN %(include_events)s)
@@ -512,9 +517,10 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     # Build filters clause if filters are configured
     filters_str = ""
     extra_query_parameters: dict[str, typing.Any] = {}
+    reads_native_events = await sync_to_async(use_new_events_schema)(inputs.team_id)
     if batch_export.filters:
         filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
-            batch_export.filters, team_id=inputs.team_id
+            batch_export.filters, team_id=inputs.team_id, use_new_events_schema=reads_native_events
         )
         if filters_str:
             filters_str = f"AND {filters_str}"
@@ -532,6 +538,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 filters_str=filters_str,
                 extra_query_parameters=extra_query_parameters,
                 log_comment=log_comment,
+                use_new_events_schema=reads_native_events,
             )
         elif model == "persons":
             min_timestamp, record_count = await _get_backfill_info_for_persons(

@@ -46,12 +46,15 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
+    BatchExportEventsCustomModel,
     BatchExportField,
     BatchExportModelInput,
+    BatchExportSchema,
     afetch_last_run_records_completed,
     migrate_batch_export_model,
 )
@@ -394,6 +397,7 @@ async def insert_into_internal_stage_activity(
                 record_batch_model=record_batch_model,
                 model_name=model_name,
                 fields=fields,
+                custom_schema=model.schema if isinstance(model, BatchExportEventsCustomModel) else None,
                 filters=filters,
                 extra_query_parameters=extra_query_parameters,
                 full_range=full_range,
@@ -421,6 +425,7 @@ async def _stage_query_results(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
     extra_query_parameters: dict[str, typing.Any] | None,
     full_range: tuple[dt.datetime | None, dt.datetime | None],
+    custom_schema: BatchExportSchema | None = None,
     s3_staging_folder: S3StagingFolder,
     num_partitions: int,
     run_id: str | None = None,
@@ -445,6 +450,7 @@ async def _stage_query_results(
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             fields=fields,
+            custom_schema=custom_schema,
             filters=filters,
             destination_default_fields=inputs.destination_default_fields,
             exclude_events=inputs.exclude_events,
@@ -554,6 +560,7 @@ async def _get_query(
     data_interval_start: str | None,
     data_interval_end: str,
     fields: list[BatchExportField] | None = None,
+    custom_schema: BatchExportSchema | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
     num_partitions: int | None = None,
@@ -614,13 +621,6 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
         if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
@@ -655,15 +655,29 @@ async def _get_query(
             use_new_events_schema
         )(team_id)
 
+        # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
+        # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
+        # compile for it in `resolve_batch_exports_model` instead (see `prepare_serialized_export_query`).
+        if native_source and custom_schema is not None and (hogql_query := custom_schema.get("hogql_query")):
+            fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
+                team_id, custom_schema, hogql_query
+            )
+
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
         filters_str = ""
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters
+                filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
             )
 
         if native_source:
-            query = native_events_export_query(query_fields, filters_str, s3_function=s3_function)
+            query = native_events_export_query(fields + control_fields, filters_str, s3_function=s3_function)
         else:
+            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(
