@@ -809,7 +809,7 @@ Search queries retain the end of the current request and reserve space for recen
 References link to the retrieved sources; skill references fetch the latest published version by name.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
 The agent server sends the keys of references already injected in the conversation as `exclude`, and selection skips them, so a follow-up never repeats a reference the agent still holds.
-Compaction and a cleared conversation reset that list, and a resumed run rebuilds it from the restored history.
+Compaction and a cleared conversation reset that list, and a resumed run rebuilds it from the logged prompt requests.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
 Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
 Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
