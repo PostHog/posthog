@@ -23,8 +23,9 @@ Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess(
 | `src/features/live/hooks.ts`                | `useLiveFeed`: the data source (demo or project), both pollers, users online fallback, error events. `useLiveUsersOnline`: the Live chip's count |
 | `src/features/live/LiveScreen.tsx`          | `LiveScreen({ from, chrome })` and its body, title, status line and paused banner                                                                |
 | `src/features/live/LiveMapCard.tsx`         | The "Where visitors are" card                                                                                                                    |
-| `src/features/live/LiveCountriesScreen.tsx` | Visitors by country (`app/views/live-countries.tsx`) and its `LiveCountryList`                                                                   |
-| `src/features/live/liveWorldStore.ts`       | Live's last countries and Pause state, for Visitors by country                                                                                   |
+| `src/features/live/LiveCountriesScreen.tsx` | Visitors by country (`app/views/live-countries.tsx`)                                                                                             |
+| `src/features/live/LiveCountryList.tsx`     | The country list of Visitors by country                                                                                                          |
+| `src/features/live/liveWorldStore.ts`       | Live's countries and Pause state, written by the map card as it opens Visitors by country                                                        |
 | `src/features/live/map/`                    | `WorldMap` (Skia; `WorldMap.web.tsx` loads CanvasKit), `mapColors`, `mapGeometry` (fit and tap hit testing), the generated `worldPaths.ts`       |
 | `src/ui/LiveDot.tsx`                        | The pulsing dot, shared with the Live chip                                                                                                       |
 | `src/demo/live.ts`                          | The seeded demo traffic                                                                                                                          |
@@ -68,6 +69,7 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 `LiveController` runs one poller for the 30-second read and one for the 10-second stats read.
 
 - **Reads only while seen.** A poller reads when the screen is focused, the app is in the foreground and the user has not paused. Losing focus stops at once and aborts the read in flight. Live never polls behind another screen.
+- **Focus back.** Getting the focus back reads at once when the last data is older than the read interval (30 seconds), or after a failed read. Otherwise the next read comes when that interval ends, so going back and forth between Live and a screen it pushes does not send a full read each time.
 - **Background grace.** When the app leaves the foreground, reads stop after 2 seconds, like the web's hidden-tab grace. Coming back within 2 seconds changes nothing. Coming back later reads at once, then polls again.
 - **Timed from the end of a read**, so a slow read never overlaps the next.
 - **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The status line still says when the last update came. The stats read keeps its 10-second interval.
@@ -77,9 +79,9 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 Visitors by country does not run Live's read. Pushing it takes the focus from Live, so Live's poller stops at once, and the screen runs its own poller (`useLiveWorld`) with the `geo` job alone and the same rules: 30 seconds, 60 after 10 minutes, focus, background grace and backoff.
-It paints Live's last countries first (`liveWorldStore`), then reads `geo` at once and every interval after.
+The map card writes Live's countries and Pause state to `liveWorldStore` as it pushes the screen. Pause cannot change while the screen covers Live. The screen paints those countries first, then reads `geo` at once and every interval after, and clears the store when it closes.
 It follows Live's Pause: while Live is paused it reads nothing and says "Paused". It has no Pause button or pull to refresh of its own.
-Back to Live reads Live's jobs at once, as any return to the screen does.
+Back on Live, the focus rule above applies: Live reads at once only when its data is older than 30 seconds.
 
 ## Budget
 
@@ -109,11 +111,12 @@ Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the
 
 `/views/live-countries[?country={ISO code}]` (`liveCountriesHref`), pushed from the map card with Back only.
 The title block is the "Live" eyebrow, "Visitors by country", and a status line with the live dot: "60 visitors in 20 countries · last 30 minutes", "Paused · …", "Reconnecting…" or "Loading…".
-The map is full width, with a caption under it: the leader and "Tap a country", or the selected country ("🇦🇺 Australia · 5 visitors (6.8%)") with Clear.
+The map is full width, up to 40% of the window height and centered, so in landscape the stuck map leaves room for the list. A caption sits under it: the leader and "Tap a country", or the selected country ("🇦🇺 Australia · 5 visitors (6.8%)") with Clear.
 The map and caption stick under the chrome while the list scrolls, so a selected row and its outline stay on screen together.
 The list (`live-countries-list`) has every country: flag, name, a blue bar scaled to the leading country, and "13 (21.7%)". Rows slide when ranks change, like the top pages rows.
 A tap on a country with visitors selects it: an `ink` outline on the map, a tinted row, and the list scrolls the row into view. A tap on a row selects it on the map. A tap on the sea or on a country without visitors does nothing.
-The map tries points up to 12 pt around a tap, so small countries can be tapped.
+A tap on the sea, or inside a country smaller than 12 pt, also tries points up to 12 pt around it, so small countries can be tapped.
+A `country` in the route that is not in the screen's first countries selects nothing.
 Loading shows the skeleton, a first read that fails shows "Couldn't load live data" with Try again, and no countries say "No country data in the last 30 minutes".
 
 ### Map data
@@ -143,7 +146,7 @@ The chart also sends the shared `mobile_chart_*` events with the `view` context.
 ## Demo mode
 
 `src/demo/live.ts` writes invented hedgebox.net traffic from a seeded generator, and answers each job in the shape of its query, so demo mode runs the same adapters.
-Visitors come and go, page weights drift so ranks swap now and then, and an event arrives every 1.2 to 3.6 seconds. Visitors come from 20 countries, so the map shows 15 or more at a time.
+Visitors come and go, page weights drift so ranks swap now and then, and an event arrives every 1.2 to 3.6 seconds. Visitors come from 21 countries, so the map shows 15 or more at a time.
 Events are written up to the moment of each read, so nothing moves while paused, and the next read catches up.
 One simulator lives for the app session, so reopening Live continues the same traffic.
 Users online comes from the HogQL count in demo mode. Watch recording and View person on web are not available in the demo.

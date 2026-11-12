@@ -5,7 +5,7 @@ import { type GestureResponderEvent, Pressable, StyleSheet, View } from 'react-n
 import { useColors } from '@/ui/theme'
 
 import { mapFill } from './mapColors'
-import { fitMap, type MapCrop, mapAspectRatio, pickCountry, toMapPoint, WORLD_CROP } from './mapGeometry'
+import { fitMap, mapTransform, pickCountry, toMapPoint, WORLD_ASPECT_RATIO } from './mapGeometry'
 import { WORLD_PATHS } from './worldPaths'
 
 /** How far from a tap, in points, a small country still counts as tapped. */
@@ -19,7 +19,6 @@ export interface WorldMapProps {
     selected?: string | null
     /** Gets the country with visitors under a tap, or null when the tap hits none. No handler, no tap target. */
     onSelect?: (code: string | null) => void
-    crop?: MapCrop
     testID?: string
 }
 
@@ -57,18 +56,18 @@ function tapPoint(event: GestureResponderEvent): { x: number; y: number } | null
 
 /**
  * The world in Skia: land in the empty segment color, each country with visitors in blue by its share of the leader's
- * visitors, as the web's live map draws it. Memoized, so a read that changes nothing else repaints the map once.
+ * visitors, as the web's live map draws it. Memoized, so only a new read or a new selection repaints it; the 10-second
+ * stats updates and the read state changes on the screen around it do not.
  */
 export const WorldMapCanvas = memo(function WorldMapCanvas({
     counts,
     selected = null,
     onSelect,
-    crop = WORLD_CROP,
     testID,
 }: WorldMapProps): ReactElement {
     const colors = useColors()
     const [width, setWidth] = useState(0)
-    const fit = useMemo(() => fitMap(crop, width), [crop, width])
+    const fit = useMemo(() => fitMap(width), [width])
     const { land, countries } = worldShapes()
     const fills = useMemo(() => {
         const max = Math.max(0, ...Object.values(counts))
@@ -84,20 +83,14 @@ export const WorldMapCanvas = memo(function WorldMapCanvas({
         if (!onSelect || !point || fit.scale <= 0) {
             return
         }
-        const candidates = fills.map(({ code, path }): [string, SkPath] => [code, path])
-        onSelect(pickCountry(candidates, toMapPoint(fit, point.x, point.y), TAP_SLOP / fit.scale))
+        const hasVisitors = (code: string): boolean => (counts[code] ?? 0) > 0
+        onSelect(pickCountry(countries, hasVisitors, toMapPoint(fit, point.x, point.y), TAP_SLOP / fit.scale))
     }
 
     const drawing =
         width > 0 ? (
             <Canvas style={StyleSheet.absoluteFill}>
-                <Group
-                    transform={[
-                        { translateX: -crop.x * fit.scale },
-                        { translateY: -crop.y * fit.scale },
-                        { scale: fit.scale },
-                    ]}
-                >
+                <Group transform={mapTransform(fit)}>
                     <Path path={land} color={colors.segmentEmpty} />
                     {fills.map(({ code, path, color }) => (
                         <Path key={code} path={path} color={color} />
@@ -117,14 +110,16 @@ export const WorldMapCanvas = memo(function WorldMapCanvas({
         ) : null
     return (
         <View
-            style={{ aspectRatio: mapAspectRatio(crop) }}
+            style={{ aspectRatio: WORLD_ASPECT_RATIO }}
             onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             testID={testID}
         >
             {onSelect ? (
-                <Pressable onPress={onPress} style={StyleSheet.absoluteFill}>
+                // Not focusable: the map is hidden from assistive tech, and the card and the list rows are the keyboard
+                // targets. Enter on the map would carry no tap point anyway.
+                <Pressable onPress={onPress} focusable={false} style={StyleSheet.absoluteFill}>
                     {drawing}
                 </Pressable>
             ) : (

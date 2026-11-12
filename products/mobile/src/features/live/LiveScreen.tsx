@@ -206,7 +206,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                     pageviews={activity?.pageviews ?? null}
                     onAbout={(text) => toasts.show(text)}
                 />
-                <LiveMapCard world={snapshot.world} />
+                <LiveMapCard world={snapshot.world} paused={feed.paused} />
                 <LiveActivityCard activity={activity} />
                 <LiveRankedTable
                     title="Top pages (last 30 minutes)"

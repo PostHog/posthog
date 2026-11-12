@@ -40,7 +40,7 @@ import {
     liveStatus,
 } from './liveController'
 import { type LiveQueryRunner, readLiveSnapshot, readLiveWorld } from './liveRead'
-import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
+import { useLiveWorldShare } from './liveWorldStore'
 
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
@@ -347,12 +347,6 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         }
     }, [paused, stats.controller])
 
-    const world = main.state.data?.world ?? null
-    useEffect(() => {
-        useLiveWorldShare.setState({ world, paused })
-    }, [world, paused])
-    useEffect(() => clearLiveWorldShare, [])
-
     // Keep one message per failure streak, including when polling pauses and resumes.
     const failing = main.state.failures > 0
     const hasData = main.state.data !== null
@@ -426,8 +420,9 @@ export interface LiveWorldFeed {
 }
 
 /**
- * The countries screen's data. It starts from Live's last countries and reads the `geo` job alone on Live's cadence,
- * while Live's own read is stopped because Live lost focus. It reads nothing while Live is paused.
+ * The countries screen's data. It starts from the countries Live's map card shared and reads the `geo` job alone on
+ * Live's cadence, while Live's own read is stopped because Live lost focus. It reads nothing while Live is paused.
+ * Mount it keyed by the session and project identity, like `useLiveFeed`.
  */
 export function useLiveWorld(): LiveWorldFeed {
     const mode = useDataMode()
@@ -450,24 +445,15 @@ export function useLiveWorld(): LiveWorldFeed {
         slowdown: READ_SLOWDOWN,
     })
     const world = poller.state.data ?? shared.world
-    const failing = poller.state.failures > 0
-    let status: LiveStatus = 'live'
-    if (shared.paused) {
-        status = 'paused'
-    } else if (failing) {
-        status = 'reconnecting'
-    } else if (world === null) {
-        status = 'loading'
-    }
     const { controller } = poller
-    const retry = useCallback(() => {
+    const retry = useCallback((): void => {
         void controller?.refresh()
     }, [controller])
     return {
         world,
-        status,
+        status: liveStatus({ ...poller.state, data: world, paused: shared.paused }),
         screenActive: poller.screenActive,
-        loadFailed: failing && world === null,
+        loadFailed: poller.state.failures > 0 && world === null,
         reading: poller.state.reading,
         retry,
     }

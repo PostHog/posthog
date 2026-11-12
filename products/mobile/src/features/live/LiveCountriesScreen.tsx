@@ -1,5 +1,5 @@
-import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
-import { type LayoutChangeEvent, Text, View } from 'react-native'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
+import { type LayoutChangeEvent, Text, useWindowDimensions, View } from 'react-native'
 import Animated, {
     scrollTo,
     useAnimatedRef,
@@ -34,14 +34,18 @@ import { LiveCountryList } from './LiveCountryList'
 import { LIVE_ROW_HEIGHT } from './LiveSlidingRow'
 import type { LiveStatus } from './liveController'
 import { countriesStatusText, countryText } from './liveFormat'
+import { clearLiveWorldShare } from './liveWorldStore'
+import { WORLD_ASPECT_RATIO } from './map/mapGeometry'
 import { WorldMap } from './map/WorldMap'
 import { rowScrollTarget } from './rowScroll'
 
 const TITLE = 'Visitors by country'
+/** The map's largest height as a share of the window, so in landscape the stuck map leaves room for the list. */
+const MAP_MAX_HEIGHT_SHARE = 0.4
 
 /** Live's countries on a large map and as a list. A tap on the map or on a row selects the country in both. */
 export function LiveCountriesScreen({ country }: { country: string | null }): ReactElement {
-    const { access } = useViewsContext()
+    const { access, identity } = useViewsContext()
     const scrollTitle = useScrollTitle(TITLE)
     const back = useViewBack()
     return (
@@ -50,7 +54,7 @@ export function LiveCountriesScreen({ country }: { country: string | null }): Re
             chrome={<ScreenChrome onBack={back} backTestID="view-back" title={scrollTitle.title} />}
         >
             {access.state === 'ok' ? (
-                <CountriesBody initial={country} scrollTitle={scrollTitle} />
+                <CountriesBody key={identity} initial={country} scrollTitle={scrollTitle} />
             ) : (
                 <ViewsReauthState access={access} />
             )}
@@ -76,14 +80,12 @@ function CountriesBody({
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { height: windowHeight } = useWindowDimensions()
     const feed = useLiveWorld()
     const { world } = feed
     const [selected, setSelected] = useState<string | null>(initial)
-    const counts = useMemo(
-        () => Object.fromEntries((world?.countries ?? []).map((entry) => [entry.key, entry.count])),
-        [world]
-    )
     const selectedRow = world?.countries.find((entry) => entry.key === selected) ?? null
+    useEffect(() => clearLiveWorldShare, [])
 
     const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
     // The map block's top padding fills the chrome's bottom padding, so no row shows between the chrome and the map.
@@ -102,9 +104,12 @@ function CountriesBody({
 
     const layouts = useRef<Layouts>({ viewport: 0, content: 0, mapBlock: null, list: null, rows: null })
     const pendingScroll = useRef<string | null>(initial)
+    // Read through a ref, so the scroll and select callbacks stay the same across reads.
+    const worldRef = useRef(world)
+    worldRef.current = world
     const scrollToRow = useCallback(
-        (code: string) => {
-            const index = world?.countries.findIndex((entry) => entry.key === code) ?? -1
+        (code: string): void => {
+            const index = worldRef.current?.countries.findIndex((entry) => entry.key === code) ?? -1
             const { viewport, content, mapBlock, list, rows } = layouts.current
             if (index < 0 || viewport === 0 || !mapBlock || list === null || rows === null) {
                 pendingScroll.current = code
@@ -129,7 +134,7 @@ function CountriesBody({
                 scrollTo(scrollRef, 0, y, true)
             })
         },
-        [world, scrollY, stickTop, scrollRef]
+        [scrollY, stickTop, scrollRef]
     )
     const retryPendingScroll = (): void => {
         if (pendingScroll.current) {
@@ -137,9 +142,23 @@ function CountriesBody({
         }
     }
 
+    // The route's country is pending until its row can scroll into view. The first countries without it end that.
+    const routeChecked = useRef(false)
+    useEffect(() => {
+        if (!world || routeChecked.current) {
+            return
+        }
+        routeChecked.current = true
+        if (initial && !world.countries.some((entry) => entry.key === initial)) {
+            pendingScroll.current = null
+            setSelected((current) => (current === initial ? null : current))
+        }
+    }, [world, initial])
+
     const select = useCallback(
-        (code: string, source: LiveCountrySource) => {
+        (code: string, source: LiveCountrySource): void => {
             trackLiveCountrySelected({ source })
+            pendingScroll.current = null
             setSelected(code)
             if (source === 'map') {
                 scrollToRow(code)
@@ -147,9 +166,9 @@ function CountriesBody({
         },
         [scrollToRow]
     )
-    // Stable across renders, so the memoized map repaints only when the counts or the selection change.
+    // Stable across reads, so the memoized map repaints only when the counts or the selection change.
     const onMapSelect = useCallback(
-        (code: string | null) => {
+        (code: string | null): void => {
             if (code) {
                 select(code, 'map')
             }
@@ -158,6 +177,7 @@ function CountriesBody({
     )
     const clear = (): void => {
         trackLiveCountryCleared()
+        pendingScroll.current = null
         setSelected(null)
     }
 
@@ -192,12 +212,19 @@ function CountriesBody({
         content = (
             <>
                 <Animated.View style={[styles.mapBlock, sticky]} onLayout={onMapBlockLayout}>
-                    <WorldMap
-                        counts={counts}
-                        selected={selectedRow ? selected : null}
-                        onSelect={onMapSelect}
-                        testID="live-countries-map"
-                    />
+                    <View
+                        style={[
+                            styles.mapFrame,
+                            { maxWidth: windowHeight * MAP_MAX_HEIGHT_SHARE * WORLD_ASPECT_RATIO },
+                        ]}
+                    >
+                        <WorldMap
+                            counts={world.counts}
+                            selected={selectedRow ? selected : null}
+                            onSelect={onMapSelect}
+                            testID="live-countries-map"
+                        />
+                    </View>
                     <MapCaption world={world} selected={selectedRow} onClear={clear} />
                 </Animated.View>
                 <View
@@ -231,6 +258,7 @@ function CountriesBody({
             scrollEventThrottle={16}
             onLayout={(event) => {
                 layouts.current.viewport = event.nativeEvent.layout.height
+                retryPendingScroll()
             }}
             onContentSizeChange={(_width, height) => {
                 layouts.current.content = height
@@ -341,6 +369,10 @@ const useStyles = createStyles(({ colors }) => ({
         minHeight: 18,
         color: colors.tertiary,
         fontVariant: ['tabular-nums'],
+    },
+    mapFrame: {
+        width: '100%',
+        alignSelf: 'center',
     },
     mapBlock: {
         zIndex: 1,

@@ -175,7 +175,11 @@ export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveB
 export function liveWorld(response: unknown): LiveWorld {
     const counted = breakdownCounts(response)
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
-    return { total, countries: counted.map((entry) => countryRow(entry, total)) }
+    return {
+        total,
+        countries: counted.map((entry) => countryRow(entry, total)),
+        counts: Object.fromEntries(counted.map(({ key, count }) => [key, count])),
+    }
 }
 
 const EVENT_LABELS: Record<string, string> = {

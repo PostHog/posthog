@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useMemo } from 'react'
+import { type ReactElement, useCallback } from 'react'
 import { Text, View } from 'react-native'
 
 import { liveCountriesHref } from '@/features/views/viewRoutes'
@@ -7,30 +7,34 @@ import { plural } from '@/model/adapters/text'
 import type { LiveWorld } from '@/model/live'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { createStyles, useColors } from '@/ui/theme'
-import { type } from '@/ui/tokens'
+import { iconSizes, type } from '@/ui/tokens'
 
 import { trackLiveMapOpened } from './analytics'
 import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
 import { countryText } from './liveFormat'
+import { useLiveWorldShare } from './liveWorldStore'
 import { WorldMap } from './map/WorldMap'
 
 const TITLE = 'Where visitors are'
 
+interface LiveMapCardProps {
+    world: LiveWorld | null
+    /** Live's Pause. Visitors by country follows it, and Pause cannot change while that screen covers Live. */
+    paused: boolean
+}
+
 /** Visitors per country on a world map. The card, or a country on its map, opens Visitors by country. */
-export function LiveMapCard({ world }: { world: LiveWorld | null }): ReactElement {
+export function LiveMapCard({ world, paused }: LiveMapCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const counts = useMemo(
-        () => Object.fromEntries((world?.countries ?? []).map((country) => [country.key, country.count])),
-        [world]
-    )
     const openCountry = useCallback(
-        (code: string | null) => {
+        (code: string | null): void => {
+            useLiveWorldShare.setState({ world, paused })
             trackLiveMapOpened({ from: code ? 'map_country' : 'card' })
             router.push(liveCountriesHref(code))
         },
-        [router]
+        [router, world, paused]
     )
 
     const leader = world?.countries[0]
@@ -52,9 +56,9 @@ export function LiveMapCard({ world }: { world: LiveWorld | null }): ReactElemen
                     <Text style={styles.title}>{TITLE}</Text>
                     <Text style={styles.meta}>{countries} · last 30 minutes</Text>
                 </View>
-                <ChevronRightIcon size={15} color={colors.tertiary} />
+                <ChevronRightIcon size={iconSizes.small} color={colors.tertiary} />
             </View>
-            <WorldMap counts={counts} onSelect={openCountry} testID="live-map-canvas" />
+            <WorldMap counts={world.counts} onSelect={openCountry} testID="live-map-canvas" />
             <Text style={styles.caption} numberOfLines={1}>
                 {countryText(leader)} leads with {plural(leader.count, 'visitor')}
             </Text>

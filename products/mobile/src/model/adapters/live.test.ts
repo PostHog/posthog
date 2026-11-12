@@ -147,6 +147,7 @@ describe('live adapters', () => {
         expect(world.total).toBe(44)
         expect(world.countries.map((row) => row.key)).toEqual(['US', 'GB', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE'])
         expect(world.countries.at(-1)).toMatchObject({ label: 'Sweden', flag: '🇸🇪', count: 2 })
+        expect(world.counts).toMatchObject({ US: 9, SE: 2 })
     })
 
     test('events come newest first with a readable name and the most specific place', () => {

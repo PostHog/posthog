@@ -48,6 +48,8 @@ export interface LiveBreakdown {
 export interface LiveWorld {
     total: number
     countries: LiveBreakdownRow[]
+    /** Visitors per ISO 3166-1 alpha-2 code, as the map reads them. */
+    counts: Readonly<Record<string, number>>
 }
 
 export type LiveEventKind = 'pageview' | 'screen' | 'other'
