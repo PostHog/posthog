@@ -32,6 +32,8 @@ export interface LocalToolsMeta extends LocalToolGateMeta {
   baseBranch?: string;
 }
 
+const GITLAB_ENV_VARS = ["POSTHOG_GIT_PROVIDER", "GITLAB_TOKEN"] as const;
+
 function toMcpServerStdio(
   ctx: LocalToolCtx,
   enabledNames: string[],
@@ -56,6 +58,12 @@ function toMcpServerStdio(
         value,
       })),
     );
+  }
+  // Codex gives an MCP child only a small default env, so the GitLab tool
+  // reads its credentials from these entries.
+  for (const name of GITLAB_ENV_VARS) {
+    const value = process.env[name];
+    if (value) env.push({ name, value });
   }
   return {
     name: LOCAL_TOOLS_MCP_NAME,

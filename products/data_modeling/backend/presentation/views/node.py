@@ -626,6 +626,18 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
+_LAST_RUN_FAILED = models.Q(_latest_job_status=DataModelingJob.Status.FAILED) | models.Q(
+    _latest_job_status__isnull=True, properties__system__last_run_status=DataModelingJob.Status.FAILED
+)
+_SERVING_SUSPENDED = models.Q(properties__system__suspended__has_key=DataModelingJobEngine.CLICKHOUSE)
+
+
+class NodeAttentionCountSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
+    )
+
+
 class LineageResponseSerializer(serializers.Serializer):
     nodes = NodeSerializer(many=True, help_text="Every node reachable from the requested one, plus the node itself.")
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
@@ -943,6 +955,14 @@ class NodeViewSet(
         return response.Response(
             LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
+
+    @extend_schema(responses={200: NodeAttentionCountSerializer})
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def attention_count(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """How many of the models the list shows have failed their last run or are suspended."""
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        count = self.get_queryset().filter(_LAST_RUN_FAILED | _SERVING_SUSPENDED).count()
+        return response.Response(NodeAttentionCountSerializer({"count": count}).data)
 
     @extend_schema(
         request=None,
