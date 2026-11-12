@@ -69,7 +69,7 @@ type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enf
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
 
 // Like the SES global list, an entry expires so a recovered mailbox is retried; a team's own list stays permanent.
-// A delivery newer than the last bounce ends the entry at once. A tie goes to the bounce.
+// A delivery at the same instant as the last bounce does not prove the bounce is stale, so a tie stays held.
 const GLOBAL_HARD_BOUNCE_IS_HELD = `last_bounced_at + LEAST(
     GREATEST(last_bounced_at - first_bounced_at, INTERVAL '1 day'), INTERVAL '14 days') > NOW()
     AND (last_delivered_at IS NULL OR last_delivered_at <= last_bounced_at)`
@@ -384,7 +384,6 @@ export class EmailSuppressionService {
         const valueClauses = identifiers.map(
             (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
         )
-        // A bounce older than the last delivery changes nothing, because the delivery proved the address exists.
         // The first bounce after a delivery starts a new run, so the hold restarts from it.
         try {
             const result = await this.postgres.query(
@@ -554,11 +553,8 @@ export class EmailSuppressionService {
             return
         }
 
-        // A delivery proves the address exists. The row keeps the newest delivery time rather than going away,
-        // so a bounce that is older but processed later cannot block the address again. An entry only ends
-        // when the delivery is newer than its last bounce, so a late, older delivery leaves a fresh bounce held.
-        // `previous` locks each row and reads it before this update, so `cleared` counts only the entries this
-        // delivery ended, also when another delivery for the address commits first.
+        // The row keeps the delivery time instead of being deleted, so an older bounce processed later cannot block
+        // the address again. `previous` locks each row first, so concurrent deliveries count a cleared entry once.
         try {
             const result = await this.postgres.query<{ cleared: boolean }>(
                 PostgresUse.COMMON_WRITE,

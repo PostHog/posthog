@@ -566,8 +566,7 @@ describe('EmailSuppressionService', () => {
 
         const HOUR = 60 * 60_000
         const DAY = 24 * HOUR
-        // Each step is an SES event, in the order the webhook processes it, stamped with how long ago SES saw it.
-        // A bounce with no age has no SES timestamp. A tie between a bounce and a delivery goes to the bounce.
+        // Steps run in processing order. Each age is how long ago SES saw the event, and no age means no SES timestamp.
         it.each([
             [
                 'a delivery newer than the bounce',
