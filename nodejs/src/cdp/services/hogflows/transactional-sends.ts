@@ -134,8 +134,6 @@ export class TransactionalSends {
             }
         }
         if (idempotencyKey) {
-            // Checked before the quota, so a retry of a send that went out gets its answer even
-            // when the team has hit its quota since.
             stages.start('idempotency')
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
             switch (reservation.status) {
@@ -212,7 +210,6 @@ export class TransactionalSends {
             }
             cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
         } catch (error) {
-            // Nothing was queued, so the caller's retry with the same key must be able to send.
             await releaseKey()
             throw error
         }
