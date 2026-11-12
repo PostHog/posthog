@@ -87,12 +87,16 @@ const ROOTS = [
         root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-10-12: 2.86 MiB eager output = 2.06 MiB
-        // JS (615 files) + 0.80 MiB stable CSS.
-        // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 3_180_000,
+        // `js`), so this is the whole JS cost of /login. 2026-11-11: 2.85 MiB eager output = 1.99 MiB
+        // JS (537 files) + 0.86 MiB stable CSS. ~1.5% headroom.
+        budgetBytes: 3_033_000,
         forbidden: [
             'node_modules/monaco-editor/',
+            // No logged-out page renders a table or a sortable multi-select. A hit means a module on the
+            // App path imports from the `@posthog/lemon-ui` barrel, which ships every Lemon component.
+            // Import the component from its own folder, for example `lib/lemon-ui/LemonButton`.
+            'src/lib/lemon-ui/LemonTable/LemonTable.tsx',
+            'node_modules/@dnd-kit/',
             // Authenticated-only code. Either of these on the App path means a component that
             // logged-out pages render has grown a static import into the logged-in app.
             'src/layout/navigation-3000/navigationLogic.tsx',

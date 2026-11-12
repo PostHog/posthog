@@ -5,7 +5,7 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from datetime import timedelta
@@ -421,9 +421,9 @@ def _run_widget_query(
                 "result": result,
                 "error": None,
             }
-        except Exception:
+        except Exception as exc:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
-            slo.fail()
+            slo.fail_with_error(exc)
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
@@ -505,6 +505,16 @@ def tile_insight_prefetches() -> list[Prefetch]:
             to_attr="_prefetched_alerts",
         ),
     ]
+
+
+def tile_insights_context(tiles: Iterable[DashboardTile]) -> dict[str, Any]:
+    """Serializer context that lets the insight serializer read the alerts of every tile's insight at once,
+    rather than one insight per tile. A tile may serialize with a shallow copy of the context, so the shared
+    cache must exist before the copies are made."""
+    return {
+        "insights_in_response": [tile.insight for tile in tiles if tile.insight is not None],
+        "_native_insight_alerts": {},
+    }
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -3024,7 +3034,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
             # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
             # lru_cache never leaks a result from one tile to another.
-            tile_context = self.context.copy()
+            tile_context = {**self.context, **tile_insights_context(sorted_tiles)}
             reused_serializer = DashboardTileSerializer(context=tile_context)
             for order, tile in enumerate(sorted_tiles):
                 tile_context.update({"dashboard_tile": tile, "order": order})
@@ -3477,6 +3487,8 @@ class DashboardsViewSet(
                 tile.layouts.get(layout_size, {}).get("x", 100),
             ),
         )
+
+        context.update(tile_insights_context(sorted_tiles))
 
         # Each tile's query cache key reads the team's analytics configs. Read them here with the other
         # database reads, so that the tiles reuse the configs this Team instance loaded and the stream

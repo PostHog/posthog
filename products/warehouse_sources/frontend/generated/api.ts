@@ -74,6 +74,7 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
@@ -880,14 +881,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -901,14 +899,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1202,7 +1197,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1211,7 +1206,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }

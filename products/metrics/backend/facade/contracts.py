@@ -215,6 +215,9 @@ class MetricSeries:
     # Bucket upper edges a histogram quantile was estimated from, merged over every
     # point. The estimate can be anywhere between two edges. None for other aggregations.
     histogram_bounds: tuple[float, ...] | None = None
+    # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
+    # with different buckets were combined. None for other aggregations.
+    histogram_layout_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,6 +10,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
+import { AuditExporter, captureSender } from './audit/exporter'
 import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
@@ -276,6 +277,9 @@ export class CredentialsServer {
             secrets: () => mount.current(),
             integrations: () => this.integrations,
         }
+        if (this.pool) {
+            this.startAuditMaintenance(this.pool)
+        }
         const app = createApp(appOptions)
 
         if (!this.secretsReady) {
@@ -315,6 +319,15 @@ export class CredentialsServer {
         this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
 
         this.setupProcessListeners()
+    }
+
+    private startAuditMaintenance(pool: Pool): void {
+        const { auditExport } = this.config
+        if (auditExport) {
+            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
+            this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
+            this.cancelTimers.push(() => exporter.stop())
+        }
     }
 
     async stop(signal: string, error?: Error): Promise<void> {
