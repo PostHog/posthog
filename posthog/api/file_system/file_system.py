@@ -1513,6 +1513,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for item in items:
             refs_by_type.setdefault((self.team.id, item["type"]), set()).add(item["ref"])
         prepare_file_system_objects(request, refs_by_type)
+        # Refuse before anything reads an object's creator or asks the flag service about them, so a refused
+        # restore takes the same steps whether or not the object exists. The transaction below checks again.
+        for item in items:
+            self._authorize_restore(item)
         # A restore into a folder files its object again on save, which asks the flag service for the
         # object's creator. Ask it here, before the restore locks the object.
         creator_ids: set[int] = set()
@@ -1528,14 +1532,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             transaction.atomic(),
         ):
             for item in items:
-                self._ensure_can_restore(item["type"], item["ref"])
-                # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell
-                # the caller that a deleted object exists under a guessed ref. So it gets the same answer as a
-                # ref that names nothing.
+                self._authorize_restore(item)
                 try:
-                    self._lock_and_authorize_workflow_files(
-                        new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
-                    )
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
                         ref=item["ref"],
@@ -1558,6 +1556,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
+
+    def _authorize_restore(self, item: dict[str, Any]) -> None:
+        self._ensure_can_restore(item["type"], item["ref"])
+        # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell the caller
+        # that a deleted object exists under a guessed ref. So it gets the same answer as a ref that names nothing.
+        try:
+            self._lock_and_authorize_workflow_files(
+                new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
+            )
+        except InsufficientScope:
+            raise
+        except PermissionDenied:
+            raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
 
     def _ensure_can_restore(self, type_string: str, ref: str) -> None:
         """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
