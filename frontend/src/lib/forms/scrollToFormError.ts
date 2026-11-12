@@ -21,7 +21,6 @@ interface ScrollToFormErrorOptions {
 
 /**
  * Scrolls to the first error field in a form after the next animation frame to allow DOM updates.
- * When that field marks a control with `aria-invalid="true"`, focuses the control instead.
  * Always uses 'center' alignment for consistent positioning unless the element is already
  * fully visible in the viewport.
  *

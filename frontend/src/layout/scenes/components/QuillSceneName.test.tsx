@@ -31,7 +31,6 @@ describe('QuillSceneName', () => {
         fireEvent.keyDown(input, { key: 'Escape' })
         await waitFor(() => expect(tooltip()).not.toBeInTheDocument())
 
-        // Typing clears the error. The same input must stay mounted, or the user loses focus mid-word.
         rerender(renderName(undefined))
         expect(screen.getByLabelText('Name')).toBe(input)
         expect(input).toHaveFocus()
