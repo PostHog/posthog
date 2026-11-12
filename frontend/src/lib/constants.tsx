@@ -289,9 +289,7 @@ export const FEATURE_FLAGS = {
     CROSS_PROJECT_DASHBOARDS: 'cross-project-dashboards', // owner: #team-platform-features
     CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
-    CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_ACCOUNT_USERS_TABLE: 'customer-analytics-account-users-table', // owner: @arthurdedeus #team-customer-analytics, swaps the account Users tab to a configurable persons table
-    CUSTOMER_ANALYTICS_ACCOUNT_VIEWS: 'customer-analytics-account-views', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET: 'customer-analytics-automations-widget', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_CUSTOMER_TASKS: 'customer-analytics-customer-tasks', // owner: @arthurdedeus #team-web-analytics
@@ -491,6 +489,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_INTERCOM_IMPORT: 'product-support-intercom-import', // owner: @veryayskiy #team-conversations, Intercom import in Support settings
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations

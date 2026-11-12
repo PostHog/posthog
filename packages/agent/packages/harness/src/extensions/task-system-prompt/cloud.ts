@@ -274,6 +274,7 @@ When the task requires a GitHub repository:
 - If the repository is not specified, call \`list_repos\` and use the task context to choose it. If multiple repositories remain plausible, ask the user.
 - Call \`clone_repo\` with the chosen \`owner/repo\` and optional branch. It creates a shallow clone under \`/tmp/workspace/repos/<owner>/<repo>\` and returns the path.
 - Work from inside the returned path for all code changes.
+- Pass \`cwd: <returned path>\` to \`git_signed_commit\`, \`git_signed_merge\`, and \`git_signed_rewrite\`. A shell \`cd\` does not change the directory those tools use.
 - The clone starts with one commit. If older history is genuinely needed, fetch it in bounded steps with \`git fetch --deepen=50 origin <branch>\`, then \`git fetch --deepen=200 origin <branch>\`. Use \`git fetch --unshallow\` only when the task explicitly requires full history, such as a long-range blame or bisect.
 `;
       const publishInstructions =
