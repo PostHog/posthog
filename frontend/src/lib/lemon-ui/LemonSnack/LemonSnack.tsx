@@ -11,7 +11,6 @@ export interface LemonSnackProps extends React.HTMLAttributes<HTMLSpanElement> {
     children?: React.ReactNode
     onClick?: React.MouseEventHandler
     onClose?: React.MouseEventHandler
-    /** Accessible name of the close button, for example "Remove filter Status: Active". */
     closeLabel?: string
     title?: string
     wrap?: boolean
