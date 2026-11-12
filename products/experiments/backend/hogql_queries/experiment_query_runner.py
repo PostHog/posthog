@@ -44,6 +44,7 @@ from posthog.models.user import User
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.facade.enums import ExposuresPath, PrecomputeSkipReason
+from products.experiments.backend.facade.warehouse_native_access import WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -81,6 +82,7 @@ from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
 )
 from products.experiments.backend.metric_resolution import (
+    metric_dict_source_nodes,
     metric_reads_data_warehouse,
     metric_uses_warehouse_native_source,
 )
@@ -89,6 +91,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
 from products.experiments.backend.warehouse_native_sources import (
+    WAREHOUSE_NATIVE_NODE_KIND,
     validate_experiment_warehouse_native_sources,
     warehouse_native_exposure_config,
 )
@@ -641,6 +644,26 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self.is_warehouse_native_query:
             self._validate_warehouse_native_sources(user)
         return True
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status carries the connection
+        # for the status endpoint to check.
+        if not self.is_warehouse_native_query:
+            return None
+        sources = [
+            warehouse_native_exposure_config(self.experiment.exposure_criteria),
+            *(
+                node
+                for node in metric_dict_source_nodes(self.metric.model_dump(mode="json"))
+                if isinstance(node, dict) and node.get("kind") == WAREHOUSE_NATIVE_NODE_KIND
+            ),
+        ]
+        connection_ids = sorted(
+            {str(source["connection_id"]) for source in sources if source and source.get("connection_id")}
+        )
+        return [
+            f"{WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX}{connection_id}" for connection_id in connection_ids
+        ] or None
 
     def _variant_rows(self, rows: list[tuple], columns: list[str]) -> tuple[list[tuple], list[str]]:
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:

@@ -34,6 +34,7 @@ from posthog.models import OrganizationMembership
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.facade.dashboard_widgets import experiment_results_widget
+from products.experiments.backend.facade.warehouse_native_access import WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
@@ -288,6 +289,16 @@ class TestWarehouseNativeMetric(APIBaseTest):
         self.assertIsNone(metric.result)
         self.assertEqual(metric.error, "Could not compute results for this metric.")
         self.warehouse.assert_called_once()
+
+    def test_the_async_status_names_the_connection(self) -> None:
+        # The query status endpoint checks connection access again from this label. Without it a viewer who lost
+        # access could still fetch the totals by query id.
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=self.experiment.id, metric=self.metric), team=self.team
+        )
+        self.assertEqual(
+            runner.query_status_labels(), [f"{WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX}{self.connection.id}"]
+        )
 
     def test_persons_are_not_available(self) -> None:
         query = ExperimentQuery(experiment_id=self.experiment.id, metric=self.metric)
