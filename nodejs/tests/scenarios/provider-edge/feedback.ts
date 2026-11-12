@@ -11,25 +11,24 @@ export type SnsSigner = { host: string; region: string; leaf: Leaf }
 
 export type Bounce = { envelope: Record<string, string>; bouncedRecipients: string[] }
 
-// SignatureVersion 1 signs these keys in this order, each followed by its value, one per line.
-const SIGNED_NOTIFICATION_KEYS = ['Message', 'MessageId', 'Subject', 'Timestamp', 'TopicArn', 'Type']
+const SIGNATURE_VERSION_1_KEYS = ['Message', 'MessageId', 'Subject', 'Timestamp', 'TopicArn', 'Type']
 
 function stringToSign(envelope: Record<string, string>): string {
-    return SIGNED_NOTIFICATION_KEYS.filter((key) => envelope[key] !== undefined)
+    return SIGNATURE_VERSION_1_KEYS.filter((key) => envelope[key] !== undefined)
         .map((key) => `${key}\n${envelope[key]}\n`)
         .join('')
 }
 
 export function hardBounceOf(message: SesMessage, signer: SnsSigner): Bounce {
     const timestamp = new Date().toISOString()
-    const bouncedRecipients = addressesOf(message.to)
+    const bouncedRecipients = addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])])
     const record = {
         eventType: 'Bounce',
         mail: {
             timestamp,
             source: message.from,
             messageId: message.messageId,
-            destination: addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]),
+            destination: bouncedRecipients,
             headersTruncated: false,
             headers: Object.entries(message.headers).map(([name, value]) => ({ name, value })),
             commonHeaders: { from: [message.from], to: message.to, subject: message.subject },

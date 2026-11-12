@@ -1,4 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { mkdtempSync, rmSync } from 'fs'
+import os from 'os'
+import path from 'path'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
@@ -11,15 +14,30 @@ const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
+const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
 
 describe('judge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
     let unfinishedJobs: number
     let judge: Judge
+    let caDir: string
+
+    beforeAll(() => {
+        caDir = mkdtempSync(path.join(os.tmpdir(), 'judge-edge-'))
+    })
+
+    afterAll(() => {
+        rmSync(caDir, { recursive: true, force: true })
+    })
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edge = await startProviderEdge({
+            port: 0,
+            trackingKeys: TRACKING_KEYS,
+            caDir,
+            feedbackUrl: NOBODY_LISTENING,
+        })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',

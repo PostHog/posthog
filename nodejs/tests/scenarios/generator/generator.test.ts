@@ -1,4 +1,6 @@
 import { execFile } from 'child_process'
+import http from 'http'
+import { AddressInfo } from 'net'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
@@ -52,15 +54,21 @@ function startDrive(
     {
         teamIds = [7],
         signal = NEVER_ABORTED,
+        cdpApi = CDP_API,
         sesFeedback = NO_FEEDBACK,
-    }: { teamIds?: number[]; signal?: AbortSignal; sesFeedback?: OfferContext['sesFeedback'] } = {}
+    }: {
+        teamIds?: number[]
+        signal?: AbortSignal
+        cdpApi?: OfferContext['cdpApi']
+        sesFeedback?: OfferContext['sesFeedback']
+    } = {}
 ): { driving: Promise<Summary>; journal: JournalEntry[] } {
     const journal: JournalEntry[] = []
     const seeded = seededFor(teamIds, loaded.card.drive.traffic[0].name)
     const driving = drive(loaded, seeded, { record: (entry) => journal.push(entry) }, signal, {
         producer: { produce },
         eventsTopic: 'scenario_events_test',
-        cdpApi: CDP_API,
+        cdpApi,
         sesFeedback,
         runId: 'run-a',
     })
@@ -153,6 +161,46 @@ describe('drive', () => {
             }).toMatchObject(expected)
         }
     )
+
+    it('counts a transactional unit sent inside the window though cdp-api refused it after the window', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const held: http.ServerResponse[] = []
+        let arrive = (): void => undefined
+        const arrived = new Promise<void>((resolve) => (arrive = resolve))
+        const server = http.createServer((request, response) => {
+            request.resume()
+            held.push(response)
+            if (held.length === 2) {
+                arrive()
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        const loaded = cardWith({ ratePerSecond: 20, driveFor: '100ms' })
+        const transactional = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                drive: { ...loaded.card.drive, traffic: [{ name: 'transactional_email', params: {} }] },
+            },
+            profile: { ...loaded.profile, traffic: { transactional_email: { ratePerSecond: 20 } } },
+        } satisfies LoadedCard
+        try {
+            const { driving } = startDrive(transactional, ACKNOWLEDGED, {
+                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+            })
+
+            await jest.advanceTimersByTimeAsync(50)
+            await arrived
+            await jest.advanceTimersByTimeAsync(100)
+            held.forEach((response) => response.writeHead(503).end())
+
+            expect(await driving).toEqual({ targetUnits: 2, offeredUnits: 2 })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
 
     it('stops waiting for acknowledgements on an interrupt and leaves the pending units out of the summary and the journal', async () => {
         const kafka = heldKafka()

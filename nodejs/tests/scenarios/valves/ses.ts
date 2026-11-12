@@ -1,3 +1,4 @@
+import { once } from 'events'
 import { setTimeout as sleep } from 'timers/promises'
 import { z } from 'zod'
 
@@ -7,6 +8,20 @@ import { internalFetch } from '~/common/utils/request'
 import type { Actuation } from '../environment/environment'
 import { CardFault, SesRejectParams, SesThrottleParams } from '../provider-edge'
 import type { ApplyContext, ValveDefinition } from './valves'
+
+async function unlessAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+    const settled = new AbortController()
+    const aborted = once(signal, 'abort', { signal: settled.signal }).then(
+        () => undefined,
+        () => undefined
+    )
+    work.catch(() => undefined)
+    try {
+        return await Promise.race([work, aborted])
+    } finally {
+        settled.abort()
+    }
+}
 
 async function edgeFault(
     { edgeUrl, pollMs, faultObservedWithinMs, signal }: ApplyContext,
@@ -34,7 +49,11 @@ async function edgeFault(
         observed: async () => {
             const deadline = Date.now() + faultObservedWithinMs
             while (!signal.aborted) {
-                if ((await applied()) > 0) {
+                const count = await unlessAborted(applied(), signal)
+                if (count === undefined) {
+                    return false
+                }
+                if (count > 0) {
                     return true
                 }
                 if (Date.now() >= deadline) {

@@ -4,7 +4,7 @@ import { Registry, collectDefaultMetrics } from 'prom-client'
 
 import type { TruthRecord } from '../provider-edge'
 import type { JournalEntry } from './judge'
-import { MeasureEvidence, MetricSample, measure, startSampler } from './measurements'
+import { MeasureEvidence, Measurement, MetricSample, MissedScrape, measure, startSampler } from './measurements'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
@@ -47,16 +47,37 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
 })
 
 describe('measurements', () => {
-    it.each<[string, MetricSample[], number]>([
-        ['one process across the run', [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)], 5],
+    const missedAt = (atS: number): MissedScrape => ({ role: ROLE, at: FROM + atS * 1000 })
+
+    it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>]>([
+        ['one process across the run', [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)], [], { value: 5 }],
         [
-            'a process killed and started again',
+            'a process killed and started again, marked incomplete for the CPU after its last sample',
             [sample(0, -60, 10), sample(5, -60, 12), sample(10, 7, 1.5), sample(15, 7, 3)],
-            5,
+            [],
+            { value: 5, incomplete: true },
         ],
-    ])('counts role_cpu_seconds per process lifetime for %s', (_story, samples, cpuSeconds) => {
-        expect(measure([{ name: 'role_cpu_seconds', params: {} }], evidence({ samples }))).toEqual([
-            { name: 'role_cpu_seconds', key: ROLE, value: cpuSeconds, unit: 's' },
+        [
+            'a process that missed a scrape and answered the next one',
+            [sample(0, -60, 10), sample(10, -60, 15)],
+            [missedAt(5)],
+            { value: 5 },
+        ],
+        [
+            'one process, while another role missed its last scrape',
+            [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)],
+            [{ role: 'cdp-api', at: FROM + 15_000 }],
+            { value: 5 },
+        ],
+        [
+            'a process killed while its scrape was missed, marked incomplete',
+            [sample(0, -60, 10), sample(5, -60, 12), sample(15, 12, 1.5)],
+            [missedAt(10)],
+            { value: 3.5, incomplete: true },
+        ],
+    ])('counts role_cpu_seconds per process lifetime for %s', (_story, samples, missed, measured) => {
+        expect(measure([{ name: 'role_cpu_seconds', params: {} }], evidence({ samples, missed }))).toEqual([
+            { name: 'role_cpu_seconds', key: ROLE, unit: 's', ...measured },
         ])
     })
 
@@ -114,7 +135,7 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, (scrape: number) => boolean, number, object]>([
+    it.each<[string, (scrape: number) => boolean, number, Pick<Measurement, 'incomplete'>]>([
         ['a role that answers at once', () => true, 5, {}],
         ['a role whose first scrape failed', (scrape) => scrape > 0, 5, {}],
         ['a role whose last scrape failed', (scrape) => scrape === 0, 0, { incomplete: true }],

@@ -366,6 +366,11 @@ describe('provider edge', () => {
         ['a share above one', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 2 } }, 'dose'],
         ['a throttle rate below one per second', { name: 'ses.throttle', params: { rate: 0.5 } }, 'params.rate'],
         [
+            'a bounce on an edge that cannot sign feedback',
+            { name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } },
+            'params.type',
+        ],
+        [
             'a destination status that is not a final answer',
             { name: 'dest.status', params: { code: 100 }, dose: { count: 1 } },
             'params.code',

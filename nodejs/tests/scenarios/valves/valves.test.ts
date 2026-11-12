@@ -1,4 +1,9 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { mkdtempSync, rmSync } from 'fs'
+import http from 'http'
+import { AddressInfo } from 'net'
+import os from 'os'
+import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -117,6 +122,14 @@ const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): Valv
     dose: {},
     for: holdFor,
     ...schedule,
+})
+
+const throttle = (rate: number, holdFor: string): ValveEntry => ({
+    valve: 'ses.throttle',
+    target: 'ses',
+    dose: { rate },
+    at: '0ms',
+    for: holdFor,
 })
 
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
@@ -259,9 +272,22 @@ describe('valves', () => {
     describe('on the provider edge', () => {
         let edge: ProviderEdge
         let ses: SESv2Client
+        let caDir: string
+
+        beforeAll(() => {
+            caDir = mkdtempSync(path.join(os.tmpdir(), 'valves-edge-'))
+        })
+
+        afterAll(() => {
+            rmSync(caDir, { recursive: true, force: true })
+        })
 
         beforeEach(async () => {
-            edge = await startProviderEdge({ port: 0 })
+            edge = await startProviderEdge({
+                port: 0,
+                caDir,
+                feedbackUrl: 'http://127.0.0.1:1/public/m/ses_webhook',
+            })
             ses = new SESv2Client({
                 endpoint: edge.url,
                 region: 'us-east-1',
@@ -288,14 +314,6 @@ describe('valves', () => {
                     () => 'sent',
                     (error: Error) => error.name
                 )
-
-        const throttle = (rate: number, holdFor: string): ValveEntry => ({
-            valve: 'ses.throttle',
-            target: 'ses',
-            dose: { rate },
-            at: '0ms',
-            for: holdFor,
-        })
 
         it('throttles SES sends until the drive ends, and lifts the throttle on release', async () => {
             const valves = createValves({ pollMs: 5 })
@@ -368,6 +386,78 @@ describe('valves', () => {
                 expect(valves.timeline()[0].observedAt).toBeUndefined()
             }
         )
+    })
+
+    async function fakeEdge({ observation, removed }: { observation: 'held' | 'none applied'; removed: number }) {
+        const heldAnswers: (() => void)[] = []
+        const requests: string[] = []
+        let observationAsked!: () => void
+        const asked = new Promise<void>((resolve) => (observationAsked = resolve))
+        const server = http.createServer((req, res) => {
+            requests.push(`${req.method} ${req.url}`)
+            if (req.method === 'POST') {
+                res.writeHead(201).end(JSON.stringify({ id: 'fault-1' }))
+            } else if (req.method === 'DELETE') {
+                res.writeHead(removed).end()
+            } else if (observation === 'held') {
+                heldAnswers.push(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })))
+                observationAsked()
+            } else {
+                res.writeHead(200).end(JSON.stringify({ applied: 0 }))
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        return {
+            edgeUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+            asked,
+            answerHeld: () => heldAnswers.forEach((answer) => answer()),
+            removals: () => requests.filter((request) => request.startsWith('DELETE')),
+            close: async () => {
+                server.closeAllConnections()
+                await new Promise((closed) => server.close(closed))
+            },
+        }
+    }
+
+    it('ends the drive while an observation request is still open, and lifts the fault', async () => {
+        const edge = await fakeEdge({ observation: 'held', removed: 204 })
+        const valves = createValves({ pollMs: 5 })
+        try {
+            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
+            await edge.asked
+            await valves.releaseAll()
+            edge.answerHeld()
+
+            const { error, releasedAt, observedAt } = valves.timeline()[0]
+            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
+                error: 'applied but not observed',
+                releasedAt: expect.any(String),
+                observedAt: undefined,
+                removals: ['DELETE /_faults/fault-1'],
+            })
+        } finally {
+            await edge.close()
+        }
+    })
+
+    it('keeps both reasons when the edge refuses to remove a fault it never observed', async () => {
+        const edge = await fakeEdge({ observation: 'none applied', removed: 500 })
+        const valves = createValves({ pollMs: 5, faultObservedWithinMs: 20 })
+        try {
+            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
+            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            const { error, releasedAt, observedAt } = valves.timeline()[0]
+            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
+                error: 'applied but not observed; The edge did not remove the ses.throttle fault: it answered 500',
+                releasedAt: undefined,
+                observedAt: undefined,
+                removals: ['DELETE /_faults/fault-1'],
+            })
+        } finally {
+            await edge.close()
+        }
     })
 
     it('records a release that failed, and still ends the drive', async () => {

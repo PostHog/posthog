@@ -139,7 +139,7 @@ export async function drive(
                 expect: { deliveries: kind.deliveries },
                 ...(followUp && { followUp }),
             })
-            if ((answer.accepted || kind.intake !== 'event') && answeredAt <= end) {
+            if (kind.intake !== 'event' || (answer.accepted && answeredAt <= end)) {
                 offeredUnits += 1
             }
         })

@@ -76,6 +76,8 @@ function integerAtLeast(value: string | null, min: number, fallback: number): nu
     return Number.isInteger(parsed) && parsed >= min ? parsed : fallback
 }
 
+type Feedback = { signer: SnsSigner; url: string }
+
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
     const truth = new Truth()
     const sent: SesMessage[] = []
@@ -114,27 +116,30 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             ...correlation,
             detail: { message: truthMessageOf(accepted) },
         })
-        if (fault?.answer.kind === 'bounce') {
-            setImmediate(() => void sendFeedback(accepted, fault.name, correlation.unitId))
+        if (fault?.answer.kind === 'bounce' && feedback) {
+            setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
         }
         return { status: 200, body: { MessageId: messageId } }
     }
 
-    // The feedback record carries no action id, so the Judge never counts it as a delivery of the send.
-    const sendFeedback = async (message: SesMessage, fault: string, unitId: string | undefined): Promise<void> => {
-        if (!signer || !options.feedbackUrl) {
-            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+    const sendFeedback = async (
+        { signer, url }: Feedback,
+        message: SesMessage,
+        fault: string,
+        unitId: string | undefined
+    ): Promise<void> => {
+        if (message.tracked === false) {
             truth.append({
                 kind: 'ses.feedback',
                 status: 0,
                 fault,
                 unitId,
-                detail: { error: `The edge has no ${missing}.` },
+                detail: { error: `The configuration set ${message.configurationSet} publishes no events.` },
             })
             return
         }
         const { envelope, bouncedRecipients } = hardBounceOf(message, signer)
-        const answer = await postFeedback(options.feedbackUrl, envelope)
+        const answer = await postFeedback(url, envelope)
         truth.append({
             kind: 'ses.feedback',
             status: answer.status,
@@ -152,7 +157,12 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
-        return { status: 201, body: { id: faults.add(ruleOf(parsed.data)) } }
+        const rule = ruleOf(parsed.data)
+        if (rule.answer.kind === 'bounce' && !feedback) {
+            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+            return { status: 400, body: { problems: [`params.type: a bounce needs an edge with ${missing}`] } }
+        }
+        return { status: 201, body: { id: faults.add(rule) } }
     }
 
     const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | Silence => {
@@ -258,6 +268,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const certificates = options.caDir ? await createCertificates(options.caDir, [WEBHOOK_HOST, snsHost]) : undefined
     const snsLeaf = certificates?.leaves.get(snsHost)
     const signer: SnsSigner | undefined = snsLeaf && { host: snsHost, region, leaf: snsLeaf }
+    const feedback: Feedback | undefined =
+        signer && options.feedbackUrl ? { signer, url: options.feedbackUrl } : undefined
     const proxy: Proxy | undefined =
         certificates && serveConnect(server, certificates.leaves, http.createServer(serve(receive)))
     await new Promise<void>((resolve, reject) => {

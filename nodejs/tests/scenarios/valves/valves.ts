@@ -98,8 +98,8 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
-        const holdEndsAt = Date.now() + durationMs(entry.for)
-        const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
+        const holdMs = durationMs(entry.for)
+        const held = AbortSignal.any([released.signal, AbortSignal.timeout(holdMs)])
         let actuation: Actuation | undefined
         try {
             actuation = await definition.apply(
@@ -117,9 +117,7 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
             } else {
                 record.observedAt = now()
             }
-            await sleep(Math.max(0, holdEndsAt - Date.now()), undefined, { signal: released.signal }).catch(
-                () => undefined
-            )
+            await sleep(holdMs, undefined, { signal: held }).catch(() => undefined)
         } catch (error) {
             record.error = (error as Error).message
         } finally {
@@ -128,7 +126,7 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
                     await actuation.release()
                     record.releasedAt = now()
                 } catch (error) {
-                    record.error = (error as Error).message
+                    record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
                 }
             }
         }
