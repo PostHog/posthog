@@ -801,8 +801,7 @@ export class EmailTrackingService {
                         if (nonexistentAddresses) {
                             await this.emailSuppressionService.recordGlobalHardBounces(
                                 nonexistentAddresses,
-                                bounceTimestamp,
-                                parsedTeamId
+                                bounceTimestamp
                             )
                         }
                     }

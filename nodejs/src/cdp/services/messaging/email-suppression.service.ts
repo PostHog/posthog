@@ -21,13 +21,7 @@ const cdpEmailSuppressionWriteFailures = new Counter({
     labelNames: ['write', 'outcome'],
 })
 
-type SuppressionWrite =
-    | 'transient_bounce'
-    | 'hard_bounce'
-    | 'global_hard_bounce'
-    | 'complaint'
-    | 'delivery_reset'
-    | 'global_hard_bounce_clear'
+type SuppressionWrite = 'transient_bounce' | 'hard_bounce' | 'complaint' | 'delivery_reset' | 'global_hard_bounce_clear'
 
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
@@ -431,7 +425,7 @@ export class EmailSuppressionService {
     }
 
     /** Only for a bounce that proves the address does not exist, or one team could block valid addresses for all. */
-    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string, teamId?: number): Promise<void> {
+    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
@@ -440,7 +434,7 @@ export class EmailSuppressionService {
         const valueClauses = identifiers.map(
             (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
         )
-        await this.write('global_hard_bounce', teamId, async () => {
+        try {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
@@ -452,7 +446,9 @@ export class EmailSuppressionService {
                 'recordGlobalHardBounces'
             )
             cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
+        }
     }
 
     /**
