@@ -639,9 +639,9 @@ def _save_templates(
     # A deleted template counts too: importing again must not bring back one someone deleted.
     taken = {
         str(row.key): {item.tag.name for item in row.tagged_items.all()}
-        for row in MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).prefetch_related(
-            "tagged_items__tag"
-        )
+        for row in MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys)
+        .only("id", "key")
+        .prefetch_related("tagged_items__tag")
     }
     # A code email's key counts as someone else's, so the template is skipped and the code email keeps sending.
     for key in code_email_keys(context.team_id, keys):
