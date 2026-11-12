@@ -191,11 +191,15 @@ describe('IdempotencyKeys', () => {
         // Below the half second, so rounding the expiry to whole seconds would shorten it.
         const expiryMs = 100 * HOUR_MS + 400
         await valkey.useClient({ name: 'test-ttl' }, (client) => client.pexpire(redisKey, expiryMs))
+        const expiresAt = (): Promise<unknown> =>
+            valkey.useClient({ name: 'test-ttl' }, (client) =>
+                client.eval("return redis.call('PEXPIRETIME', KEYS[1])", 1, redisKey)
+            )
+        const before = await expiresAt()
 
         await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
 
-        const pttl = await valkey.useClient({ name: 'test-ttl' }, (client) => client.pttl(redisKey))
-        expect(pttl).toBeGreaterThan(expiryMs - 100)
+        expect(await expiresAt()).toEqual(before)
     })
 
     it('leaves a record without an expiry without one when its run is recorded again', async () => {
