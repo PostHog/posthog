@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -58,8 +58,6 @@ from products.data_modeling.backend.logic.freshness import (
     PlanFloorRefusalError,
     UnsupportedFrequencyTargetError,
     format_cadence,
-    humanize_cadence,
-    is_finer_than,
     validate_declared_target,
     validate_pin,
 )
@@ -77,11 +75,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import (
-    MAX_PLAN_REFRESH_FLOOR,
-    organization_plan_refresh_floor,
-    read_plan_refresh_floor,
-)
+from products.data_modeling.backend.logic.refresh_floor import MAX_PLAN_REFRESH_FLOOR, organization_plan_refresh_floor
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -183,23 +177,14 @@ def _validate_saved_query_target(
             plan_floor=graph.plan_floor,
         )
     except PlanFloorRefusalError as error:
-        _report_plan_floor_refusal(team_id, error, refused_by="plan_floor")
+        team = Team.objects.filter(id=team_id).first()
+        if team is not None:
+            report_team_action(
+                team,
+                PLAN_FLOOR_REFUSAL_EVENT,
+                {"requested_cadence": format_cadence(error.target), "plan_floor": format_cadence(error.plan_floor)},
+            )
         raise
-
-
-def _report_plan_floor_refusal(team_id: int, error: PlanFloorRefusalError, *, refused_by: str) -> None:
-    team = Team.objects.filter(id=team_id).first()
-    if team is None:
-        return
-    report_team_action(
-        team,
-        PLAN_FLOOR_REFUSAL_EVENT,
-        {
-            "requested_cadence": format_cadence(error.target),
-            "plan_floor": format_cadence(error.plan_floor),
-            "refused_by": refused_by,
-        },
-    )
 
 
 def apply_saved_query_frequency_target(
@@ -292,40 +277,13 @@ def apply_saved_query_frequency_target(
     return written
 
 
-def carry_saved_query_frequency_target(
-    team_id: int,
-    saved_query_id: uuid.UUID,
-    target: timedelta,
-    *,
-    retained_saved_query_ids: Collection[uuid.UUID],
-) -> None:
+def carry_saved_query_frequency_target(team_id: int, saved_query_id: uuid.UUID, target: timedelta) -> None:
     """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
 
     A cadence saved before the plan floor stays, so a query edit must not turn an existing cadence into
     a new one. This writes without validating: the `apply_saved_query_frequency_target` that follows
     still checks the sources and consumers of the new query.
-
-    The endpoint version being replaced keeps running, so each query edit could otherwise add one more
-    schedule finer than the floor. `retained_saved_query_ids` are the endpoint's other materialized
-    versions, and if one of them also runs finer than the floor this raises `PlanFloorRefusalError`.
-    That caps an endpoint at two such schedules: the version replaced and its replacement.
     """
-    floor = read_plan_refresh_floor(team_id)
-    if floor is not None and is_finer_than(target, floor):
-        retained_nodes = Node.objects.filter(team_id=team_id, saved_query_id__in=retained_saved_query_ids)
-        if any(
-            (retained := get_declared_target(node)) is not None and is_finer_than(retained, floor)
-            for node in retained_nodes
-        ):
-            error = PlanFloorRefusalError(
-                f"Can't keep refreshing every {humanize_cadence(target)}: an older version of this endpoint also"
-                f" refreshes more often than your plan allows. Stop materializing the older version, pick"
-                f" {humanize_cadence(floor)} for this one, or upgrade to refresh more often.",
-                target=target,
-                plan_floor=floor,
-            )
-            _report_plan_floor_refusal(team_id, error, refused_by="endpoint_version_cap")
-            raise error
     with transaction.atomic():
         for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id=saved_query_id):
             set_declared_target(node, target)

@@ -549,10 +549,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(get_declared_target(node), DAY)
         capture.assert_called_once()
         self.assertEqual(capture.call_args.kwargs["event"], "data modeling refresh refused by plan floor")
-        self.assertEqual(
-            capture.call_args.kwargs["properties"],
-            {"requested_cadence": "15min", "plan_floor": "6hour", "refused_by": "plan_floor"},
-        )
+        self.assertEqual(capture.call_args.kwargs["properties"], {"requested_cadence": "15min", "plan_floor": "6hour"})
 
     def test_resaving_a_cadence_saved_before_the_plan_floor_is_accepted(self):
         _grant_refresh_interval(self.organization, 360)

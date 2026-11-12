@@ -6,7 +6,6 @@ materialization preview, and the status payload. The AST-level analysis and
 query transforms live in ``products.endpoints.backend.materialization_transforms``.
 """
 
-import uuid
 import dataclasses
 from datetime import timedelta
 from typing import cast
@@ -217,20 +216,6 @@ class MaterializationPreview:
         return cls(can_materialize=False, reason=reason)
 
 
-def _retained_saved_query_ids(
-    endpoint: Endpoint, replaced_version: EndpointVersion, new_version: EndpointVersion
-) -> list[uuid.UUID]:
-    return list(
-        endpoint.versions.filter(saved_query__isnull=False)
-        .exclude(pk__in=[replaced_version.pk, new_version.pk])
-        .values_list("saved_query_id", flat=True)
-    )
-
-
-class CadenceCarryRefusedError(ValidationError):
-    """A query edit's new version can't keep the cadence of the version it replaces."""
-
-
 class EndpointMaterializationService:
     """Enable, disable, and preview materialization for endpoint versions."""
 
@@ -360,15 +345,9 @@ class EndpointMaterializationService:
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
             if replaced_version is not None and replaced_version.declared_target_seconds() == data_freshness_seconds:
-                try:
-                    carry_saved_query_frequency_target(
-                        saved_query.team_id,
-                        saved_query.id,
-                        timedelta(seconds=data_freshness_seconds),
-                        retained_saved_query_ids=_retained_saved_query_ids(endpoint, replaced_version, version),
-                    )
-                except UnsatisfiableFrequencyError as e:
-                    raise CadenceCarryRefusedError(str(e)) from e
+                carry_saved_query_frequency_target(
+                    saved_query.team_id, saved_query.id, timedelta(seconds=data_freshness_seconds)
+                )
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved

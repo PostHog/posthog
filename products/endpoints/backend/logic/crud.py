@@ -29,7 +29,7 @@ from posthog.types import InsightQueryNode
 from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
-from products.endpoints.backend.logic.materialization import CadenceCarryRefusedError, EndpointMaterializationService
+from products.endpoints.backend.logic.materialization import EndpointMaterializationService
 from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -224,14 +224,13 @@ class EndpointCrudService:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
-            # A rejected enable must also roll back changes to the direct query cache duration, and a
-            # refused cadence carry must also roll back the new version.
-            with transaction.atomic():
-                step = "versioning"
-                target_version, version_was_created, replaced_version = self._apply_query_change(
-                    endpoint, data, target_version, was_materialized
-                )
+            step = "versioning"
+            target_version, version_was_created, replaced_version = self._apply_query_change(
+                endpoint, data, target_version, was_materialized
+            )
 
+            # A rejected enable must also roll back changes to the direct query cache duration.
+            with transaction.atomic():
                 step = "version_fields"
                 self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
@@ -468,8 +467,6 @@ class EndpointCrudService:
                         )
 
                 transaction.on_commit(refresh_materialization)
-        except CadenceCarryRefusedError:
-            raise
         except Exception as e:
             if not version_was_created:
                 raise

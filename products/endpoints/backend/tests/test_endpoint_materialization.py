@@ -473,50 +473,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("materialization_error", response.json())
         self.assertIsNone(endpoint.get_version().saved_query_id)
 
-    def test_query_edit_past_the_version_cap_is_refused_and_can_be_retried(self):
-        endpoint = create_endpoint_with_version(
-            name="floored_repeat_edits",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            data_freshness_seconds=900,
-        )
-        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/"
-        self.assertEqual(self.client.patch(url, {"is_materialized": True}, format="json").status_code, 200)
-
-        def edit_query(columns):
-            return self.client.patch(
-                url, {"query": {"kind": "HogQLQuery", "query": f"SELECT {columns} FROM events"}}, format="json"
-            )
-
-        with self._six_hour_plan_floor(), mock.patch("posthog.event_usage.posthoganalytics.capture") as capture:
-            self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
-            refused = edit_query("count(), 1")
-
-            self.assertEqual(refused.status_code, status.HTTP_400_BAD_REQUEST, refused.json())
-            self.assertIn("older version of this endpoint", refused.json()["detail"])
-            refusals = [
-                call.kwargs["properties"]
-                for call in capture.call_args_list
-                if call.kwargs.get("event") == "data modeling refresh refused by plan floor"
-            ]
-            self.assertEqual(
-                refusals, [{"requested_cadence": "15min", "plan_floor": "6hour", "refused_by": "endpoint_version_cap"}]
-            )
-            self.assertEqual(endpoint.versions.count(), 2)
-            self.assertEqual(endpoint.get_version().version, 2)
-
-            turn_off = self.client.patch(url, {"version": 1, "is_materialized": False}, format="json")
-            self.assertEqual(turn_off.status_code, status.HTTP_200_OK, turn_off.json())
-            retried = edit_query("count(), 1")
-
-        self.assertEqual(retried.status_code, status.HTTP_200_OK, retried.json())
-        self.assertNotIn("materialization_error", retried.json())
-        current = endpoint.get_version()
-        self.assertEqual(current.version, 3)
-        self.assertIsNotNone(current.saved_query_id)
-        self.assertEqual(current.data_freshness_seconds, 900)
-
     @parameterized.expand([(True,), (False,)])
     def test_node_target_change_invalidates_readiness_after_commit(self, has_endpoint_link):
         endpoint = create_endpoint_with_version(
