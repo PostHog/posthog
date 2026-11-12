@@ -23,6 +23,7 @@ from .sources import (
 
 MAX_RECENT_MERGES = 100
 EVAL_JOBS = 8
+ERROR_MESSAGE_LIMIT = 200
 DEGRADED_REASONS = frozenset({"facts_unavailable", "page_check_unavailable"})
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
@@ -103,7 +104,12 @@ def eval_command(arguments: argparse.Namespace) -> int:
                 except EVAL_ROW_ERRORS as error:
                     for variant in variants:
                         failed_count_by_variant[variant] += 1
-                    error_line = {"commit_sha": eval_row["commit_sha"], "error": type(error).__name__}
+                    error_line = {
+                        "commit_sha": eval_row["commit_sha"],
+                        "error": type(error).__name__,
+                        "status_code": error_status_code(error),
+                        "message": str(error)[:ERROR_MESSAGE_LIMIT],
+                    }
                     print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
                     continue
                 for variant, report in report_by_variant.items():
@@ -147,6 +153,14 @@ def check_eval_row(
             variants=variants,
             is_pinned_to_merge=True,
         )
+
+
+def error_status_code(error: Exception) -> int | None:
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None:
+        return status_code
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None)
 
 
 def is_degraded(report: MergeCheckReport) -> bool:
