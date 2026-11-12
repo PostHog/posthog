@@ -77,29 +77,38 @@ describe('SQL table rendering', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
-    it.each([false, true])('opens the complete source value in a cell viewer, transpose=%s', async (transpose) => {
-        const value = 'First line of the observatory notes.\n' + 'The path follows the river. '.repeat(20)
-        const result: HogQLQueryResponse = {
-            columns: ['notes'],
-            types: [['notes', 'String']],
-            results: [[value]],
-        }
-        const node: VisualizationNode = { ...query, tableSettings: { transpose } }
-        const { props, sourceProps } = mountResult(node, result)
-        render(
-            <BindLogic logic={dataNodeLogic} props={sourceProps}>
-                <BindLogic logic={dataVisualizationLogic} props={props}>
-                    <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+    it.each([
+        [false, 'String', 'First line.\n' + 'The path follows the river. '.repeat(20)],
+        [true, 'String', 'First line.\n' + 'The path follows the river. '.repeat(20)],
+        [false, 'Map(String, String)', { location: 'Observatory', notes: 'First line.\nSecond line.' }],
+        [true, 'Map(String, String)', { location: 'Observatory', notes: 'First line.\nSecond line.' }],
+    ] as const)(
+        'opens the complete source value in a cell viewer, transpose=%s, type=%s',
+        async (transpose, type, value) => {
+            const result: HogQLQueryResponse = {
+                columns: ['notes'],
+                types: [['notes', type]],
+                results: [[value]],
+            }
+            const node: VisualizationNode = { ...query, tableSettings: { transpose } }
+            const { props, sourceProps } = mountResult(node, result)
+            render(
+                <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={props}>
+                        <Table query={node} uniqueKey={props.key} context={{}} cachedResults={result} />
+                    </BindLogic>
                 </BindLogic>
-            </BindLogic>
-        )
-        await userEvent.click(await screen.findByLabelText('View full value of notes'))
-        const dialog = await screen.findByRole('dialog')
-        expect(dialog.querySelector('pre')?.textContent).toBe(value)
-        expect(screen.getByText('Copy value')).toBeInTheDocument()
-        await userEvent.keyboard('{Escape}')
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    })
+            )
+            await userEvent.click(await screen.findByLabelText('View full value of notes'))
+            const dialog = await screen.findByRole('dialog')
+            expect(dialog.querySelector('pre')?.textContent).toBe(
+                typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+            )
+            expect(screen.getByText('Copy value')).toBeInTheDocument()
+            await userEvent.keyboard('{Escape}')
+            await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        }
+    )
 
     it.each([false, true])('renders harness names and custom icons, transpose=%s', async (transpose) => {
         const icon = 'data:image/png;base64,iVBORw0KGgo='
