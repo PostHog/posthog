@@ -91,6 +91,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_BATCH_DELAY_MAX_MS'
             | 'CDP_CYCLOTRON_BOUNDED_POLLS'
+            | 'CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
@@ -141,6 +142,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+            boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
             includeEmptyBatches: true,
         })
 
