@@ -82,7 +82,7 @@ export function QuillToolbarSelect<T>({
                         return option ? (
                             <span className="flex items-center gap-2">
                                 {option.icon}
-                                {option.label}
+                                <span>{option.label}</span>
                             </span>
                         ) : (
                             <span className="text-muted-foreground">{placeholder}</span>

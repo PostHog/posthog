@@ -31,7 +31,7 @@ function InfoLabel({ tooltip, children }: { tooltip: string; children: ReactNode
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">{tooltip}</TooltipContent>
             </Tooltip>
-            {children}
+            <span>{children}</span>
         </span>
     )
 }
