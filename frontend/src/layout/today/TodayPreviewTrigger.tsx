@@ -37,7 +37,6 @@ export function TodayPreviewTrigger({
             onClickCapture={(event) => card.dismissFor(event.currentTarget)}
             // Enter, not leave: a clicked row the pointer never visited, such as Enter in a search list, rearms on its first hover.
             onPointerEnter={(event) => card.rearm(event.currentTarget)}
-            // Keyboard focus never leaves with the pointer, so a row activated with Enter rearms when focus moves on.
             onBlur={(event) => card.rearm(event.currentTarget)}
         >
             {children}
