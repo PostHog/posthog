@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from requests import Request, Response
+from requests import Response
 from requests.exceptions import RequestException
 
 from products.warehouse_sources.sources.creem.settings import (
@@ -15,11 +15,11 @@ from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     ClientConfig,
     EndpointResource,
+    JSONResponseCursorPaginator,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
-    _inject_param,
     build_dependent_resource,
     capture_exception,
     frozen,
@@ -78,16 +78,14 @@ class CreemPageNumberPaginator(PageNumberPaginator):
         self._has_next_page = True
 
 
-class CreemCursorPaginator(BasePaginator):
-    """Sends the id of the last row as `starting_after` while the response says `has_more`."""
+class CreemCursorPaginator(JSONResponseCursorPaginator):
+    """Sends the id of the last row as `starting_after` while the response says `has_more`.
+
+    The cursor is not a body field, so only `update_state` differs from the parent paginator.
+    """
 
     def __init__(self) -> None:
-        super().__init__()
-        self._starting_after: Optional[str] = None
-
-    def init_request(self, request: Request) -> None:
-        if self._starting_after is not None:
-            _inject_param(request, "query", "starting_after", self._starting_after)
+        super().__init__(cursor_param="starting_after")
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -96,26 +94,13 @@ class CreemCursorPaginator(BasePaginator):
             body = None
         has_more = isinstance(body, dict) and body.get("has_more") is True
         last_id = data[-1].get("id") if data and isinstance(data[-1], dict) else None
-        if not has_more or not last_id or last_id == self._starting_after:
+        if not has_more or not last_id or last_id == self._cursor_value:
             self._has_next_page = False
             return
 
-        self._starting_after = str(last_id)
+        self._previous_cursor_value = self._cursor_value
+        self._cursor_value = str(last_id)
         self._has_next_page = True
-
-    def update_request(self, request: Request) -> None:
-        _inject_param(request, "query", "starting_after", self._starting_after)
-
-    def get_resume_state(self) -> Optional[dict[str, Any]]:
-        if self._has_next_page and self._starting_after is not None:
-            return {"starting_after": self._starting_after}
-        return None
-
-    def set_resume_state(self, state: dict[str, Any]) -> None:
-        starting_after = state.get("starting_after")
-        if starting_after is not None:
-            self._starting_after = str(starting_after)
-            self._has_next_page = True
 
 
 def _paginator(config: CreemEndpointConfig) -> BasePaginator:
@@ -170,7 +155,7 @@ def _initial_paginator_state(
     if resume_state is None:
         return None
     if config.pagination == CreemPagination.CURSOR and resume_state.starting_after:
-        return {"starting_after": resume_state.starting_after}
+        return {"cursor": resume_state.starting_after}
     if config.pagination == CreemPagination.PAGE_NUMBER and resume_state.page_number:
         return {"page": resume_state.page_number}
     return None
@@ -179,8 +164,8 @@ def _initial_paginator_state(
 def _save_paginator_state(manager: ResumableSourceManager[CreemResumeConfig], state: Optional[dict[str, Any]]) -> None:
     if not state:
         return
-    if state.get("starting_after"):
-        manager.save_state(CreemResumeConfig(starting_after=str(state["starting_after"])))
+    if state.get("cursor"):
+        manager.save_state(CreemResumeConfig(starting_after=str(state["cursor"])))
     elif state.get("page") is not None:
         manager.save_state(CreemResumeConfig(page_number=int(state["page"])))
 
