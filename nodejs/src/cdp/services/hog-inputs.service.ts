@@ -261,11 +261,7 @@ export class HogInputsService {
         integration: IntegrationType | null | undefined,
         hogFunction: HogFunctionType,
         inputKey: string,
-        {
-            multi,
-            countLegacy,
-            decryptFailed = false,
-        }: { multi: boolean; countLegacy: boolean; decryptFailed?: boolean }
+        { multi, countLegacy, decryptFailed = false }: { multi: boolean; countLegacy: boolean; decryptFailed?: boolean }
     ): Record<string, any> | null {
         if (!integration || integration.team_id !== hogFunction.team_id) {
             return null
@@ -494,6 +490,9 @@ export class HogInputsService {
             isWarehouseSourceIntegration(integration)
         ) {
             return { error: `The integration for input ${inputKey} can't be used. Select a connected integration.` }
+        }
+        if (((await this.integrationManager.getDecryptFailures([integration.id]))[integration.id]?.length ?? 0) > 0) {
+            return { error: decryptIntegrationMessage(inputKey) }
         }
         const rule = appliesIntegrationCredential(integration.kind) ? INTEGRATION_AUTH[integration.kind] : undefined
         if (!rule) {
