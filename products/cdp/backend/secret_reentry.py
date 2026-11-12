@@ -30,6 +30,32 @@ def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encryp
     }
 
 
+def mapping_secret_values(mappings: Any) -> set[tuple[str, str]]:
+    """Secrets saved in plaintext mapping inputs before mappings refused secret inputs, as (key, value) pairs. The
+    worker lays each mapping's inputs over the function's, so the code reads them by name."""
+    values: set[tuple[str, str]] = set()
+    for mapping in mappings or []:
+        if not isinstance(mapping, dict) or not isinstance(mapping.get("inputs"), dict):
+            continue
+        for schema in mapping.get("inputs_schema") or []:
+            if isinstance(schema, dict) and schema.get("secret"):
+                key = str(schema.get("key"))
+                entry = mapping["inputs"].get(key)
+                if isinstance(entry, dict) and entry.get("value") not in (None, "", {}):
+                    values.add((key, json.dumps(entry["value"], default=str, sort_keys=True)))
+    return values
+
+
+def carried_mapping_secrets(stored: set[tuple[str, str]], mappings: Any) -> set[str]:
+    return {
+        key
+        for mapping in mappings or []
+        if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict)
+        for key, entry in mapping["inputs"].items()
+        if isinstance(entry, dict) and (str(key), json.dumps(entry.get("value"), default=str, sort_keys=True)) in stored
+    }
+
+
 def filled_secret_keys(secrets: dict) -> set[str]:
     # A blank optional secret holds nothing the code could send.
     return {key for key, entry in secrets.items() if entry.get("value") not in (None, "", {})}
