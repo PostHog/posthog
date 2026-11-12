@@ -5,7 +5,6 @@ export type TransactionalEmailIdentity = {
 
 export const SES_TEMPLATE_ID_TAG = 'ph_template_id'
 export const SES_TEMPLATE_KEY_TAG = 'ph_template_key'
-export const SES_TEMPLATE_TAGS_SENT_TAG = 'ph_template_tags'
 
 const SES_TAG_VALUE = /^[A-Za-z0-9_-]{1,256}$/
 
@@ -29,14 +28,10 @@ export const transactionalEmailIdentity = (config: TemplateConfig): Transactiona
 export const transactionalEmailIdentityTags = (config: TemplateConfig): { Name: string; Value: string }[] => {
     const { $email_template_id: id, $email_template_key: key } = transactionalEmailIdentity(config)
     return [
-        { Name: SES_TEMPLATE_TAGS_SENT_TAG, Value: 'true' },
         ...(id && SES_TAG_VALUE.test(id) ? [{ Name: SES_TEMPLATE_ID_TAG, Value: id }] : []),
         ...(key && SES_TAG_VALUE.test(key) ? [{ Name: SES_TEMPLATE_KEY_TAG, Value: key }] : []),
     ]
 }
-
-export const sentWithTemplateTags = (tags: Record<string, string[]> | undefined): boolean =>
-    tags?.[SES_TEMPLATE_TAGS_SENT_TAG]?.[0] === 'true'
 
 export const sentTransactionalEmailIdentity = (
     tags: Record<string, string[]> | undefined

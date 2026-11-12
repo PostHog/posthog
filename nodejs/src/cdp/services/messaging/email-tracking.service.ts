@@ -11,13 +11,11 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
-import { buildIntegerMatcher } from '~/common/config/matchers'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
-import type { ValueMatcher } from '~/types'
 
 import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
@@ -32,7 +30,6 @@ import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
-import { transactionalEmailIdentity } from './helpers/transactional-email-identity'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
@@ -341,7 +338,6 @@ const renderRedirectConfirmationPage = (target: string): string | null => {
 
 export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler
-    private templateTagsTeams: ValueMatcher<number>
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
@@ -353,12 +349,10 @@ export class EmailTrackingService {
         private emailSuppressionService: EmailSuppressionService,
         private emailStatusService: EmailStatusService | null,
         private engagementRedis: RedisV2 | null,
-        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput>,
-        templateTagsTeams = ''
+        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput>
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
-        this.templateTagsTeams = buildIntegerMatcher(templateTagsTeams, true)
     }
 
     public async trackMetric({
@@ -370,7 +364,6 @@ export class EmailTrackingService {
         metricName,
         source,
         properties,
-        templateFromStepConfig = false,
         timestamp,
         instanceIdOverride,
         deferFlush = false,
@@ -385,7 +378,6 @@ export class EmailTrackingService {
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
-        templateFromStepConfig?: boolean
         timestamp?: string
         instanceIdOverride?: string
         // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
@@ -449,7 +441,6 @@ export class EmailTrackingService {
         // before a throw would count twice. The direct pixel and redirect are never retried, so for them a lost
         // engagement event beats a lost metric.
         try {
-            const emailStep = hogFlow?.actions.find((action) => action.id === actionId)
             await this.captureEngagementEvent({
                 teamId,
                 appSourceId,
@@ -457,15 +448,7 @@ export class EmailTrackingService {
                 invocationId,
                 distinctId,
                 metricName,
-                properties:
-                    templateFromStepConfig && this.templateTagsTeams(teamId)
-                        ? {
-                              ...properties,
-                              ...transactionalEmailIdentity(
-                                  emailStep?.type === 'function_email' ? emailStep.config : undefined
-                              ),
-                          }
-                        : properties,
+                properties,
                 timestamp,
                 workflowVersion,
             })
@@ -723,7 +706,6 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                     properties: metric.properties,
-                    templateFromStepConfig: metric.templateFromStepConfig,
                     timestamp: metric.timestamp,
                     instanceIdOverride: metric.instanceIdOverride,
                     deferFlush: true,

@@ -646,8 +646,7 @@ export function createCdpCoreServices(
         emailSuppressionService,
         emailStatusService,
         redis,
-        outputs,
-        config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS
+        outputs
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

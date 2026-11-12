@@ -1442,7 +1442,7 @@ describe('EmailService', () => {
                 'a transactional email run',
                 {},
                 TRANSACTIONAL_EMAIL_EVENT,
-                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ph_template_tags: 'true' },
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
             [
                 'a transactional email from a template',
@@ -1452,7 +1452,6 @@ describe('EmailService', () => {
                     ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
                     ph_email_status: 'true',
                     ph_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
-                    ph_template_tags: 'true',
                 },
             ],
             [
@@ -1463,26 +1462,25 @@ describe('EmailService', () => {
                     ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
                     ph_email_status: 'true',
                     ph_template_key: 'welcome_v2',
-                    ph_template_tags: 'true',
                 },
             ],
             [
                 'a code send by a key longer than an SES tag allows',
                 { template_key: 'k'.repeat(257) },
                 TRANSACTIONAL_EMAIL_EVENT,
-                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ph_template_tags: 'true' },
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
             [
                 'a transactional email whose template id SES would reject',
                 { template_uuid: 'not a tag value' },
                 TRANSACTIONAL_EMAIL_EVENT,
-                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ph_template_tags: 'true' },
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
             [
                 'a transactional email whose template id has a dot',
                 { template_uuid: 'template.v2' },
                 TRANSACTIONAL_EMAIL_EVENT,
-                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ph_template_tags: 'true' },
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
             [
                 'a workflow email made from a template',

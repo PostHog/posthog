@@ -12,7 +12,7 @@ import type { EmailStatus, EmailStatusReason } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
 import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
-import { sentTransactionalEmailIdentity, sentWithTemplateTags } from './transactional-email-identity'
+import { sentTransactionalEmailIdentity } from './transactional-email-identity'
 
 /**
  * ---------- SNS envelope types ----------
@@ -832,7 +832,6 @@ export class SesWebhookHandler {
             // other than the action or invocation (see buildLinkInstanceId).
             instanceIdOverride?: string
             properties?: Record<string, any>
-            templateFromStepConfig?: boolean
             timestamp?: string
             workflowVersion?: number
         }[]
@@ -900,7 +899,6 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
             instanceIdOverride?: string
             properties?: Record<string, any>
-            templateFromStepConfig?: boolean
             timestamp?: string
             workflowVersion?: number
         }[] = []
@@ -1025,7 +1023,6 @@ export class SesWebhookHandler {
                     }
                 }
                 timestamp = timestamp ?? rec.mail.timestamp
-                const templateFromStepConfig = isTransactionalMail(rec.mail) && !sentWithTemplateTags(rec.mail.tags)
 
                 metrics.push({
                     functionId,
@@ -1036,7 +1033,6 @@ export class SesWebhookHandler {
                     teamId,
                     metricName,
                     properties,
-                    ...(templateFromStepConfig && { templateFromStepConfig }),
                     timestamp,
                     workflowVersion,
                 })
@@ -1082,7 +1078,6 @@ export class SesWebhookHandler {
                         teamId,
                         metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
                         properties,
-                        ...(templateFromStepConfig && { templateFromStepConfig }),
                         timestamp,
                         workflowVersion,
                     })
