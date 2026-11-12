@@ -190,13 +190,12 @@ export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 
 
 // The order By PostHog lists its pages in, after Product analytics. Each is a page of the Products tab.
 const BY_POSTHOG_ICON_TYPES = [
-    'session_replay',
     'web_analytics',
-    'activity',
-    'heatmap',
-    'sql_editor',
     'marketing_analytics',
     'mcp_analytics',
+    'session_replay',
+    'activity',
+    'heatmap',
 ] as const
 
 export interface FromPostHogItem {

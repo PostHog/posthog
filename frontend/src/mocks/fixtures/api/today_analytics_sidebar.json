@@ -32,6 +32,13 @@
                             "kind": "page",
                             "page": "dashboards"
                         }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "sql_editor"
+                        }
                     }
                 ]
             },
