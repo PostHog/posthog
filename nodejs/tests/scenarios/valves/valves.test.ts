@@ -389,7 +389,6 @@ describe('valves', () => {
     })
 
     async function fakeEdge({ observation, removed }: { observation: 'held' | 'none applied'; removed: number }) {
-        const heldAnswers: (() => void)[] = []
         const requests: string[] = []
         let observationAsked!: () => void
         const asked = new Promise<void>((resolve) => (observationAsked = resolve))
@@ -400,7 +399,6 @@ describe('valves', () => {
             } else if (req.method === 'DELETE') {
                 res.writeHead(removed).end()
             } else if (observation === 'held') {
-                heldAnswers.push(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })))
                 observationAsked()
             } else {
                 res.writeHead(200).end(JSON.stringify({ applied: 0 }))
@@ -410,7 +408,6 @@ describe('valves', () => {
         return {
             edgeUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
             asked,
-            answerHeld: () => heldAnswers.forEach((answer) => answer()),
             removals: () => requests.filter((request) => request.startsWith('DELETE')),
             close: async () => {
                 server.closeAllConnections()
@@ -426,7 +423,6 @@ describe('valves', () => {
             await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
             await edge.asked
             await valves.releaseAll()
-            edge.answerHeld()
 
             const { error, releasedAt, observedAt } = valves.timeline()[0]
             expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
