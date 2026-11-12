@@ -491,6 +491,22 @@ describe('Tool Filtering - API Scopes', () => {
         }
     })
 
+    it('should expose the destructive static cohort replace tool only with its feature flag', async () => {
+        const context = createMockContext(['cohort:write'])
+
+        const flagEnabledTools = await getToolsFromContext(context, {
+            featureFlags: { 'static-cohort-replace-on-recalc': true },
+        })
+        const flagDisabledTools = await getToolsFromContext(context, {
+            featureFlags: { 'static-cohort-replace-on-recalc': false },
+        })
+        const replaceTool = flagEnabledTools.find((tool) => tool.name === 'cohorts-replace-static-members')
+
+        expect(replaceTool?.annotations.destructiveHint).toBe(true)
+        expect(flagDisabledTools.map((tool) => tool.name)).not.toContain('cohorts-replace-static-members')
+        expect(flagDisabledTools.map((tool) => tool.name)).toContain('cohorts-partial-update')
+    })
+
     it.each([
         ['notebooks-widget-generate', ['notebook:write', 'query:read']],
         ['notebooks-widget-status', ['notebook:read']],
