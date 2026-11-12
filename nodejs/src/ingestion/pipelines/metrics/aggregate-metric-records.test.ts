@@ -7,6 +7,7 @@ type Point = {
     monotonic?: boolean
     fingerprint?: bigint
     traced?: boolean
+    start?: bigint | null
     ts: bigint
     value: number
 }
@@ -19,6 +20,7 @@ const record = ({
     monotonic = true,
     fingerprint = 1n,
     traced = false,
+    start = 1n,
     ts,
     value,
 }: Point) => ({
@@ -27,6 +29,7 @@ const record = ({
     is_monotonic: { boolean: monotonic },
     series_fingerprint: { long: fingerprint },
     timestamp: { long: BASE_TS + ts },
+    start_timestamp: start === null ? null : { long: start },
     value: { double: value },
     count: { long: 1n },
     trace_id: traced ? { bytes: Buffer.from('trace') } : null,
@@ -75,14 +78,14 @@ describe('aggregateMetricRecords', () => {
             ],
         ],
         [
-            'keeps the cumulative points around a reset, also when the value climbs past its old level',
+            'keeps the first and last cumulative point of each start time',
             [
-                { temporality: 'cumulative', ts: 1n, value: 100 },
-                { temporality: 'cumulative', ts: 2n, value: 400 },
-                { temporality: 'cumulative', ts: 3n, value: 900 },
-                { temporality: 'cumulative', ts: 4n, value: 5 },
-                { temporality: 'cumulative', ts: 5n, value: 1000 },
-                { temporality: 'cumulative', ts: 6n, value: 1200 },
+                { temporality: 'cumulative', start: 1n, ts: 1n, value: 100 },
+                { temporality: 'cumulative', start: 1n, ts: 2n, value: 400 },
+                { temporality: 'cumulative', start: 1n, ts: 3n, value: 900 },
+                { temporality: 'cumulative', start: 2n, ts: 4n, value: 5 },
+                { temporality: 'cumulative', start: 2n, ts: 5n, value: 1000 },
+                { temporality: 'cumulative', start: 2n, ts: 6n, value: 1200 },
             ],
             [
                 ['1', 1n, 100, 1n, false],
@@ -92,7 +95,7 @@ describe('aggregateMetricRecords', () => {
             ],
         ],
         [
-            'passes through gauges, histograms and non-monotonic cumulative sums',
+            'passes through gauges, histograms, non-monotonic cumulative sums and cumulative sums without a start time',
             [
                 { type: 'gauge', ts: 1n, value: 1 },
                 { type: 'gauge', ts: 2n, value: 2 },
@@ -100,6 +103,9 @@ describe('aggregateMetricRecords', () => {
                 { type: 'histogram', ts: 2n, value: 4 },
                 { temporality: 'cumulative', monotonic: false, ts: 1n, value: 9 },
                 { temporality: 'cumulative', monotonic: false, ts: 2n, value: 8 },
+                { temporality: 'cumulative', start: null, fingerprint: 2n, ts: 1n, value: 50 },
+                { temporality: 'cumulative', start: null, fingerprint: 2n, ts: 2n, value: 60 },
+                { temporality: 'cumulative', start: null, fingerprint: 2n, ts: 3n, value: 70 },
             ],
             [
                 ['1', 1n, 1, 1n, false],
@@ -108,9 +114,32 @@ describe('aggregateMetricRecords', () => {
                 ['1', 2n, 2, 1n, false],
                 ['1', 2n, 4, 1n, false],
                 ['1', 2n, 8, 1n, false],
+                ['2', 1n, 50, 1n, false],
+                ['2', 2n, 60, 1n, false],
+                ['2', 3n, 70, 1n, false],
             ],
         ],
     ])('%s', (_name, points, expected) => {
         expect(summarize(aggregateMetricRecords(points.map(record)))).toEqual(expected.sort(bySeriesTimeValue))
+    })
+
+    it('keeps the increase exact when one cumulative series is split across slices', () => {
+        // 100, 800, 900 under start 1, then a reset to 5 and 1000 under start 2, alternating between slices.
+        const points: Point[] = [
+            { temporality: 'cumulative', start: 1n, ts: 1n, value: 100 },
+            { temporality: 'cumulative', start: 1n, ts: 2n, value: 800 },
+            { temporality: 'cumulative', start: 1n, ts: 3n, value: 900 },
+            { temporality: 'cumulative', start: 2n, ts: 4n, value: 5 },
+            { temporality: 'cumulative', start: 2n, ts: 5n, value: 1000 },
+        ]
+        const sliceA = aggregateMetricRecords(points.filter((_, i) => i % 2 === 0).map(record))
+        const sliceB = aggregateMetricRecords(points.filter((_, i) => i % 2 === 1).map(record))
+        const values = summarize([...sliceA, ...sliceB]).map(([, , value]) => value)
+
+        // The query treats a drop in value as a reset from 0, as `_build_counter_query` does.
+        const increase = values
+            .slice(1)
+            .reduce((total, value, i) => total + (value >= values[i] ? value - values[i] : value), 0)
+        expect(increase).toEqual(1800)
     })
 })

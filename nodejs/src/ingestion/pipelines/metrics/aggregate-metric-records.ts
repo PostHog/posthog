@@ -29,7 +29,12 @@ function aggregationKind(record: MetricRecord): AggregationKind | null {
     if (temporality === 'delta') {
         return 'delta'
     }
-    if (temporality === 'cumulative' && unwrap<boolean>(record.is_monotonic) === true) {
+    // Without a start time, a reset is visible only in the whole timeline, which one batch never sees.
+    if (
+        temporality === 'cumulative' &&
+        unwrap<boolean>(record.is_monotonic) === true &&
+        unwrap<bigint>(record.start_timestamp) !== null
+    ) {
         return 'cumulative'
     }
     return null
@@ -42,6 +47,8 @@ function groupKey(record: MetricRecord, kind: AggregationKind): string {
         kind,
         String(unwrap<bigint>(record.series_fingerprint)),
         String(bucket),
+        // Each delta point has its own start time, so only a cumulative point groups by it.
+        kind === 'cumulative' ? String(unwrap<bigint>(record.start_timestamp)) : null,
         unwrap<boolean>(record.is_monotonic),
         unwrap<string>(record.unit),
         unwrap<number>(record.retention_days),
@@ -75,24 +82,17 @@ function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
     return [withValueAndCount(sorted[sorted.length - 1], value, count)]
 }
 
-// The first point keeps a reset between two groups visible to the query. The points on both sides of
-// each drop in value keep the reset visible when the value climbs past its old level in one group.
+// A cumulative value only rises within one start time, so the first and last points of each slice
+// keep every increase, and the points at each reset survive in whichever slice holds them.
 function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
     const sorted = sortByTimestamp(records)
-    const last = sorted.length - 1
-    const kept: MetricRecord[] = []
-    let count = 0n
-    for (let index = 0; index <= last; index++) {
-        const record = sorted[index]
-        count += countOf(record)
-        const beforeReset = index < last && valueOf(sorted[index + 1]) < valueOf(record)
-        const afterReset = index > 0 && valueOf(record) < valueOf(sorted[index - 1])
-        if (index === 0 || index === last || beforeReset || afterReset) {
-            kept.push(withValueAndCount(record, valueOf(record), count))
-            count = 0n
-        }
+    const first = sorted[0]
+    const last = sorted[sorted.length - 1]
+    if (sorted.length === 1) {
+        return [first]
     }
-    return kept
+    const restCount = sorted.slice(1).reduce((total, record) => total + countOf(record), 0n)
+    return [first, withValueAndCount(last, valueOf(last), restCount)]
 }
 
 export function aggregateMetricRecords(records: MetricRecord[]): MetricRecord[] {

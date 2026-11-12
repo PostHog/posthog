@@ -10,7 +10,11 @@ export interface DecodedMetricRecords {
     meta: Record<string, Buffer>
     codec: string
     records: MetricRecord[]
+    /** Uncompressed size of the Avro blocks. */
+    decodedBytes: number
 }
+
+export class DecodedBytesLimitError extends Error {}
 
 const SUPPORTED_CODECS = new Set(['null', 'zstandard'])
 
@@ -67,18 +71,33 @@ export function isSupportedCodec(codec: string): boolean {
     return SUPPORTED_CODECS.has(codec)
 }
 
-export function decodeMetricRecords(buffer: Buffer): Promise<DecodedMetricRecords> {
+export function decodeMetricRecords(
+    buffer: Buffer,
+    maxDecodedBytes = Number.POSITIVE_INFINITY
+): Promise<DecodedMetricRecords> {
     return new Promise((resolve, reject) => {
         try {
             const records: MetricRecord[] = []
             let header: { type: avro.Type; meta: Record<string, Buffer>; codec: string } | undefined
+            let decodedBytes = 0
+            // Stops before the next block decodes into records, so memory stays near the limit.
+            const countBlock = (block: Buffer, cb: (err: Error | null, inflated?: Buffer) => void): void => {
+                decodedBytes += block.length
+                if (decodedBytes > maxDecodedBytes) {
+                    cb(new DecodedBytesLimitError(`decoded more than ${maxDecodedBytes} bytes`))
+                    return
+                }
+                cb(null, block)
+            }
 
+            // Custom codecs replace the avsc defaults, so `null` must be listed too.
             const decoder = new avro.streams.BlockDecoder({
                 parseHook: parseWriterSchema,
                 codecs: {
+                    null: countBlock,
                     zstandard: (buf: Buffer, cb: (err: Error | null, inflated?: Buffer) => void) => {
                         decompress(buf)
-                            .then((inflated) => cb(null, inflated))
+                            .then((inflated) => countBlock(inflated, cb))
                             .catch(cb)
                     },
                 },
@@ -97,7 +116,7 @@ export function decodeMetricRecords(buffer: Buffer): Promise<DecodedMetricRecord
                     reject(new Error('No metadata found'))
                     return
                 }
-                resolve({ ...header, records })
+                resolve({ ...header, records, decodedBytes })
             })
             decoder.on('error', reject)
             decoder.end(buffer)

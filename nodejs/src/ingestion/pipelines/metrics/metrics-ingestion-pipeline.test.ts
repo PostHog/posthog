@@ -9,8 +9,10 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 
+import { createAggregateMetricsStep } from './aggregate-metrics-step'
 import { decodeMetricRecords, encodeMetricRecords, parseWriterSchema, unwrap } from './metric-record-avro'
 import {
     MetricsIngestionPipelineConfig,
@@ -293,5 +295,36 @@ describe('MetricsIngestionPipeline', () => {
                 [1, 'records_ingested', 3],
             ])
         )
+    })
+
+    it('passes a message through unchanged when it would decode past the chunk budget', async () => {
+        const small = createMessage(teamA.api_token, 2)
+        small.value = await encodeMetricRecords(METRIC_CONTAINER, [
+            metricPoint('sum', 10, 1n),
+            metricPoint('sum', 10, 2n),
+        ])
+        const large = createMessage(teamA.api_token, 3)
+        large.value = await encodeMetricRecords(METRIC_CONTAINER, [
+            metricPoint('sum', 10, 1n),
+            metricPoint('sum', 10, 2n),
+            metricPoint('sum', 10, 3n),
+        ])
+        const budget = (await decodeMetricRecords(small.value)).decodedBytes + 1
+        const step = createAggregateMetricsStep<{
+            message: Message
+            teamId: number
+            bytesUncompressed: number
+            recordCount: number
+        }>(() => true, budget)
+
+        const results = await step(
+            [small, large].map((message) => ({ message, teamId: teamA.id, bytesUncompressed: 1, recordCount: 1 }))
+        )
+
+        const values = results.map((result) =>
+            result.type === PipelineResultType.OK ? result.value.message.value : null
+        )
+        expect((await decodeMetricRecords(values[0]!)).records.map((r) => unwrap(r.value))).toEqual([20])
+        expect(values[1]).toBe(large.value)
     })
 })

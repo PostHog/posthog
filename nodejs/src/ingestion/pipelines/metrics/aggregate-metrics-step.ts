@@ -7,6 +7,7 @@ import { ValueMatcher } from '~/types'
 
 import { aggregateMetricRecords, isAggregatable } from './aggregate-metric-records'
 import {
+    DecodedBytesLimitError,
     DecodedMetricRecords,
     MetricRecord,
     decodeMetricRecords,
@@ -29,9 +30,13 @@ interface DecodedInput {
     aggregatable: MetricRecord[]
 }
 
-async function decodeInput<T extends AggregateMetricsInput>(value: T, index: number): Promise<DecodedInput | null> {
+async function decodeInput<T extends AggregateMetricsInput>(
+    value: T,
+    index: number,
+    maxDecodedBytes: number
+): Promise<DecodedInput | null> {
     try {
-        const decoded = await decodeMetricRecords(value.message.value!)
+        const decoded = await decodeMetricRecords(value.message.value!, maxDecodedBytes)
         if (!isSupportedCodec(decoded.codec)) {
             metricsAggregationSkippedCounter.inc({ reason: 'unsupported_codec' })
             return null
@@ -43,6 +48,10 @@ async function decodeInput<T extends AggregateMetricsInput>(value: T, index: num
         }
         return { index, decoded, passthrough, aggregatable }
     } catch (error) {
+        if (error instanceof DecodedBytesLimitError) {
+            metricsAggregationSkippedCounter.inc({ reason: 'decoded_bytes_limit' })
+            return null
+        }
         logger.warn('metrics_aggregation_decode_failed', { error: String(error), team_id: value.teamId })
         metricsAggregationSkippedCounter.inc({ reason: 'decode_error' })
         return null
@@ -50,6 +59,7 @@ async function decodeInput<T extends AggregateMetricsInput>(value: T, index: num
 }
 
 const MAX_CHUNK_BYTES_UNCOMPRESSED = 32 * 1024 * 1024
+export const MAX_CHUNK_DECODED_BYTES = 64 * 1024 * 1024
 
 function encodedSize(input: DecodedInput, record: MetricRecord): number {
     return input.decoded.type.toBuffer(record).length
@@ -120,15 +130,27 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
     }
 }
 
+// Decodes one message at a time against a budget shared by the chunk, so a message whose rows expand far
+// past its request size cannot exhaust memory. A message that does not fit passes through unchanged.
 async function aggregateChunk<T extends AggregateMetricsInput>(
     values: T[],
     indices: number[],
-    results: PipelineResult<T>[]
+    results: PipelineResult<T>[],
+    maxDecodedBytes: number
 ): Promise<void> {
-    const decoded = await Promise.all(indices.map((index) => decodeInput(values[index], index)))
+    const decoded: DecodedInput[] = []
+    let remaining = maxDecodedBytes
+    for (const index of indices) {
+        const input = await decodeInput(values[index], index, remaining)
+        if (input === null) {
+            continue
+        }
+        remaining -= input.decoded.decodedBytes
+        decoded.push(input)
+    }
     const bySchema = new Map<string, DecodedInput[]>()
     for (const input of decoded) {
-        if (input === null || input.aggregatable.length === 0) {
+        if (input.aggregatable.length === 0) {
             continue
         }
         const schema = input.decoded.meta['avro.schema']?.toString() ?? ''
@@ -173,7 +195,8 @@ function splitByBytes<T extends AggregateMetricsInput>(values: T[], indices: num
 // Merges only messages of one team and one source partition, because ClickHouse tracks freshness per
 // source partition through a header that the produce step sets.
 export function createAggregateMetricsStep<T extends AggregateMetricsInput>(
-    isTeamEnabled: ValueMatcher<number>
+    isTeamEnabled: ValueMatcher<number>,
+    maxDecodedBytesPerChunk = MAX_CHUNK_DECODED_BYTES
 ): ChunkProcessingStep<T, T> {
     return async function aggregateMetricsStep(values) {
         const results: PipelineResult<T>[] = values.map((value) => ok(value))
@@ -194,7 +217,7 @@ export function createAggregateMetricsStep<T extends AggregateMetricsInput>(
 
         for (const indices of groups.values()) {
             for (const chunk of splitByBytes(values, indices)) {
-                await aggregateChunk(values, chunk, results)
+                await aggregateChunk(values, chunk, results, maxDecodedBytesPerChunk)
             }
         }
 
