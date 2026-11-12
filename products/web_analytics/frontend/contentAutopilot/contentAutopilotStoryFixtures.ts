@@ -595,6 +595,28 @@ const setCounts = (
     }
 }
 
+// 30 answers per engine per day, with rates that drift around each engine's level so the lines read apart.
+const OVERVIEW_ENGINE_LEVELS: [engine: string, cited: number, mentioned: number][] = [
+    ['claude-web-search', 0.5, 0.7],
+    ['exa-answer', 0.2, 0.4],
+    ['openai-web-search', 0.46, 0.66],
+]
+
+const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ length: 30 }, (_, index) =>
+    OVERVIEW_ENGINE_LEVELS.map(([engine, cited, mentioned], engineIndex) => {
+        const drift = Math.sin(index / 4 + engineIndex) * 0.06
+        return {
+            date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+            engine,
+            checks: 30,
+            failed: 0,
+            cited: Math.round((cited + drift) * 30),
+            mentioned: Math.round((mentioned + drift) * 30),
+            avg_position: Math.round((2.3 + engineIndex * 0.4 - drift * 5) * 10) / 10,
+        }
+    })
+).flat()
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -610,17 +632,18 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     engines: [
         {
             engine: 'claude-web-search',
-            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }, 2.1),
         },
         {
             engine: 'exa-answer',
-            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }, 3.4),
         },
         {
             engine: 'openai-web-search',
-            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }, 2.2),
         },
     ],
+    daily: EXAMPLE_PROMPT_SET_DAILY,
     topics: [
         {
             topic: '',
