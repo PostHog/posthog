@@ -4,8 +4,6 @@ import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
-export const SES_RATE_LIMIT_KEY = '@posthog/ses/global'
-
 export interface RateLimitedQueueOptions {
     limiter: RateLimiterService
     /** Token-bucket key, e.g. `@posthog/ses/global`. */
