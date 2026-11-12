@@ -53,7 +53,11 @@ import {
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
 import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+} from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -780,6 +784,7 @@ describe('EmailTrackingService', () => {
                 sentTags,
                 messageCreatedMs,
                 signedCreatedMs,
+                createdHeader,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
@@ -797,8 +802,10 @@ describe('EmailTrackingService', () => {
                 sentTags?: Record<string, string[]>
                 // An unsigned SES tag claiming a creation time, as a forged notification could add.
                 messageCreatedMs?: string
-                // The creation time minted into the signed tracking code.
+                // The creation time the email worker signs into its own header.
                 signedCreatedMs?: number
+                // Replaces that header's value, as a forged notification could.
+                createdHeader?: string
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
@@ -815,7 +822,6 @@ describe('EmailTrackingService', () => {
                         parentRunId,
                         workflowVersion,
                         distinctId,
-                        messageCreatedAtMs: signedCreatedMs,
                         ...(actionId ? { state: { actionId } } : {}),
                     },
                     false,
@@ -828,7 +834,22 @@ describe('EmailTrackingService', () => {
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
                         destination: [recipient],
-                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
+                        headers: [
+                            { name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode },
+                            ...(createdHeader !== undefined || signedCreatedMs !== undefined
+                                ? [
+                                      {
+                                          name: MESSAGE_CREATED_HEADER_NAME,
+                                          value:
+                                              createdHeader ??
+                                              signer.messageCreatedHeaderValue(
+                                                  transactionalMessageId ?? invocationId,
+                                                  signedCreatedMs!
+                                              ),
+                                      },
+                                  ]
+                                : []),
+                        ],
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: [recipient] },
@@ -974,9 +995,9 @@ describe('EmailTrackingService', () => {
 
                 it.each([
                     ['dated by its message id', new UUIDT(sentAt).toString(), undefined, undefined],
-                    ['of a keyed send, dated by its signed tracking code', keyedMessageId, sentAt, undefined],
+                    ['of a keyed send, dated by its signed creation header', keyedMessageId, sentAt, undefined],
                     [
-                        'of a keyed send, dated by its signed code though an unsigned tag claims another day',
+                        'of a keyed send, dated by its signed header though an unsigned tag claims another day',
                         keyedMessageId,
                         sentAt,
                         String(sentAt - 3 * 24 * 60 * 60 * 1000),
@@ -1012,31 +1033,50 @@ describe('EmailTrackingService', () => {
                     }
                 )
 
-                it.each([
-                    ['its signed time lies in the far future', Date.UTC(2200, 0, 1), undefined],
-                    ['it carries only an unsigned tag', undefined, String(sentAt)],
-                ])('records no status for a keyed send when %s', async (_desc, signedCreatedMs, messageCreatedMs) => {
-                    const hogFlow = await insertHogFlow(
-                        hub.postgres,
-                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                    )
+                it.each<[string, number | undefined, string | undefined, () => string | undefined]>([
+                    ['its signed time lies in the far future', Date.UTC(2200, 0, 1), undefined, () => undefined],
+                    ['it carries only an unsigned tag', undefined, String(sentAt), () => undefined],
+                    [
+                        'its header time was changed',
+                        undefined,
+                        undefined,
+                        () =>
+                            signer
+                                .messageCreatedHeaderValue(keyedMessageId, sentAt)
+                                .replace(String(sentAt), String(sentAt - 24 * 60 * 60 * 1000)),
+                    ],
+                    [
+                        'its header was signed for another message',
+                        undefined,
+                        undefined,
+                        () => signer.messageCreatedHeaderValue(new UUIDT(sentAt).toString(), sentAt),
+                    ],
+                ])(
+                    'records no status for a keyed send when %s',
+                    async (_desc, signedCreatedMs, messageCreatedMs, createdHeader) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
 
-                    await recordBounce({
-                        functionId: hogFlow.id,
-                        transactionalMessageId: keyedMessageId,
-                        signedCreatedMs,
-                        messageCreatedMs,
-                    })
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: keyedMessageId,
+                            signedCreatedMs,
+                            messageCreatedMs,
+                            createdHeader: createdHeader(),
+                        })
 
-                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
-                })
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                    }
+                )
             })
 
             describe('after a keyed message has expired', () => {
                 beforeEach(() => pinDate(sentAt + 40 * 24 * 60 * 60 * 1000))
                 afterEach(() => jest.useRealTimers())
 
-                it('records no fresh-dated status from a fresh unsigned tag', async () => {
+                it('records no fresh-dated status for it, whatever its tag claims', async () => {
                     const hogFlow = await insertHogFlow(
                         hub.postgres,
                         new FixtureHogFlowBuilder().withTeamId(team.id).build()

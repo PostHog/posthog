@@ -11,6 +11,10 @@ const SIGNATURE_BYTES = 16
 // (see generateShort) purely as a backwards-compat fallback.
 export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
 
+// Signed creation time of a keyed message, whose id holds no time, as `<ms>.<signature>`. It rides apart from the
+// tracking code so that header keeps its length under SES's 996-character header limit, and older pods ignore it.
+export const MESSAGE_CREATED_HEADER_NAME = 'X-PostHog-Message-Created'
+
 // Tracks the rotation curve from unsigned to signed tracking codes.
 export const trackingCodeFormatCounter = new Counter({
     name: 'email_tracking_code_format_total',
@@ -56,9 +60,6 @@ export type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functi
     // been republished — so the sending version has to travel with the message rather than being
     // looked up on arrival. Absent for hog function sends, which have no version.
     workflowVersion?: number
-    // When the message was accepted, in Unix ms. Set only for a keyed transactional send, whose id holds no time,
-    // so its status rows are dated by a value the recipient can't change.
-    messageCreatedAtMs?: number
 }
 
 export type TrackingCodeFormat = 'signed' | 'unsigned'
@@ -87,7 +88,6 @@ export type ParsedTrackingCode = {
     isTest: boolean
     distinctId?: string
     workflowVersion?: number
-    messageCreatedAtMs?: number
     format: TrackingCodeFormat
 }
 
@@ -97,9 +97,6 @@ export type ParsedTrackingCode = {
 // arrive for weeks after a send. The marker lets both layouts coexist: no marker means the original
 // layout and no version. It can't collide with a real payload because segment 0 is a UUID.
 const VERSIONED_PAYLOAD_MARKER = 'v2'
-// Same as v2 plus the message's creation time after the version. Only keyed sends mint it, and they only exist once
-// every pod parses it.
-const CREATED_AT_PAYLOAD_MARKER = 'v3'
 
 const EMIT_VERSIONED_PAYLOAD = true
 
@@ -108,6 +105,10 @@ const EMIT_VERSIONED_PAYLOAD = true
 // leading `[` keeps this payload apart from tracking-code payloads, which are bare base64url.
 const redirectSignaturePayload = (trackingCode: string, targetUrl: string): string =>
     JSON.stringify(['redirect', trackingCode, targetUrl])
+
+// Binds the time to one message, and the leading tag keeps it apart from every other signed payload.
+const messageCreatedSignaturePayload = (messageId: string, createdMs: number): string =>
+    JSON.stringify(['message-created', messageId, createdMs])
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
@@ -166,19 +167,17 @@ export class EmailTrackingCodeSigner {
         try {
             const decoded = fromBase64UrlSafe(payloadB64)
             const segments = decoded.split(':')
-            const hasCreatedAt = segments[0] === CREATED_AT_PAYLOAD_MARKER
-            const isVersioned = hasCreatedAt || segments[0] === VERSIONED_PAYLOAD_MARKER
+            const isVersioned = segments[0] === VERSIONED_PAYLOAD_MARKER
             const fields = isVersioned ? segments.slice(1) : segments
             // distinctId is the trailing segment and may itself contain colons, so rejoin everything past it.
             const [functionId, invocationId, teamId, actionId, parentRunId, isTest] = fields
-            const distinctIdParts = fields.slice(hasCreatedAt ? 8 : isVersioned ? 7 : 6)
+            const distinctIdParts = fields.slice(isVersioned ? 7 : 6)
             if (!functionId || !invocationId) {
                 return null
             }
             // Signed-only for the same reason as distinct_id below: `generate` always signs, and the
             // unsigned tag carrier never mints a version, so a version on an unsigned code is forged.
             const workflowVersion = isVersioned && format === 'signed' ? Number.parseInt(fields[6], 10) : Number.NaN
-            const messageCreatedAtMs = hasCreatedAt && format === 'signed' ? Number(fields[7]) : Number.NaN
             return {
                 functionId,
                 invocationId,
@@ -189,8 +188,6 @@ export class EmailTrackingCodeSigner {
                 // Empty for hog function sends, which have no version.
                 workflowVersion:
                     Number.isInteger(workflowVersion) && workflowVersion >= 1 ? workflowVersion : undefined,
-                messageCreatedAtMs:
-                    Number.isSafeInteger(messageCreatedAtMs) && messageCreatedAtMs > 0 ? messageCreatedAtMs : undefined,
                 // Only trust distinct_id from a signed code — the HMAC is its integrity guarantee. The
                 // legitimate unsigned tag never carries a distinct_id, so an unsigned code with one is
                 // forged; honoring it would let a crafted ph_id inject engagement events for any team.
@@ -213,7 +210,6 @@ export class EmailTrackingCodeSigner {
         const parentRunId = invocation.parentRunId ?? ''
         const distinctId = invocation.distinctId ?? ''
         const workflowVersion = typeof invocation.workflowVersion === 'number' ? String(invocation.workflowVersion) : ''
-        const createdAtMs = invocation.messageCreatedAtMs
         // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording their
         // metrics — keeping test traffic out of the production Metrics tab. distinctId is appended last
         // because it may contain colons; it attributes engagement events.
@@ -226,11 +222,9 @@ export class EmailTrackingCodeSigner {
             isTest ? '1' : '',
         ]
         const payload = toBase64UrlSafe(
-            createdAtMs !== undefined
-                ? [CREATED_AT_PAYLOAD_MARKER, ...fields, workflowVersion, String(createdAtMs), distinctId].join(':')
-                : emitVersionedPayload
-                  ? [VERSIONED_PAYLOAD_MARKER, ...fields, workflowVersion, distinctId].join(':')
-                  : [...fields, distinctId].join(':')
+            emitVersionedPayload
+                ? [VERSIONED_PAYLOAD_MARKER, ...fields, workflowVersion, distinctId].join(':')
+                : [...fields, distinctId].join(':')
         )
         if (this.signingKeys.length === 0) {
             // Fail closed (#62624): a deployment with no signing key must never mint unsigned tracking
@@ -269,6 +263,22 @@ export class EmailTrackingCodeSigner {
         const trackingCode = this.generate(invocation, isTest)
         const signature = this.signPayload(redirectSignaturePayload(trackingCode, targetUrl), this.signingKeys[0])
         return `${this.trackingUrl}/public/m/redirect?ph_id=${trackingCode}&ph_sig=${signature}&target=${encodeURIComponent(targetUrl)}`
+    }
+
+    messageCreatedHeaderValue(messageId: string, createdMs: number): string {
+        return `${createdMs}.${this.signPayload(messageCreatedSignaturePayload(messageId, createdMs), this.signingKeys[0])}`
+    }
+
+    verifyMessageCreatedHeaderValue(messageId: string, value: string | undefined): number | undefined {
+        const [time, signature, ...rest] = (value ?? '').split('.')
+        if (!signature || rest.length > 0 || !/^\d{1,16}$/.test(time)) {
+            return undefined
+        }
+        const createdMs = Number(time)
+        return Number.isSafeInteger(createdMs) &&
+            this.verifySignature(messageCreatedSignaturePayload(messageId, createdMs), signature)
+            ? createdMs
+            : undefined
     }
 
     // Links minted before the target was signed carry no `ph_sig`, so they fail this check.
