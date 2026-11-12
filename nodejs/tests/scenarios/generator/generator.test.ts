@@ -155,49 +155,62 @@ describe('drive', () => {
         }
     )
 
-    it('sends no follow-up after an interrupt, and returns once the follow-up it waited on settled', async () => {
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
-        let followUpsSent = 0
-        const server = http.createServer((request, response) => {
-            followUpsSent += 1
-            request.resume()
-            response.writeHead(422).end(JSON.stringify({ error: 'recipient_suppressed' }))
-        })
-        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-        const { port } = server.address() as AddressInfo
-        const interrupt = new AbortController()
-        try {
-            const { driving, journal } = startDrive(
-                cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'bounce_followup' }),
-                ACKNOWLEDGED,
-                {
-                    signal: interrupt.signal,
-                    cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
-                    sesFeedback: {
-                        settled: () => new Promise((resolve) => setTimeout(() => resolve(undefined), 1000)),
-                    },
-                }
-            )
-            let summary: Summary | undefined
-            void driving.then((ended) => (summary = ended))
-
-            await jest.advanceTimersByTimeAsync(50)
-            interrupt.abort()
-            await jest.advanceTimersByTimeAsync(949)
-            const beforeTheFollowUpSettled = summary
-            await jest.advanceTimersByTimeAsync(1)
-
-            expect({ beforeTheFollowUpSettled, summary: await driving, followUpsSent, journal }).toEqual({
-                beforeTheFollowUpSettled: undefined,
-                summary: { targetUnits: 1, offeredUnits: 0 },
-                followUpsSent: 0,
-                journal: [],
+    it.each<[string, (interrupt: AbortController) => void, string | undefined, string]>([
+        ['an interrupt', (interrupt) => interrupt.abort(), undefined, 'summary: 2 targeted, 0 offered'],
+        ['another follow-up failing', () => undefined, 'run-a-1', 'Error: the edge is down'],
+    ])(
+        'sends no follow-up once %s stopped the drive, and ends only after the follow-ups it waited on settled',
+        async (_story, stop, failingUnit, expected) => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+            let followUpsSent = 0
+            const server = http.createServer((request, response) => {
+                followUpsSent += 1
+                request.resume()
+                response.writeHead(422).end(JSON.stringify({ error: 'recipient_suppressed' }))
             })
-        } finally {
-            server.closeAllConnections()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const { port } = server.address() as AddressInfo
+            const interrupt = new AbortController()
+            const settled = (unitId: string): Promise<string | undefined> =>
+                unitId === failingUnit
+                    ? new Promise((_resolve, reject) => setTimeout(() => reject(new Error('the edge is down')), 60))
+                    : new Promise((resolve) => setTimeout(() => resolve(undefined), 1000))
+            try {
+                const { driving, journal } = startDrive(
+                    cardWith({ ratePerSecond: 20, driveFor: '100ms', traffic: 'bounce_followup' }),
+                    ACKNOWLEDGED,
+                    {
+                        signal: interrupt.signal,
+                        cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                        sesFeedback: { settled },
+                    }
+                )
+                let outcome: string | undefined
+                void driving.then(
+                    ({ targetUnits, offeredUnits }) =>
+                        (outcome = `summary: ${targetUnits} targeted, ${offeredUnits} offered`),
+                    (error: unknown) => (outcome = String(error))
+                )
+
+                await jest.advanceTimersByTimeAsync(70)
+                stop(interrupt)
+                await jest.advanceTimersByTimeAsync(979)
+                const beforeTheFollowUpsSettled = outcome
+                await jest.advanceTimersByTimeAsync(1)
+                await driving.catch(() => undefined)
+
+                expect({ beforeTheFollowUpsSettled, outcome, followUpsSent, journal }).toEqual({
+                    beforeTheFollowUpsSettled: undefined,
+                    outcome: expected,
+                    followUpsSent: 0,
+                    journal: [],
+                })
+            } finally {
+                server.closeAllConnections()
+                await new Promise<void>((resolve) => server.close(() => resolve()))
+            }
         }
-    })
+    )
 
     it('counts a transactional unit sent inside the window though cdp-api refused it after the window', async () => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })

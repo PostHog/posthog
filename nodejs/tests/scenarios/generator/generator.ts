@@ -153,8 +153,11 @@ export async function drive(
         })
         offers.push(offer)
     }
-    await untilAborted(Promise.all(offers), stop)
-    await Promise.allSettled(followUps)
+    try {
+        await untilAborted(Promise.all(offers), stop)
+    } finally {
+        await Promise.allSettled(followUps)
+    }
     if (!stop.aborted && Date.now() < end) {
         await pause(end - Date.now(), stop)
     }
