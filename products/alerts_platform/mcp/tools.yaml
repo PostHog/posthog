@@ -2,64 +2,15 @@
 # List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product alerts_platform
 # Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product alerts_platform
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
-# The warehouse-alerts-destinations-* tools wrap the warehouse_sources operations. Add them with --product warehouse_sources --file products/alerts_platform/mcp/tools.yaml.
 category: Alerts platform
 feature: alerts_platform
-url_prefix: /platform-alerts
-# Every tool here serves warehouse sync alerts, so the warehouse alerts rollout flag gates the whole category.
+url_prefix: /data-management/sources
 feature_flag: platform-alerts-source-warehouse
 ui_apps: {}
 tools:
-    platform-alerts-list:
-        operation: platform_alerts_list
-        enabled: true
-        scopes:
-            - alert:read
-            - external_data_source:read
-        title: List sync failure alerts
-        description: >
-            List the project's platform alerts. Use it to see which data warehouse sync failure alerts already exist
-            before you create one, or to find an alert's ID. Filter with source_kind=warehouse_source for alerts on
-            data warehouse sources and their tables, or source_kind=warehouse_destination for alerts on warehouse
-            destinations. Each alert shows its name, enabled flag, source_config (which sources it watches), grouping,
-            state (firing or not), and destination_types (where it notifies). An alert with an empty destination_types
-            notifies nobody: add a destination with warehouse-alerts-destinations-create. Results are paginated with
-            limit and offset.
-        list: true
-        enrich_url: '{id}'
-        response:
-            include:
-                - id
-                - name
-                - enabled
-                - source_kind
-                - source_config
-                - grouping
-                - cooldown_minutes
-                - check_status
-                - last_checked_at
-                - last_error_message
-                - destination_types
-                - owner
-                - alerts
-    platform-alerts-retrieve:
-        operation: platform_alerts_retrieve
-        enabled: true
-        scopes:
-            - alert:read
-            - external_data_source:read
-        title: Get a sync failure alert
-        description: >
-            Get one platform alert by ID, including its source_config, grouping, last check result, last error, and the
-            state of each group (alerts[]: one entry per failing table or source, with its labels, state, and snooze).
-            Use it to check whether a sync failure alert is firing and what it watches. Find the ID with
-            platform-alerts-list. For the notification destinations of the alert, call
-            warehouse-alerts-destinations-list.
-        enrich_url: '{id}'
     platform-alerts-create:
         operation: platform_alerts_create
         enabled: true
-        input_schema: WarehouseSyncAlertCreateSchema
         scopes:
             - alert:write
             - external_data_source:write
@@ -67,6 +18,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        input_schema: WarehouseSyncAlertCreateSchema
         title: Create a sync failure alert
         description: >
             Alert me when a data warehouse source or table fails to sync. Creates a platform alert that checks sync
@@ -95,30 +47,6 @@ tools:
             datapoints_to_alarm at 1, which is the only accepted value. cooldown_minutes is the minimum number of
             minutes between messages for the same failing table or source (default 0). name defaults to "Untitled
             alert", so always set a descriptive name such as "Stripe sync failures".
-        enrich_url: '{id}'
-    platform-alerts-partial-update:
-        operation: platform_alerts_partial_update
-        enabled: true
-        input_schema: WarehouseSyncAlertUpdateSchema
-        scopes:
-            - alert:write
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update a sync failure alert
-        description: >
-            Change a sync failure alert, for example rename it, disable it with enabled=false, change the sources it
-            watches in source_config, or change cooldown_minutes. Send only the fields to change; other fields keep their
-            stored values. A grouping is replaced as a whole, and it must still match source_config.group_by (see
-            platform-alerts-create). When you send source_config or grouping, also send source_kind, so the two are
-            checked against each other. Changing source_config.group_by also needs the matching grouping.keys. Changing
-            grouping.keys closes the existing groups without a message. Send the whole source_config when you change it,
-            because it is replaced, not merged. Only alerts with owner=platform can be edited here. Find the ID with
-            platform-alerts-list. To change where the alert sends messages, use warehouse-alerts-destinations-create and
-            warehouse-alerts-destinations-delete.
-        enrich_url: '{id}'
     platform-alerts-destroy:
         operation: platform_alerts_destroy
         enabled: true
@@ -130,45 +58,69 @@ tools:
             Delete a platform alert and all its notification destinations. The user stops getting messages when a sync
             fails. This cannot be undone: confirm with the user first. To stop notifications temporarily, set
             enabled=false with platform-alerts-partial-update instead.
-    warehouse-alerts-destinations-list:
-        operation: warehouse_alerts_destinations_list
+    platform-alerts-list:
+        operation: platform_alerts_list
         enabled: true
-        title: List where a sync failure alert notifies
+        scopes:
+            - alert:read
+            - external_data_source:read
+        list: true
+        title: List sync failure alerts
         description: >
-            List the notification destinations of a warehouse sync failure alert: Slack channels, webhooks, Microsoft
-            Teams, Discord, and PagerDuty. The id is the alert ID from platform-alerts-list or platform-alerts-create,
-            not a source ID. Secrets are redacted: webhook URLs show only scheme and host, and PagerDuty keys show only
-            the last four characters. An alert with no destinations notifies nobody.
-    warehouse-alerts-destinations-create:
-        operation: warehouse_alerts_destinations_create
+            List the project's platform alerts. Use it to see which data warehouse sync failure alerts already exist
+            before you create one, or to find an alert's ID. Filter with source_kind=warehouse_source for alerts on data
+            warehouse sources and their tables, or source_kind=warehouse_destination for alerts on warehouse
+            destinations. Each alert shows its name, enabled flag, source_config (which sources it watches), grouping,
+            state (firing or not), and destination_types (where it notifies). An alert with an empty destination_types
+            notifies nobody: add a destination with warehouse-alerts-destinations-create. Results are paginated with
+            limit and offset.
+        response:
+            include:
+                - id
+                - name
+                - enabled
+                - source_kind
+                - source_config
+                - grouping
+                - cooldown_minutes
+                - check_status
+                - last_checked_at
+                - last_error_message
+                - destination_types
+                - owner
+                - alerts
+    platform-alerts-partial-update:
+        operation: platform_alerts_partial_update
         enabled: true
+        scopes:
+            - alert:write
+            - external_data_source:write
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
-        title: Choose where a sync failure alert notifies
+            idempotent: true
+        input_schema: WarehouseSyncAlertUpdateSchema
+        title: Update a sync failure alert
         description: >
-            Add a notification destination to a warehouse sync failure alert, so the user hears about failed syncs
-            without opening PostHog. The id is the alert ID from platform-alerts-create or platform-alerts-list. An
-            alert has at most 5 destinations, and each one sends a message every time the alert fires or resolves.
-            Set type and the fields it needs. slack: slack_workspace_id (the Slack integration ID of the project) and
-            slack_channel_id, plus an optional slack_channel_name; the Slack workspace must already be connected under
-            the project's integrations. webhook, teams, or discord: webhook_url, an HTTPS endpoint. pagerduty:
-            pagerduty_routing_key (the 32-character Events API v2 integration key), with optional pagerduty_severity and
-            pagerduty_region; PagerDuty opens an incident when the alert fires and resolves it when the alert resolves.
-            Email is not a destination type: to email project members, set source_config.email_project_members=true on
-            the alert. event_kinds lists the transitions to send, firing and resolved; it defaults to both. Ask the user
-            which channel they want before you call this, because a wrong guess sends alerts to the wrong place.
-    warehouse-alerts-destinations-delete:
-        operation: warehouse_alerts_destinations_delete_create
+            Change a sync failure alert, for example rename it, disable it with enabled=false, change the sources it
+            watches in source_config, or change cooldown_minutes. Send only the fields to change; other fields keep
+            their stored values. A grouping is replaced as a whole, and it must still match source_config.group_by (see
+            platform-alerts-create). When you send source_config or grouping, also send source_kind, so the two are
+            checked against each other. Changing source_config.group_by also needs the matching grouping.keys. Changing
+            grouping.keys closes the existing groups without a message. Send the whole source_config when you change it,
+            because it is replaced, not merged. Only alerts with owner=platform can be edited here. Find the ID with
+            platform-alerts-list. To change where the alert sends messages, use warehouse-alerts-destinations-create and
+            warehouse-alerts-destinations-delete.
+    platform-alerts-retrieve:
+        operation: platform_alerts_retrieve
         enabled: true
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Remove where a sync failure alert notifies
+        scopes:
+            - alert:read
+            - external_data_source:read
+        title: Get a sync failure alert
         description: >
-            Delete notification destinations from a warehouse sync failure alert. The id is the alert ID, and
-            destination_ids are the destination IDs that warehouse-alerts-destinations-list returns. The call fails
-            without deleting anything when an ID does not belong to the alert. Confirm with the user first, because the
-            alert stops sending messages to those destinations.
+            Get one platform alert by ID, including its source_config, grouping, last check result, last error, and the
+            state of each group (alerts[]: one entry per failing table or source, with its labels, state, and snooze).
+            Use it to check whether a sync failure alert is firing and what it watches. Find the ID with
+            platform-alerts-list. For the notification destinations of the alert, call
+            warehouse-alerts-destinations-list.

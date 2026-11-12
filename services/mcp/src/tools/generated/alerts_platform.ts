@@ -7,6 +7,44 @@ import { WarehouseSyncAlertCreateSchema, WarehouseSyncAlertUpdateSchema } from '
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const PlatformAlertsCreateSchema = () => WarehouseSyncAlertCreateSchema
+
+const platformAlertsCreate = (): ToolBase<
+    ReturnType<typeof PlatformAlertsCreateSchema>,
+    Schemas.PlatformAlertConfiguration
+> => ({
+    name: 'platform-alerts-create',
+    schema: PlatformAlertsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = PlatformAlertsCreateSchema().parse(params)
+        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
+            body: parsedParams,
+        })
+        return result
+    },
+})
+
+const PlatformAlertsDestroySchema = () => {
+    const PlatformAlertsDestroyParams = orvalSchemas.PlatformAlertsDestroyParams()
+    return PlatformAlertsDestroyParams.omit({ project_id: true })
+}
+
+const platformAlertsDestroy = (): ToolBase<ReturnType<typeof PlatformAlertsDestroySchema>, unknown> => ({
+    name: 'platform-alerts-destroy',
+    schema: PlatformAlertsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const PlatformAlertsListSchema = () => {
     const PlatformAlertsListQueryParams = orvalSchemas.PlatformAlertsListQueryParams()
     return PlatformAlertsListQueryParams
@@ -51,57 +89,7 @@ const platformAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/platform-alerts/${item.id}`))
-                ),
-            },
-            '/platform-alerts'
-        )
-    },
-})
-
-const PlatformAlertsRetrieveSchema = () => {
-    const PlatformAlertsRetrieveParams = orvalSchemas.PlatformAlertsRetrieveParams()
-    return PlatformAlertsRetrieveParams.omit({ project_id: true })
-}
-
-const platformAlertsRetrieve = (): ToolBase<
-    ReturnType<typeof PlatformAlertsRetrieveSchema>,
-    WithPostHogUrl<Schemas.PlatformAlertConfiguration>
-> => ({
-    name: 'platform-alerts-retrieve',
-    schema: PlatformAlertsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/platform-alerts/${result.id}`)
-    },
-})
-
-const PlatformAlertsCreateSchema = () => WarehouseSyncAlertCreateSchema
-
-const platformAlertsCreate = (): ToolBase<
-    ReturnType<typeof PlatformAlertsCreateSchema>,
-    Schemas.PlatformAlertConfiguration
-> => ({
-    name: 'platform-alerts-create',
-    schema: PlatformAlertsCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = PlatformAlertsCreateSchema().parse(params)
-        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
-            body: parsedParams,
-        })
-        return await withPostHogUrl(context, result, `/platform-alerts/${result.id}`)
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -122,138 +110,35 @@ const platformAlertsPartialUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/platform-alerts/${result.id}`)
+        return result
     },
 })
 
-const PlatformAlertsDestroySchema = () => {
-    const PlatformAlertsDestroyParams = orvalSchemas.PlatformAlertsDestroyParams()
-    return PlatformAlertsDestroyParams.omit({ project_id: true })
+const PlatformAlertsRetrieveSchema = () => {
+    const PlatformAlertsRetrieveParams = orvalSchemas.PlatformAlertsRetrieveParams()
+    return PlatformAlertsRetrieveParams.omit({ project_id: true })
 }
 
-const platformAlertsDestroy = (): ToolBase<ReturnType<typeof PlatformAlertsDestroySchema>, unknown> => ({
-    name: 'platform-alerts-destroy',
-    schema: PlatformAlertsDestroySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsDestroySchema>>) => {
+const platformAlertsRetrieve = (): ToolBase<
+    ReturnType<typeof PlatformAlertsRetrieveSchema>,
+    Schemas.PlatformAlertConfiguration
+> => ({
+    name: 'platform-alerts-retrieve',
+    schema: PlatformAlertsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PlatformAlertsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
+        const result = await context.api.request<Schemas.PlatformAlertConfiguration>({
+            method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
-const WarehouseAlertsDestinationsListSchema = () => {
-    const WarehouseAlertsDestinationsListParams = orvalSchemas.WarehouseAlertsDestinationsListParams()
-    return WarehouseAlertsDestinationsListParams.omit({ project_id: true })
-}
-
-const warehouseAlertsDestinationsList = (): ToolBase<
-    ReturnType<typeof WarehouseAlertsDestinationsListSchema>,
-    Schemas.WarehouseAlertDestination[]
-> => ({
-    name: 'warehouse-alerts-destinations-list',
-    schema: WarehouseAlertsDestinationsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseAlertsDestinationsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseAlertDestination[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_alerts/${encodeURIComponent(String(params.id))}/destinations/`,
-        })
-        return result
-    },
-})
-
-const WarehouseAlertsDestinationsCreateSchema = () => {
-    const WarehouseAlertsDestinationsCreateBody = orvalSchemas.WarehouseAlertsDestinationsCreateBody()
-    const WarehouseAlertsDestinationsCreateParams = orvalSchemas.WarehouseAlertsDestinationsCreateParams()
-    return WarehouseAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
-        WarehouseAlertsDestinationsCreateBody.shape
-    )
-}
-
-const warehouseAlertsDestinationsCreate = (): ToolBase<
-    ReturnType<typeof WarehouseAlertsDestinationsCreateSchema>,
-    Schemas.WarehouseAlertDestination
-> => ({
-    name: 'warehouse-alerts-destinations-create',
-    schema: WarehouseAlertsDestinationsCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseAlertsDestinationsCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.event_kinds !== undefined) {
-            body['event_kinds'] = params.event_kinds
-        }
-        if (params.slack_workspace_id !== undefined) {
-            body['slack_workspace_id'] = params.slack_workspace_id
-        }
-        if (params.slack_channel_id !== undefined) {
-            body['slack_channel_id'] = params.slack_channel_id
-        }
-        if (params.slack_channel_name !== undefined) {
-            body['slack_channel_name'] = params.slack_channel_name
-        }
-        if (params.webhook_url !== undefined) {
-            body['webhook_url'] = params.webhook_url
-        }
-        if (params.pagerduty_routing_key !== undefined) {
-            body['pagerduty_routing_key'] = params.pagerduty_routing_key
-        }
-        if (params.pagerduty_severity !== undefined) {
-            body['pagerduty_severity'] = params.pagerduty_severity
-        }
-        if (params.pagerduty_region !== undefined) {
-            body['pagerduty_region'] = params.pagerduty_region
-        }
-        const result = await context.api.request<Schemas.WarehouseAlertDestination>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_alerts/${encodeURIComponent(String(params.id))}/destinations/`,
-            body,
-        })
-        return result
-    },
-})
-
-const WarehouseAlertsDestinationsDeleteSchema = () => {
-    const WarehouseAlertsDestinationsDeleteCreateBody = orvalSchemas.WarehouseAlertsDestinationsDeleteCreateBody()
-    const WarehouseAlertsDestinationsDeleteCreateParams = orvalSchemas.WarehouseAlertsDestinationsDeleteCreateParams()
-    return WarehouseAlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(
-        WarehouseAlertsDestinationsDeleteCreateBody.shape
-    )
-}
-
-const warehouseAlertsDestinationsDelete = (): ToolBase<
-    ReturnType<typeof WarehouseAlertsDestinationsDeleteSchema>,
-    unknown
-> => ({
-    name: 'warehouse-alerts-destinations-delete',
-    schema: WarehouseAlertsDestinationsDeleteSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseAlertsDestinationsDeleteSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.destination_ids !== undefined) {
-            body['destination_ids'] = params.destination_ids
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
-            body,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'platform-alerts-list': platformAlertsList,
-    'platform-alerts-retrieve': platformAlertsRetrieve,
     'platform-alerts-create': platformAlertsCreate,
-    'platform-alerts-partial-update': platformAlertsPartialUpdate,
     'platform-alerts-destroy': platformAlertsDestroy,
-    'warehouse-alerts-destinations-list': warehouseAlertsDestinationsList,
-    'warehouse-alerts-destinations-create': warehouseAlertsDestinationsCreate,
-    'warehouse-alerts-destinations-delete': warehouseAlertsDestinationsDelete,
+    'platform-alerts-list': platformAlertsList,
+    'platform-alerts-partial-update': platformAlertsPartialUpdate,
+    'platform-alerts-retrieve': platformAlertsRetrieve,
 }
