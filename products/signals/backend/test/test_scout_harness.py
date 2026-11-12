@@ -1346,6 +1346,8 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # A signal-channel scout authors no reports, so it has no discussions to read.
+        assert "scout-report-discussions-list" not in prompt
         # The fleet-seams section is shared across both channels, but each tail is assembled by
         # its own code path, so assert it on both to catch a drop from either list.
         assert "Working alongside the rest of the fleet" in prompt
@@ -1545,6 +1547,7 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        assert "scout-report-discussions-list" in prompt
         # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
         # from the signal tail, so it can lose the shared section independently.
         assert "Working alongside the rest of the fleet" in prompt

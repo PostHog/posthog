@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 )
 
 from . import base
+from .setup_errors import SourceSetupErrorCode, setup_error_response
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -97,16 +98,12 @@ def _unresolved_secret_ref_response(payload: Any) -> Response | None:
     offenders = _find_unresolved_secret_refs(payload)
     if not offenders:
         return None
-    return Response(
-        status=status.HTTP_400_BAD_REQUEST,
-        data={
-            "message": (
-                f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
-                "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
-                "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
-                "the resulting credential_id instead)."
-            )
-        },
+    return setup_error_response(
+        SourceSetupErrorCode.UNRESOLVED_SECRET_REF,
+        f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
+        "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+        "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
+        "the resulting credential_id instead).",
     )
 
 

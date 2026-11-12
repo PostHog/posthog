@@ -129,57 +129,61 @@ snapshots:
     ai-observability-offline-experiments-scorer-history--narrow--light:
         hash: v1.k794b7964.0c528cbf0eba997f72bc3a0722ac94ac841901ebb2db5c3f34c0ee93bca84353.kG5c-bjALyscX3lz-CGgfFd26rN7igC55sp5dno2Z_Q
     ai-observability-scorer-editor--boolean-detector--dark:
-        hash: v1.k794b7964.bf295f71ee0750c9703c615cbc53f39849426b32b354fbf8ef0c8915f7f42e57.BVPu0uJuGhNx1_q4FgZ7vDXRQ7IllIygH2Hi6qKoTZw
+        hash: v1.k794b7964.256f0f6958157d9a16b450155a4dedb9b63ce4b204c047bb8a51dbbcb99c94e2.PFIXw5vy4_rcprt0qvJN9MSTIJicBk4F_dZDwIdzbHg
     ai-observability-scorer-editor--boolean-detector--light:
-        hash: v1.k794b7964.e7930dd72a2b07152f4993381b375bcc18645aecfedd5dff075d05ffea319dc2.GJhkHJH_e4oyO9SlOp_jhD-1vl9nYFONru5Y_X2Lo7Y
+        hash: v1.k794b7964.26a986378d7907346c1d6e6315a23e20b2f35fd17b8e05f897ecbd4ca06f960f.ItmE3T_xj--l_UWHifqlpGGczY-YpY0cYVirTKORK8M
     ai-observability-scorer-editor--legacy-boolean--dark:
-        hash: v1.k794b7964.62f407fd23bb7f3575b4fb365e8da51c24f5ab3b4cf28b2cbb6bbd31e26533c7.AumNGtWLAQmqJocDFm3csG7wKlCOQEgUpnG0SKksOLI
+        hash: v1.k794b7964.58aac3acb8af7117999f0f46d618d0e8694c6841f385948c9091a40c4a6bb141.uT0Byoe0IIhfYvrle4UsyqbFR7FGs8G-Fc6fOKDE5S4
     ai-observability-scorer-editor--legacy-boolean--light:
-        hash: v1.k794b7964.ada53f4980031b13daa435b938ec27ae73a50946b1b307908425eb2e0a33215c.4YX2Jm8a-RueXU6paDiBjhKNPDsrQfttuL4LBiiAdCo
+        hash: v1.k794b7964.4380fca79465d37584d13adde1802cd4e37004969add05ff51e7f1fb989e35ca.1Mx0FXo5JUe0nvip45QcqoOnj0poSz36pCH0ZOmtRGs
     ai-observability-scorer-editor--load-error--dark:
         hash: v1.k794b7964.a235a1f9b2b1d316060b19f4f180f688e7401f0130a6cafcadb2e0c84f62fab9.q6x9rh_Ev3zw6YnCj6RCmzTiEs4dr-MJuubfvSYEF78
     ai-observability-scorer-editor--load-error--light:
         hash: v1.k794b7964.76e5d05434b4aa8528472f6745dafa8a26d25f30c6f734d65d05951a4e66d34e.gFLmhVa9zGOKlit8t8cQD_84GoePNvqywiI-4nCHIrI
     ai-observability-scorer-editor--narrow--dark:
-        hash: v1.k794b7964.1ef1a481d6092a2559c8c250977321b66ef6af2ef4613ab01c0167e52267ed94.GVj6NNBv57lr_A-t7mR4BuhTwcD60GetvzzFGmB0xzY
+        hash: v1.k794b7964.5a4ed14f259ab5e0b916e14f69c0edd9c0b6a64f509f6a8df71227da47f293c1.0nNvkgjexa2fwd9wJwm6_Ktv_lrDvOEOloU72X-73_k
     ai-observability-scorer-editor--narrow--light:
-        hash: v1.k794b7964.b6e3dd0dac7783fe3364b3da5c803c30c9d5f824d9ac826b3605e04b9b1d1478.Dbm0eALmSQ_ldkd_VqKxYT3PGZ3fdOcxLtU-pvEPL00
+        hash: v1.k794b7964.b286e6744e55790f9fb91226a8a6fa1c9f0e158673d65d43cdce76d08ec3e101.ZJ0BL_t9IbohfphkuyDwIA-Vdhyw90ia8124qtCmPyc
     ai-observability-scorer-editor--new-scorer--dark:
-        hash: v1.k794b7964.ffaa02732924d74b925c77f3f6f9f68bfad3f65a14db8579e46563a615593eb3.GDeb1g1JW7TDQACjvzzxMdfEW5iZfF0vPiuiCNr933E
+        hash: v1.k794b7964.c7bf48809296f3c73671fdab1440eea28482b18a693313fc2dea0fb0ac5b78cb.y4T8-9w7_2ZbCmMbLN2jVW5Q78Bk9zjoYu1Wt8Cy29E
     ai-observability-scorer-editor--new-scorer--light:
-        hash: v1.k794b7964.d063f0f23200b8ee99a911eef22df427dbddc3bf29852179a705d30bb2b87abd.nT49E25GKviJe65vDCJLCflaS61cn2NKNDggvsexwco
+        hash: v1.k794b7964.4f618bac5e121fb200b2a64bb81abcf4891d2ebf043f404dac4db628f99c088b.7dWXXRXXoiyWiegmtBORYbAUhmh4JLBl1Jutsu-pU3k
     ai-observability-scorer-editor--numeric--dark:
-        hash: v1.k794b7964.6201221a2a50239c1c766d7c881a6464f307b41076636fd5f3d376998c642a63.IrTC8HC7JFOp5Dmd79QUKIAsrwl-tUTQHFWiry_OTwI
+        hash: v1.k794b7964.2ec4b6fd7f8ecfc25761d83429cb48413bf240b03eb3ce7c3336317aa6eaaf90.dt5TD-V1ERW16JF35erH3klqWj-nZyNGuuUMpN9dHP4
     ai-observability-scorer-editor--numeric--light:
-        hash: v1.k794b7964.bf3a7e6357ebb8ad298b42070564c05376a58704dff4adbc324eb0b8961261a6.XpywbYO1WY1Kg3uFv1E0Dtxf7a7ns25tYiQRIzYymGQ
+        hash: v1.k794b7964.e6c1b569bea9ea069eeef083c4c68b0499f811d947b411fe6431a8fd9058407a.fMv-U_ufUxdaTu46B28URJEVHdozkWaOnu-mbPscHgE
     ai-observability-scorer-form--boolean-detector--dark:
-        hash: v1.k794b7964.137a0396119f6cc65f4d3c3416803ff0a4612810b2ee7dc02e43d53bd59ed6c2.W5jELDiVqyrDWhjl21_PkP8kSGhNYxahW9F83FyH5cc
+        hash: v1.k794b7964.20d0b94fa74dde29269f1ea301fd0e6372e052ac0e5ede37d42d35935234d0ff.FldDCZQlI-Mz2D5JyagClkQjrrN2ECfDcMQc-suTFuw
     ai-observability-scorer-form--boolean-detector--light:
-        hash: v1.k794b7964.66e481510938c77c155451fb55545d649eedc572a32c998c69543886dee71a39.5qp8fnwq5S7H6uiqXx8XCJp_JGGFmDw7oZiqGJbQy84
+        hash: v1.k794b7964.31ac8a95411a1dc72e0776a673a481f112c1667d48ce7b46f593ab17f3892665.lfu2UPDl_FPOAqMlybCDLPqvZPZHexedSlLkyZ7pw9A
     ai-observability-scorer-form--categorical--dark:
-        hash: v1.k794b7964.aecae78e08e1a24b6d2c4aae0ff8c2417148c65b1d451bc48f566c4282ea4339.Cd5Pib9m0iUYf-6-okZSuMLSN-qHrHpdY4Pv0OB4xMk
+        hash: v1.k794b7964.ea9deeef33f05ec3625027ea7948bce1402e822969be8e030908f14adc6f32cf.7NpOEyJuaMh4crdfF49kXTTx_QW-_GowyvprSKx8GOE
     ai-observability-scorer-form--categorical--light:
-        hash: v1.k794b7964.9416f2d2441206bd34c21af37eebaaab6667555b1bba837eb12c76e7f3b2d584.M_MinbQ4sa9SS_zQ8FJ5KeMTgAVfDCBRoldj-62ev6U
+        hash: v1.k794b7964.5546135c52428b7a55eeea4a18e3038150aa1e48f950187a6b499c938f6b994a.JufdMTMpn_Q9WejJ8qjWbqluM43hfz7WO4iyLUbO2FY
     ai-observability-scorer-form--categorical-narrow--dark:
-        hash: v1.k794b7964.8d1aa368859710f12058dad9ddb8d0c8db7f7779aea405a43b720395e92f5a58.1ZFR0YlfysW22jFZe409XHthTuuS3h9lv7JGCktu5QE
+        hash: v1.k794b7964.9f1b83d6df73c9af82e771f8d17ec15a9dd64914f6c1d3f00e5c51f9cc516b19.BYuPELonCVCouLIBO8v_hNNUqr0EYnLdlX4dVLwST9M
     ai-observability-scorer-form--categorical-narrow--light:
-        hash: v1.k794b7964.70dc74db43bf086c19796bdcbe6cc4c98fc551bd61bff56d65bf228a57563246.MJwcvKnBaNE1dkc_zQQ8I4J-B0FrJu9CLaCsQkGoEMg
+        hash: v1.k794b7964.4f9cd5245d639dd2d899530a0b040476612ac473a26f4eb6e94f03c46ffbf8c6.BOw-xIJe0x4gsGUKR1mckUs3cYqoc2OTAllIg9NbWaY
+    ai-observability-scorer-form--composite-with-newer-input--dark:
+        hash: v1.k794b7964.f761e48b16269fea28391d702d4a2f83360b4ff03222ccc0d54ecdca25d702b1.4mMSnXtnYxBJdOAZ6fnmDu-EQ0_dgnHiFZRgQPEnQZc
+    ai-observability-scorer-form--composite-with-newer-input--light:
+        hash: v1.k794b7964.cfd82873870d8cf8e445559e679b49bba714eebfcc79d5dde15f5ce510c95496.y9QxCowpjJWSy4LgpfD4UJmRwhqth52_KKN0Oo625vo
     ai-observability-scorer-form--narrow--dark:
-        hash: v1.k794b7964.900df36db8a8708e8ab8760fbe7e7b77b0925b1511df0178a88d3ab646d91d2c.lh2ncl7BizJIVjnqotdCFej0_7k6FFZIrEd1yeuF4fQ
+        hash: v1.k794b7964.01da9cab896b31f28c31fa2c29217939679677019cc0b6432b4aff0bfa18dc8d.boA96yv1yw77NR9ZvXM97xoySDVMImfF6eg9HK9HNnk
     ai-observability-scorer-form--narrow--light:
-        hash: v1.k794b7964.c9a92b9fd8a7e9b0dd450975d783c72391aac4ffab7f713b8ce16970413a13da.gYPjzuIaVbaRHHDiTIgNWMvn6jU2AgVzvlkvl9uZVT4
+        hash: v1.k794b7964.b5deedabb3695674fe9e7178d42ff343e655640d1c77deed98d69d3b9904c4ee.owIlNlCE0DYiByEzsBUNgjwpLw8Cv_iQraK3K1kfAsg
     ai-observability-scorer-form--new-scorer--dark:
-        hash: v1.k794b7964.758f03442c0e12602793f45865f112eef2efff4de31558a2bcad4ab62134cb29.kcR5lDX8L79AvPRozacVMwn-4-sZZWd883DlBZ75UXo
+        hash: v1.k794b7964.728479878a5dae44307223f386e63604bde3cd5da8ba28136a1b371ea9778fe9.RBvVOjzfj1lUB_NzweTw34tZk3ZEBNTNhUQwanJFInE
     ai-observability-scorer-form--new-scorer--light:
-        hash: v1.k794b7964.a28f3a58cdc22aa68dfc14668ea7e8d59e62a5a9d9bd4890385259969b938aa1.GPDyUJryXhY62_JFaR0yZcLZxF3VGEO6IyIreTbLzPU
+        hash: v1.k794b7964.785f5aef652f087ab0a136dc8b55ef036916f382bfcda1a483673fe6810f4947.Zu4X2b0UCkEujLGBGgkXUkcxImqnbmSobbjo61BtADs
     ai-observability-scorer-form--numeric--dark:
-        hash: v1.k794b7964.e65f83b16cc891d5a32152bad369f05bc3ff345ecb42c5911f714fa9b7791a52.OCufjXhWPcyEHL0MsEdvfDfcPDQLiVIWw8L59oU8gGA
+        hash: v1.k794b7964.5307edf1f7746ea938d92bf2478c12c056d745953a43b19bc61b9ecbaf975a5e.z6wq2UVm13WZ9Rn35T2K_xdrR461v8rCpPXRdEeOJ70
     ai-observability-scorer-form--numeric--light:
-        hash: v1.k794b7964.65b7edf34727e09d0d25339cfc9042bd638279d5b0c148507597d9abff25ae53.ZXHFZC17jCkLAt8jpyE74r13YON-iwzDGy6iVtr0rFQ
+        hash: v1.k794b7964.8516010fe365aac4f7c16d97d14e08a5e9bc2d5ea12f971aa5aed30adb899df1.wqcnUJZNnXawlIKf8w09BiEVCfK81qZhVE5gULzB6KI
     ai-observability-scorer-form--offline-disabled--dark:
-        hash: v1.k794b7964.48d19bffb07476d2cffbfa36d78ee6b7ad42bf5d3d8ae393242dc6a0c69fdb2e.IVUELjOarFxPOQHCJmO0UzcZk32dfL-25SxUP95fAhQ
+        hash: v1.k794b7964.a93a36773526fc39e083320e5bfea37fc294d3f7847382e47d02d2436ac71db5.WsXhYQT_75hS7w8bkPt0M5nZ0UGMhAqJ3qSqTuHaDNE
     ai-observability-scorer-form--offline-disabled--light:
-        hash: v1.k794b7964.96adcb897ac177576269dae3b6d06084145e2cb49dc9a78b6c180a57fd5981a8.fsK3rW2tDHKnVUOW5t56xwuFMmblsP_sO_2OPkkHsNg
+        hash: v1.k794b7964.26fac79daecde0ee0a266c51bb1a714f54025f0484296a08cbae5d634cbbc4ab.Xbf0U09mHiFPx_nB77dfzdci027TpJV7HCg4sPS58vE
     ai-observability-scorer-label--full-name-fallback--dark:
         hash: v1.k794b7964.9315086563b18122437914ae9b43bfe1650d410bdc7fabdf1f0afbbed8afc68f._uyAMXfeYQoJ85sPLvDgxMjorTWgZjAb4B3NNAhRtd0
     ai-observability-scorer-label--full-name-fallback--light:

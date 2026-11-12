@@ -174,10 +174,20 @@ class TestExternalUrlExfilGuard:
                 assert not any(child.type == "link_open" for token in tokens for child in token.children or [])
         assert "Report" in str(messages)
 
-    def test_email_strips_external_link_href_keeps_text(self) -> None:
-        html = render_ai_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
+    @pytest.mark.parametrize(
+        "markdown,label",
+        [
+            ("See [here](https://attacker.example/exfil?p=secret) for details.", "here"),
+            (
+                "a | b | c\n--- | --- | ---\n` | [Open [report]](h&#116;tps://attacker.example/phish) | `",
+                "Open [report]",
+            ),
+        ],
+    )
+    def test_email_strips_external_link_href_keeps_text(self, markdown: str, label: str) -> None:
+        html = render_ai_email_html(markdown)
         assert "attacker.example" not in html
-        assert "here" in html
+        assert label in html
 
     def test_email_keeps_posthog_links(self) -> None:
         html = render_ai_email_html("Open [the dashboard](https://app.posthog.com/insights/abc).")
