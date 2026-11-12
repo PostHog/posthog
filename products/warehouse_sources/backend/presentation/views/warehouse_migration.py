@@ -280,8 +280,8 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
 
 
 MAX_USAGE_REPORTS = 10_000
-# Far above any real table, and small enough that the cost of every report together stays a valid decimal.
-MAX_MONTHLY_ROWS = 10**15
+# The generated API clients clamp every integer to int32, so a larger bound would reject what this accepts.
+MAX_MONTHLY_ROWS = 2**31 - 1
 
 
 class MigrationUsageReportSerializer(serializers.Serializer):

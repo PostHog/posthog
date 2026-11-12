@@ -114,14 +114,11 @@ def estimate_cost(
 
     total_rows = sum(rows.monthly_rows or 0 for rows in rows_by_item.values())
     total_cost = _price(total_rows, tiers) if tiers is not None else None
+    costs = _shares(total_cost, {item_id: rows.monthly_rows for item_id, rows in rows_by_item.items()})
     estimates: list[ConnectionEstimate] = []
     for connection in connections:
         rows = rows_by_item[connection.item_id]
-        cost: Decimal | None = None
-        if rows.monthly_rows is not None and total_cost is not None:
-            # A share of the total by rows, so the connections add up to it, to the cent, whatever tier they fall in.
-            share = total_cost * rows.monthly_rows / total_rows if total_rows else Decimal(0)
-            cost = share.quantize(_CENT)
+        cost = costs.get(connection.item_id)
         estimates.append(
             ConnectionEstimate(
                 item_id=connection.item_id,
@@ -147,6 +144,24 @@ class _ConnectionRows:
     confidence: Confidence
     monthly_rows: int | None
     notes: tuple[str, ...]
+
+
+def _shares(total_cost: Decimal | None, rows: Mapping[str, int | None]) -> dict[str, Decimal]:
+    """Each connection's share of the cost by rows, in cents that add up to the total whatever tier it falls in."""
+    if total_cost is None:
+        return {}
+    known = {item_id: item_rows for item_id, item_rows in rows.items() if item_rows is not None}
+    total_rows = sum(known.values())
+    total = total_cost.quantize(_CENT)
+    shares = {
+        item_id: (total * item_rows / total_rows if total_rows else Decimal(0)).quantize(_CENT)
+        for item_id, item_rows in known.items()
+    }
+    if shares and total_rows:
+        # Rounding each share leaves a few cents over or under, which the largest connection takes.
+        largest = max(known, key=lambda item_id: known[item_id])
+        shares[largest] += total - sum(shares.values())
+    return shares
 
 
 def _match_connections(

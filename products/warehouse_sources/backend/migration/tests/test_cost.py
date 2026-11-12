@@ -188,24 +188,24 @@ class TestEstimateCost(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("inside_the_free_tier", 400_000, 600_000, Decimal("0.00")),
+            ("inside_the_free_tier", [400_000, 600_000], Decimal("0.00")),
             # 9M past the free million at $0.000015, then 2M at $0.00001.
-            ("across_three_tiers", 6_000_000, 6_000_000, Decimal("155.00")),
+            ("across_three_tiers", [6_000_000, 6_000_000], Decimal("155.00")),
+            # Each third rounds to $10.00, so one connection takes the leftover cent.
+            ("rounding_leaves_a_cent", [1_000_333, 1_000_333, 1_000_333], Decimal("30.01")),
         ]
     )
-    def test_price_is_split_by_rows_and_adds_up(
-        self, _name: str, first_rows: int, second_rows: int, total: Decimal
-    ) -> None:
-        connections = [_connection(name, tables=None) for name in ("first", "second")]
+    def test_price_is_split_by_rows_and_adds_up(self, _name: str, monthly_rows: list[int], total: Decimal) -> None:
+        names = [f"connection_{index}" for index in range(len(monthly_rows))]
+        connections = [_connection(name, tables=None) for name in names]
         usage = [
-            MigrationUsageReport(connection_name="first", monthly_rows=first_rows),
-            MigrationUsageReport(connection_name="second", monthly_rows=second_rows),
+            MigrationUsageReport(connection_name=name, monthly_rows=rows) for name, rows in zip(names, monthly_rows)
         ]
 
         estimate = _estimate(connections, usage)
 
         assert estimate.monthly_cost_usd == total
-        assert [c.monthly_cost_usd for c in estimate.connections] == [total / 2, total / 2]
+        assert sum(c.monthly_cost_usd or 0 for c in estimate.connections) == total
 
     def test_rows_without_prices_when_billing_is_unreadable(self) -> None:
         usage = [MigrationUsageReport(connection_name="hubspot", monthly_rows=5_000_000)]
