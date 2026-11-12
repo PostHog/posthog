@@ -2,6 +2,7 @@ from products.posthog_ai.backend.exec_commands import normalize_tool_name
 from products.posthog_ai.eval_harness.log_parser import LogParser
 
 from .deterministic import (
+    ANY_CLEAN_QUERY_SCOPE,
     AnswerToolCallNot,
     ExitCodeZero,
     NoToolCall,
@@ -11,6 +12,9 @@ from .deterministic import (
     SourcesConsulted,
     ToolMatch,
     ToolOrder,
+    call_order,
+    expected_spec,
+    parser_for,
     reads_table,
 )
 from .judged import (
@@ -23,6 +27,7 @@ from .judged import (
 from .tracing import TracedScorer, wrap_scorers
 
 __all__ = [
+    "ANY_CLEAN_QUERY_SCOPE",
     "BINARY_CHOICE_SCORES",
     "GRADED_ALIGNMENT_CHOICE_SCORES",
     "JUDGE_MODEL",
@@ -39,7 +44,10 @@ __all__ = [
     "ToolMatch",
     "ToolOrder",
     "TracedScorer",
+    "call_order",
+    "expected_spec",
     "normalize_tool_name",
+    "parser_for",
     "reads_table",
     "wrap_scorers",
 ]
