@@ -118,6 +118,9 @@ function scanCode(text: string): Span[] {
     let offset = 0
     for (const line of text.split('\n')) {
         const fence = RE_FENCE_LINE.exec(line)
+        // A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
+        // RE_FENCE_LINE, because the regex would then scan the rest of the line again for each shorter run.
+        const opensFence = fence !== null && !(fence[1][0] === '`' && line.includes('`', fence[0].length))
         if (fenceChar) {
             const closes =
                 fence !== null &&
@@ -128,10 +131,7 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (fence && !(fence[1][0] === '`' && line.includes('`', fence[0].length))) {
-            // A backtick fence cannot carry a backtick in its info string, so such a line opens no fence.
-            // The check is here and not in RE_FENCE_LINE, because a lookahead after the backtick run
-            // makes the regex scan the rest of the line again for each shorter run.
+        } else if (opensFence) {
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset

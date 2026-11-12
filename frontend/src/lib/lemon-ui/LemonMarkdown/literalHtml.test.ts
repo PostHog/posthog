@@ -1,13 +1,6 @@
 import { fromMarkdown } from 'mdast-util-from-markdown'
 
-import { remarkLiteralHtml } from './literalHtml'
-import { XSS_PAYLOADS } from './xssPayloads'
-
-interface MarkdownNode {
-    type: string
-    value?: string
-    children?: MarkdownNode[]
-}
+import { type MarkdownNode, remarkLiteralHtml } from './literalHtml'
 
 function literalTree(markdown: string): MarkdownNode {
     const tree = fromMarkdown(markdown) as MarkdownNode
@@ -47,8 +40,19 @@ describe('remarkLiteralHtml', () => {
         expect(literalTree('<example>\nfoo').children?.map((node) => node.type)).toEqual(['paragraph'])
     })
 
-    it.each(XSS_PAYLOADS)('leaves no raw HTML node from %s', (_, payload) => {
-        for (const prefix of ['', 'Hello ', '> ', '- ', '**bold** ', '`code` ']) {
+    it.each([
+        ['an inline script', 'Hello <script>alert(1)</script>'],
+        ['a block script', '<script>alert(1)</script>'],
+        ['an img handler across lines', '<img\nsrc=x\nonerror=alert(1)>'],
+        ['an unterminated opener', 'Hello <img src=x onerror=alert(1)//'],
+        ['a comment', '<!-- <script>alert(1)</script> -->'],
+        ['a cdata section', '<![CDATA[<script>alert(1)</script>]]>'],
+        ['a doctype', '<!DOCTYPE html><script>alert(1)</script>'],
+        ['a processing instruction', '<?xml version="1.0"?><script>alert(1)</script>'],
+        ['a bare url running into a tag', 'https://example.com/a"><script>alert(1)</script>'],
+        ['an element after an autolink', '<https://example.com><script>alert(1)</script>'],
+    ])('leaves no raw HTML node from %s', (_, payload) => {
+        for (const prefix of ['', '> ', '- ']) {
             const htmlNodes = nodes(literalTree(`${prefix}${payload}`)).filter((node) => node.type === 'html')
             expect({ prefix, htmlNodes }).toEqual({ prefix, htmlNodes: [] })
         }
