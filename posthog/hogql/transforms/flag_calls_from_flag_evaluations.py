@@ -1024,7 +1024,7 @@ class _FlagCalledListExpander(CloningVisitor):
 
 
 def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
-    items = [ast.Constant(value=item, is_sensitive=source.is_sensitive) for item in value]
+    items: list[ast.Expr] = [ast.Constant(value=item, is_sensitive=source.is_sensitive) for item in value]
     container = ast.Array if isinstance(value, list) else ast.Tuple
     return container(start=source.start, end=source.end, exprs=items)
 
