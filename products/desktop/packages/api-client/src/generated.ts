@@ -10909,6 +10909,15 @@ export namespace Schemas {
          */
         feature_flag_key: string;
         feature_flag: MinimalFeatureFlag & unknown;
+        /**
+         * Full experiment representation for the detail, create, and update endpoints.
+         *
+         * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+         * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+         * fields, and refreshes stale action names while serializing. The list endpoint uses the
+         * leaner ``ExperimentBasicSerializer`` instead.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
@@ -11434,6 +11443,10 @@ export namespace Schemas {
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
         feature_flag?: ExperimentFeatureFlagInput | undefined;
+        /**
+         * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -16050,6 +16063,7 @@ export namespace Schemas {
         end_date: string | null;
         feature_flag_key: string;
         feature_flag: ExperimentFeatureFlagInput;
+        feature_flag_rule_id: string | null;
         holdout: ExperimentHoldout & unknown;
         holdout_id: number | null;
         exposure_cohort: number | null;
