@@ -35,6 +35,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutRun,
@@ -3240,6 +3241,41 @@ class TestScoutCheckTools(APIBaseTest):
         )
         with self.assertRaises(InvalidCheckWriteError):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+
+    @parameterized.expand(
+        [
+            ("monitoring_member", SignalReport.Status.MONITORING, True, False),
+            ("suppressed_member", SignalReport.Status.SUPPRESSED, True, False),
+            ("written_after_entry", SignalReport.Status.MONITORING, False, True),
+        ]
+    )
+    def test_a_scout_cannot_cancel_a_check_that_verifies_monitoring(
+        self, _name: str, status: str, member: bool, cancellable: bool
+    ) -> None:
+        written = self._create()
+        started = timezone.now() - timedelta(hours=1)
+        SignalReport.objects.filter(team=self.team, id=self.report.id).update(
+            status=status, status_before_suppression=SignalReport.Status.MONITORING, monitoring_started_at=started
+        )
+        SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=self.report,
+            monitoring_started_at=started,
+            check_versions={written.check_id: "snapshot"} if member else {},
+        )
+
+        if cancellable:
+            assert (
+                cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id).status
+                == SignalReportCheck.Status.CANCELLED
+            )
+        else:
+            with self.assertRaisesMessage(InvalidCheckWriteError, "only a person can cancel it"):
+                cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+            assert (
+                SignalReportCheck.objects.for_team(self.team.id).get(id=written.check_id).status
+                == SignalReportCheck.Status.PENDING
+            )
 
     def test_a_dry_run_scout_neither_writes_nor_cancels_a_check(self) -> None:
         written = self._create()

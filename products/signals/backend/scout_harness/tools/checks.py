@@ -26,6 +26,7 @@ import uuid
 from datetime import datetime
 from typing import get_args
 
+from django.db import transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -47,6 +48,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_lifecycle import legacy_agent_checks_enabled
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
@@ -423,6 +425,28 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
     canonical_team_id = team.parent_team_id or team.id
     if (check.team.parent_team_id or check.team_id) != canonical_team_id:
         raise InvalidCheckWriteError(f"check {check_id} not found")
-    if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
-        raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
+    with transaction.atomic():
+        # Lock the report first, as Monitoring entry does, so a report cannot enter Monitoring between the guard and
+        # the cancel.
+        report = SignalReport.objects.select_for_update(no_key=True).get(team_id=check.team_id, id=check.report_id)
+        if _verifies_monitoring(report, check):
+            raise InvalidCheckWriteError(
+                f"check {check_id} is verifying a report in Monitoring, so only a person can cancel it"
+            )
+        if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
+            raise InvalidCheckWriteError(
+                f"check {check_id} already finished as `{check.status}` and cannot be cancelled"
+            )
     return _summarize(check, check.report.effective_status)
+
+
+def _verifies_monitoring(report: SignalReport, check: SignalReportCheck) -> bool:
+    """A cancelled member leaves verification, so a scout cancel could resolve the report without evidence."""
+    in_monitoring = report.status == SignalReport.Status.MONITORING or (
+        report.status == SignalReport.Status.SUPPRESSED
+        and report.status_before_suppression == SignalReport.Status.MONITORING
+    )
+    if not in_monitoring:
+        return False
+    attempt = current_monitoring_attempt(report)
+    return attempt is not None and str(check.id) in attempt.check_versions
