@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -26,8 +26,13 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.transactional_email import lock_transactional_workflow_id
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
+from products.workflows.backend.tests.api.test_hog_flow_revisions import _trigger_action
 
 DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
 
@@ -43,6 +48,12 @@ DESIGN = {
         ]
     }
 }
+WORKFLOW_PAYLOAD: dict[str, Any] = {
+    "name": "Synthetic welcome",
+    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+    "edges": [],
+}
+RENAME_TRIGGER = {"operations": [{"op": "update_action", "id": "trigger", "patch": {"name": "Renamed"}}]}
 DESIGN_EDIT = {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]}
 
 
@@ -1289,6 +1300,94 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status, response.content)
         self.assertEqual(file_tree(), tree)
+
+    @parameterized.expand(
+        [
+            ("create", "draft", "post", "", WORKFLOW_PAYLOAD, 403),
+            ("rename", "draft", "patch", "{id}/", {"name": "Synthetic renamed"}, 403),
+            ("graph", "draft", "patch", "{id}/graph", RENAME_TRIGGER, 403),
+            ("publish", "staged", "post", "{id}/publish", {"confirm": True, "confirm_token": "{token}"}, 403),
+            ("discard_draft", "draft", "post", "{id}/discard_draft", {}, 403),
+            ("restore_revision", "draft", "post", "{id}/revisions/1/restore", {}, 403),
+            (
+                "apply_utm_defaults",
+                "email",
+                "post",
+                "apply_utm_defaults",
+                {"dry_run": False, "enable_where_off": True},
+                403,
+            ),
+            ("delete", "archived", "delete", "{id}/", None, 403),
+            ("bulk_delete", "archived", "post", "bulk_delete", {"ids": ["{id}"]}, 200),
+        ]
+    )
+    def test_a_workflow_save_by_a_workflow_viewer_writes_no_file_row(
+        self,
+        _name: str,
+        setup: str,
+        method: str,
+        suffix: str,
+        payload: dict[str, Any] | None,
+        expected_status: int,
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        token = ""
+        if setup == "staged":
+            sync_template_to_db(MOCK_NODE_TEMPLATES[0])
+            webhook: dict[str, Any] = {"id": "webhook", "name": "Webhook", "type": "function"}
+            webhook["config"] = {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+            live = {"name": "Synthetic welcome", "actions": [_trigger_action(), webhook]}
+            created = self.client.post(workflows_url, live, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+            activated = self.client.patch(f"{workflows_url}{workflow_id}/", {"status": "active"}, format="json")
+            self.assertEqual(activated.status_code, 200, activated.content)
+            url_edit = {"config": {"inputs": {"url": {"value": "https://changed.example.com"}}}}
+            stage = {"operations": [{"op": "update_action", "id": "webhook", "patch": url_edit}]}
+            staged = self.client.patch(
+                f"{workflows_url}{workflow_id}/graph", stage, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+            self.assertEqual(staged.status_code, 200, staged.content)
+            in_flight = {"count": 0, "by_action": {}, "position_unknown": 0}
+            with patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+                return_value=MagicMock(status_code=200, json=lambda: in_flight),
+            ):
+                preview = self.client.post(f"{workflows_url}{workflow_id}/publish", {}, format="json")
+            self.assertEqual(preview.status_code, 200, preview.content)
+            token = preview.json()["confirm_token"]
+        else:
+            created = self.client.post(workflows_url, WORKFLOW_PAYLOAD, format="json")
+            self.assertEqual(created.status_code, 201, created.content)
+            workflow_id = created.json()["id"]
+        if setup == "email":
+            sync_template_to_db(_email_function_template())
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={"email_utm_tags_enabled": True, "email_utm_params": {"utm_source": "newsletter"}},
+            )
+            email: dict[str, Any] = {"id": "email_1", "name": "Send email", "type": "function_email"}
+            email["config"] = {"template_id": "template-email", "inputs": _valid_email_inputs()}
+            HogFlow.objects.filter(id=workflow_id).update(actions=[*WORKFLOW_PAYLOAD["actions"], email])
+        if setup == "archived":
+            HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ARCHIVED)
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).update(
+            path="Campaigns/Approved workflow", depth=2
+        )
+
+        def file_tree() -> set[tuple[str, str, str | None]]:
+            files = FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "folder"])
+            return set(files.values_list("type", "path", "ref"))
+
+        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
+        before = file_tree()
+        filled = json.dumps(payload).replace("{id}", workflow_id).replace("{token}", token)
+        body = json.loads(filled) if payload is not None else None
+        url = workflows_url + suffix.format(id=workflow_id)
+        response = getattr(self.client, method)(url, body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(file_tree(), before)
 
     def _log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant(self) -> None:
         self.organization.available_product_features = [
