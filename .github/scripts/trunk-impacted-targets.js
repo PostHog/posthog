@@ -84,8 +84,9 @@
 //      by the products/ root files that vendor tests collect, by the repo
 //      invariants that walk the vendor tree, and by the Python toolchain domain,
 //      because a lockfile change reaches a vendor's third-party packages
-//      directly. The core modules that the SDK imports directly claim it too,
-//      in addition to their own lanes, and the set is read from the SDK source.
+//      directly. The core modules that the SDK, or a conftest every vendor test
+//      collects, imports directly claim it too, in addition to their own lanes,
+//      and the set is read from those sources.
 //      The rest of posthog/, common/ and other products do not claim it, because
 //      they reach a vendor only through one of those modules.
 //
@@ -1564,23 +1565,27 @@ function isWarehouseSourceVendorFile(file) {
     return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
 }
 
-// The core modules the SDK imports directly. A change to one of them can change
-// what every vendor gets from the SDK, so it claims the vendor lane as well as
-// its own. The set is read from the SDK source, so a new SDK import is covered
-// without a list to keep in sync. warehouse_sources modules are left out
-// because every file of the product already claims the lane.
+// The core modules that the SDK, or a conftest every vendor test collects,
+// imports directly. A change to one of them can change what every vendor gets
+// from the SDK or its test setup, so it claims the vendor lane as well as its
+// own. The set is read from those sources, so a new import is covered without
+// a list to keep in sync. warehouse_sources modules are left out because every
+// file of the product already claims the lane.
 const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\b|import\s+([\w.]+))/gm
 const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog.', 'common.', 'ee.', 'products.']
+const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = ['products/conftest.py', `${WAREHOUSE_SOURCE_PLUGIN_DIR}conftest.py`]
 
 function loadWarehouseSourceSdkImports(repoRoot) {
     const imports = new Set()
-    const sdkDir = path.join(repoRoot, WAREHOUSE_SOURCE_PLUGIN_DIR, WAREHOUSE_SOURCE_SDK_DIR)
-    if (!fs.existsSync(sdkDir)) {
-        return imports
-    }
-    const sources = fs.readdirSync(sdkDir, { recursive: true }).filter((file) => file.endsWith('.py'))
+    const sdkDir = path.join(WAREHOUSE_SOURCE_PLUGIN_DIR, WAREHOUSE_SOURCE_SDK_DIR)
+    const sdkSources = fs.existsSync(path.join(repoRoot, sdkDir))
+        ? fs.readdirSync(path.join(repoRoot, sdkDir), { recursive: true }).map((file) => path.join(sdkDir, file))
+        : []
+    const sources = [...sdkSources, ...WAREHOUSE_SOURCE_VENDOR_CONFTESTS].filter(
+        (file) => file.endsWith('.py') && fs.existsSync(path.join(repoRoot, file))
+    )
     for (const source of sources) {
-        const text = fs.readFileSync(path.join(sdkDir, source), 'utf8')
+        const text = fs.readFileSync(path.join(repoRoot, source), 'utf8')
         for (const match of text.matchAll(WAREHOUSE_SOURCE_SDK_IMPORT)) {
             const module = match[1] || match[2]
             if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.some((root) => module.startsWith(root))) {
