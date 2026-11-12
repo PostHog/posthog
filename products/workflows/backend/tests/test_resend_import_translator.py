@@ -447,7 +447,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 "template": {"id": "t1", "variables": {"CODE": True}},
                 "subject": "ignored",
                 "from": "Team <team@example.com>",
-                "reply_to": ["a@example.com", "b@example.com"],
+                "reply_to": ["{{x}}@example.com", "b@example.com"],
             },
         }
         override = ImportedStepEmail(
@@ -469,7 +469,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
         assert value["subject"] == "Hi {{ person.properties.last_name }}"
         assert value["html"] == '<p>{{ person.properties.first_name }} {{ "true" }}</p>'
         assert value["from"] == {"integrationId": 9, "email": "team@example.com", "name": "Team"}
-        assert value["replyTo"] == "a@example.com, b@example.com"
+        assert value["replyTo"] == '{{ "{{" }}x}}@example.com, b@example.com'
 
     def test_a_second_path_from_a_step_is_named(self) -> None:
         steps = [{"key": key, "type": "delay", "config": {"duration": "1 hour"}} for key in ("d", "e", "f")]
