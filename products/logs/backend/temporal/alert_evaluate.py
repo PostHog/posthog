@@ -52,7 +52,14 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # One attempt. A second is another full query budget spent on a batch whose keys are still due, so
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
-RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
+RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
+# Room for a retry after an attempt that commits past its start-to-close, so `start_deliveries` still runs.
+RECORD_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=dt.timedelta(seconds=1),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=8),
+)
 # A batch the pool turns away waits on a workflow timer and tries again, so it runs inside its own
 # tick instead of the next. The timer holds no worker slot, which a wait inside the sync activity
 # would. A batch still without a slot after the budget keeps its checks due for a later tick. The
@@ -299,7 +306,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=RECORD_START_TO_CLOSE,
                 schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RECORD_RETRY_POLICY,
             )
 
         started = await start_deliveries(evaluation.deliveries)

@@ -30,7 +30,14 @@ WORKFLOW_NAME = "traces-alert-evaluate"
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=40)
 EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
-RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
+RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
+# Room for a retry after an attempt that commits past its start-to-close, so `start_deliveries` still runs.
+RECORD_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=dt.timedelta(seconds=1),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=8),
+)
 
 
 @activity.defn
@@ -70,7 +77,7 @@ class TracesAlertEvaluateWorkflow(PostHogWorkflow):
                 SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
                 start_to_close_timeout=RECORD_START_TO_CLOSE,
                 schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RECORD_RETRY_POLICY,
             )
             # Started only after the record, because a delivery reads the history row the record writes.
             recorded = {str(outcome.configuration_id) for outcome in chunk}

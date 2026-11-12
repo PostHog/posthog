@@ -45,7 +45,7 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.LOGS: SourceBinding(
         workflow="logs-alert-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(seconds=120),
+        evaluation_timeout=dt.timedelta(seconds=150),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
     SourceKind.INSIGHT: SourceBinding(
@@ -66,13 +66,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.WAREHOUSE_SOURCE: SourceBinding(
         workflow="warehouse-alert-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(seconds=60),
+        evaluation_timeout=dt.timedelta(seconds=90),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
     SourceKind.WAREHOUSE_DESTINATION: SourceBinding(
         workflow="warehouse-alert-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(seconds=60),
+        evaluation_timeout=dt.timedelta(seconds=90),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
     # One PromQL instant query per check through Snuffle. A batch stops starting queries at its budget.

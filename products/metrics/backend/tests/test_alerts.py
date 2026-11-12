@@ -1,12 +1,13 @@
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -14,6 +15,9 @@ import requests
 from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -30,6 +34,9 @@ from products.alerts_platform.backend.facade.api import (
     slot_of,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    RECORD_OUTCOMES_ACTIVITY,
+    AlertBatchKey,
+    AlertDeliveryRequest,
     AlertEventKind,
     Grouping,
     GroupingMode,
@@ -37,8 +44,11 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
+    SourceEvaluationInputs,
     SourceKind,
+    SourceOutcomeInputs,
 )
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.freshness import (
     CHECKPOINT_EVAL_DELAY,
@@ -48,6 +58,7 @@ from products.metrics.backend.alerts.freshness import (
     freshness_workload,
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
+from products.metrics.backend.temporal import alert_evaluate
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
@@ -452,3 +463,72 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
+
+
+async def test_record_retries_through_transient_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    configuration_id = uuid4()
+    outcome = PlatformAlertOutcome(configuration_id=configuration_id, evaluation_key="slot:1", consecutive_failures=0)
+    delivery = AlertDeliveryRequest(
+        source=SourceKind.METRICS,
+        team_id=1,
+        configuration_id=str(configuration_id),
+        evaluation_key="slot:1",
+        destination_alert_id=str(configuration_id),
+        event_ids_by_kind={"firing": "$metrics_alert_firing"},
+    )
+    record_attempts: list[int] = []
+    started: list[list[AlertDeliveryRequest]] = []
+
+    @activity.defn(name="evaluate_metrics_alerts_activity")
+    async def evaluate(inputs: SourceEvaluationInputs) -> SourceBatchEvaluation:
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,))
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        record_attempts.append(activity.info().attempt)
+        if len(record_attempts) <= 3:
+            raise OperationalError("server closed the connection unexpectedly")
+        return len(inputs.outcomes)
+
+    async def fake_start_deliveries(deliveries: list[AlertDeliveryRequest]) -> int:
+        started.append(deliveries)
+        return len(deliveries)
+
+    monkeypatch.setattr(alert_evaluate, "start_deliveries", fake_start_deliveries)
+
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="test-metrics-platform-evaluation",
+            workflows=[alert_evaluate.MetricsAlertEvaluateWorkflow],
+            activities=[evaluate, record],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result = await environment.client.execute_workflow(
+                alert_evaluate.MetricsAlertEvaluateWorkflow.run,
+                SourceEvaluationInputs(
+                    source=SourceKind.METRICS,
+                    cutoff="2026-11-12T10:00:00+00:00",
+                    batch_key=AlertBatchKey(team_id=1, slot="2026-11-12T10:00:00+00:00"),
+                ),
+                id=f"test-{uuid4()}",
+                task_queue="test-metrics-platform-evaluation",
+                execution_timeout=source_evaluation_timeout(SourceKind.METRICS),
+            )
+
+    assert record_attempts == [1, 2, 3, 4]
+    assert started == [[delivery]]
+    assert result == 1
+
+
+def test_metrics_timeout_covers_evaluate_and_record() -> None:
+    retry_policy = alert_evaluate.RECORD_RETRY_POLICY
+    assert retry_policy.maximum_interval is not None
+    assert (
+        alert_evaluate.RECORD_SCHEDULE_TO_CLOSE
+        > 2 * alert_evaluate.RECORD_START_TO_CLOSE + retry_policy.maximum_interval
+    )
+    assert (
+        source_evaluation_timeout(SourceKind.METRICS)
+        > alert_evaluate.EVALUATE_SCHEDULE_TO_CLOSE + alert_evaluate.RECORD_SCHEDULE_TO_CLOSE
+    )

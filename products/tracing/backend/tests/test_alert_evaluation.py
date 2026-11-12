@@ -22,8 +22,10 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.grouping import bounded_grouping_key, is_hashed_grouping_key
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.tracing.backend.alerts.check_query import CheckResult
 from products.tracing.backend.alerts.evaluation import evaluate_traces_alert_batch
+from products.tracing.backend.temporal.alert_evaluate import EVALUATE_SCHEDULE_TO_CLOSE, RECORD_SCHEDULE_TO_CLOSE
 from products.tracing.backend.tests.test_keyset_pagination import _TraceSpansTestBase
 
 # The check reads the five minutes before this, its due time.
@@ -300,3 +302,8 @@ class TestTracesAlertEvaluation(_TraceSpansTestBase):
             outcomes = self._run()
 
         assert [outcome.failure is not None for outcome in outcomes] == expected_failed
+
+
+def test_traces_timeout_covers_evaluate_and_record() -> None:
+    # A timeout that lands between the record and `start_deliveries` loses a firing that committed.
+    assert source_evaluation_timeout(SourceKind.TRACES) > EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE

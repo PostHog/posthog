@@ -3,6 +3,7 @@ from io import StringIO
 from typing import Any
 from uuid import UUID
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -43,6 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
@@ -56,6 +58,10 @@ from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_w
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
     describe_source_transition,
+)
+from products.warehouse_sources.backend.temporal.sync_alert_evaluate import (
+    EVALUATE_SCHEDULE_TO_CLOSE,
+    RECORD_SCHEDULE_TO_CLOSE,
 )
 
 Status = ExternalDataSchema.Status
@@ -823,3 +829,9 @@ class TestWarehouseAlerts(APIBaseTest):
             .first()
         )
         assert (decided_at is not None) == (not dry_run)
+
+
+@pytest.mark.parametrize("source", [SourceKind.WAREHOUSE_SOURCE, SourceKind.WAREHOUSE_DESTINATION])
+def test_warehouse_timeout_covers_evaluate_and_record(source: SourceKind) -> None:
+    # A timeout that lands between the record and `start_deliveries` loses a firing that committed.
+    assert source_evaluation_timeout(source) > EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
