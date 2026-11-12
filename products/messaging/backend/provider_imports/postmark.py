@@ -471,9 +471,9 @@ def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_trans
     return invalid
 
 
-def _rank(reason: str, origin: str) -> tuple[int, int]:
+def _rank(reason: str, origin: str) -> int:
     # A block someone added outranks the recipient's own unsubscribe, whichever stream lists it first.
-    return _REASON_RANK[reason], 0 if origin == "Recipient" else 1
+    return _REASON_RANK[reason] * 2 + (0 if origin == "Recipient" else 1)
 
 
 def _save_suppressions(context: ImportContext, batch: list[_Suppression]) -> SavedPage:
