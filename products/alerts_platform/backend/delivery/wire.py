@@ -7,6 +7,7 @@ message, a log line or a metric label, so the errors here name a status or an ex
 import json
 import time
 import hashlib
+import traceback
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -123,11 +124,25 @@ def _maybe_received(error: requests.RequestException) -> bool:
     """
     if isinstance(error, requests.ReadTimeout | requests.exceptions.ChunkedEncodingError):
         return True
-    return (
-        isinstance(error, requests.ConnectionError)
-        and not isinstance(error, requests.ConnectTimeout)
-        and (isinstance(error.__context__, ProtocolError) or any(isinstance(arg, ProtocolError) for arg in error.args))
+    if not isinstance(error, requests.ConnectionError) or isinstance(error, requests.ConnectTimeout):
+        return False
+    dropped = next(
+        (candidate for candidate in (error.__context__, *error.args) if isinstance(candidate, ProtocolError)),
+        None,
     )
+    return dropped is not None and not _dropped_while_connecting(dropped)
+
+
+def _dropped_while_connecting(dropped: ProtocolError) -> bool:
+    # urllib3 raises the same `ProtocolError` for a reset during the TLS handshake, before any of
+    # the request was written. Only where the socket error was raised tells the two apart.
+    for cause in dropped.args:
+        if isinstance(cause, OSError):
+            return any(
+                frame.f_code.co_name == "connect" and frame.f_code.co_filename.endswith("urllib3/connection.py")
+                for frame, _ in traceback.walk_tb(cause.__traceback__)
+            )
+    return False
 
 
 def _is_owner_refusal(

@@ -1,3 +1,6 @@
+import socket
+import struct
+import threading
 from datetime import datetime
 from typing import Any, cast
 
@@ -291,6 +294,35 @@ class TestAmbiguousSend(SimpleTestCase):
                 WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
 
         assert not isinstance(raised.value, DeliveryAmbiguous)
+
+    def test_a_reset_during_the_tls_handshake_is_not_ambiguous(self) -> None:
+        with pinned_post(error=_reset_during_tls_handshake()):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert not isinstance(raised.value, DeliveryAmbiguous)
+
+
+def _reset_during_tls_handshake() -> requests.ConnectionError:
+    # The real error, so the frames it was raised from are urllib3's own.
+    with socket.create_server(("127.0.0.1", 0)) as server:
+
+        def reset_after_client_hello() -> None:
+            conn, _ = server.accept()
+            conn.recv(1024)
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            conn.close()
+
+        peer = threading.Thread(target=reset_after_client_hello)
+        peer.start()
+        url = f"https://127.0.0.1:{server.getsockname()[1]}/"
+        try:
+            requests.adapters.HTTPAdapter().send(requests.Request("POST", url, data=b"{}").prepare(), timeout=(5, 5))
+        except requests.ConnectionError as error:
+            return error
+        finally:
+            peer.join(timeout=5)
+    raise AssertionError("the handshake was not reset")
 
 
 class TestWebhookThreads(APIBaseTest):
