@@ -88,6 +88,10 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_AWS_TIMEOUT_MS: number
     // Deadline for a Redis command and for checking a connection out of the pool.
     RECORDING_API_REDIS_TIMEOUT_MS: number
+    // The browser route refuses a larger block, and the player reads it through Django instead.
+    RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: number
+    // Bytes of browser-route blocks one process reads and decrypts at once. A request over it gets a 503.
+    RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -105,6 +109,8 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         // Deletes, which are mostly KMS and DynamoDB calls, almost never take over 2.5s in total.
         RECORDING_API_AWS_TIMEOUT_MS: 5000,
         RECORDING_API_REDIS_TIMEOUT_MS: 2000,
+        RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 32 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 256 * 1024 * 1024,
     }
 }
 

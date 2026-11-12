@@ -39,6 +39,10 @@ export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: 
 
 export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
 
+export type BlockAdmission = 'ok' | 'too_large' | 'busy'
+
+export type GetBlockByRefResult = GetBlockResult | { ok: false; error: Exclude<BlockAdmission, 'ok'> }
+
 export type ListedBlock = RecordingBlock & { ref?: string }
 
 export type EncryptBlocksResult =
@@ -297,7 +301,13 @@ export class RecordingService {
         }))
     }
 
-    async getBlockByRef(teamId: number, sessionId: string, ref: string): Promise<GetBlockResult> {
+    // `admit` sees the block's size before the S3 read and can refuse it.
+    async getBlockByRef(
+        teamId: number,
+        sessionId: string,
+        ref: string,
+        admit: (bytes: number) => BlockAdmission = () => 'ok'
+    ): Promise<GetBlockByRefResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
         if (deletion) {
@@ -309,6 +319,10 @@ export class RecordingService {
                 : null
         if (!location || !this.validateS3Key(location.key)) {
             return { ok: false, error: 'not_found' }
+        }
+        const admission = admit(location.endByte - location.startByte + 1)
+        if (admission !== 'ok') {
+            return { ok: false, error: admission }
         }
         return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true })
     }

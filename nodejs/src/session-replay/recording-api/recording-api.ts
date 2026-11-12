@@ -21,7 +21,7 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginS
 import { RecordingApiOp, createRecordingApiAuthMiddleware, createReplayBlocksAuthMiddleware } from './auth'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
+import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
     DeleteRecordingsBodySchema,
     EncryptBlocksBodySchema,
@@ -30,6 +30,7 @@ import {
     ReplayBlockParamsSchema,
     TeamParamsSchema,
 } from './schemas'
+import { SingleFlightKeyStore } from './single-flight-keystore'
 import { TimedKeyStore } from './timed-keystore'
 import {
     KeyStore,
@@ -71,6 +72,7 @@ export class RecordingApi {
     private blockRateLimiter: KeyedRateLimiterService | null = null
     private readonly role: RecordingApiRole
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
+    private publicBlockBytesInFlight = 0
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -160,12 +162,14 @@ export class RecordingApi {
         })
         this.redisPool = createRedisPoolFromConfig(redisConfig('recording-api'))
 
-        const keyStore: KeyStore = new TimedKeyStore(
-            getKeyStore(s3Region, {
-                kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
-                dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
-                requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
-            })
+        const keyStore: KeyStore = new SingleFlightKeyStore(
+            new TimedKeyStore(
+                getKeyStore(s3Region, {
+                    kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
+                    dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                    requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
+                })
+            )
         )
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -489,6 +493,18 @@ export class RecordingApi {
         }
     }
 
+    // Each block is read and decrypted whole in memory, so the process caps the bytes it holds at once.
+    private admitPublicBlock(bytes: number): BlockAdmission {
+        if (bytes > this.config.RECORDING_API_MAX_PUBLIC_BLOCK_BYTES) {
+            return 'too_large'
+        }
+        if (this.publicBlockBytesInFlight + bytes > this.config.RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT) {
+            return 'busy'
+        }
+        this.publicBlockBytesInFlight += bytes
+        return 'ok'
+    }
+
     private getBlockByRef = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = ReplayBlockParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -500,6 +516,7 @@ export class RecordingApi {
             return
         }
         const { team_id: teamId, session_id: sessionId, ref } = paramsResult.data
+        let admittedBytes = 0
 
         try {
             if (this.blockRateLimiter) {
@@ -520,11 +537,26 @@ export class RecordingApi {
                 }
             }
 
-            const result = await this.recordingService.getBlockByRef(teamId, sessionId, ref)
+            const result = await this.recordingService.getBlockByRef(teamId, sessionId, ref, (bytes) => {
+                const admission = this.admitPublicBlock(bytes)
+                if (admission === 'ok') {
+                    admittedBytes = bytes
+                }
+                return admission
+            })
             if (!result.ok) {
-                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : 'not_found')
+                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
                 if (result.error === 'deleted') {
                     sendRecordingDeleted(res, result)
+                    return
+                }
+                if (result.error === 'too_large') {
+                    res.status(413).json({ error: 'Block too large for this route' })
+                    return
+                }
+                if (result.error === 'busy') {
+                    res.set('Retry-After', '1')
+                    res.status(503).json({ error: 'Busy' })
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })
@@ -546,6 +578,8 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block' })
+        } finally {
+            this.publicBlockBytesInFlight -= admittedBytes
         }
     }
 
