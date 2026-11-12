@@ -23,6 +23,7 @@ from products.experiments.backend.health.checks.change_wording import (
 )
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
+    change_rows,
     changes_to_check,
     delay_after_launch,
     exposed_when,
@@ -32,7 +33,7 @@ from products.experiments.backend.health.checks.flag_change_findings import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
@@ -51,6 +52,10 @@ from products.feature_flags.backend.facade.edits import (
 _TITLE = "The variant split changed after launch"
 _REVERTED_INFO_TITLE = "The variant split changed and was set back"
 _NOT_CHECKED_TITLE = "Variant split changes were not checked"
+
+
+def split_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, SplitChange)
 
 
 def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:

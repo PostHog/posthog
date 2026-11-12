@@ -440,6 +440,67 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "shipped_variant",
         "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
     )
+    FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    SINCE_START_HOURS = (
+        "since_start_hours",
+        "Hours since the experiment's start date, which can be earlier than the launch",
+    )
+    DAILY_CALCULATION_ENDS_AT = (
+        "daily_calculation_ends_at",
+        "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    METRIC_NAME = "metric_name", "The name of a metric"
+    METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
+    RATIO_SIDE = (
+        "ratio_side",
+        "The side of a ratio metric, numerator or denominator, or null for the other metric types",
+    )
+    SAMPLE_COUNT = "sample_count", "Users or groups in a metric's results, across the variants"
+    PLANNED_SAMPLE_COUNT = (
+        "planned_sample_count",
+        "Users or groups that the running time estimate needs to detect its minimum detectable effect",
+    )
+    DATA_HOURS = (
+        "data_hours",
+        "Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window",
+    )
+    VARIANT = "variant", "The key of a variant"
+    DIFFERENCE_PERCENTAGE = (
+        "difference_percentage",
+        "A variant's difference from the control on the primary metric, relative to the control, with its sign",
+    )
+    DETECTABLE_DIFFERENCE_PERCENTAGE = (
+        "detectable_difference_percentage",
+        "The smallest difference from the control that the variant's sample can reliably detect, relative to the "
+        "control",
+    )
+    SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    FORCED_CONDITION_COUNT = (
+        "forced_condition_count",
+        "Release conditions of the feature flag that serve a fixed variant through a variant override",
+    )
+    MATCHED_COUNT = (
+        "matched_count",
+        "Users or groups that a release condition served since traffic_since_at, without those forced to a variant "
+        "that has 0% in the split",
+    )
+    VARIANT_MATCHED_COUNT = (
+        "variant_matched_count",
+        "Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at "
+        "random",
+    )
+    FORCED_COUNT = "forced_count", "Users or groups that a release condition with a variant override served"
+    FORCED_PERCENTAGE = "forced_percentage", "forced_count as a share of variant_matched_count"
+    TRAFFIC_SINCE_AT = (
+        "traffic_since_at",
+        "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
+    )
+    CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
+    BEFORE_EXPOSURE = (
+        "before_exposure",
+        "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
+        "unknown",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None
@@ -486,6 +547,8 @@ class ExperimentHealthCheckResult:
     # What the check read on the experiment, for every status. Empty when it read nothing or shows nothing.
     values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
     rule: ExperimentHealthCheckRule | None
+    # What the check read per variant, metric or flag change, with the same keys as `values`.
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthValue], ...]
 
 
 @frozen

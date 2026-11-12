@@ -360,6 +360,14 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "numeric rule."
         ),
     )
+    rows = serializers.ListField(
+        child=ExperimentHealthCheckValuesField(),
+        help_text=(
+            "What the check read per variant, metric or feature flag change, one object each, with the keys and "
+            "units of `values`. For example, the significance check gives each variant's difference and the smallest "
+            "difference its sample can detect. Empty when the check reads no such list."
+        ),
+    )
 
 
 class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
