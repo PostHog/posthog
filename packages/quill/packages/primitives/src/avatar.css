@@ -17,10 +17,19 @@
         overflow: hidden;
         font-size: var(--text-xs, 0.75rem);
         line-height: 1;
-        color: var(--muted-foreground);
+
+        /*
+         * A step of --foreground over the page background, so the fallback stands off hovered and selected rows,
+         * which plain --muted matched. Opaque, because stacked avatars overlap and must not show through.
+         */
+        color: var(--foreground);
         user-select: none;
-        background-color: var(--muted);
+        background-color: color-mix(in oklab, var(--foreground) 12%, var(--background));
         border-radius: var(--radius-sm);
+    }
+
+    :is(.dark, [theme='dark']) .quill-avatar {
+        background-color: color-mix(in oklab, var(--foreground) 18%, var(--background));
     }
 
     /* Avatar as a profile trigger (render={<a />} / <button />): pointer + focus ring. */

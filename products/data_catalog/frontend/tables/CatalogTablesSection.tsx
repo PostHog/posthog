@@ -14,6 +14,7 @@ import {
 import { catalogTablesLogic } from '../catalogTablesLogic'
 import { certificationsLogic } from '../certificationsLogic'
 import { CatalogTablesBulkBar } from './CatalogTablesBulkBar'
+import { CatalogTablesSuggestions } from './CatalogTablesSuggestions'
 import { CatalogTablesTable } from './CatalogTablesTable'
 import { CatalogTablesToolbar } from './CatalogTablesToolbar'
 
@@ -103,6 +104,7 @@ function TablesContent(): JSX.Element {
 export function CatalogTablesSection(): JSX.Element {
     return (
         <section aria-label="Tables and views" className="flex flex-col gap-3" data-attr="data-catalog-tables">
+            <CatalogTablesSuggestions />
             <CatalogTablesToolbar />
             <TablesContent />
         </section>

@@ -161,6 +161,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             ("unverified_sender", "email", False, False),
             ("other_projects_sender", "email", True, True),
             ("not_an_email_sender", "slack", True, False),
+            ("sandbox_sender", "email_sandbox", True, False),
         ]
     )
     def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:

@@ -52,7 +52,7 @@ class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, Terraform
             label="HashiCorp (HCP Terraform / Terraform Cloud)",
             releaseStatus=ReleaseStatus.BETA,
             keywords=["tfc", "hcp", "infrastructure as code", "iac"],
-            caption="""Sync organizations, projects, teams, workspaces, runs, and state versions from HCP Terraform (formerly Terraform Cloud) into the PostHog Data warehouse to analyze infrastructure change frequency, plan/apply durations, and failure rates.
+            caption="""Sync organizations, projects, teams, workspaces, runs, plans, applies, state versions, health assessment results, and workspace resources from HCP Terraform (formerly Terraform Cloud) into the PostHog Data warehouse to analyze infrastructure change frequency, plan/apply durations, and failure rates.
 
 Create an API token in your HCP Terraform organization settings under **API tokens** — an organization token is recommended so every workspace is visible. Team and user tokens also work but only see the workspaces they have access to.
 

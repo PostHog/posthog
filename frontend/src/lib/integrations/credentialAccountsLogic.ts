@@ -77,13 +77,20 @@ export const credentialAccountsLogic = kea<credentialAccountsLogicType>([
             [] as IntegrationAccountApi[],
             {
                 loadCredentialAccounts: async () => {
+                    const credentials = values.credentials
                     const response = await externalDataSourcesCredentialAccountsCreate(
                         String(ApiConfig.getCurrentProjectId()),
                         {
                             source_type: props.sourceType,
-                            credentials: values.credentials,
+                            credentials,
                         }
                     )
+                    // The credentials can change while this request is in flight, and the next
+                    // listing waits out the debounce first. Drop a response for credentials the form
+                    // no longer holds, so the picker never shows or fills in their accounts.
+                    if (values.credentials !== credentials) {
+                        return values.accounts
+                    }
                     return response.accounts
                 },
             },
