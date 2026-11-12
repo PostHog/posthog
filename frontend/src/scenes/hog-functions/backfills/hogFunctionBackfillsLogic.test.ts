@@ -1,13 +1,17 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { render, screen } from '@testing-library/react'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import { createElement } from 'react'
 import { ToastContainer } from 'react-toastify'
 
 import api from 'lib/api'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
 // Mock only the hogFunctions namespace on the default api export — replacing the module
@@ -79,6 +83,125 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).toHaveBeenCalledWith(MOCK_HOG_FUNCTION_ID)
     })
 
+    it('shows an error after a failed enable, then opens backfills with unsaved edits kept when trying again succeeds', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValueOnce(new Error('Network error'))
+        const configurationLogic = hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID })
+        configurationLogic.mount()
+        await expectLogic(configurationLogic).toFinishAllListeners()
+        configurationLogic.actions.setConfigurationValues({ name: 'Edited destination' })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: false, enableBackfillsFailed: true })
+
+        const enabledHogFunction = makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID })
+        mockApi.enableBackfills.mockResolvedValueOnce({} as any)
+        mockApi.get.mockResolvedValue(enabledHogFunction)
+        useMocks({
+            get: { [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: enabledHogFunction },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.enableHogFunctionBackfills()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                isReady: true,
+                enableBackfillsFailed: false,
+                configuration: partial({ name: 'Edited destination', batch_export_id: MOCK_BATCH_EXPORT_ID }),
+            })
+    })
+
+    it('sends one enable request when trying again is pressed twice', async () => {
+        let enableRequests = 0
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockImplementation(jest.requireActual('lib/api').default.hogFunctions.enableBackfills)
+        useMocks({
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/enable_backfills/`]: () => {
+                    enableRequests += 1
+                    return [403, { detail: 'Backfilling Workflows is not enabled for this team.' }]
+                },
+            },
+        })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ enableBackfillsFailed: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.enableHogFunctionBackfills()
+            logic.actions.enableHogFunctionBackfills()
+        }).toFinishAllListeners()
+
+        expect(enableRequests).toBe(2)
+    })
+
+    it('opens backfills when an enable that reported failure went through on the server', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: makeHogFunction({
+                    batch_export_id: MOCK_BATCH_EXPORT_ID,
+                }),
+            },
+        })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ isReady: true, enableBackfillsFailed: false, configurationChanged: false })
+    })
+
+    it('keeps unsaved configuration edits when enabling fails', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        const configurationLogic = hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID })
+        configurationLogic.mount()
+        await expectLogic(configurationLogic).toFinishAllListeners()
+        configurationLogic.actions.setConfigurationValues({ name: 'Edited destination' })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ enableBackfillsFailed: true, configuration: partial({ name: 'Edited destination' }) })
+    })
+
+    it('keeps unsaved edits when a failed enable went through and reloading fails, and clearing them keeps backfills open', async () => {
+        const enabledHogFunction = makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID })
+        mockApi.get
+            .mockResolvedValueOnce(makeHogFunction({ batch_export_id: null }))
+            .mockRejectedValue(new Error('Network error'))
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        useMocks({
+            get: { [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: enabledHogFunction },
+        })
+        const configurationLogic = hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID })
+        configurationLogic.mount()
+        await expectLogic(configurationLogic).toFinishAllListeners()
+        configurationLogic.actions.setConfigurationValues({ name: 'Edited destination' })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                isReady: true,
+                enableBackfillsFailed: false,
+                configuration: partial({ name: 'Edited destination', batch_export_id: MOCK_BATCH_EXPORT_ID }),
+            })
+        await expectLogic(configurationLogic).toMatchValues({ unsavedConfiguration: null })
+
+        await expectLogic(logic, () => {
+            configurationLogic.actions.resetForm()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ isReady: true, configuration: partial({ name: 'Test Destination' }) })
+    })
+
     it('does not call enableHogFunctionBackfills when batch_export_id is already set', async () => {
         mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
 
@@ -101,7 +224,7 @@ describe('hogFunctionBackfillsLogic', () => {
         await screen.findByText('Failed to enable backfills for this destination.')
 
         mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
-        logic.actions.loadHogFunction()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true })
+        hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID }).actions.loadHogFunction()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true, enableBackfillsFailed: false })
     })
 })

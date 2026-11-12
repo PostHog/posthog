@@ -1,20 +1,7 @@
-"""HogQL assembly of a PR's estimated CI cost, summed over the jobs of all its runs.
+"""CI cost reads over the shared per-job cost source (``_curated.job_cost_source``).
 
-Cost is job-level: a run fans into parallel jobs on different runner tiers, so per-PR cost is a sum
-over jobs (see ``logic.cost``). Every query here reads the shared per-job cost source
-(``_curated.job_cost_source`` — the same rendered model the exposed ``engineering_analytics_job_costs``
-view computes) and aggregates the per-job ``billable_seconds`` / ``estimated_cost_usd`` in SQL, so
-cost is computed exactly once, in ClickHouse, from the ``logic.cost`` constants. When the jobs source
-isn't synced, ``job_cost_source()`` is None and these return empty results (``jobs_available=False``)
-so the UI hides the cost cards instead of erroring.
-
-The three-bucket partition (costed / unsettled / excluded) is the SQL twin of the old Python rollup:
-a job is costed when its rendered ``estimated_cost_usd`` is non-NULL (billable self-hosted Linux with
-a known elapsed — including a real 0.0 for a non-positive elapsed), unsettled when it is a billable
-tier with no elapsed yet, and excluded otherwise. ``estimated_cost_usd`` is reconstructed as None when
-nothing was costable (a SQL sum over an empty set is 0, which must read as "nothing to cost", never a
-real $0.00). Grouped results are small, but each query keeps an explicit ``LIMIT`` so a wide scope
-(the PR list scans up to a thousand PRs) can't hit HogQL's default 100-row cap.
+Every read returns an empty result when the jobs source is not synced.
+Each grouped query keeps an explicit ``LIMIT`` because HogQL otherwise caps a result at 100 rows.
 """
 
 from collections import defaultdict
@@ -57,20 +44,15 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     window_pair_predicates,
 )
 
-# The billable-row predicate over the cost source's classified columns — defined once in logic.cost
-# so 'depot'/'linux' never appear as literals here. Row, not tier: a GitHub re-run copy sits on a
-# billable tier but never executed, so it belongs in excluded_jobs rather than in no bucket at all.
+# A re-run copy sits on a billable tier but never executed, so this predicate puts it in excluded_jobs.
 _BILLABLE_ROW = render_is_billable_job("c.provider", "c.os", "c.is_rerun_copy")
 
 
 def _cost_aggregates(when: str = "1", suffix: str = "") -> str:
-    """The five per-scope cost aggregates over the cost source, optionally gated by ``when`` (a SQL
-    predicate, e.g. a window) and suffixed so a single scan can carry two windows side by side.
+    """The five cost aggregate columns, in the order ``_aggregate`` takes them.
 
-    ``billable_seconds`` sums ``greatest(elapsed, 0)`` over costed rows; ``cost_sum`` sums the rendered
-    per-job dollar cost; ``costed_jobs`` counts rows with a non-NULL cost; ``unsettled_jobs`` and
-    ``excluded_jobs`` complete the three-bucket partition (a re-run copy is excluded — it never ran). ``costed_jobs`` is what tells "$0.00" apart
-    from "nothing to cost" downstream — a SQL sum can't.
+    ``when`` is a SQL predicate that gates every aggregate, and ``suffix`` is appended to each alias,
+    so one scan can carry two windows. Every job is costed, unsettled or excluded.
     """
     return (
         f"sumIf(ifNull(c.billable_seconds, 0), {when}) AS billable_seconds{suffix}, "
@@ -88,11 +70,10 @@ def _aggregate(
     unsettled: int | None,
     excluded: int | None,
 ) -> PRCostAggregate:
-    """Build a ``PRCostAggregate`` from one grouped SQL row's five cost columns."""
     costed_jobs = int(costed or 0)
     return PRCostAggregate(
         billable_seconds=float(billable_seconds or 0.0),
-        # None (not 0.0) when nothing was costable, so an all-unsettled/excluded scope reads honestly.
+        # A SQL sum over no rows is 0, so the costed count decides between $0.00 and no cost at all.
         estimated_cost_usd=float(cost_sum or 0.0) if costed_jobs else None,
         costed_jobs=costed_jobs,
         unsettled_jobs=int(unsettled or 0),
@@ -101,9 +82,6 @@ def _aggregate(
 
 
 def _sum_aggregates(rows: Iterable[tuple]) -> PRCostAggregate:
-    """Fold several grouped cost rows (five columns each) into one aggregate — cost is linear, so
-    summing finer-grained groups is exact. Used to roll the per-(workflow, run) rows of a PR up to
-    per-workflow and whole-PR totals from a single query."""
     billable_seconds = cost_sum = 0.0
     costed = unsettled = excluded = 0
     for row_billable, row_cost, row_costed, row_unsettled, row_excluded in rows:
@@ -112,8 +90,6 @@ def _sum_aggregates(rows: Iterable[tuple]) -> PRCostAggregate:
         costed += int(row_costed or 0)
         unsettled += int(row_unsettled or 0)
         excluded += int(row_excluded or 0)
-    # Delegate the PRCostAggregate construction (incl. the None-vs-$0.00 rule) to _aggregate, so that
-    # rule lives in exactly one place — the folded columns are just its five inputs.
     return _aggregate(billable_seconds, cost_sum, costed, unsettled, excluded)
 
 
@@ -128,17 +104,8 @@ _EMPTY = PRCostSummary(
     by_run=[],
 )
 
-# One grouped scan of the PR's jobs at the finest grain (workflow × run attempt); the whole-PR,
-# per-workflow, and per-run rollups all fold from these rows in Python (cost is linear). Filtering on
-# the cost source's run-attribution columns (pr_number is 0→NULL normalized) drops jobs whose run row
-# is missing, matching the legacy INNER JOIN population.
-#
-# The only two cost queries with no scan floor (see job_cost_source(created_floor=...)) are this one
-# and _COSTS_BY_PR_SELECT without run_from: both are keyed by PR number, not by a window, and a PR's
-# created_at would cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing
-# else) or be the min across a whole page there, which for a page holding one old PR is no bound at
-# all. Left unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor
-# a day below it rather than inventing a window.
+# This query and _COSTS_BY_PR_SELECT without run_from have no scan floor, because they are keyed by
+# PR number and CI associated with a PR can predate the PR's creation.
 _PR_COST_SELECT = """
     SELECT
         c.workflow_name AS workflow_name,
@@ -162,7 +129,6 @@ def query_pr_cost(
 ) -> PRCostSummary:
     cost_source = curated.job_cost_source()
     if cost_source is None:
-        # The optional job-level source isn't synced for this team yet — no honest cost to report.
         return _EMPTY
     sql = _PR_COST_SELECT.replace("__COST_SOURCE__", cost_source).replace("__COST_AGGREGATES__", _cost_aggregates())
     response = curated.run(
@@ -202,8 +168,6 @@ def query_pr_cost(
     )
 
 
-# Per-PR billable cost across the given PR numbers, aggregated in SQL and scoped to the visible PR
-# numbers so a team with deep CI history doesn't pay an all-time scan per page.
 _COSTS_BY_PR_SELECT = f"""
     SELECT
         c.repo_owner AS repo_owner,
@@ -229,15 +193,13 @@ PullRequestKey = tuple[str, str, int]
 def query_pr_costs(
     *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime | None = None
 ) -> dict[PullRequestKey, PRCostAggregate]:
-    """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
+    """Cost per PR, keyed by (repo_owner, repo_name, pr_number). A PR with no jobs has no entry.
 
-    Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over the cost
-    source so a list can show a cost/minutes column per row without a query per PR.
-
-    A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
-    before it are left out, which trims the jobs scan for a population of thousands of PRs.
+    With ``run_from``, runs started before it are left out and the result is not cached. Without it,
+    the read covers each PR's whole CI history and is cached per PR.
     """
-    cost_source = curated.job_cost_source(created_floor=run_from is not None, since=run_from)
+    scoped = run_from is None
+    cost_source = curated.job_cost_source(created_floor=run_from is not None, since=run_from, scoped=scoped)
     if cost_source is None or not pr_numbers:
         return {}
     placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
@@ -251,6 +213,8 @@ def query_pr_costs(
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__RUN_FROM__", run_from_clause)
     )
+    if scoped:
+        sql = curated.scoped_to_pr_history(sql)
 
     def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
         response = curated.run(
@@ -275,9 +239,6 @@ def query_pr_costs(
     }
 
 
-# Per-workflow billable cost over a window (Workflows tab), grouped and costed in SQL and keyed by
-# workflow_name. Windowed and optionally branch/run-scope filtered on the run's attributes (the cost
-# source carries run_started_at and run_head_branch alongside the per-job cost columns).
 _WINDOW_COST_SELECT = """
     SELECT c.workflow_name AS workflow_name, __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
@@ -296,12 +257,10 @@ def query_workflow_window_costs(
     run_scope: WorkflowHealthRunScope,
     workload: Workload = Workload.DEFAULT,
 ) -> dict[str, PRCostAggregate]:
-    """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
+    """Cost per workflow over the window, keyed by workflow_name.
 
-    Empty when the jobs source isn't synced. Grouped per workflow in SQL over the shared cost source;
-    the window/branch/run_scope predicates read the run's attributes, so the population matches the
-    run-level ``query_workflow_health`` (a job whose run is missing has a NULL run_started_at and is
-    excluded by the window filter, matching the legacy INNER JOIN).
+    The window, branch and run scope filter on the run's attributes, so a job whose run row is missing
+    is left out and the population matches ``query_workflow_health``.
     """
     cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
@@ -326,10 +285,7 @@ def query_workflow_window_costs(
     return {(workflow or ""): _aggregate(*agg) for workflow, *agg in response.results or []}
 
 
-# One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
-# attributed to the author through their PRs, keyed on (repo_owner, repo_name, pr_number) — never
-# pr_number alone, since PR numbers restart per repo (SPEC §6). Windowed on the run start so the figure
-# answers "spend over [window]", never an unbounded all-time.
+# Runs join to the author's PRs on (repo_owner, repo_name, pr_number), because PR numbers restart per repo.
 _AUTHOR_WORKFLOW_SELECT = """
     SELECT c.workflow_name AS workflow_name, __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
@@ -349,12 +305,7 @@ def query_author_workflow_costs(
     date_from: datetime,
     date_to: datetime | None,
 ) -> list[WorkflowCost]:
-    """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
-
-    Empty when the jobs source isn't synced. Grouped and costed in SQL over the shared cost source; the
-    author→runs link goes through their PR numbers (the one attribution rule, SPEC §6) — the cost
-    source's normalized pr_number never matches on an unattributed (NULL) run.
-    """
+    """Cost of the runs attributed to one author's PRs, split by workflow, highest spend first."""
     cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
@@ -378,11 +329,6 @@ def query_author_workflow_costs(
     return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
 
 
-# The window-cost shape twice over — the current window and the equal-length one before it — as
-# per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
-# scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
-# __QUEUE_AGG__ and __DEPOT_CI_AGG__ ride the same scan: the merge-queue and Depot CI engine slices
-# of each window's billable seconds.
 _WINDOW_COST_WITH_PREV_SELECT = """
     SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__, __DEPOT_CI_AGG__
     FROM __COST_SOURCE__ AS c
@@ -394,10 +340,6 @@ _WINDOW_COST_WITH_PREV_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class WindowCostsWithPrev:
-    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue and
-    Depot CI engine slices of each window's billable seconds. The slices come from the same scan,
-    so they never need a second pass over the cost source."""
-
     by_workflow: dict[str, PRCostAggregate]
     by_workflow_prev: dict[str, PRCostAggregate]
     merge_queue_billable_seconds: float
@@ -423,12 +365,10 @@ def query_workflow_window_costs_with_prev(
     date_to: datetime | None,
     prev_from: datetime,
 ) -> WindowCostsWithPrev:
-    """``query_workflow_window_costs`` for [date_from, date_to] and [prev_from, date_from] in one scan.
+    """Cost per workflow for [date_from, date_to] and for [prev_from, date_from), from one scan.
 
-    Both dicts are keyed by workflow_name; everything is empty when the jobs source isn't synced.
-    A workflow lands in a window's dict only when it had at least one job in that window (same as the
-    prior implementation), so a workflow present only in the other window doesn't create a phantom
-    zero-cost entry.
+    Both dicts are keyed by workflow_name. A workflow is in a window's dict only when it had a job in
+    that window.
     """
     cost_source = curated.job_cost_source(created_floor=True, since=prev_from)
     if cost_source is None:
@@ -436,7 +376,6 @@ def query_workflow_window_costs_with_prev(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
-        # Floored off prev_from, the earlier of the two window starts — this scan carries both.
         "job_created_floor": run_windowed_job_created_floor_constant(prev_from),
         "depot_ci_engine": ast.Constant(value=CIEngine.DEPOT_CI.value),
     }
@@ -445,10 +384,8 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # The namespace predicate deliberately counts all queue spend, including branch shapes
-    # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
-    # in merge_queue_overview.py use the narrower corroborated population; the two answer different
-    # questions, so don't unify them casually.
+    # The namespace predicate counts all queue spend, including branch shapes that merge_queue.py
+    # cannot resolve to a PR. merge_queue_overview.py reads a narrower population on purpose.
     queue = in_merge_queue_namespace_expr("c.head_branch")
 
     def slice_aggregates(predicate: str, alias: str) -> str:
@@ -491,10 +428,6 @@ def query_workflow_window_costs_with_prev(
     )
 
 
-# CI cost per merged PR over time (repo hub's Cost section trend). Two bucketed scans — cost by run
-# start, merges by merge time — folded together per bucket. Cost is aggregated in SQL over the shared
-# cost source (same rendered model as every other cost surface); only the per-bucket dollar figure
-# crosses back to Python.
 _COST_SERIES_SELECT = """
     SELECT __BUCKET_FN__ AS bucket_start, __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
@@ -503,16 +436,12 @@ _COST_SERIES_SELECT = """
     LIMIT 1000000
 """
 
-# The headline ratio is a trailing rolling window, not a per-bucket division: a strict per-bucket
-# cost/merges has a hole in every bucket that shipped nothing (most hours, quiet weekends), and it
-# pairs a bucket's spend with that same bucket's merges even though a PR's CI usually ran before its
-# merge bucket. Summing cost and merges over a trailing window sized to the grain smooths both out
-# while keeping the whole-bill economics (master/scheduled spend included). Buckets near date_from
-# see a partial window — the scans are window-bounded, so there's no pre-window data to reach back to.
+# Cost per merge divides over a trailing window of this many buckets. A per-bucket ratio has a hole
+# in every bucket with no merge, and a PR's CI usually runs before the bucket it merges in.
+# The first buckets of the series see a shorter window, because the scans start at date_from.
 _ROLLING_BUCKETS: dict[Granularity, int] = {"hour": 24, "day": 7, "week": 4}
 
-# Merged PRs per bucket — the divisor. All authors and bots, no draft/bot filter, so the population
-# matches the cost numerator (every run counted, whoever triggered it); a merged PR is never a draft.
+# Bots are counted, because the cost numerator counts every run whoever triggered it.
 _MERGES_SERIES_SELECT = """
     SELECT __BUCKET_FN__ AS bucket_start, count() AS merges
     FROM __PR_SOURCE__ AS pr
@@ -529,13 +458,10 @@ def query_cost_per_merge_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[CostPerMergeBucket]:
-    """CI cost per merged PR across [date_from, date_to] at ``granularity``, oldest first.
+    """One bucket per ``granularity`` step across the window, oldest first, with no gaps.
 
-    Buckets are zero-filled across the whole window so the trend has no gaps; each bucket's
-    ``cost_per_merge_usd`` is the trailing-window ratio (see ``_ROLLING_BUCKETS``) while
-    ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced
-    there's no cost to divide, so the series is empty (the UI shows the same "sync jobs" state as
-    the other cost surfaces).
+    ``cost_per_merge_usd`` is the trailing-window ratio (see ``_ROLLING_BUCKETS``), while
+    ``estimated_cost_usd`` and ``merges`` cover the bucket alone. Empty when the jobs source is not synced.
     """
     cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
@@ -599,8 +525,6 @@ def query_cost_per_merge_series(
     return buckets
 
 
-# Per-runner-tier cost for one workflow, scoped to the page's run window (and optional branch or run
-# scope) so the figure always answers "spend over [window]", never an unbounded all-time.
 _RUNNER_COST_SELECT = """
     SELECT
         c.provider AS provider,
@@ -627,9 +551,7 @@ def query_workflow_runner_costs(
     branch: str | None = None,
     run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch and
-    run scope), highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
-    (provider, os, vcpu) tier and mapped to its display badge/label via ``runner_tier_descriptor``."""
+    """One workflow's cost per (provider, os, vcpu) runner tier over the window, highest spend first."""
     cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
@@ -672,7 +594,6 @@ def query_workflow_runner_costs(
 
 
 def _has_jobs(aggregate: PRCostAggregate) -> bool:
-    """True when the aggregate covers at least one job (any bucket) — the "this window had runs" test."""
     return bool(aggregate.costed_jobs + aggregate.unsettled_jobs + aggregate.excluded_jobs)
 
 

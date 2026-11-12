@@ -51,10 +51,15 @@ export interface CallerIdentity {
     caller: string
     /** The exact keys this one request asked for, from the token's `keys` claim. */
     requestedKeys: readonly string[]
+    /**
+     * The names this deployment may resolve, from its `__ALLOWED_SECRETS_<DEPLOYMENT>` entry.
+     * Null when the deployment has no entry, which allows every name that is not reserved.
+     */
+    allowedKeys: ReadonlySet<string> | null
 }
 
 /** Per-key outcome, used for both metrics and the usage rollup. */
-export type ResolveOutcome = 'ok' | 'missing' | 'recovery'
+export type ResolveOutcome = 'ok' | 'missing' | 'recovery' | 'not_allowed'
 
 export interface Lifecycle {
     shuttingDown: boolean

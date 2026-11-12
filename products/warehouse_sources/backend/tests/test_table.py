@@ -228,6 +228,23 @@ class TestSafeExposeChError:
         with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize("code", [209, 210])  # SOCKET_TIMEOUT, NETWORK_ERROR
+    def test_clickhouse_connection_errors_keep_their_own_message_instead_of_blaming_the_bucket(self, code: int) -> None:
+        # A mid-query connection drop to a ClickHouse node is unrelated to the customer's bucket.
+        # wrap_clickhouse_query_error already gives these codes their own safe, generic message, but
+        # the raw text ("Connection reset by peer...") matches no ExtractErrors/TRANSIENT_OBJECT_STORE
+        # needle, so this used to fall through to the storage-bucket fallback.
+        raw_message = (
+            "DB::Exception: Connection reset by peer, while reading from socket "
+            "(peer: 10.0.0.1:9440, local: 10.0.0.2:55632): while receiving packet from "
+            "ch-node:9440. While executing Remote."
+        )
+        with pytest.raises(Exception) as exc_info:
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=code))
+
+        assert "temporary problem" in str(exc_info.value)
+        assert "storage bucket" not in str(exc_info.value)
+
 
 class TestWarehouseReadErrorClassification:
     # Engine wording, written from the shape of each failure rather than copied from a customer's
@@ -392,6 +409,36 @@ class TestGetCountEngineChoice:
         assert mock_run_chdb.called is uses_chdb
         if not uses_chdb:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        "name,count_error,expected_attempts",
+        [
+            (
+                "unclassified_cluster_error",
+                ServerException("DB::Exception: Connection reset by peer", code=1002),
+                5,
+            ),
+            (
+                "query_performance_error",
+                ClickHouseQueryTimeOut(),
+                1,
+            ),
+        ],
+    )
+    def test_a_failed_count_retries_a_transient_cluster_error_but_not_a_query_performance_error(
+        self, name: str, count_error: Exception, expected_attempts: int
+    ) -> None:
+        # Mirrors get_columns' retry: the cluster fails intermittently on an unclassified error, so
+        # that's worth retrying, but a query-performance-limit error is a property of this query
+        # against this file and fails the same way every time.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", side_effect=count_error
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(None).get_count()
+
+        assert mock_sync_execute.call_count == expected_attempts
 
 
 class TestChdbEngineChoiceByFormat:

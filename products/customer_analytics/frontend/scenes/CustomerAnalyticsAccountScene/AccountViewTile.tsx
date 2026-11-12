@@ -32,9 +32,9 @@ export function AccountViewTile({
     const logic = accountViewsLogic({ projectId })
     const { tileSaving, tileConfigReloads } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
-    const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
-    // Match the sidebar's property inset.
-    const insetClassName = component.kind === 'properties' ? 'px-4' : 'px-2'
+    const definition = getAccountViewComponentByKind(component.kind)
+    const title = component.title ?? definition?.label ?? component.kind
+    const insetClassName = definition?.tileInsetClassName ?? 'px-2'
     const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
 
     const confirmRemove = (): void => {
@@ -61,8 +61,8 @@ export function AccountViewTile({
                             view.id,
                             component.nodeId,
                             title,
-                            component.kind === 'properties'
-                                ? { propertiesConfig: component.config ?? {}, accountId }
+                            definition?.ConfigEditor
+                                ? { kind: component.kind, config: component.config ?? {}, accountId }
                                 : undefined
                         ),
                     disabledReason: menuDisabledReason,

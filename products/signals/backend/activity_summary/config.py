@@ -106,6 +106,8 @@ class ActivitySummaryConfig:
     rebuild_budget_share: float = 0.3
     # The share of a tick kept for the first summary of pairs that opened the Inbox. The other passes get the unused part.
     inbox_visit_budget_share: float = 0.2
+    # An outdated summary older than this is due as stale, inside `rebuild_budget_share`. Null means never.
+    outdated_rebuild_after_days: float | None = None
     mcp_buffer_enabled: bool = False
     # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
     # Use `mcp_buffer_percentage: 100` for every enrolled team.
@@ -134,6 +136,10 @@ def _positive_number(value: Any, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         return default
     return float(value)
+
+
+def _optional_positive_number(value: Any) -> float | None:
+    return _positive_number(value, 0.0) or None
 
 
 def _fraction(value: Any, default: float) -> float:
@@ -257,6 +263,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
         inbox_visit_budget_share=_fraction(payload.get("inbox_visit_budget_share"), defaults.inbox_visit_budget_share),
+        outdated_rebuild_after_days=_optional_positive_number(payload.get("outdated_rebuild_after_days")),
         mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
         mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
         mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),

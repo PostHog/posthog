@@ -3,6 +3,8 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
@@ -10,6 +12,7 @@ import { LineageGraph } from './LineageGraph'
 import { bridgeHiddenNodes, nodesWithHubs } from './lineageHiddenNodes'
 import { modelsLineageLogic } from './modelsLineageLogic'
 import { ModelsLineageTab } from './ModelsLineageTab'
+import { QuillModelsLineageTab } from './QuillModelsLineageTab'
 
 function mockNode(
     partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
@@ -318,6 +321,11 @@ const modelsTabDecorator = mswDecorator({
     },
 })
 
+const CATALOG_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
 export const DraggableNodes: Story = {
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
@@ -499,6 +507,18 @@ export const SearchFocus: Story = {
             throw new Error('Cycling results must return focus to the search input')
         }
     },
+}
+
+export const CatalogDraggableNodes: Story = {
+    ...DraggableNodes,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
+}
+
+export const CatalogSearchFocus: Story = {
+    ...SearchFocus,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
 }
 
 export const SelectorFocus: Story = {

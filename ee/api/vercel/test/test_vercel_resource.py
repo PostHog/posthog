@@ -106,11 +106,6 @@ class TestVercelResourceAPI(VercelTestBase):
     def assert_success(self, response, expected_status=status.HTTP_200_OK):
         self.assertEqual(response.status_code, expected_status)
 
-    def assert_permission_denied(self, response):
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        error_msg = response.json()["error"]["message"]
-        self.assertIn("Resource does not belong to this installation", error_msg)
-
     def assert_not_found(self, response):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -152,7 +147,7 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.client.get(self.primary_resource["resource_url"], **headers)
 
         self.assert_success(response)
-        mock_get.assert_called_once_with(self.primary_resource["resource_id"])
+        mock_get.assert_called_once_with(self.installation_id, self.primary_resource["resource_id"])
 
     @patch("ee.vercel.integration.VercelIntegration.update_resource")
     def test_update_resource(self, mock_update):
@@ -168,14 +163,14 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.request("patch", self.primary_resource["resource_url"], data)
 
         self.assert_success(response)
-        mock_update.assert_called_once_with(self.primary_resource["resource_id"], data)
+        mock_update.assert_called_once_with(self.installation_id, self.primary_resource["resource_id"], data)
 
     @patch("ee.vercel.integration.VercelIntegration.delete_resource")
     def test_delete_resource(self, mock_delete):
         response = self.request("delete", self.primary_resource["resource_url"])
 
         self.assert_success(response, status.HTTP_204_NO_CONTENT)
-        mock_delete.assert_called_once_with(self.primary_resource["resource_id"])
+        mock_delete.assert_called_once_with(self.installation_id, self.primary_resource["resource_id"])
 
     @parameterized.expand(
         [
@@ -195,7 +190,7 @@ class TestVercelResourceAPI(VercelTestBase):
         kwargs = {"content_type": "application/json", "data": data} if data else {}
 
         response = getattr(self.client, method)(url, **headers, **kwargs)
-        self.assert_permission_denied(response)
+        self.assert_not_found(response)
 
     @parameterized.expand(
         [
@@ -216,7 +211,7 @@ class TestVercelResourceAPI(VercelTestBase):
         kwargs = {"content_type": "application/json", "data": data} if data else {}
 
         response = getattr(self.client, method)(url, **headers, **kwargs)
-        self.assert_permission_denied(response)
+        self.assert_not_found(response)
 
     def test_nonexistent_resource_not_found(self):
         url = f"{self.primary_resource['base_url']}/99999/"
@@ -310,7 +305,7 @@ class TestVercelResourceAPI(VercelTestBase):
         headers = self.auth_headers(other_installation["id"], "system")
 
         response = self.client.post(url, **headers)
-        self.assert_permission_denied(response)
+        self.assert_not_found(response)
 
     def test_rotate_secrets_nonexistent_resource_not_found(self):
         url = f"{self.primary_resource['base_url']}/99999/secrets/rotate/"

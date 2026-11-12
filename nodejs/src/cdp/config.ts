@@ -63,7 +63,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
     CDP_CYCLOTRON_BOUNDED_POLLS: boolean
+    CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -72,6 +74,17 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
+    SES_SANDBOX_CONFIGURATION_SET: string
+    SES_SANDBOX_TENANT_NAME: string
+    WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: number
+    WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: number
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: string
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: number
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: string
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS: boolean
+    WORKFLOWS_SANDBOX_EMAIL_TEST_URL: string
+    WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET: string
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
     CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
@@ -185,6 +198,8 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: string
+    SES_SANDBOX_FROM_ADDRESS: string
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -208,6 +223,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -218,6 +234,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
+    CDP_EMAIL_ATTACHMENTS_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
@@ -343,7 +361,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
         CDP_CYCLOTRON_BOUNDED_POLLS: false,
+        CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
@@ -351,6 +371,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
+        SES_SANDBOX_CONFIGURATION_SET: '',
+        SES_SANDBOX_TENANT_NAME: '',
+        WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: 0,
+        WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: 0,
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: '',
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: 6379,
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: '',
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS: false,
+        WORKFLOWS_SANDBOX_EMAIL_TEST_URL: '',
+        WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET: '',
         CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
@@ -454,6 +485,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: 'posthog-messaging-untracked',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_FROM_ADDRESS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
         EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
@@ -463,6 +496,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
         CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
@@ -473,6 +507,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
         CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
         CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
+        CDP_EMAIL_ATTACHMENTS_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
