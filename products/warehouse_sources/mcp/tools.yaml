@@ -362,7 +362,8 @@ tools:
             Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and
             only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response
             and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must
-            create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
+            create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs. Takes no
+            request body: only the source id.
     external-data-sources-delete-webhook-create:
         operation: external_data_sources_delete_webhook_create
         enabled: true
@@ -378,7 +379,10 @@ tools:
             Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas
             are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
             (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
-            create-webhook.
+            create-webhook. Fails while any table on the source still has sync_type='webhook' and should_sync=true: the
+            error lists those tables. Switch each of them to another sync type (incremental, full_refresh or append) or
+            disable syncing with external-data-schemas-partial-update first, then call this tool. Takes no request body:
+            only the source id.
     external-data-sources-destinations-retrieve:
         operation: external_data_sources_destinations_retrieve
         enabled: true
@@ -557,7 +561,9 @@ tools:
             Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has
             been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to
             be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret).
-            Fails if no webhook has been created for this source yet — call create-webhook first.
+            Fails if no webhook has been created for this source yet — call create-webhook first. Send the values in an
+            'inputs' object keyed by webhook field name, for example {"inputs": {"signing_secret": "whsec_..."}}. A
+            required field cannot be set to an empty value.
     external-data-sources-webhook-info-retrieve:
         operation: external_data_sources_webhook_info_retrieve
         enabled: true
