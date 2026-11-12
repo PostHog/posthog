@@ -86,7 +86,7 @@ class TestIncrementalRequestShaping:
         ("schema", "inputs", "expected_filter"),
         [
             (
-                "orders",
+                "activities",
                 {"incremental_field": "createdAt", "db_incremental_field_last_value": 1700000000},
                 {"gte": 1700000000},
             ),
@@ -95,9 +95,9 @@ class TestIncrementalRequestShaping:
                 {"incremental_field": "createdAt", "db_incremental_field_last_value": "1700000000"},
                 {"gte": 1700000000},
             ),
-            ("orders", {"incremental_field": "createdAt", "db_incremental_field_last_value": None}, None),
+            ("activities", {"incremental_field": "createdAt", "db_incremental_field_last_value": None}, None),
             (
-                "orders",
+                "activities",
                 {
                     "incremental_field": "createdAt",
                     "should_use_incremental_field": False,
@@ -114,18 +114,29 @@ class TestIncrementalRequestShaping:
         assert _variables(result)[0]["createdAt"] == expected_filter
         assert "createdAt: $createdAt" in result.requests[0].json()["query"]
 
-    def test_unfiltered_connection_sends_no_created_at_variable(self) -> None:
-        result = _driver().run("subscriptions", [_page("subscriptions", [], None, False)])
+    @pytest.mark.parametrize(
+        ("schema", "inputs"),
+        [
+            ("subscriptions", {}),
+            # An order refunded after newer orders arrived must still be read on the next sync.
+            ("orders", {"incremental_field": "createdAt", "db_incremental_field_last_value": 1700000000}),
+        ],
+    )
+    def test_unfiltered_connection_sends_no_created_at_variable(self, schema: str, inputs: dict[str, Any]) -> None:
+        refunded_old_order = {"uuid": "o-1", "createdAt": 1600000000, "status": "refunded"}
+        result = _driver().run(schema, [_page(schema, [refunded_old_order], None, False)], **inputs)
 
+        assert result.raised is None
         assert "createdAt" not in _variables(result)[0]
         assert "$createdAt" not in result.requests[0].json()["query"]
+        assert len(result.rows) == 1
 
 
 class TestResume:
     def test_resumes_from_saved_cursor_with_its_original_filter(self) -> None:
         result = _driver().run(
-            "orders",
-            [_page("orders", [{"uuid": "o-2"}], None, False)],
+            "activities",
+            [_page("activities", [{"id": "a-2"}], None, False)],
             resume_state=MemberfulResumeConfig(cursor="c5", created_at_gte=1600000000),
             incremental_field="createdAt",
             db_incremental_field_last_value=1700000000,
