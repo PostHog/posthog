@@ -1,3 +1,8 @@
+from datetime import timedelta
+
+from django.db import transaction
+from django.utils import timezone
+
 import structlog
 from celery import Task, shared_task
 
@@ -12,6 +17,7 @@ from posthog.models.integration import (
     OauthIntegration,
     refresh_backoff_active,
 )
+from posthog.models.integration.email import lock_sender_if_unverified
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -135,6 +141,29 @@ def delete_ses_identity_if_unused(domain: str) -> None:
         return
 
     delete_ses_identity(domain)
+
+
+# A sender that never verifies keeps the identity of its domain at the email provider, and the provider caps
+# identities per region for all customers together.
+UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
+@skip_team_scope_audit
+def expire_unverified_email_senders() -> None:
+    cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
+    candidates = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"verified": False}))
+    expired = 0
+    for sender in candidates:
+        if sender.created_at >= cutoff:
+            continue
+        with transaction.atomic():
+            if not lock_sender_if_unverified(sender):
+                continue
+            # An unverified sender cannot send, so a workflow that still names it loses nothing it had.
+            IntegrationManager.email.any.delete(sender.team_id, sender.id, ignore_usages=True)
+        expired += 1
+    logger.info("expired_unverified_email_senders", count=expired)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)

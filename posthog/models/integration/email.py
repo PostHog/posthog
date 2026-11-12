@@ -140,6 +140,18 @@ def _release_claims(domain: str, claimants: Sequence[model.Integration]) -> None
     transaction.on_commit(lambda: remove_ses_tenant_associations(domain, team_ids=team_ids), robust=True)
 
 
+def lock_sender_if_unverified(sender: IntegrationRecord) -> bool:
+    """Lock the sender row for the rest of the transaction, and say whether it is still unverified.
+
+    A verification that lands meanwhile either finishes first or waits until the transaction ends.
+    """
+    return (
+        model.Integration.objects.select_for_update()
+        .filter(team_id=sender.team_id, id=sender.id, kind="email", config__verified=False)
+        .exists()
+    )
+
+
 @frozen
 class EmailDomainStatusReport:
     check: "EmailDomainCheck"

@@ -1,9 +1,12 @@
 import time
+from datetime import timedelta
 from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -13,6 +16,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.integrations import (
     delete_ses_identity_if_unused,
+    expire_unverified_email_senders,
     refresh_github_branch_cache,
     refresh_integration,
     refresh_integrations,
@@ -195,6 +199,30 @@ class TestIntegrationsTasks(APIBaseTest):
             delete_ses_identity_if_unused("example.com")
 
         assert mock_delete.called is expect_delete
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_removes_old_unverified_senders_and_their_identities(
+        self, mock_delete_identity
+    ) -> None:
+        for email, verified, age_days in [
+            ("a@stale.com", False, 15),
+            ("b@fresh.com", False, 13),
+            ("c@verified.com", True, 30),
+        ]:
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": email.split("@")[1], "provider": "ses", "verified": verified},
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=age_days))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            expire_unverified_email_senders()
+
+        remaining = Integration.objects.filter(kind="email").values_list("integration_id", flat=True)
+        assert sorted(remaining) == ["b@fresh.com", "c@verified.com"]
+        assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})
