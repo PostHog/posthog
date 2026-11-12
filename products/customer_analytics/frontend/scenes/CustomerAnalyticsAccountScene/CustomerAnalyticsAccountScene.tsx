@@ -16,7 +16,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
-import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
@@ -32,11 +31,7 @@ import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
 } from './customerAnalyticsAccountSceneLogic'
-import {
-    isExternalAccountPath,
-    parseExternalAccountPath,
-    shouldRenderLegacyCustomerAnalyticsScene,
-} from './customerAnalyticsAccountSceneUtils'
+import { parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     component: CustomerAnalyticsAccountScene,
@@ -59,25 +54,7 @@ function getAccountLogoDomain(account: AccountApi): string | null {
 }
 
 export function CustomerAnalyticsAccountScene(): JSX.Element {
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { location } = useValues(router)
-    const externalRouteRequested = isExternalAccountPath(location.pathname)
-
-    if (
-        shouldRenderLegacyCustomerAnalyticsScene(
-            location.pathname,
-            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
-        )
-    ) {
-        return <CustomerAnalyticsScene />
-    }
-
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] && externalRouteRequested) {
-        if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
-            return !receivedFeatureFlags ? <CustomerAnalyticsAccountSceneContent /> : <NotFound object="page" />
-        }
-        return <CustomerAnalyticsAccountSceneContent />
-    }
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         return <NotFound object="page" />
