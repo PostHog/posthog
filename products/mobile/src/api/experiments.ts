@@ -62,16 +62,16 @@ export interface ExperimentStatsApi {
 }
 
 /**
- * `ExperimentVariantResultBayesian` or `ExperimentVariantResultFrequentist`. The intervals are on the relative change
- * against the control, as fractions (0.12 is +12%).
+ * `ExperimentVariantResultBayesian` or `ExperimentVariantResultFrequentist`. `stats_config` selects relative
+ * fractions or absolute metric units. Overflowed bounds are stored as null by `sanitize_non_finite`.
  */
 export interface ExperimentVariantResultApi extends ExperimentStatsApi {
     method?: 'bayesian' | 'frequentist'
     significant?: boolean | null
     chance_to_win?: number | null
-    credible_interval?: [number, number] | null
+    credible_interval?: [number | null, number | null] | null
     p_value?: number | null
-    confidence_interval?: [number, number] | null
+    confidence_interval?: [number | null, number | null] | null
 }
 
 /** `ExperimentQueryResponse`: one metric's result as the recalculation stores it. */

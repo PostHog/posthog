@@ -7,7 +7,7 @@ import type { ProjectScope } from '@/api/reports'
 
 import { useExperimentsList } from './hooks'
 
-const mockScope: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
+let mockScope: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
@@ -58,7 +58,7 @@ const SIGNIFICANT = {
             },
         },
     ],
-}
+} as const
 
 function wrapper(): ({ children }: { children: ReactNode }) => ReactElement {
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retryDelay: 0 } } })
@@ -66,6 +66,7 @@ function wrapper(): ({ children }: { children: ReactNode }) => ReactElement {
 }
 
 beforeEach(() => {
+    mockScope = { host: 'https://app.example.com', projectId: 2 }
     setAuthProvider({
         getAuth: () => ({ ...mockScope, accessToken: 'fake-token', session: 1 }),
         refreshAccessToken: async () => null,
@@ -75,46 +76,83 @@ afterEach(() => {
     setAuthProvider(null)
 })
 
-test('reads visible rows two at a time and puts a decision first once they settle', async () => {
-    let inFlight = 0
-    let maxInFlight = 0
-    globalThis.fetch = jest.fn(async (url: string) => {
-        const { pathname, searchParams } = new URL(url)
-        if (pathname === '/api/projects/2/experiments/') {
-            const results =
-                searchParams.get('status') === 'running'
-                    ? [
-                          item(1, 'Newest', '2026-11-01T00:00:00Z'),
-                          item(2, 'Older winner', '2026-10-01T00:00:00Z'),
-                          item(3, 'Oldest', '2026-09-01T00:00:00Z'),
-                      ]
-                    : []
-            return response({ results, next: null })
-        }
-        inFlight += 1
-        maxInFlight = Math.max(maxInFlight, inFlight)
-        await new Promise((resolve) => setTimeout(resolve, 5))
-        inFlight -= 1
-        const id = /experiments\/(\d+)\//.exec(pathname)?.[1]
-        if (pathname.endsWith('/metrics_recalculation/latest/')) {
-            return id === '2' ? response(SIGNIFICANT) : response({ detail: 'No completed recalculation found' }, 404)
-        }
-        return response({ ...DETAIL, id: Number(id) })
-    }) as typeof fetch
+test.each(['bayesian', 'frequentist'] as const)(
+    'keeps settled %s decisions first after scrolling, within one project',
+    async (method) => {
+        let inFlight = 0
+        let maxInFlight = 0
+        globalThis.fetch = jest.fn(async (url: string) => {
+            const { pathname, searchParams } = new URL(url)
+            if (pathname.endsWith('/experiments/')) {
+                const results =
+                    searchParams.get('status') === 'running'
+                        ? [
+                              item(1, 'Newest', '2026-11-01T00:00:00Z'),
+                              item(2, 'Older winner', '2026-10-01T00:00:00Z'),
+                              item(3, 'Oldest', '2026-09-01T00:00:00Z'),
+                          ]
+                        : []
+                return response({ results, next: null })
+            }
+            inFlight += 1
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            inFlight -= 1
+            const id = /experiments\/(\d+)\//.exec(pathname)?.[1]
+            if (pathname.endsWith('/metrics_recalculation/latest/')) {
+                const variant = SIGNIFICANT.results[0].result.variant_results[0]
+                const significant = {
+                    ...SIGNIFICANT,
+                    results: [
+                        {
+                            ...SIGNIFICANT.results[0],
+                            result: {
+                                ...SIGNIFICANT.results[0].result,
+                                variant_results: [
+                                    { ...variant, method, p_value: method === 'frequentist' ? 0.01 : undefined },
+                                ],
+                            },
+                        },
+                    ],
+                }
+                return id === '2' && pathname.startsWith('/api/projects/2/')
+                    ? response(significant)
+                    : response({ detail: 'No completed recalculation found' }, 404)
+            }
+            return response({ ...DETAIL, id: Number(id) })
+        }) as typeof fetch
 
-    const { result, unmount } = renderHook(() => useExperimentsList('running', '', ['1', '2', '3']), {
-        wrapper: wrapper(),
-    })
-    try {
-        await waitFor(() => expect(result.current.rowsSettled).toBe(true))
-        await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['2', '1', '3']))
-        expect(maxInFlight).toBeLessThanOrEqual(2)
-        expect(result.current.data?.[0]?.headline).toMatchObject({ kind: 'significant', leader: 'test' })
-        expect(result.current.data?.[1]?.headline).toMatchObject({ kind: 'not_yet' })
-    } finally {
-        unmount()
+        const { result, rerender, unmount } = renderHook(
+            ({ visibleIds }: { visibleIds: string[] }) => useExperimentsList('running', '', visibleIds),
+            {
+                wrapper: wrapper(),
+                initialProps: { visibleIds: ['1', '2', '3'] },
+            }
+        )
+        try {
+            await waitFor(() => expect(result.current.rowsSettled).toBe(true))
+            await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['2', '1', '3']))
+            expect(maxInFlight).toBeLessThanOrEqual(2)
+            expect(result.current.data?.[0]?.headline).toMatchObject({ kind: 'significant', leader: 'test' })
+            expect(result.current.data?.[1]?.headline).toMatchObject({ kind: 'not_yet' })
+            expect(result.current.data?.[0]?.method).toBe(method === 'frequentist' ? 'freq' : 'bayes')
+
+            act(() => rerender({ visibleIds: ['1'] }))
+            expect(result.current.data?.map((row) => row.id)).toEqual(['2', '1', '3'])
+            expect(result.current.data?.[0]?.headline).toMatchObject({ kind: 'significant' })
+            expect(result.current.data?.[0]?.method).toBe(method === 'frequentist' ? 'freq' : 'bayes')
+
+            act(() => {
+                mockScope = { ...mockScope, projectId: 3 }
+                rerender({ visibleIds: ['1', '2', '3'] })
+            })
+            await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['1', '2', '3']))
+            await waitFor(() => expect(result.current.data?.[1]?.headline).toMatchObject({ kind: 'not_yet' }))
+        } finally {
+            unmount()
+        }
     }
-})
+)
 
 test('asks the server to search only when the loaded pages do not hold the segment', async () => {
     const searches: (string | null)[] = []
@@ -142,6 +180,45 @@ test('asks the server to search only when the loaded pages do not hold the segme
         expect(result.current.searching).toBe(true)
         await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['9']))
         expect(searches).toEqual([null, 'annual'])
+    } finally {
+        unmount()
+    }
+})
+
+test.each(['refetch', 'onPull'] as const)('exposes a failed server search and retries it with %s', async (retry) => {
+    let failSearch = true
+    const searches: (string | null)[] = []
+    globalThis.fetch = jest.fn(async (url: string) => {
+        const { searchParams } = new URL(url)
+        const search = searchParams.get('search')
+        searches.push(search)
+        if (search && failSearch) {
+            return response({ detail: 'Search unavailable' }, 503)
+        }
+        return response({
+            results: [item(search ? 9 : 8, search ? 'Annual toggle' : 'Pricing copy', '2026-10-01T00:00:00Z')],
+            next: search ? null : 'more',
+        })
+    }) as typeof fetch
+
+    const { result, rerender, unmount } = renderHook(
+        ({ search }: { search: string }) => useExperimentsList('draft', search),
+        { wrapper: wrapper(), initialProps: { search: '' } }
+    )
+    try {
+        await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['8']))
+        act(() => rerender({ search: 'annual' }))
+        await waitFor(() => expect(result.current.searching).toBe(false))
+        expect(result.current.isError).toBe(true)
+        expect(result.current.error?.message).toContain('Search unavailable')
+
+        failSearch = false
+        await act(async () => {
+            await result.current[retry]()
+        })
+        await waitFor(() => expect(result.current.data?.map((row) => row.id)).toEqual(['9']))
+        expect(result.current.isError).toBe(false)
+        expect(searches.filter((search) => search === null)).toHaveLength(1)
     } finally {
         unmount()
     }

@@ -900,7 +900,11 @@ async function demoFetchExposures(
             exposure_counts,
         }
     })
-    const expected = Object.fromEntries(def.variants.map((variant) => [variant.key, variant.split / 100]))
+    const observedTotal = Object.values(total).reduce((sum, count) => sum + count, 0)
+    const totalWeight = def.variants.reduce((sum, variant) => sum + variant.split, 0)
+    const expected = Object.fromEntries(
+        def.variants.map((variant) => [variant.key, (variant.split / totalWeight) * observedTotal])
+    )
     return {
         timeseries,
         total_exposures: total,
@@ -972,7 +976,14 @@ function demoShipVariant(id: string | number, body: ShipVariantBody): Promise<Sh
             if (body.release_to_everyone) {
                 filters.groups = [{ properties: [], rollout_percentage: 100 }, ...filters.groups]
             }
-            return withFlag(endedPatch(current, body), flag)
+            return withFlag(
+                endedPatch(current, {
+                    ...body,
+                    conclusion: body.conclusion ?? current.conclusion,
+                    conclusion_comment: body.conclusion_comment ?? current.conclusion_comment,
+                }),
+                flag
+            )
         })
         return { status: 'shipped', experiment }
     })

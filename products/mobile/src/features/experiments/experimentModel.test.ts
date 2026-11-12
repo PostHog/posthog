@@ -89,12 +89,36 @@ describe('experimentStatusOf', () => {
 })
 
 describe('headlineOf', () => {
+    test.each(['bayesian', 'frequentist'] as const)('preserves absolute %s result units', (method) => {
+        const absolute = experiment({ stats_config: { method, [method]: { difference_type: 'ABSOLUTE' } } })
+        const run = latest({ method, credible_interval: [5, 15], confidence_interval: [5, 15], significant: true })
+        expect(primaryResultOf(absolute, run)?.variants[0]).toMatchObject({
+            delta: 10,
+            interval: [5, 15],
+            differenceType: 'absolute',
+        })
+        expect(headlineOf(absolute, run)).toMatchObject({ kind: 'significant', delta: 10, differenceType: 'absolute' })
+    })
+
+    test.each([
+        [null, null],
+        [null, 0.2],
+        [0.1, null],
+        [Number.POSITIVE_INFINITY, 0.2],
+        [0.1, Number.NaN],
+    ])('ignores an invalid interval [%s, %s]', (lower, upper) => {
+        const run = latest({ method: 'bayesian', credible_interval: [lower, upper], significant: true })
+        expect(primaryResultOf(experiment(), run)).toBeNull()
+        expect(headlineOf(experiment(), run)).toMatchObject({ kind: 'not_yet' })
+    })
+
     test('reads a significant Bayesian winner with its change from the interval midpoint', () => {
         const headline = headlineOf(
             experiment(),
             latest({ method: 'bayesian', credible_interval: [0.04, 0.2], chance_to_win: 0.99, significant: true })
         )
         expect(headline).toMatchObject({ kind: 'significant', leader: 'test', better: true, exposures: 2000 })
+        expect(headline).toMatchObject({ differenceType: 'relative' })
         expect(headline !== 'none' && headline.delta).toBeCloseTo(0.12)
     })
 
@@ -135,7 +159,7 @@ describe('headlineOf', () => {
     })
 
     test('says no results yet when the stored results lack the primary metric', () => {
-        expect(headlineOf(experiment(), null)).toEqual({ kind: 'not_yet', resultsAt: undefined })
+        expect(headlineOf(experiment(), null)).toEqual({ kind: 'not_yet', method: 'bayes', resultsAt: undefined })
         expect(headlineOf(experiment({ status: 'draft', start_date: null }), null)).toBe('none')
     })
 })

@@ -189,6 +189,13 @@ stored results. Every `experiments/` path spends the `experiments` family in `sr
 1,200 an hour, 25% of the published 480/min and 4,800/h); writes count too, because the family follows the path.
 The exposure query spends the `query` family.
 
+Settled row headlines and their statistical methods stay available while scrolling within the same project.
+A project switch clears the list's retained headlines.
+If server search fails, the list reports the search error and both retry and pull to refresh repeat that search.
+Result changes and intervals carry `differenceType`: `relative` means a fraction of the control value; `absolute` means metric units, as configured under `stats_config.bayesian` or `stats_config.frequentist`.
+An interval with a null or non-finite bound does not produce a result headline.
+Demo exposure results use expected counts that sum to the observed total.
+
 ### Experiment actions
 
 The finish, launch, pause, resume, archive and edit conclusion sheets in `src/features/experiments/` call these through
@@ -211,6 +218,7 @@ The app never sends `set_repository_as_team_default` (it needs `project:write` a
 target, the one case where the server would skip the cleanup PR instead of picking a repository.
 A 403 that names a missing `experiment:*` scope goes to `reportScopeError(error, 'experiments')`; a missing
 `task:write` on a cleanup PR stays an error in the sheet.
+Shipping a demo variant preserves the saved conclusion and comment when those fields are omitted, matching the live action.
 
 ### Experiment screen
 

@@ -368,7 +368,7 @@ export function useExperimentsList(
     search: string,
     visibleIds: readonly string[] = []
 ): ExperimentsListState {
-    const { scope, ready, source } = useExperimentsContext()
+    const { scope, dataScope, ready, source } = useExperimentsContext()
     const queryClient = useQueryClient()
     const baseInput = useMemo<ExperimentsListInput>(() => ({ status: segment }), [segment])
     const base = useInfiniteQuery(listInfiniteOptions(scope, baseInput, source, ready))
@@ -381,7 +381,9 @@ export function useExperimentsList(
         [segment, debounced]
     )
     const server = useInfiniteQuery(listInfiniteOptions(scope, searchInput, source, ready && needsServer))
-    const serverActive = needsServer && server.data !== undefined && debounced === text
+    const serverSelected = needsServer && debounced === text
+    const serverActive = serverSelected && server.data !== undefined
+    const active = serverSelected ? server : base
 
     const items = useMemo(() => {
         if (serverActive) {
@@ -410,13 +412,17 @@ export function useExperimentsList(
     const rowsSettled = readIds.every((id) => headlines[id] !== undefined && headlines[id] !== 'loading')
     // Running rows sort on the headlines as they were when the visible lines last settled, so a line that lands
     // late does not move rows one at a time.
-    const [sortBasis, setSortBasis] = useState(() => ({ headlines, seen }))
+    const [sortBasis, setSortBasis] = useState(() => ({ dataScope, headlines, seen }))
     useEffect(() => {
         if (rowsSettled) {
-            setSortBasis({ headlines, seen })
+            setSortBasis((previous) => ({
+                dataScope,
+                headlines: { ...(previous.dataScope === dataScope ? previous.headlines : {}), ...headlines },
+                seen,
+            }))
         }
-    }, [rowsSettled, headlines, seen])
-    const updatedAt = (serverActive ? server.dataUpdatedAt : base.dataUpdatedAt) || null
+    }, [rowsSettled, headlines, seen, dataScope])
+    const updatedAt = active.dataUpdatedAt || null
     const ordered = useMemo(() => {
         if (!base.data && !serverActive) {
             return undefined
@@ -424,13 +430,15 @@ export function useExperimentsList(
         const now = updatedAt ?? Date.now()
         const rows = items.map((item) => {
             const id = String(item.id)
-            const headline = sortBasis.headlines[id] ?? (item.status === 'draft' ? 'none' : 'loading')
+            const headline =
+                (sortBasis.dataScope === dataScope ? sortBasis.headlines[id] : headlines[id]) ??
+                (item.status === 'draft' ? 'none' : 'loading')
             const key = headlineKey(headline)
-            const previous = sortBasis.seen(id)
+            const previous = (sortBasis.dataScope === dataScope ? sortBasis.seen : seen)(id)
             return rowOf(item, headline, key !== null && previous !== null && previous !== key, now)
         })
         return SORTERS[segment](rows)
-    }, [items, segment, base.data, serverActive, updatedAt, sortBasis])
+    }, [items, segment, base.data, serverActive, updatedAt, sortBasis, dataScope, headlines, seen])
     // The order holds; the lines and dots inside it stay current.
     const rows = useMemo(
         () =>
@@ -438,7 +446,12 @@ export function useExperimentsList(
                 const headline = headlines[row.id] ?? row.headline
                 const key = headlineKey(headline)
                 const previous = seen(row.id)
-                return { ...row, headline, changed: key !== null && previous !== null && previous !== key }
+                return {
+                    ...row,
+                    headline,
+                    method: typeof headline === 'string' ? row.method : (headline.method ?? row.method),
+                    changed: key !== null && previous !== null && previous !== key,
+                }
             }),
         [ordered, headlines, seen]
     )
@@ -458,12 +471,11 @@ export function useExperimentsList(
     const oldestResultsAt = visibleOldest ?? (lastOldest.current?.segment === segment ? lastOldest.current.at : null)
 
     const [pulling, setPulling] = useState(false)
-    const active = serverActive ? server : base
     const { refetch } = active
     const onPull = useCallback(async (): Promise<void> => {
         trackExperimentsRefreshed({ segment })
         setPulling(true)
-        const activeKey = experimentKeys.list(scope, serverActive ? searchInput : baseInput)
+        const activeKey = experimentKeys.list(scope, serverSelected ? searchInput : baseInput)
         try {
             await queryClient.cancelQueries({ queryKey: activeKey })
             firstPageOnly(queryClient, activeKey)
@@ -478,7 +490,7 @@ export function useExperimentsList(
         } finally {
             setPulling(false)
         }
-    }, [queryClient, scope, segment, serverActive, searchInput, baseInput, refetch, readIds])
+    }, [queryClient, scope, segment, serverSelected, searchInput, baseInput, refetch, readIds])
     const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = active
     const loadMore = useCallback((): void => {
         if (hasNextPage && !isFetching) {
@@ -488,11 +500,11 @@ export function useExperimentsList(
 
     return {
         data: rows,
-        isLoading: base.isLoading,
-        isError: base.isError && !base.data,
-        error: base.error ? toError(base.error) : null,
+        isLoading: active.isLoading,
+        isError: active.isError && !active.data,
+        error: active.error ? toError(active.error) : null,
         isRefetching: active.isRefetching && !isFetchingNextPage,
-        refetch: base.refetch,
+        refetch,
         updatedAt,
         pulling,
         onPull,

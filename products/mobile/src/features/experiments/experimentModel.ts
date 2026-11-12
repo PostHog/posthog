@@ -9,7 +9,7 @@ import type {
 } from '@/api/experiments'
 import { isRecord } from '@/lib/records'
 
-// Pure reads of the experiments API shapes. Every relative number here is a fraction: 0.124 is +12.4%. The web's
+// Pure reads of the experiments API shapes. Relative changes are fractions: 0.124 is +12.4%. The web's
 // `MetricsView/shared/utils.ts` is the reference: the change is the midpoint of the interval, and a `decrease` goal
 // turns "better" and the chance to win around.
 
@@ -25,6 +25,7 @@ export const LEADING_P_VALUE = 0.1
 
 export type ExperimentStatus = 'draft' | 'running' | 'paused' | 'frozen' | 'complete'
 export type ExperimentMethod = 'bayes' | 'freq'
+export type ExperimentDifferenceType = 'relative' | 'absolute'
 export type ExperimentConclusion = ExperimentConclusionApi
 export type MetricGoal = 'increase' | 'decrease'
 
@@ -36,8 +37,10 @@ export interface HeadlineResult {
      */
     kind: 'significant' | 'leading' | 'not_yet' | 'needs_data' | 'target'
     leader?: string
-    /** Relative change of the leader against control, as a fraction. */
+    method?: ExperimentMethod
+    /** Change against control, as a fraction for relative differences or metric units for absolute differences. */
     delta?: number
+    differenceType?: ExperimentDifferenceType
     /** True when the leader's change is in the metric's good direction. */
     better?: boolean
     /** Goal-adjusted, as a fraction. Bayesian only. */
@@ -89,8 +92,9 @@ export interface VariantResult {
     samples: number
     /** The metric's value for this variant, as the web shows it before formatting. Null when it cannot be read. */
     value: number | null
-    /** Relative change against control, as a fraction. */
+    /** Change against control, in the units named by differenceType. */
     delta: number
+    differenceType: ExperimentDifferenceType
     interval: [number, number]
     /** Goal-adjusted chance to win, as a fraction. Bayesian only. */
     chanceToWin?: number
@@ -223,7 +227,7 @@ export function rowOf(
         name: experiment.name,
         flagKey: experiment.feature_flag_key,
         status,
-        method: methodOf(experiment),
+        method: typeof headline === 'string' ? methodOf(experiment) : (headline.method ?? methodOf(experiment)),
         variants: variantKeysOf(experiment),
         startedAt: experiment.start_date ?? null,
         endedAt: experiment.end_date ?? null,
@@ -344,10 +348,24 @@ function metricValueOf(stats: ExperimentStatsApi, metricType: string): number | 
 function intervalOf(result: ExperimentVariantResultApi): [number, number] | null {
     const interval = result.method === 'frequentist' ? result.confidence_interval : result.credible_interval
     const fallback = interval ?? result.credible_interval ?? result.confidence_interval
-    return fallback && fallback.length === 2 ? [fallback[0], fallback[1]] : null
+    if (
+        !fallback ||
+        fallback.length !== 2 ||
+        typeof fallback[0] !== 'number' ||
+        !Number.isFinite(fallback[0]) ||
+        typeof fallback[1] !== 'number' ||
+        !Number.isFinite(fallback[1])
+    ) {
+        return null
+    }
+    return [fallback[0], fallback[1]]
 }
 
-function variantResultOf(result: ExperimentVariantResultApi, metric: ResultMetric): VariantResult | null {
+function variantResultOf(
+    result: ExperimentVariantResultApi,
+    metric: ResultMetric,
+    differenceType: ExperimentDifferenceType
+): VariantResult | null {
     const interval = intervalOf(result)
     if (!interval) {
         return null
@@ -360,6 +378,7 @@ function variantResultOf(result: ExperimentVariantResultApi, metric: ResultMetri
         samples: result.number_of_samples,
         value: metricValueOf(result, metric.metricType),
         delta,
+        differenceType,
         interval,
         chanceToWin: chance === undefined ? undefined : decrease ? 1 - chance : chance,
         pValue: typeof result.p_value === 'number' ? result.p_value : undefined,
@@ -380,12 +399,16 @@ export function metricResultOf(
     return row?.status === 'completed' ? row.result : null
 }
 
-export function resultOf(metric: ResultMetric, result: ExperimentQueryResultApi | null): PrimaryResult | null {
+export function resultOf(
+    metric: ResultMetric,
+    result: ExperimentQueryResultApi | null,
+    differenceType: ExperimentDifferenceType = 'relative'
+): PrimaryResult | null {
     if (!result?.baseline || !result.variant_results?.length) {
         return null
     }
     const variants = result.variant_results
-        .map((variant) => variantResultOf(variant, metric))
+        .map((variant) => variantResultOf(variant, metric, differenceType))
         .filter((variant): variant is VariantResult => variant !== null)
     if (!variants.length) {
         return null
@@ -406,7 +429,11 @@ export function primaryResultOf(
     latest: ExperimentResultsRunApi | null | undefined
 ): PrimaryResult | null {
     const metric = primaryMetricsOf(experiment)[0]
-    return metric ? resultOf(metric, metricResultOf(latest, metric)) : null
+    const config = experiment.stats_config
+    const method = methodOf(experiment, latest) === 'freq' ? 'frequentist' : 'bayesian'
+    const settings = isRecord(config) ? config[method] : undefined
+    const differenceType = isRecord(settings) && settings.difference_type === 'ABSOLUTE' ? 'absolute' : 'relative'
+    return metric ? resultOf(metric, metricResultOf(latest, metric), differenceType) : null
 }
 
 export function exposuresOf(primary: PrimaryResult): number {
@@ -448,19 +475,22 @@ export function headlineOf(
         return 'none'
     }
     const resultsAt = latest ? (latest.query_to ?? latest.completed_at ?? undefined) : undefined
+    const method = methodOf(experiment, latest)
     const primary = primaryResultOf(experiment, latest)
     if (!primary) {
-        return { kind: 'not_yet', resultsAt }
+        return { kind: 'not_yet', method, resultsAt }
     }
     const exposures = exposuresOf(primary)
     const leader = leaderOf(primary)
     if (!leader) {
-        return { kind: 'needs_data', exposures, resultsAt }
+        return { kind: 'needs_data', method, exposures, resultsAt }
     }
     const base: HeadlineResult = {
         kind: 'needs_data',
+        method,
         leader: leader.key,
         delta: leader.delta,
+        differenceType: leader.differenceType,
         better: leader.better,
         chanceToWin: leader.chanceToWin,
         pValue: leader.pValue,
