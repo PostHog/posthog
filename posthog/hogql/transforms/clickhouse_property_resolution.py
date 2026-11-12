@@ -489,6 +489,29 @@ def _is_declared_array_path(
     return _declared_json_path_type(field_type, keys, source).startswith("Array(")
 
 
+_DECLARED_STRING_TYPES = ("String", "LowCardinality(String)")
+
+
+def _declared_string_text_expr(value: ast.Expr) -> ast.Expr:
+    """The text of a path the native table declares as a string, with the '' of a missing key read as NULL.
+
+    The JSON type stores an object or an array sent under such a path as its JSON text. The path therefore has no
+    sub-object and never holds a container, and the stored text is the text the legacy table reads.
+    toString does nothing to a string path. It keeps the read valid on a table that does not declare the path, where
+    the path holds a Dynamic value that nullIf rejects.
+    """
+    text = ast.Call(name="toString", args=[value], type=ast.StringType(nullable=True))
+    return ast.Call(name="nullIf", args=[text, _sentinel("")], type=ast.StringType(nullable=True))
+
+
+def _declared_string_value_expr(value: ast.Expr, declared_type: str) -> ast.Expr:
+    text = _declared_string_text_expr(value)
+    if declared_type == "String":
+        return text
+    # nullIf keeps the LowCardinality wrapper, and the read of every other path is a plain Nullable(String).
+    return ast.TypeCast(expr=text, type_name="Nullable(String)", type=ast.StringType(nullable=True))
+
+
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool, declared: bool) -> ast.Expr:
     json_value: ast.Expr = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     if declared:
@@ -566,9 +589,12 @@ def _json_subcolumn_value_expr(
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+    declared_type = _declared_json_path_type(field_type, keys, source)
+    if declared_type in _DECLARED_STRING_TYPES and not as_json:
+        return _declared_string_value_expr(value, declared_type)
     # A declared column stores a missing key as '', and an index into a declared array reads '' past its end, so both
     # map '' back to NULL. A Dynamic path is NULL for a missing key and keeps '' as a value.
-    declared = index_position is not None or bool(_declared_json_path_type(field_type, keys, source))
+    declared = index_position is not None or bool(declared_type)
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json, declared=declared)
     missing: ast.Expr = ast.Call(name="isNull", args=[clone_expr(value)])
     if declared:
@@ -589,6 +615,33 @@ def _json_subcolumn_value_expr(
         args=[_call("notEquals", [clone_expr(object_value), _sentinel("{}")]), object_value, scalar_or_null],
         type=ast.StringType(nullable=True),
     )
+
+
+def _json_subcolumn_presence_expr(
+    field_type: ast.FieldType,
+    keys: Sequence[str],
+    *,
+    source: MaterializedPropertySource,
+    present: bool = True,
+) -> ast.Expr:
+    """Whether `_json_subcolumn_value_expr` of a plain key path is non-NULL (`present`) or NULL.
+
+    The value read builds the text of the value for every row. A NULL test needs only to know that the path holds a
+    value or that a sub-object exists under it, so it reads the subcolumns and leaves the text unbuilt.
+    """
+    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+    declared_type = _declared_json_path_type(field_type, keys, source)
+    if declared_type:
+        value_read = (
+            _declared_string_text_expr(value)
+            if declared_type in _DECLARED_STRING_TYPES
+            else _json_subcolumn_value_expr(field_type, keys, source=source)
+        )
+        return _call("isNotNull" if present else "isNull", [value_read])
+    object_text = _dynamic_json_object_string_expr(field_type, list(keys), source=source)
+    if present:
+        return _call("or", [_call("isNotNull", [value]), _call("notEquals", [object_text, _sentinel("{}")])])
+    return _call("and", [_call("isNull", [value]), _call("equals", [object_text, _sentinel("{}")])])
 
 
 def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
@@ -1470,6 +1523,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             finally:
                 self._index_hint_depth -= 1
 
+        if node.name in ("isNull", "isNotNull") and len(node.args) == 1:
+            null_test = self._native_json_null_test(node.args[0], present=node.name == "isNotNull")
+            if null_test is not None:
+                return null_test
+
         if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
             # An array index reads through the JSON text of the value, so the cast wraps that read instead.
@@ -1977,7 +2035,42 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 filter_expr=node.filter_expr,
             )
 
-        return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
+        return _json_subcolumn_presence_expr(field_type, [first_key], source=source)
+
+    def _native_json_null_test(self, operand: ast.Expr, *, present: bool) -> ast.Expr | None:
+        """The NULL test of a native property read, as a test of the key's subcolumns, or None to test the value read.
+
+        Only a property that reads as text qualifies. A typed property arrives here inside its cast, and the NULL test
+        of a cast also depends on whether the value converts.
+        """
+        if not self.context.uses_new_events_schema():
+            return None
+        access = self._lowered_property_operand(operand)
+        if access is None or not all(isinstance(key, str) for key in access.keys):
+            return None
+        field_type = _blob_field_type_of(access)
+        if field_type is None:
+            return None
+        keys = cast(list[str], access.keys)
+        if self._is_virtual_feature_flag_property(field_type, keys[0]):
+            return None
+        source = resolve_materialized_property_source(field_type, keys[0], self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+        _record_property_usage(self.context, source.kind)
+        return _json_subcolumn_presence_expr(field_type, keys, source=source, present=present)
+
+    def _optimize_native_json_null_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`properties.x IS [NOT] NULL` on the native table."""
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+        operand = node.left
+        null_side = node.right
+        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
+            operand, null_side = node.right, node.left
+        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
+            return None
+        return self._native_json_null_test(operand, present=node.op == ast.CompareOperationOp.NotEq)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         if self._in_grouped_clause:
@@ -1999,11 +2092,12 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             or self._optimize_materialized_like(node)
             or self._optimize_materialized_in(node)
             or self._optimize_materialized_lower_in(node)
+            or self._optimize_native_json_null_compare(node)
         )
         if optimized is not None:
             return optimized
 
-        # Intentional gap: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to super() and the
+        # Intentional gap: legacy rewrites skip `property = NULL` / `!= NULL`, so it falls through to super() and the
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.

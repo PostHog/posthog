@@ -12,6 +12,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_json_path
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.models.event import Selector
@@ -20,6 +21,11 @@ from posthog.models.property.parse import parse_property_group_data
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import Action
+
+_JSON_EVENTS_DECLARED_TYPES = {
+    "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+}
 
 
 def get_property_string_expr(
@@ -54,7 +60,8 @@ def get_property_string_expr(
 
     if use_new_events_schema and table == "events":
         if materialised_table_column in ("properties", "person_properties"):
-            return _json_events_property_expr(property_name, f"{table_string}{column}")
+            declared_type = _JSON_EVENTS_DECLARED_TYPES.get(column, {}).get(property_name, "")
+            return _json_events_property_expr(property_name, f"{table_string}{column}", declared_type)
         # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
         allow_denormalized_props = False
 
@@ -84,8 +91,13 @@ def _json_events_to_json_string_expr(value: str) -> str:
     return f"if(getSetting('output_format_json_escape_forward_slashes'), replaceAll({serialized}, '\\\\/', '/'), {serialized})"
 
 
-def _json_events_property_expr(property_name: PropertyName, column_ref: str) -> tuple[str, bool]:
+def _json_events_property_expr(property_name: PropertyName, column_ref: str, declared_type: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, column_ref)
+    # `_declared_string_text_expr` in the HogQL resolver explains why this read is enough for a declared string path.
+    if declared_type == "String":
+        return f"ifNull(toString({scalar_value}), '')", False
+    if declared_type == "LowCardinality(String)":
+        return f"CAST(ifNull(toString({scalar_value}), ''), 'String')", False
     object_value = _json_events_to_json_string_expr(
         _json_events_subcolumn_expr(property_name, column_ref, sub_object=True)
     )

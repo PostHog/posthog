@@ -51,7 +51,7 @@
   '''
   -- ClickHouse
   WITH latest_events AS (
-    SELECT events.distinct_id AS distinct_id, argMax(if(notEquals(toJSONString(events.properties.^`$os_version`), '{}'), toJSONString(events.properties.^`$os_version`), if(isNull(nullIf(toString(events.properties.`$os_version`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os_version`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os_version`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os_version`), '[]'), '{}'), toString(events.properties.`$os_version`)))), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
+    SELECT events.distinct_id AS distinct_id, argMax(CAST(nullIf(toString(events.properties.`$os_version`), ''), 'Nullable(String)'), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 99999), equals(events.properties.`$os`, %(hogql_val_1)s), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)), 6, %(hogql_val_3)s))) 
     GROUP BY events.distinct_id), major_versions AS (
@@ -199,9 +199,9 @@
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-    SELECT e.event AS event, if(notEquals(toJSONString(e.properties.^`$session_id`), '{}'), toJSONString(e.properties.^`$session_id`), if(isNull(nullIf(toString(e.properties.`$session_id`), '')), NULL, if(and(in(ascii(toString(e.properties.`$session_id`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$session_id`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$session_id`), '[]'), '{}'), toString(e.properties.`$session_id`)))) AS `properties__$session_id` 
+    SELECT e.event AS event, nullIf(toString(e.properties.`$session_id`), '') AS `properties__$session_id` 
     FROM events_json AS e 
-    WHERE and(equals(e.team_id, 99999), isNotNull(if(notEquals(toJSONString(e.properties.^`$session_id`), '{}'), toJSONString(e.properties.^`$session_id`), if(isNull(nullIf(toString(e.properties.`$session_id`), '')), NULL, if(and(in(ascii(toString(e.properties.`$session_id`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$session_id`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$session_id`), '[]'), '{}'), toString(e.properties.`$session_id`)))))) 
+    WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(toString(e.properties.`$session_id`), ''))) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 
@@ -233,7 +233,7 @@
   FROM (
     SELECT e.event AS event, if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(and(in(ascii(toString(e.properties.`$$$session_id`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$$$session_id`)), tuple(91, 123))), toJSONString(e.properties.`$$$session_id`), toString(e.properties.`$$$session_id`)))) AS `properties__$$$session_id` 
     FROM events_json AS e 
-    WHERE and(equals(e.team_id, 99999), isNotNull(if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(and(in(ascii(toString(e.properties.`$$$session_id`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$$$session_id`)), tuple(91, 123))), toJSONString(e.properties.`$$$session_id`), toString(e.properties.`$$$session_id`)))))) 
+    WHERE and(equals(e.team_id, 99999), or(isNotNull(e.properties.`$$$session_id`), notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'))) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 

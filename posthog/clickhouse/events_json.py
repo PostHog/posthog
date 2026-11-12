@@ -74,6 +74,8 @@ EVENTS_JSON_INSERT_SETTINGS = (
     "json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1"
 )
 
+# HogQL reads a String or LowCardinality(String) path below as its stored text, which is only correct while the live
+# table declares that path. Change these dicts together with the migration that alters the table.
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser": "LowCardinality(String)",
     "$browser_language": "LowCardinality(String)",

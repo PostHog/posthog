@@ -256,7 +256,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
@@ -304,7 +304,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
@@ -352,7 +352,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
@@ -400,7 +400,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
            GROUP BY day_start,
@@ -1810,7 +1810,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^`$os`), '{}'), toJSONString(e.properties.^`$os`), if(isNull(nullIf(toString(e.properties.`$os`), '')), NULL, if(and(in(ascii(toString(e.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$os`), '[]'), '{}'), toString(e.properties.`$os`))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(CAST(nullIf(toString(e.properties.`$os`), ''), 'Nullable(String)')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2568,8 +2568,8 @@
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(if(empty(trim(TRAILING '/?#'
-                                                                   FROM if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`)))))), '/', trim(TRAILING '/?#'
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM if(notEquals(toJSONString(e.properties.^`$current_url`), '{}'), toJSONString(e.properties.^`$current_url`), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(and(in(ascii(toString(e.properties.`$current_url`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$current_url`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                                                                   FROM nullIf(toString(e.properties.`$current_url`), ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                       FROM nullIf(toString(e.properties.`$current_url`), '')))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events_json AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

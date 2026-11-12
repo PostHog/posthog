@@ -21,7 +21,7 @@
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
            FROM
-             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
               FROM events_json AS events
               LEFT OUTER JOIN
                 (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
@@ -74,7 +74,7 @@
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
            FROM
-             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
               FROM events_json AS events
               LEFT OUTER JOIN
                 (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
@@ -127,7 +127,7 @@
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
            FROM
-             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
               FROM events_json AS events
               LEFT OUTER JOIN
                 (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
@@ -180,7 +180,7 @@
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
            FROM
-             (SELECT arrayJoin([tuple('$browser', ifNull(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$')), tuple('$os', ifNull(toString(if(notEquals(toJSONString(events.properties.^`$os`), '{}'), toJSONString(events.properties.^`$os`), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`))))), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
+             (SELECT arrayJoin([tuple('$browser', ifNull(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$')), tuple('$os', ifNull(toString(CAST(nullIf(toString(events.properties.`$os`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'))]) AS breakdown_tuple
               FROM events_json AS events
               LEFT OUTER JOIN
                 (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
