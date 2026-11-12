@@ -418,7 +418,7 @@ export class HogExecutorAsyncService {
         if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.deps.teamManager.getTeam(invocation.teamId)
-                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, headers, team })) {
                     // Depth is counted per function id, so this destination is bounded only
                     // by how many times IT has re-fed itself - an event that merely passed
                     // through other functions can never trip the guard for it.

@@ -2660,6 +2660,35 @@ describe('Hog Executor', () => {
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
+            // The two ways a destination can post back into its own project. Capture v1 takes the
+            // token from the Authorization header, and the event properties sit inside `batch`.
+            const SELF_POSTS = {
+                legacy: {
+                    request: () => ({ url: INGEST_URL, method: 'POST', body: ownTokenCaptureBody() }),
+                    sentProperties: (body: any) => body.properties,
+                },
+                v1: {
+                    request: () => ({
+                        url: 'https://us.i.posthog.com/i/v1/analytics/events',
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${OWN_TOKEN}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            created_at: '2026-01-01T00:00:00Z',
+                            batch: [
+                                {
+                                    event: 'replicated',
+                                    uuid: '0190f3a2-0000-7000-8000-000000000001',
+                                    distinct_id: 'u1',
+                                    timestamp: '2026-01-01T00:00:00Z',
+                                    properties: {},
+                                },
+                            ],
+                        }),
+                    }),
+                    sentProperties: (body: any) => body.batch[0].properties,
+                },
+            } as const
+
             // Seed this destination's own self-loop depth (keyed by its function id).
             const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
                 invocation.state.globals.event.properties = {
@@ -2713,16 +2742,13 @@ describe('Hog Executor', () => {
             // destination's next depth - including hop 0 (a fresh external event), which a
             // legitimate run always is.
             it.each([
-                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
-                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
-                { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
-            ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
+                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1, post: 'legacy' },
+                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3, post: 'legacy' },
+                { case: 'the last hop under the cap', depth: 9, stampedTo: 10, post: 'legacy' },
+                { case: 'a capture v1 self-post mid-chain', depth: 2, stampedTo: 3, post: 'v1' },
+            ] as const)('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo, post }) => {
                 mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
+                const invocation = await createFetchInvocation(SELF_POSTS[post].request())
                 setSelfLoopDepth(invocation, depth)
                 const sent = captureIngestFetch()
                 const blockedBefore = await readActionCount('enforce', 'blocked')
@@ -2731,9 +2757,11 @@ describe('Hog Executor', () => {
 
                 // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
                 expect(result.error).toBeUndefined()
-                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
-                    stampedTo
-                )
+                expect(
+                    SELF_POSTS[post].sentProperties(parseJSON(sent.getBody()!))[SELF_LOOP_DEPTH_PROPERTY][
+                        invocation.hogFunction.id
+                    ]
+                ).toBe(stampedTo)
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
@@ -2761,13 +2789,9 @@ describe('Hog Executor', () => {
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
-            it('enforce: breaks the chain once it reaches the cap', async () => {
+            it.each(['legacy', 'v1'] as const)('enforce: breaks a %s chain once it reaches the cap', async (post) => {
                 mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
+                const invocation = await createFetchInvocation(SELF_POSTS[post].request())
                 setSelfLoopDepth(invocation, 10)
                 mockRequest.mockClear()
                 const blockedBefore = await readActionCount('enforce', 'blocked')

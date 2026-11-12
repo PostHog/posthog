@@ -22,10 +22,15 @@ export const SELF_LOOP_DEPTH_PROPERTY = '$hog_function_self_loop_depth'
 // Max self-capture hops, for a single destination, before its loop is broken.
 export const SELF_LOOP_MAX_DEPTH = 10
 
+// Capture v1 routes. They take the project token only from an `Authorization: Bearer` header.
+// `$ai_*` events re-enter the event pipeline too, because ingestion writes them to the events
+// topic that destinations consume, so the AI route can form a loop as well.
+const V1_INGEST_PATHS = new Set(['/i/v1/analytics/events', '/i/v1/ai/events'])
+
 // Only these paths re-enter the event pipeline. Observability (`/i/v1/logs`) and the
 // REST API (`/api/...`, `/decide`) do NOT re-trigger event processing, so a fetch to
 // them - even with the project's own token - cannot form an event-forwarding loop.
-const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e'])
+const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e', ...V1_INGEST_PATHS])
 
 // Top-level body fields that carry the credential a capture request authenticates with.
 const API_KEY_FIELDS = ['api_key', 'token', 'api_token'] as const
@@ -36,25 +41,28 @@ export const selfLoopGuardCounter = new Counter({
     labelNames: ['mode', 'action'],
 })
 
-export const isPostHogIngestUrl = (urlString: string): boolean => {
+// The ingest path a URL targets, or null when it is not a PostHog ingestion endpoint.
+const ingestPath = (urlString: string): string | null => {
     try {
         const url = new URL(urlString)
         const host = url.hostname.toLowerCase()
         const isIngestHost = host === 'posthog.com' || host.endsWith('.posthog.com')
         if (!isIngestHost) {
-            return false
+            return null
         }
         const path = url.pathname.replace(/\/+$/, '') || '/'
-        return INGEST_PATHS.has(path)
+        return INGEST_PATHS.has(path) ? path : null
     } catch {
-        return false
+        return null
     }
 }
 
-// The credential a capture request authenticates with - either a top-level body field
+export const isPostHogIngestUrl = (urlString: string): boolean => ingestPath(urlString) !== null
+
+// The credential a legacy capture request authenticates with - either a top-level body field
 // or an `api_key`/`token` query parameter. Deliberately does NOT look at `$lib_token`
-// (SDK metadata auto-attached to event properties) or `Authorization` headers, both of
-// which carry a token without expressing intent to ingest as that project.
+// (SDK metadata auto-attached to event properties) or `Authorization` headers: legacy capture
+// ingests with neither, so they carry a token without expressing intent to ingest as that project.
 export const extractRequestApiKey = (body: string | null | undefined, urlString: string): string | null => {
     if (body) {
         try {
@@ -79,6 +87,20 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
     }
 }
 
+// The token in an `Authorization: Bearer` header, read the way capture v1 reads it: the header
+// name and the scheme are case-insensitive, and the token is trimmed.
+export const extractBearerToken = (headers: Record<string, string> | null | undefined): string | null => {
+    if (!headers) {
+        return null
+    }
+    const name = Object.keys(headers).find((key) => key.toLowerCase() === 'authorization')
+    const value = name ? headers[name]?.trim() : undefined
+    if (!value || value.length <= 7 || value.slice(0, 7).toLowerCase() !== 'bearer ') {
+        return null
+    }
+    return value.slice(7).trim() || null
+}
+
 const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: string): boolean => {
     return token === team.api_token || (team.secret_api_token !== null && token === team.secret_api_token)
 }
@@ -90,12 +112,17 @@ const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: st
 export const isSelfReferentialIngestFetch = (input: {
     url: string
     body: string | null | undefined
+    headers?: Record<string, string> | null
     team: Pick<Team, 'api_token' | 'secret_api_token'>
 }): boolean => {
-    if (!isPostHogIngestUrl(input.url)) {
+    const path = ingestPath(input.url)
+    if (path === null) {
         return false
     }
-    const requestToken = extractRequestApiKey(input.body, input.url)
+    // Each capture version authenticates one way, so read the credential the path ingests with.
+    const requestToken = V1_INGEST_PATHS.has(path)
+        ? extractBearerToken(input.headers)
+        : extractRequestApiKey(input.body, input.url)
     return requestToken !== null && ownsToken(input.team, requestToken)
 }
 
