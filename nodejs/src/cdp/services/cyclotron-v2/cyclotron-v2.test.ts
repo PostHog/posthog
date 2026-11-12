@@ -20,6 +20,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
+import { FAIR_DEQUEUE_CANDIDATE_CAP } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -58,6 +59,7 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
         pollDelayMs: 10,
         includeEmptyBatches: true,
         boundedPolls: true,
+        boundedFairDequeue: true,
         ...overrides,
     })
 }
@@ -2211,13 +2213,16 @@ describe('Cyclotron V2', () => {
             await expect(job.heartbeat()).rejects.toThrow(/already released/)
         })
 
-        it('concurrent workers get disjoint batches', async () => {
+        it.each([
+            ['the plain dequeue', QUEUE],
+            ['the fair dequeue', 'email'],
+        ])('concurrent workers get disjoint batches via %s', async (_label, queue) => {
             for (let i = 0; i < 10; i++) {
-                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1 + (i % 3), queueName: queue })
             }
 
-            const worker1 = createWorker(QUEUE, { batchMaxSize: 5 })
-            const worker2 = createWorker(QUEUE, { batchMaxSize: 5 })
+            const worker1 = createWorker(queue, { batchMaxSize: 5 })
+            const worker2 = createWorker(queue, { batchMaxSize: 5 })
 
             const [batch1, batch2] = await Promise.all([dequeueOneBatch(worker1), dequeueOneBatch(worker2)])
 
@@ -2307,6 +2312,7 @@ describe('Cyclotron V2', () => {
         const BACKLOG_QUEUE = 'future-backlog'
         const BACKLOG_ROWS = 20_000
         const BACKLOG_BUFFER_BUDGET = 30
+        const BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES = 80
 
         type PlanMode = 'custom' | 'generic'
 
@@ -2329,20 +2335,21 @@ describe('Cyclotron V2', () => {
             return rows[0].n
         }
 
-        async function seed(dueJobs: number, backlogJobs: number): Promise<void> {
+        async function seed(queue: string, dueJobs: number, backlogJobs: number): Promise<void> {
             const applicationName = 'polling-cost-seed'
             const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
             await client.connect()
             try {
                 await client.query('TRUNCATE cyclotron_jobs')
                 await client.query(
-                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
                      SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
                             CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
                                  ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
-                            NOW(), NOW()
+                            NOW(), NOW(),
+                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END AS future_rows_take_the_lowest_dequeue_seq
                      FROM generate_series(1, $2::int + $3::int) g`,
-                    [BACKLOG_QUEUE, backlogJobs, dueJobs]
+                    [queue, backlogJobs, dueJobs]
                 )
                 await client.query('VACUUM ANALYZE cyclotron_jobs')
             } finally {
@@ -2392,10 +2399,12 @@ describe('Cyclotron V2', () => {
 
         const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
         const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
-        const operations: [string, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
+        const operations: [string, string, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
             [
                 'the worker dequeue',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
@@ -2405,8 +2414,23 @@ describe('Cyclotron V2', () => {
                 },
             ],
             [
-                'the rate-limited worker count',
+                'the email fair dequeue',
+                'email',
                 1,
+                BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                },
+            ],
+            [
+                'the rate-limited worker count',
+                BACKLOG_QUEUE,
+                1,
+                BACKLOG_BUFFER_BUDGET,
                 PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
@@ -2422,7 +2446,9 @@ describe('Cyclotron V2', () => {
             ],
             [
                 'the manager depth check',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
@@ -2437,7 +2463,9 @@ describe('Cyclotron V2', () => {
             ],
             [
                 'the janitor depth gauges',
+                BACKLOG_QUEUE,
                 0,
+                BACKLOG_BUFFER_BUDGET,
                 PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const janitor = createJanitor({ pool: { dbUrl } })
@@ -2449,8 +2477,8 @@ describe('Cyclotron V2', () => {
                 },
             ],
         ]
-        const cases = operations.flatMap(([label, dueJobs, modes, operation]) =>
-            modes.map((mode) => [label, mode, dueJobs, operation] as const)
+        const cases = operations.flatMap(([label, queue, dueJobs, budget, modes, operation]) =>
+            modes.map((mode) => [label, mode, queue, dueJobs, budget, operation] as const)
         )
 
         async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
@@ -2463,13 +2491,62 @@ describe('Cyclotron V2', () => {
 
         it.each(cases)(
             '%s does not read through a backlog scheduled for later under a %s plan',
-            async (_label, mode, dueJobs, operation) => {
-                await seed(dueJobs, 0)
+            async (_label, mode, queue, dueJobs, budget, operation) => {
+                await seed(queue, dueJobs, 0)
                 const withoutBacklog = await buffersReadBy(operation, mode)
-                await seed(dueJobs, BACKLOG_ROWS)
+                await seed(queue, dueJobs, BACKLOG_ROWS)
                 const withBacklog = await buffersReadBy(operation, mode)
 
-                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET)
+                expect(withBacklog - withoutBacklog).toBeLessThan(budget)
+            }
+        )
+
+        async function seedEmailAfterAnalyze(emailBacklogJobs: number): Promise<void> {
+            const applicationName = 'polling-cost-seed'
+            const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
+            await client.connect()
+            try {
+                await client.query('TRUNCATE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                     SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
+                            NOW() + interval '1 hour' + g * interval '1 minute', NOW(), NOW()
+                     FROM generate_series(1, $2::int) g`,
+                    [BACKLOG_QUEUE, BACKLOG_ROWS * 2]
+                )
+                await client.query('ANALYZE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
+                     SELECT gen_random_uuid(), 1, 'email', 'available', (g % 3)::smallint,
+                            CASE WHEN g = 1 THEN NOW() - interval '1 minute'
+                                 ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
+                            NOW(), NOW(),
+                            CASE WHEN g = 1 THEN $1::int + 1 ELSE g - 1 END
+                     FROM generate_series(1, $1::int + 1) g`,
+                    [emailBacklogJobs]
+                )
+                await client.query('VACUUM cyclotron_jobs')
+            } finally {
+                await client.end()
+            }
+            await untilSessionStatsFlushed(applicationName)
+        }
+
+        it.each(PARAMETERIZED_SQL_PLANS)(
+            'the email fair dequeue does not read through an email backlog the statistics have not seen under a %s plan',
+            async (mode) => {
+                const claimOnce = async (dbUrl: string): Promise<void> => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                }
+                await seedEmailAfterAnalyze(0)
+                const withoutBacklog = await buffersReadBy(claimOnce, mode)
+                await seedEmailAfterAnalyze(BACKLOG_ROWS)
+                const withBacklog = await buffersReadBy(claimOnce, mode)
+
+                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES)
             }
         )
     })
@@ -2749,11 +2826,49 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        describe('Worker: fairDequeue ordering', () => {
+        describe.each([
+            ['bounded', true],
+            ['legacy', false],
+        ])('Worker: fairDequeue ordering, %s claim', (_label, boundedFairDequeue) => {
             // The email queue is intrinsically fair-dequeued — the worker derives
             // it from the queue name, so an EMAIL_QUEUE worker is already fair.
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
-                createWorker(EMAIL_QUEUE, overrides)
+                createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides })
+
+            it.each([
+                {
+                    label: 'a lower-sequence row of another team is parked',
+                    seed: async (): Promise<string> => {
+                        await manager.bulkCreateJobs([
+                            { teamId: 200, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() + 3_600_000) },
+                        ])
+                        const [due] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE }])
+                        return due
+                    },
+                },
+                {
+                    label: 'more rows are due than the candidate cap',
+                    seed: async (): Promise<string> => {
+                        const [first] = await manager.bulkCreateJobs([
+                            { teamId: 200, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 1_000) },
+                        ])
+                        await manager.bulkCreateJobs(
+                            Array.from({ length: FAIR_DEQUEUE_CANDIDATE_CAP + 1 }, () => ({
+                                teamId: 100,
+                                queueName: EMAIL_QUEUE,
+                                scheduled: new Date(Date.now() - 3_600_000),
+                            }))
+                        )
+                        return first
+                    },
+                },
+            ])('claims the lowest-sequence due row when $label', async ({ seed }) => {
+                const expected = await seed()
+
+                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+
+                expect(jobs.map((j) => j.id)).toEqual([expected])
+            })
 
             it('dequeues the fast class before an earlier-enqueued bulk backlog', async () => {
                 // A bulk broadcast (priority 1) is already queued when two fast-class
