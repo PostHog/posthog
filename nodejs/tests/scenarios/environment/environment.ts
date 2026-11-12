@@ -69,6 +69,7 @@ export type EnvironmentOptions = {
     docker: string
     postgresUrl: string
     sesRateLimiterValkey: { host: string; port: number }
+    roleHealthyWithinMs: number
 }
 
 export function createEnvironment({
@@ -76,6 +77,7 @@ export function createEnvironment({
     docker = 'docker',
     postgresUrl = STACK.postgresUrl,
     sesRateLimiterValkey = STACK.sesRateLimiterValkey,
+    roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -169,7 +171,7 @@ export function createEnvironment({
     }
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
-        const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        const deadline = Date.now() + roleHealthyWithinMs
         const roles = specs.map((spec) => spec.role)
         for (;;) {
             const notReady = await rolesNotReady(specs)
@@ -188,7 +190,7 @@ export function createEnvironment({
             }
             if (Date.now() > deadline) {
                 throw new Error(
-                    `${notReady.join(', ')} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${notReady.map(logOf).join(', ')}`
+                    `${notReady.join(', ')} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${notReady.map(logOf).join(', ')}`
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
