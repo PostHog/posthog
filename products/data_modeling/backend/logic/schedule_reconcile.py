@@ -463,12 +463,13 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             _user_set_targets_finer_than(floor)
             .select_for_update(of=("self",), skip_locked=True)
             .filter(dag=dag, id__in=finer)
+            .select_related("saved_query")
             .order_by("id")
         )
         rewritten: list[tuple[Node, timedelta]] = []
         for node in nodes:
             previous = get_declared_target(node)
-            if previous is None:
+            if previous is None or previous != graph.declared_targets.get(str(node.id)):
                 continue
             set_declared_target(node, floor)
             rewritten.append((node, previous))

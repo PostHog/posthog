@@ -624,6 +624,25 @@ class TestMaybeReconcileDag(BaseTest):
                 {"saved_query_id": str(node.saved_query_id), "previous_cadence": "15min", "plan_floor": "6hour"},
             )
 
+    def test_plan_floor_sweep_keeps_a_cadence_saved_during_its_reconcile(self):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+
+        def save_during_reconcile(*_args, **_kwargs):
+            set_declared_target(Node.objects.get(pk=node.pk), H1)
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=save_during_reconcile),
+            mock.patch("posthog.event_usage.posthoganalytics.capture"),
+        ):
+            rewritten = clamp_targets_to_plan_floor()
+
+        node.refresh_from_db()
+        self.assertEqual((rewritten, get_declared_target(node)), (0, H1))
+
     @parameterized.expand(
         [
             ("creating_the_floor_tier_fails", "a_create_schedule", RuntimeError("temporal down"), (0, M15)),
