@@ -463,12 +463,22 @@ class TestResendImport(BaseTest):
         assert any("stays deleted" in note for note in items["Another copy"]["notes"])
         assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
 
-    def test_step_and_template_sender_names_stay_literal(self) -> None:
-        template = {**FIXTURES["templates"][0], "from": '"{{ person.properties.a }}" <hello@example.com>'}
-        step = {"from": '"{{ person.properties.b }}" <hello@example.com>', "subject": "Hi"}
+    def test_step_and_template_senders_stay_literal(self) -> None:
+        template = {
+            **FIXTURES["templates"][0],
+            "from": '"{{ person.properties.a }}" <{{ event.properties.c }}@example.com>',
+        }
+        step = {"from": '"{{ person.properties.b }}" <{{ event.properties.d }}@example.com>', "subject": "Hi"}
 
-        assert resend._imported_email(template, {}).from_name == '{{ "{{" }} person.properties.a }}'
-        assert resend._step_email(step, {}).from_name == '{{ "{{" }} person.properties.b }}'
+        imported, step_email = resend._imported_email(template, {}), resend._step_email(step, {})
+        assert (imported.from_name, imported.from_email) == (
+            '{{ "{{" }} person.properties.a }}',
+            '{{ "{{" }} event.properties.c }}@example.com',
+        )
+        assert (step_email.from_name, step_email.from_email) == (
+            '{{ "{{" }} person.properties.b }}',
+            '{{ "{{" }} event.properties.d }}@example.com',
+        )
         assert resend._step_email({**step, "reply_to": ["{{x}}@example.com", "b@example.com"]}, {}).reply_to == (
             '{{ "{{" }}x}}@example.com, b@example.com'
         )

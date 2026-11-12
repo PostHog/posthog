@@ -60,15 +60,18 @@ class TestResendAutomationDrafts(BaseTest):
 
         assert [self._import(_automation(key)).status for key in ("a1", "a2")] == ["created", "created"]
 
-    @parameterized.expand([("deactivated",), ("no_workflow_edit_access",)])
+    @parameterized.expand([("deactivated",), ("no_project_access",), ("no_workflow_edit_access",)])
     def test_a_starter_who_lost_access_creates_no_draft(self, name: str) -> None:
         if name == "deactivated":
             self.user.is_active = False
             self.user.save()
-        with patch.object(
-            drafts.UserAccessControl,
-            "check_access_level_for_resource",
-            side_effect=lambda resource, *_a, **_k: name == "deactivated" or resource != "hog_flow",
+        with (
+            patch.object(drafts.UserAccessControl, "has_project_access", name != "no_project_access"),
+            patch.object(
+                drafts.UserAccessControl,
+                "check_access_level_for_resource",
+                side_effect=lambda resource, *_a, **_k: name != "no_workflow_edit_access" or resource != "hog_flow",
+            ),
         ):
             result = self._import(_automation("a1"))
 
