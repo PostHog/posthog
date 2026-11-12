@@ -11,9 +11,10 @@ from typing import Final, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from django.db import transaction
+from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
+from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
@@ -21,12 +22,14 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     DestinationType,
     NewAlertDestination,
+    SourceDestination,
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
+_SUBSCRIBER_TYPES: Final = frozenset({DestinationType.EMAIL, DestinationType.IN_APP})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -67,9 +70,17 @@ _DISPLAY_ONLY_FIELDS: Final = frozenset({"slack_channel_name"})
 
 
 def create_alert_destinations(
-    *, team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]
+    *,
+    team_id: int,
+    configuration_id: UUID,
+    destinations: Sequence[NewAlertDestination],
+    hog_function_event_ids: Collection[str] = (),
 ) -> tuple[StoredAlertDestination, ...]:
-    """Adds the destinations to one configuration, all or none."""
+    """Adds the destinations to one configuration, all or none.
+
+    `hog_function_event_ids` are the events the alert's HogFunctions listen on. With them, a destination
+    that sends where one of those HogFunction groups already sends is refused too, unless it copies that group.
+    """
     for destination in destinations:
         _validate(destination)
     with transaction.atomic():
@@ -77,7 +88,7 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
-        _refuse_duplicates(team_id, configuration_id, destinations)
+        _refuse_duplicates(team_id, configuration, destinations, hog_function_event_ids)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
                 team_id=team_id,
@@ -277,16 +288,142 @@ def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[
     return [row for row in rows if row.type == DestinationType.IN_APP or "email_user_ids" in row.config]
 
 
-def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
+def _refuse_duplicates(
+    team_id: int,
+    configuration: PlatformAlertConfiguration,
+    destinations: Sequence[NewAlertDestination],
+    hog_function_event_ids: Collection[str],
+) -> None:
     """A second destination with the same address would send every message twice."""
     seen = [
-        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration.id)
     ]
+    groups = (
+        [
+            group
+            for group in list_alert_destination_groups(
+                team_id=team_id,
+                alert_id=str(configuration.destination_alert_id),
+                allowed_event_ids=hog_function_event_ids,
+            )
+            if group.hog_function_ids
+        ]
+        if hog_function_event_ids
+        else []
+    )
     for destination in destinations:
         receiver = _receiver(destination.data)
-        if receiver in seen:
+        copied = set(destination.legacy_hog_function_ids)
+        if receiver in seen or any(
+            _receiver(group.data) == receiver and not copied.issuperset(group.hog_function_ids) for group in groups
+        ):
             raise AlertDestinationValidationError("This alert already sends to this destination.", field="config")
         seen.append(receiver)
+
+
+def record_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_event_ids: Collection[str],
+) -> StoredAlertDestination | None:
+    """Adds the row for a destination its source has just written as `hog_function_ids`, so the
+    destination outlives them. None when the platform has no alert under `public_id`."""
+    configuration_id = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
+        .values_list("id", flat=True)
+        .first()
+    )
+    if configuration_id is None:
+        return None
+    (created,) = create_alert_destinations(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        destinations=(
+            NewAlertDestination(
+                data=data, event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+            ),
+        ),
+        hog_function_event_ids=hog_function_event_ids,
+    )
+    return created
+
+
+def list_source_destinations(
+    *, team_id: int, public_id: UUID, hog_function_event_ids: Collection[str]
+) -> tuple[SourceDestination, ...]:
+    """The destinations a person sees on the page of an alert whose source keeps HogFunctions: each
+    HogFunction group, with the row that copies it, then each row whose HogFunctions are gone.
+    Subscriber rows are left out, because the source shows its subscribers apart."""
+    groups = [
+        group
+        for group in list_alert_destination_groups(
+            team_id=team_id, alert_id=str(public_id), allowed_event_ids=hog_function_event_ids
+        )
+        if group.hog_function_ids
+    ]
+    configuration_id = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
+        .values_list("id", flat=True)
+        .first()
+    )
+    rows = (
+        [
+            row
+            for row in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+            if row.data["type"] not in _SUBSCRIBER_TYPES
+        ]
+        if configuration_id is not None
+        else []
+    )
+    matched: set[UUID] = set()
+    listed: list[SourceDestination] = []
+    for group in groups:
+        row = next((row for row in rows if set(row.legacy_hog_function_ids) & set(group.hog_function_ids)), None)
+        if row is not None:
+            matched.add(row.id)
+        listed.append(
+            SourceDestination(
+                destination_id=row.id if row is not None else None,
+                hog_function_ids=group.hog_function_ids,
+                # The row keeps what the person entered, such as a Slack channel's name, which HogFunctions do not.
+                data=row.data if row is not None else group.data,
+                enabled=group.fully_enabled,
+            )
+        )
+    listed.extend(
+        SourceDestination(destination_id=row.id, hog_function_ids=(), data=row.data, enabled=row.enabled)
+        for row in rows
+        if row.id not in matched
+    )
+    return tuple(listed)
+
+
+def delete_source_destination_rows(
+    *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """Deletes the alert's rows named by id or that copy any of `hog_function_ids`, and returns the
+    HogFunctions those rows copied, which the source deletes too."""
+    if not destination_ids and not hog_function_ids:
+        return frozenset()
+    rows = AlertDestination.objects.for_team(team_id).filter(
+        models.Q(id__in=list(destination_ids)) | models.Q(legacy_hog_function_ids__overlap=list(hog_function_ids)),
+        configuration__in=PlatformAlertConfiguration.objects.for_team(team_id).filter(
+            PlatformAlertConfiguration.with_destination_alert_ids([public_id])
+        ),
+    )
+    copied = frozenset(
+        hog_function_id
+        for copies in rows.values_list("legacy_hog_function_ids", flat=True)
+        for hog_function_id in copies
+    )
+    rows.delete()
+    return copied
 
 
 def _receiver(data: AlertDestinationData) -> dict[str, object]:

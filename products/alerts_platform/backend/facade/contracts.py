@@ -1527,6 +1527,22 @@ class StoredAlertDestination:
     legacy_hog_function_ids: tuple[UUID, ...]
 
 
+@frozen
+class SourceDestination:
+    """One destination on the page of an alert whose source keeps HogFunctions for it.
+
+    Until a source's rollback window ends, a destination added there is both an `AlertDestination`
+    row and the HogFunctions it copies, and the HogFunctions send. An older one is HogFunctions
+    only, and one whose HogFunctions were deleted elsewhere is a row only.
+    """
+
+    # The `AlertDestination` row, or None for HogFunctions no row copies.
+    destination_id: UUID | None
+    hog_function_ids: tuple[UUID, ...]
+    data: AlertDestinationData
+    enabled: bool
+
+
 class AlertDestinationValidationError(Exception):
     """A destination payload the platform refuses. Callers at an HTTP boundary translate
     this into their own framework's validation error."""
