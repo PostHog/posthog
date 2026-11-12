@@ -548,6 +548,11 @@ async fn admission_refusal(
     if reason.is_some() {
         return Ok(reason);
     }
+    if let Some(layout) = store.get_property_store_layout().await? {
+        if request.to.partitions == 0 || !layout.shards.is_multiple_of(request.to.partitions) {
+            return Ok(Some("property_store_shards_indivisible"));
+        }
+    }
     let history = store.list_migration_history().await?;
     Ok(history
         .iter()

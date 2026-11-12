@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::types::{
     AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ClusterEndpoint, HandoffReplacement,
     HandoffState, LeaderInfo, MigrationState, PartitionAssignment, PodDrainedAck, PodStatus,
-    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    PodWarmedAck, PropertyStoreLayout, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 mod migration;
@@ -43,6 +43,7 @@ enum StoreKey<'a> {
     Leader,
     Generation,
     ChangelogConfig,
+    PropertyStoreLayout,
     Migration,
     MigrationRequest,
     MigrationHistory(&'a str),
@@ -85,6 +86,7 @@ impl StoreKey<'_> {
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
             StoreKey::ChangelogConfig => format!("{prefix}config/changelog"),
+            StoreKey::PropertyStoreLayout => format!("{prefix}config/property_store"),
             StoreKey::Migration => format!("{prefix}migrations/current"),
             StoreKey::MigrationRequest => format!("{prefix}migrations/requested"),
             StoreKey::MigrationHistory(id) => format!("{prefix}migrations/history/{id}"),
@@ -1462,6 +1464,61 @@ impl PersonhogStore {
         count_call("get_changelog_config_with_mod_revision");
         let key = self.key(StoreKey::ChangelogConfig);
         Ok(self.inner.get_with_mod_revision(&key).await?)
+    }
+
+    pub async fn get_property_store_layout(&self) -> Result<Option<PropertyStoreLayout>> {
+        count_call("get_property_store_layout");
+        let key = self.key(StoreKey::PropertyStoreLayout);
+        Ok(self.inner.get(&key).await?)
+    }
+
+    pub async fn register_property_store_layout(
+        &self,
+        layout: &PropertyStoreLayout,
+    ) -> Result<PropertyStoreLayout> {
+        count_call("register_property_store_layout");
+        let key = self.key(StoreKey::PropertyStoreLayout);
+        let txn = Txn::new()
+            .when(vec![Compare::create_revision(
+                key.clone(),
+                CompareOp::Equal,
+                0,
+            )])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(layout)?, None)]);
+        self.inner.txn(txn).await?;
+        Ok(self
+            .get_property_store_layout()
+            .await?
+            .unwrap_or_else(|| layout.clone()))
+    }
+
+    pub async fn require_property_store_layout(&self, layout: &PropertyStoreLayout) -> Result<()> {
+        let registered = self.register_property_store_layout(layout).await?;
+        Self::check_property_store_layout(layout, &registered)
+    }
+
+    /// Readers only verify, so a misconfigured reader cannot pin a layout the writer then refuses.
+    pub async fn verify_property_store_layout(&self, layout: &PropertyStoreLayout) -> Result<()> {
+        count_call("verify_property_store_layout");
+        match self.get_property_store_layout().await? {
+            Some(registered) => Self::check_property_store_layout(layout, &registered),
+            None => Err(Error::invalid_state(
+                "no property store layout is registered; start a writer that stores properties in SlateDB first",
+            )),
+        }
+    }
+
+    fn check_property_store_layout(
+        layout: &PropertyStoreLayout,
+        registered: &PropertyStoreLayout,
+    ) -> Result<()> {
+        if registered != layout {
+            return Err(Error::invalid_state(format!(
+                "this pod's property store is {} shards at {} but the registered layout is {} shards at {}",
+                layout.shards, layout.location, registered.shards, registered.location
+            )));
+        }
+        Ok(())
     }
 
     /// Create-if-absent at epoch 1; only a flip may move a live config.
