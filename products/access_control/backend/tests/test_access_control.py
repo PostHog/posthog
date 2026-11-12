@@ -2947,6 +2947,18 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
         res = self.client.get("/api/organizations/@current/members/project_access", query_for(other_membership))
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
+    @parameterized.expand([("email_alone", {"email": ""}), ("with_member_id", {"email": "", "member_id": None})])
+    def test_blank_email_filter_is_rejected(self, _name, query):
+        if "member_id" in query:
+            query = {**query, "member_id": self.user2_membership.id}
+        res = self.client.get("/api/organizations/@current/members/project_access", query)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_email_filter_does_not_match_a_homoglyph_address(self):
+        self._create_user("owner@\u0131bm.example")
+        res = self.client.get("/api/organizations/@current/members/project_access", {"email": "owner@ibm.example"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
     def test_membership_level_decides_without_the_entitlement(self):
         self._set_access_control_available(False)
         # A stale rule from before the downgrade must not be consulted

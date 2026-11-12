@@ -73,6 +73,12 @@ class MemberProjectAccessQuerySerializer(serializers.Serializer):
         help_text="Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.",
     )
 
+    def to_internal_value(self, data: object) -> dict:
+        # DRF drops blank optional fields from a QueryDict, so `?email=` would silently list every member
+        if hasattr(data, "items"):
+            data = dict(data.items())  # type: ignore[attr-defined]
+        return super().to_internal_value(data)
+
 
 class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
     @validated_request(
