@@ -1505,8 +1505,7 @@
          uniqExactIf(event_key, event = '$mcp_resources_list') AS mcp_resources_list_events,
          uniqExactIf(event_key, event = '$mcp_prompt_get') AS mcp_prompt_get_events,
          uniqExactIf(event_key, event = '$mcp_prompts_list') AS mcp_prompts_list_events,
-         uniqExactIf(event_key, replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp'
-                     AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web') AS web_mcp_events
+         uniqExactIf(event_key, if(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp', 0)) AS web_mcp_events
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 23:59:59'
   AND startsWith(event, '$mcp_')

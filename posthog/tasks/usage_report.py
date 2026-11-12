@@ -1034,7 +1034,11 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
             {metric_expressions},
             uniqExactIf(
                 event_key,
-                {interface_expression} = %(web_mcp_interface)s AND {library_expression} = %(web_mcp_lib)s
+                if(
+                    {library_expression} = %(web_mcp_lib)s,
+                    {interface_expression} = %(web_mcp_interface)s,
+                    0
+                )
             ) AS web_mcp_events
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
