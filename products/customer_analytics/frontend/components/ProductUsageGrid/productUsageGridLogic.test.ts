@@ -350,9 +350,70 @@ describe('productUsageGridLogic', () => {
                 ? Promise.resolve({ results: firsts })
                 : Promise.reject(new Error('people should remain available'))
         )
-        await expectLogic(logic, () => logic.actions.loadDetails()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.retryDetails()).toFinishAllListeners()
         expect(logic.values.details).toEqual({ people, firsts })
         expect(logic.values.detailsError).toBeNull()
+        logic.unmount()
+    })
+    it('retries a failed people expansion without replacing loaded previews', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.finishLoad({
+            accounts,
+            matrix: BOOK_ACTIVITY_MATRIX_MOCK,
+            hogql: null,
+            source: { kind: 'product_usage' },
+        })
+        const accountId = BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key
+        const productKey = 'pa'
+        const key = JSON.stringify([accountId, productKey])
+        const person = {
+            row: accountId,
+            column: BOOK_ACTIVITY_MATRIX_MOCK.columns[0].key,
+            series: productKey,
+            personId: 'example-person',
+            label: 'person@example.com',
+            rank: 1,
+            engagedSeconds: 120,
+            actionCount: 1,
+            actions: [],
+            topPaths: [],
+        }
+        const previews = {
+            rows: BOOK_ACTIVITY_MATRIX_MOCK.rows.slice(0, 5),
+            columns: BOOK_ACTIVITY_MATRIX_MOCK.columns,
+            people: [person],
+            truncated: false,
+        }
+        query.mockResolvedValueOnce({ results: previews })
+        await expectLogic(logic, () => logic.actions.setControls({ zoom: 'users' })).toFinishAllListeners()
+        query.mockRejectedValueOnce(new Error('Expansion unavailable'))
+        await expectLogic(logic, () => logic.actions.togglePeople(accountId, productKey)).toFinishAllListeners()
+        expect(logic.values.peopleError).toEqual({ key, message: 'Expansion unavailable' })
+        expect(logic.values.expanded[key]).toBe(false)
+        const expandedPeople = [
+            person,
+            { ...person, personId: 'another-person', label: 'another@example.com', rank: 2 },
+        ]
+        let resolve!: (value: unknown) => void
+        query.mockImplementationOnce((node) => {
+            if (!node.allPeople || node.accountIds[0] !== accountId || node.productKeys[0] !== productKey) {
+                return Promise.reject(new Error('Retry must reload the failed expansion'))
+            }
+            return new Promise((done) => {
+                resolve = done
+            })
+        })
+        logic.actions.retryDetails()
+        expect(logic.values.detailsRetryLoading).toBe(true)
+        expect(logic.values.details.people).toEqual(previews)
+        resolve({ results: { ...previews, people: expandedPeople } })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.extraPeople[key]).toEqual(expandedPeople)
+        expect(logic.values.expanded[key]).toBe(true)
+        expect(logic.values.peopleError).toBeNull()
+        expect(logic.values.detailsRetryLoading).toBe(false)
+        expect(logic.values.details.people).toEqual(previews)
         logic.unmount()
     })
     it('clears pending people state when leaving Users or clearing the source', async () => {

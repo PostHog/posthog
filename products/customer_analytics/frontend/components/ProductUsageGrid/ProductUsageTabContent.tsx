@@ -19,12 +19,13 @@ export function ProductUsageTabContent(): JSX.Element {
         error,
         saveError,
         detailsError,
-        detailsLoading,
+        peopleError,
+        detailsRetryLoading,
         details,
         canUseProducts,
         controls,
     } = useValues(productUsageGridLogic)
-    const { openEditor, refresh, clearSource, loadDetails, setControls } = useActions(productUsageGridLogic)
+    const { openEditor, refresh, clearSource, retryDetails, setControls } = useActions(productUsageGridLogic)
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="product-activity-tab">
             <div className="flex flex-wrap justify-between items-center gap-2">
@@ -137,16 +138,16 @@ export function ProductUsageTabContent(): JSX.Element {
                     Some user details are missing. Narrow the account filters to see all people and first-use dates.
                 </LemonBanner>
             )}
-            {detailsError && (
+            {(detailsError || peopleError) && (
                 <LemonBanner
                     type="warning"
                     action={
-                        <LemonButton onClick={loadDetails} size="small" loading={detailsLoading}>
+                        <LemonButton onClick={retryDetails} size="small" loading={detailsRetryLoading}>
                             Retry
                         </LemonButton>
                     }
                 >
-                    {detailsError}
+                    {detailsError ?? peopleError?.message}
                 </LemonBanner>
             )}
         </div>
