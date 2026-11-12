@@ -139,6 +139,16 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
+function checkIntakeVerdict(card: Card): string[] {
+    const answeredAtIntake = card.drive.traffic.find(({ name }) => name === 'transactional_email')
+    const judged = card.invariants.some(({ name }) => name === 'refused_at_intake')
+    return answeredAtIntake && !judged
+        ? [
+              'invariants: transactional_email counts a unit cdp-api refused as offered, so the card needs refused_at_intake',
+          ]
+        : []
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -187,6 +197,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
+        ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
