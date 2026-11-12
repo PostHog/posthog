@@ -87,7 +87,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
                 "Your organization reached its billing limit or free tier limit for product analytics, so PostHog "
                 f"drops the events this project sends, including the events that count {unit}s as exposed. Nobody is "
                 "counted until you raise the limit or subscribe on the billing page, or until the next billing period "
-                "starts. Events sent before then can't be recovered."
+                "starts. PostHog doesn't keep the events it drops, so they can't be counted later."
             ),
             evidence=evidence,
             actions=(),

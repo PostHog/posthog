@@ -26,6 +26,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
@@ -608,7 +609,7 @@ class HealthContext:
     team_has_active_flag: bool | None
     # Whether capture drops the project's events now, because the organization reached its billing limit for events.
     # None when not read: it is read only for a running experiment without exposures, because a limit in force now
-    # says nothing about an earlier run.
+    # says nothing about an earlier run. Also None when the read fails.
     events_billing_limited: bool | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
@@ -838,14 +839,22 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
-def _events_billing_limited(experiment: Experiment) -> bool:
+def _events_billing_limited(experiment: Experiment) -> bool | None:
     # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
     # no billing limits.
     try:
         from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited  # noqa: PLC0415
     except ImportError:
         return False
-    return is_team_limited(experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+    try:
+        return is_team_limited(
+            experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+    except Exception as error:
+        # The exposure query builds this context, so a Redis error here would fail the exposure answer for a read
+        # that only explains one finding.
+        capture_exception(error)
+        return None
 
 
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
