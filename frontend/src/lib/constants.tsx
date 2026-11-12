@@ -520,7 +520,7 @@ export const FEATURE_FLAGS = {
     REPLAY_WATCH_LAYOUT: 'replay-watch-layout', // owner: #team-replay multivariate=control,compact,youtube,landing. The arm name is the layout; compare the variant string, a truthy check turns on for control too
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
-    SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
+    SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection; on with today-rail-nav too
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
     SEARCH_DEBOUNCE_ALL: 'search-debounce-all', // owner: @adamleithp #team-platform-ux

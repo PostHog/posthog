@@ -3989,7 +3989,11 @@ def list_account_automations(
         team=team,
         account_id=str(account.id),
         external_id=account.external_id,
-        workflow_ids=get_viewable_workflow_ids(team_id=team.pk, user_access_control=user_access_control),
+        workflow_ids=get_viewable_workflow_ids(
+            team_id=team.pk,
+            user_access_control=user_access_control,
+            tag_name=_account_automations_logic.ACCOUNT_AUTOMATION_WORKFLOW_TAG,
+        ),
         user_access_control=user_access_control,
         page=page,
     )

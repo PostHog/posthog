@@ -423,6 +423,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             "next_check_at",
             "grouping",
             "labels",
+            "annotations",
         )
     )
     return {
@@ -440,8 +441,9 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             next_check_at=next_check_at,
             grouping=Grouping.from_stored(grouping),
             labels=labels,
+            annotations=annotations,
         )
-        for public_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping, labels in rows
+        for public_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping, labels, annotations in rows
     }
 
 
