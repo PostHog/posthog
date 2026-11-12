@@ -1590,9 +1590,13 @@ export interface dashboardLogicActions {
     }
     setTileProperty: (
         tileId: number,
-        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+        properties: Partial<
+            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+        >
     ) => {
-        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+        properties: Partial<
+            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+        >
         tileId: number
     }
     setTileSavesPending: (pending: boolean) => {
@@ -1649,6 +1653,9 @@ export interface dashboardLogicActions {
     }
     toggleTileGroup: (groupKey: string) => {
         groupKey: string
+    }
+    toggleTileTransparentBackground: (tileId: number) => {
+        tileId: number
     }
     triggerDashboardRefresh: (isAutomatic?: boolean) => {
         isAutomatic: boolean
@@ -2428,9 +2435,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
+        toggleTileTransparentBackground: (tileId: number) => ({ tileId }),
         setTileProperty: (
             tileId: number,
-            properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+            properties: Partial<
+                Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+            >
         ) => ({
             tileId,
             properties,
@@ -5102,6 +5112,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } catch {
                 actions.setTileProperty(tileId, { show_description: previousValue })
+                lemonToast.error('Failed to update tile')
+            }
+        },
+        toggleTileTransparentBackground: async ({ tileId }) => {
+            // Defense in depth — same reason as updateTileColor above.
+            if (isSharedView()) {
+                return
+            }
+            const previousValue = values.tiles.find((tile) => tile.id === tileId)?.transparent_background
+            const newValue = !previousValue
+            actions.setTileProperty(tileId, { transparent_background: newValue })
+            try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                    tiles: [{ id: tileId, transparent_background: newValue }],
+                })
+            } catch {
+                actions.setTileProperty(tileId, { transparent_background: previousValue })
                 lemonToast.error('Failed to update tile')
             }
         },

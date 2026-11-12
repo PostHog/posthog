@@ -148,6 +148,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         stageLayouts,
         updateContainerWidth,
         toggleTileDescription,
+        toggleTileTransparentBackground,
         removeTile,
         duplicateTile,
         loadDashboard,
@@ -469,6 +470,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             await updateWidgetTile({ tile, ...patch })
                         },
                         toggleDescription: (): void => toggleTileDescription(tile.id),
+                        toggleTransparentBackground: (): void => toggleTileTransparentBackground(tile.id),
                         moveToTileGroup: (sectionKey: string | null): void =>
                             moveTileToSection(tile.id, sectionKey, null, 'menu'),
                     },
@@ -486,6 +488,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             refreshDashboardWidgets,
             updateWidgetTile,
             toggleTileDescription,
+            toggleTileTransparentBackground,
             moveTileToSection,
         ]
     )
@@ -799,6 +802,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onMoveToTileGroup={commonTileProps.moveToTileGroup}
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     onDuplicate={tileActions.duplicate}
+                    onToggleTransparentBackground={tileActions.toggleTransparentBackground}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}

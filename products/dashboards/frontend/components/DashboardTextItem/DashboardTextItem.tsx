@@ -1,14 +1,18 @@
 import { useValues } from 'kea'
 import React from 'react'
 
+import { IconChevronRight } from '@posthog/icons'
+
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import {
     DashboardWidgetPlacementMenus,
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
@@ -28,6 +32,7 @@ interface DashboardTextItemProps
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
+    onToggleTransparentBackground?: () => void
     onRemove?: () => void
     isDraggingRef?: React.RefObject<boolean>
 }
@@ -43,6 +48,7 @@ function DashboardTextItemInternal(
         tileGroupMoveOptions,
         onMoveToTileGroup,
         onDuplicate,
+        onToggleTransparentBackground,
         onRemove,
         isDraggingRef,
         ...textCardProps
@@ -65,6 +71,31 @@ function DashboardTextItemInternal(
             <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
                 Edit {tileType}
             </LemonButton>
+            {tileType === 'text' && onToggleTransparentBackground && (
+                <LemonDropdown
+                    overlay={
+                        <div className="w-60 px-2 py-1">
+                            <ChartOptionSwitch
+                                label="Transparent background"
+                                checked={!!tile.transparent_background}
+                                onChange={onToggleTransparentBackground}
+                                data-attr="text-card-menu-transparent-background"
+                            />
+                        </div>
+                    }
+                    closeOnClickInside={false}
+                    placement="right-start"
+                    fallbackPlacements={['left-start']}
+                >
+                    <LemonButton
+                        fullWidth
+                        sideIcon={<IconChevronRight className="size-3" />}
+                        data-attr="text-card-display-options"
+                    >
+                        Display options
+                    </LemonButton>
+                </LemonDropdown>
+            )}
 
             <DashboardWidgetPlacementMenus
                 placementDestinations={copyToDestinations}
