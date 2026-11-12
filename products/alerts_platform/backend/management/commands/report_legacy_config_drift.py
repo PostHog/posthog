@@ -4,7 +4,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from products.alerts_platform.backend.facade.contracts import SourceKind
-from products.alerts_platform.backend.logic.legacy_config_drift import registered_sources, report_drift
+from products.alerts_platform.backend.logic.legacy_config_drift import report_drift
+from products.alerts_platform.backend.logic.legacy_drift_sources import registered_sources
 
 
 class Command(BaseCommand):
@@ -26,7 +27,7 @@ class Command(BaseCommand):
         parser.add_argument("--sample-size", type=int, default=5, help="Alert ids listed per team and setting.")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        sources = [SourceKind(value) for value in options["source"] or ()] or list(registered_sources())
+        sources = [SourceKind(value) for value in options["source"]] if options["source"] else registered_sources()
         report = report_drift(
             source_kinds=sources,
             team_id=options["team_id"],

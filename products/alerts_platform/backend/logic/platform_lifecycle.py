@@ -781,8 +781,6 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
-    The recurrence is checked before the write, by `stored_settings_of`.
-
     `revive` says the source alert was just created or turned back on, which resets the copy
     even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
@@ -1038,20 +1036,10 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
     cannot advance fails every outcome of the batch it is recorded in.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
+    del stored["enabled"], stored["snooze_until"]
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
-        name=upsert.name,
-        source_config=upsert.source_config,
-        check_interval_minutes=upsert.check_interval_minutes,
-        recurrence_unit=upsert.recurrence_unit,
-        anchor_time=anchor_time,
-        evaluation_periods=upsert.evaluation_periods,
-        datapoints_to_alarm=upsert.datapoints_to_alarm,
-        cooldown_minutes=upsert.cooldown_minutes,
-        schedule_restriction=upsert.schedule_restriction,
-        created_by_id=upsert.created_by_id,
+        **stored,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )

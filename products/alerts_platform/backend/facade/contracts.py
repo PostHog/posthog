@@ -8,7 +8,7 @@ contract check watches this file to decide whether they must retest.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -1389,13 +1389,12 @@ class LegacyCopyExpectation:
     team_id: int
     # None when the row has no platform form, such as an insight cadence the platform never runs.
     upsert: PlatformAlertUpsert | None
-    # Copy columns a source keeps outside the upsert, compared as they are.
     extra_columns: Mapping[str, Any] = field(default_factory=dict)
 
 
-# Given a team, or None for every team, and a batch size, yields every platform-owned source row
-# of its kind as expectations, in batches, ordered by team.
-LegacyDriftSource = Callable[[int | None, int], Iterator[Sequence[LegacyCopyExpectation]]]
+# One page of a source's platform-owned rows, ordered by id: `(team_id or None for every team,
+# after this id, limit)`.
+LegacyDriftSource = Callable[[int | None, UUID | None, int], Sequence[LegacyCopyExpectation]]
 
 
 @frozen

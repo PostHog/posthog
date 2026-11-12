@@ -1,49 +1,30 @@
 """Compares each platform-owned alert's source row with its platform copy, setting by setting.
 
-While both rows exist, every edit writes both, so any difference means a writer missed one. Reads
-move to the copy, and the source rows stop being read and written, only once this finds none.
-
-The expected copy comes from the same upsert a source writes, through `stored_settings_of`, so the
-mapping from a row to its copy is stated once.
+Reads move to the copy, and the source rows stop being read and written, only once this finds none.
 """
 
 import json
-from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
-from django.core.serializers.json import DjangoJSONEncoder
-
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import LegacyCopyExpectation, LegacyDriftSource, SourceKind
+from products.alerts_platform.backend.facade.contracts import LegacyCopyExpectation, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.logic.legacy_drift_sources import provider_of
 from products.alerts_platform.backend.logic.platform_lifecycle import stored_settings_of
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
-# The settings a source row has no counterpart for, and so cannot drift on.
 COPY_MISSING: Final = "copy_missing"
 NO_PLATFORM_FORM: Final = "no_platform_form"
 
 _SOURCE_CONFIG: Final = "source_config"
+_JSON_COLUMNS: Final = (_SOURCE_CONFIG, "schedule_restriction")
 # Deep enough to name a bound, a comparison or a filter, without splitting one bound into its parts.
 _SOURCE_CONFIG_DEPTH: Final = 2
 _MISSING: Final = object()
-
-_sources: dict[SourceKind, LegacyDriftSource] = {}
-
-
-def register(source: SourceKind, provider: LegacyDriftSource) -> None:
-    registered = _sources.get(source)
-    if registered is not None and registered is not provider:
-        raise RuntimeError(f"A different drift source is already registered for {source} alerts.")
-    _sources[source] = provider
-
-
-def registered_sources() -> tuple[SourceKind, ...]:
-    return tuple(_sources)
 
 
 @frozen
@@ -68,26 +49,30 @@ def report_drift(
     *, source_kinds: Sequence[SourceKind], team_id: int | None, batch_size: int, sample_size: int, now: datetime
 ) -> DriftReport:
     """Reads every platform-owned row of the named sources, and its copy, and writes nothing."""
-    drifted_ids: dict[tuple[int, SourceKind, str], list[UUID]] = defaultdict(list)
+    counts: dict[tuple[int, SourceKind, str], int] = {}
+    # Rows arrive in id order, so the first ids kept are the lowest.
+    samples: dict[tuple[int, SourceKind, str], list[UUID]] = {}
     compared = drifted = 0
     for source_kind in source_kinds:
-        for batch in _sources[source_kind](team_id, batch_size):
+        provider, after = provider_of(source_kind), None
+        while batch := provider(team_id, after, batch_size):
+            after = batch[-1].legacy_configuration_id
             copies = _copies_of(batch)
             for expectation in batch:
                 compared += 1
                 settings = drifted_settings(expectation, copies.get(expectation.legacy_configuration_id), now=now)
                 drifted += bool(settings)
                 for setting in settings:
-                    drifted_ids[(expectation.team_id, source_kind, setting)].append(expectation.legacy_configuration_id)
+                    key = (expectation.team_id, source_kind, setting)
+                    counts[key] = counts.get(key, 0) + 1
+                    sample = samples.setdefault(key, [])
+                    if len(sample) < sample_size:
+                        sample.append(expectation.legacy_configuration_id)
     drifts = tuple(
         SettingDrift(
-            team_id=team,
-            source_kind=source_kind,
-            setting=setting,
-            count=len(ids),
-            sample_ids=tuple(sorted(ids)[:sample_size]),
+            team_id=team, source_kind=kind, setting=setting, count=count, sample_ids=tuple(samples[team, kind, setting])
         )
-        for (team, source_kind, setting), ids in sorted(drifted_ids.items())
+        for (team, kind, setting), count in sorted(counts.items())
     )
     return DriftReport(compared=compared, drifted=drifted, drifts=drifts)
 
@@ -103,28 +88,23 @@ def drifted_settings(expectation: LegacyCopyExpectation, copy: Mapping[str, Any]
     except ValueError:
         return [NO_PLATFORM_FORM]
     expected.update(expectation.extra_columns, team_id=expectation.team_id, owner=PlatformAlertOwner.PLATFORM.value)
-    # As the JSON column stores it, so a tuple or a date in the upsert compares equal to what was written.
-    expected_config = json.loads(json.dumps(expected.pop(_SOURCE_CONFIG), cls=DjangoJSONEncoder))
-    drifted = [
-        column
-        for column, value in expected.items()
-        if _comparable(column, value, now) != _comparable(column, copy[column], now)
-    ]
-    expected_leaves = _leaves(expected_config, _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)
-    stored_leaves = _leaves(copy[_SOURCE_CONFIG], _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)
+    stored = {column: copy[column] for column in expected}
+    for side in (expected, stored):
+        # A snooze that has ended mutes nothing, whichever side still holds it.
+        if side["snooze_until"] is not None and side["snooze_until"] <= now:
+            side["snooze_until"] = None
+    # As the JSON column stores it, so a tuple in the upsert compares equal to the list written.
+    for column in _JSON_COLUMNS:
+        expected[column] = json.loads(json.dumps(expected[column]))
+    drifted = [column for column in expected if column != _SOURCE_CONFIG and expected[column] != stored[column]]
+    expected_leaves = _leaves(expected[_SOURCE_CONFIG], _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)
+    stored_leaves = _leaves(stored[_SOURCE_CONFIG], _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)
     drifted.extend(
         path
         for path in sorted(expected_leaves.keys() | stored_leaves.keys())
         if expected_leaves.get(path, _MISSING) != stored_leaves.get(path, _MISSING)
     )
     return drifted
-
-
-def _comparable(column: str, value: Any, now: datetime) -> Any:
-    # A snooze that has ended mutes nothing, whichever side still holds it.
-    if column == "snooze_until" and value is not None and value <= now:
-        return None
-    return value
 
 
 def _leaves(value: Any, path: str, depth: int) -> dict[str, Any]:
