@@ -7551,10 +7551,7 @@ export namespace Schemas {
          * Short name of the tag.
          */
         label: string;
-        /**
-         * The tagger that wrote the answer: `jev` for AI, `manual` for a person.
-         */
-        source: string;
+        source?: (string | null) | undefined;
         /**
          * The answer: true for yes, false for no, null when the tagger was unsure.
          */
