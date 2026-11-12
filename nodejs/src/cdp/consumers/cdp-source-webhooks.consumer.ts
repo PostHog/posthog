@@ -382,6 +382,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 if (scopedIdempotencyKey) {
                     const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
                     if (recalled.status !== 'absent') {
+                        // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a
+                        // second run.
+                        await this.idempotencyKeys.markQueued(
+                            hogFlow.team_id,
+                            scopedIdempotencyKey,
+                            hogFlow.id,
+                            recalled.runId,
+                            leaseToken
+                        )
                         return answerDuplicate()
                     }
                     const reservation = await this.idempotencyKeys.reserve(

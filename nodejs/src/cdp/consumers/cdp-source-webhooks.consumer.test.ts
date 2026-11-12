@@ -916,7 +916,12 @@ describe('SourceWebhooksConsumer', () => {
                         expect(first.status).toEqual(201)
                         expect(second.status).toEqual(200)
                         expect(second.body.status).toEqual('duplicate')
-                        expect(await jobsOfFlow()).toHaveLength(1)
+                        const jobs = await jobsOfFlow()
+                        expect(jobs).toHaveLength(1)
+                        const restored = await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.get(valkeyKey('escalation-6'))
+                        )
+                        expect(parseJSON(restored!)).toMatchObject({ queued: true, invocationId: jobs[0] })
                     })
 
                     it('queues the run when the claim lookup fails, and the claim still dedupes its retry', async () => {
