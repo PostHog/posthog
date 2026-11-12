@@ -1549,6 +1549,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
             ("mapping_rename", "mapping", {"name": "Renamed"}, status.HTTP_200_OK),
             ("unnormalized_rename", "unnormalized", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("rename_that_copies_liquid_templating", "liquid_schema", {"name": "Renamed"}, status.HTTP_400_BAD_REQUEST),
             ("mapping_code_change", "mapping", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
             (
                 "mapping_secret_removed_with_a_code_change",
@@ -1575,15 +1576,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 inputs={"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}}, encrypted_inputs=None
             )
         elif stored_in == "unnormalized":
-            # As older saves left a row: an unset optional input stored as null, and no templating copied from
-            # the schema onto the input.
             HogFunction.objects.filter(id=function.id).update(
-                inputs_schema=[
-                    {**SENDER_SCHEMA[0], "templating": "liquid"},
-                    SENDER_SCHEMA[1],
-                    {"key": "note", "type": "string", "label": "Note", "required": False},
-                ],
+                inputs_schema=[*SENDER_SCHEMA, {"key": "note", "type": "string", "label": "Note", "required": False}],
                 inputs={"url": {"value": SENDER_URL}, "note": None},
+            )
+        elif stored_in == "liquid_schema":
+            HogFunction.objects.filter(id=function.id).update(
+                inputs_schema=[{**SENDER_SCHEMA[0], "templating": "liquid"}, SENDER_SCHEMA[1]],
+                inputs={"url": {"value": SENDER_URL}},
             )
         elif stored_in == "mapping":
             HogFunction.objects.filter(id=function.id).update(

@@ -46,6 +46,11 @@ class TestGuardedContent(SimpleTestCase):
                 content(inputs={"target": {"value": "typed again"}}, schema=[URL, TARGET]),
             ),
             (
+                "templating_left_to_the_worker_default",
+                content(inputs={"url": {"value": "{event.url}"}}),
+                content(inputs={"url": {"value": "{event.url}", "templating": "hog"}}),
+            ),
+            (
                 "server_derived_fields",
                 content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 1], "order": 0}}),
                 content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 2], "order": 1}}),

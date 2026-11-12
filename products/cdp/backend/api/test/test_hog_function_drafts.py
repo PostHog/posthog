@@ -695,6 +695,24 @@ class TestHogFunctionDrafts(DraftTestCase):
             sent_secrets = mock_invoke.call_args.kwargs["payload"]["configuration"]["encrypted_inputs"]
             assert {key: item["value"] for key, item in sent_secrets.items()} == {"token": token["value"]}
 
+    def test_secret_typed_while_another_edit_changes_the_draft_does_not_count_as_entered(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+        self._stage(function_id, {"inputs": sender_inputs(SENDER_URL)})
+        real_select_for_update = HogFunction.objects.select_for_update
+
+        def lock_after_a_concurrent_edit(*args, **kwargs):
+            function = HogFunction.objects.get(id=function_id)
+            HogFunction.objects.filter(id=function_id).update(draft={**(function.draft or {}), "hog": MOVED_SENDER_HOG})
+            return real_select_for_update(*args, **kwargs)
+
+        with secret_reentry_flag(True):
+            with patch.object(HogFunction.objects, "select_for_update", side_effect=lock_after_a_concurrent_edit):
+                self._stage(function_id, {"inputs": sender_inputs(SENDER_URL, {"value": "new"})})
+            published = self._publish(function_id)
+
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        assert HogFunction.objects.get(id=function_id).hog == SENDER_HOG
+
     def test_publish_resolves_the_rollout_flag_before_locking_the_row(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
         self._stage(function_id, {"hog": MOVED_SENDER_HOG})

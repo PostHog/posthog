@@ -379,10 +379,16 @@ class CanonicalConfigSerializer(serializers.Serializer):
         child=MappingsSerializer(), required=False, allow_null=True, help_text="The mappings."
     )
 
-    def to_internal_value(self, data):
-        # The inputs field reads its sibling schema from the parent's initial data.
-        self.initial_data = data
-        return super().to_internal_value(data)
+
+def _with_templating_of(inputs: Any, raw_inputs: Any) -> Any:
+    if not isinstance(inputs, dict) or not isinstance(raw_inputs, dict):
+        return inputs
+    return {
+        key: {**item, "templating": (raw_inputs.get(key) or {}).get("templating")}
+        if isinstance(item, dict) and isinstance(raw_inputs.get(key), dict)
+        else item
+        for key, item in inputs.items()
+    }
 
 
 def _draft_guarded_content(content: dict, secrets: dict) -> str:
@@ -733,7 +739,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs_schema"] = data.get(
             "inputs_schema", staged_draft.get("inputs_schema", instance.inputs_schema if instance else [])
         )
-        data["inputs"] = data.get("inputs", staged_draft.get("inputs", instance.inputs if instance else {}))
+        # Validation writes into the input items it reads, so the stored row gets copies.
+        data["inputs"] = data.get("inputs", deepcopy(staged_draft.get("inputs", instance.inputs if instance else {})))
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -766,11 +773,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
-        secret_inputs = dict(instance.encrypted_inputs or {}) if instance else {}
+        secret_inputs = deepcopy(instance.encrypted_inputs or {}) if instance else {}
         if instance and (self.context.get("use_draft") or self.context.get("stages_draft")):
             # A draft test run and a later draft edit recover masked entries from the staged secret, so they
             # do not revert to the live one.
-            secret_inputs.update(instance.draft_encrypted_inputs or {})
+            secret_inputs.update(deepcopy(instance.draft_encrypted_inputs or {}))
         self.context["encrypted_inputs"] = secret_inputs
 
         template = None
@@ -1014,7 +1021,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         secrets = stored_secrets(instance.inputs, instance.inputs_schema, live_secrets)
         filled = filled_secret_keys(secrets)
         staged = self._staged_secrets(instance, live_secrets)
-        # A secret the draft added has no live value, but publish and a draft test run still send it.
         draft_filled = filled_secret_keys(
             {
                 key: entry
@@ -1030,13 +1036,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         declared = {schema["key"] for schema in inputs_schema if schema.get("secret")}
         was_declared = {schema.get("key") for schema in instance.inputs_schema or [] if schema.get("secret")}
         skipped = secrets.keys() | declared | was_declared
+        # Validating a mapping compiles its filters, so mappings the request leaves out are compared as stored.
+        sends_mappings = "mappings" in attrs
         stored = self._canonical_config(
-            instance.inputs_schema, {**(instance.inputs or {}), **secrets}, instance.mappings
+            instance.inputs_schema, {**(instance.inputs or {}), **secrets}, instance.mappings, sends_mappings
         )
         saved = self._canonical_config(
             attrs.get("inputs_schema", instance.inputs_schema),
             attrs.get("inputs", stored["inputs"]),
             attrs.get("mappings", instance.mappings),
+            sends_mappings,
         )
         before = guarded_content(instance.hog, stored["inputs"], stored["inputs_schema"], stored["mappings"], skipped)
         after = guarded_content(
@@ -1097,16 +1106,32 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 errors["mappings"] = MAPPING_SECRET_MESSAGE
             raise serializers.ValidationError(errors, code="secret_reentry_required")
 
-    def _canonical_config(self, inputs_schema: Any, inputs: Any, mappings: Any) -> dict[str, Any]:
+    def _canonical_config(
+        self, inputs_schema: Any, inputs: Any, mappings: Any, validate_mappings: bool
+    ) -> dict[str, Any]:
         """Inputs, schema and mappings as one full validation leaves them. The stored row and the request were
         validated at different times, partial or not, so comparing them raw counts that normalization, such as a
         dropped empty input or a filled-in default, as a change."""
         config: dict[str, Any] = {"inputs_schema": inputs_schema, "inputs": inputs, "mappings": mappings}
         # A part that no longer validates stays raw, so a save that changes nothing still asks for its secrets.
-        for part in ({"inputs_schema": inputs_schema, "inputs": inputs}, {"mappings": mappings}):
-            validated = CanonicalConfigSerializer(data=part, context={**self.context})
+        parts = [
+            {"inputs_schema": inputs_schema, "inputs": inputs},
+            *([{"mappings": mappings}] if validate_mappings else []),
+        ]
+        for part in parts:
+            # Validation writes into the input items it reads, which can be the stored row's own.
+            validated = CanonicalConfigSerializer(data=deepcopy(part), context={**self.context})
             if validated.is_valid():
                 config.update({key: validated.validated_data.get(key) for key in part})
+        # The worker evaluates an input with its own templating, not the schema's that validation copies onto it.
+        config["inputs"] = _with_templating_of(config["inputs"], inputs)
+        if validate_mappings and isinstance(config["mappings"], list) and isinstance(mappings, list):
+            config["mappings"] = [
+                {**mapping, "inputs": _with_templating_of(mapping.get("inputs"), raw.get("inputs"))}
+                if isinstance(mapping, dict) and isinstance(raw, dict)
+                else mapping
+                for mapping, raw in zip(config["mappings"], mappings)
+            ]
         return config
 
     def _staged_secrets(self, instance: HogFunction, live_secrets: dict) -> dict[str, bool]:
@@ -1900,7 +1925,12 @@ class HogFunctionViewSet(
         return bool(self._sent_content_fields())
 
     def _write_draft(
-        self, instance: HogFunction, locked: HogFunction, serializer: HogFunctionSerializer, validated_content: dict
+        self,
+        instance: HogFunction,
+        locked: HogFunction,
+        serializer: HogFunctionSerializer,
+        validated_content: dict,
+        validated_against: HogFunction,
     ) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
@@ -1918,7 +1948,11 @@ class HogFunctionViewSet(
             # A secret this edit did not send keeps its staged value, so the edit does not revert it to
             # the live one. Keys the draft no longer declares secret drop out entirely.
             supplied = supplied_input_keys(serializer.requested_inputs)
-            entered = entered_secret_input_keys(serializer.requested_inputs)
+            seen = {**snapshot_hog_function_content(validated_against), **(validated_against.draft or {})}
+            # A secret typed for a draft that another edit changed before this one took the lock was typed
+            # for content its editor never saw.
+            stale = _draft_guarded_content(seen, staged) != _draft_guarded_content(previous, staged)
+            entered = set() if stale else entered_secret_input_keys(serializer.requested_inputs)
             # Each secret this edit writes is marked with whether it was typed. A secret typed again unchanged
             # stores the same value, and a secret recovered from live can differ from live after a rotation, so
             # the value alone cannot tell publish which secrets someone entered.
@@ -1945,8 +1979,7 @@ class HogFunctionViewSet(
         if secret_changed or _draft_guarded_content(previous, draft_secrets) != _draft_guarded_content(
             draft, draft_secrets
         ):
-            # A secret entered by an earlier draft edit was entered for the code and secrets that edit saw, not for
-            # this one: the code can send one secret to an address another one holds.
+            # An earlier draft edit's entered secret was entered for the code and secrets that edit saw.
             draft_secrets = {
                 key: {**value, STAGED_SECRET_ENTERED: False}
                 if isinstance(value, dict) and key not in entered
@@ -2057,12 +2090,13 @@ class HogFunctionViewSet(
                 # committed in between. Metadata saves first — the full save would otherwise clobber
                 # the draft columns _write_draft is about to fill with the locked row's pre-draft
                 # values.
+                validated_against = serializer.instance
                 serializer.instance = locked
                 if remaining:
                     serializer.validated_data.clear()
                     serializer.validated_data.update({**remaining, "team": self.team})
                     serializer.save()
-                self._write_draft(locked, locked, serializer, validated_content)
+                self._write_draft(locked, locked, serializer, validated_content, validated_against)
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
