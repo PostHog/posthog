@@ -5,6 +5,7 @@ from weakref import WeakKeyDictionary
 from django.db import OperationalError, transaction
 from django.db.models import Model
 
+from psycopg.errors import LockNotAvailable
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.exceptions import Conflict
@@ -15,7 +16,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from posthog.api.file_system.deletion import DeletionContext, RestoreContext
+    from posthog.api.file_system.deletion import DeletionContext, FileChangeContext, RestoreContext
     from posthog.models import Team, User
 
 
@@ -31,7 +32,7 @@ class LinkedTemplate(Protocol):
 # before the first lock. The weak keys drop both caches with the request.
 _ACCESS_FIELDS = ("id", "team_id", "created_by_id")
 _access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
-_workflows_by_request: "WeakKeyDictionary[Any, dict[tuple[int, str], HogFlow]]" = WeakKeyDictionary()
+_workflows_by_request: "WeakKeyDictionary[Any, dict[tuple[int, str], HogFlow | None]]" = WeakKeyDictionary()
 
 
 def _access_control_for(request: Any | None, user: "User", template: LinkedTemplate) -> UserAccessControl:
@@ -47,12 +48,18 @@ def _access_control_for(request: Any | None, user: "User", template: LinkedTempl
 def prepare_linked_workflows(request: Any | None, team_id: int, templates: "QuerySet[Any]") -> None:
     if request is None:
         return
-    linked = HogFlow.objects.filter(
-        team_id=team_id,
-        pk__in=templates.filter(transactional_hog_flow_id__isnull=False).values("transactional_hog_flow_id"),
-    ).only(*_ACCESS_FIELDS)
     workflows = _workflows_by_request.setdefault(request, {})
-    for flow in linked:
+    linked_ids = [
+        linked_id
+        for linked_id in templates.filter(transactional_hog_flow_id__isnull=False).values_list(
+            "transactional_hog_flow_id", flat=True
+        )
+        if (team_id, str(linked_id)) not in workflows
+    ]
+    if not linked_ids:
+        return
+    workflows.update({(team_id, str(linked_id)): None for linked_id in linked_ids})
+    for flow in HogFlow.objects.filter(team_id=team_id, pk__in=linked_ids).only(*_ACCESS_FIELDS):
         workflows[(flow.team_id, str(flow.id))] = flow
 
 
@@ -63,7 +70,9 @@ def _linked_workflow(request: Any | None, template: LinkedTemplate) -> HogFlow |
     return HogFlow.objects.filter(team_id=key[0], pk=key[1]).only(*_ACCESS_FIELDS).first()
 
 
-def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> None:
+def require_linked_workflow_editor(
+    context: "DeletionContext | RestoreContext | FileChangeContext", template: LinkedTemplate
+) -> None:
     if template.transactional_hog_flow_id is None:
         return
     denied = "You need editor access to this template's transactional email workflow."
@@ -78,9 +87,11 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
         raise PermissionDenied(denied)
 
 
-def lock_template_for_delete(template: Model) -> None:
+def lock_templates_for_delete(templates: "QuerySet[Any]") -> list[Model]:
     try:
         with transaction.atomic():
-            template.refresh_from_db(from_queryset=type(template)._base_manager.select_for_update(nowait=True))
-    except OperationalError:
+            return list(templates.select_for_update(nowait=True))
+    except OperationalError as error:
+        if not isinstance(error.__cause__, LockNotAvailable):
+            raise
         raise Conflict("This template is being saved. Try again in a moment.", code="template_busy")

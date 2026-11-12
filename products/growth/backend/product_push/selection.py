@@ -42,7 +42,6 @@ from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECK
 BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.PRODUCT_ANALYTICS,
     ProductKey.WEB_ANALYTICS,
-    ProductKey.SELF_DRIVING,
     ProductKey.SESSION_REPLAY,
     ProductKey.POSTHOG_SLACK,
     ProductKey.ERROR_TRACKING,

@@ -120,6 +120,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
     metrics?: ReportMetricApi[]
+    /** Progress of the current Monitoring period, on list rows only. */
+    monitoring_summary?: SignalReportListApi['monitoring_summary']
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
