@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
@@ -15,7 +16,6 @@ import { hogFunctionsPublishCreate } from 'products/cdp/frontend/generated/api'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
 import { hogFunctionSecretReentryLogic } from './hogFunctionSecretReentryLogic'
-import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -57,10 +57,13 @@ const SECRET_SENDER: HogFunctionType = {
     inputs: {
         url: { value: 'https://hooks.example.com' },
         headers: { value: { 'Content-Type': 'application/json' } },
-        api_key: { value: undefined, secret: true },
+        api_key: { value: undefined, secret: true, templating: 'liquid' },
         secret_headers: { secret: true, value: { Authorization: '********' } },
     },
 }
+
+const MASKED_API_KEY = SECRET_SENDER.inputs!.api_key
+const MASKED_SECRET_HEADERS = SECRET_SENDER.inputs!.secret_headers
 
 const REFUSAL_DETAIL = 'Enter this secret again to save changes to the code, inputs or mappings.'
 
@@ -131,9 +134,73 @@ describe('hogFunctionSecretReentryLogic', () => {
         expect(mockApi.update).toHaveBeenCalledTimes(2)
         expect(mockApi.update.mock.calls[1][1].inputs).toMatchObject({
             url: { value: 'https://new.example.com' },
-            api_key: { value: 'new key' },
+            api_key: { value: 'new key', templating: 'liquid' },
             secret_headers: { value: { Authorization: 'Bearer new' } },
         })
+    })
+
+    it('keeps the entered secrets out of the form when the retried save fails', async () => {
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        mockApi.update
+            .mockRejectedValueOnce(refusal('api_key'))
+            .mockRejectedValueOnce(new ApiError('Server error', 500, undefined, { detail: 'Server error' }))
+
+        await expectLogic(logic, () => configLogic.actions.submitConfiguration()).toDispatchActions([
+            'openSecretReentry',
+        ])
+        logic.actions.setSecretValue('api_key', 'new key')
+        logic.actions.setSecretEntry('secret_headers', 'Authorization', 'Bearer new')
+        await expectLogic(configLogic, () => logic.actions.confirmSecretReentry()).toDispatchActions([
+            'upsertHogFunctionFailure',
+        ])
+
+        expect(mockApi.update.mock.calls[1][1].inputs).toMatchObject({ api_key: { value: 'new key' } })
+        expect(configLogic.values.configuration.inputs).toMatchObject({
+            url: { value: 'https://new.example.com' },
+            api_key: MASKED_API_KEY,
+            secret_headers: MASKED_SECRET_HEADERS,
+        })
+    })
+
+    it('does not ask for a stored secret that is blank', async () => {
+        configLogic.actions.setConfigurationValue('inputs_schema', [
+            ...SECRET_SENDER.inputs_schema!,
+            { key: 'spare_key', type: 'string', label: 'Spare key', secret: true, required: false },
+        ])
+        configLogic.actions.setConfigurationValue('inputs.spare_key', { secret: true, value: '' })
+        configLogic.actions.setConfigurationValue('inputs.secret_headers', { secret: true, value: {} })
+        mockApi.update.mockRejectedValueOnce(refusal('api_key'))
+
+        await expectLogic(logic, () => configLogic.actions.submitConfiguration()).toDispatchActions([
+            'openSecretReentry',
+        ])
+
+        expect(logic.values.prompt).toEqual({ secrets: [API_KEY_FIELD], source: 'save' })
+    })
+
+    it.each([
+        ['a refused input', refusal('api_key'), false],
+        [
+            'a refused mapping',
+            new ApiError('Bad request', 400, undefined, {
+                type: 'validation_error',
+                code: 'secret_reentry_required',
+                attr: 'mappings',
+                detail: 'A mapping still holds a saved secret.',
+            }),
+            true,
+        ],
+    ])('shows the generic save failure toast only when no dialog handles %s', async (_, error, toasted) => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        mockApi.update.mockRejectedValueOnce(error)
+
+        await expectLogic(configLogic, () => configLogic.actions.submitConfiguration()).toDispatchActions([
+            'upsertHogFunctionFailure',
+        ])
+
+        expect(toastSpy.mock.calls.some(([message]) => String(message).startsWith('Upsert hog function failed'))).toBe(
+            toasted
+        )
     })
 
     it('opens the dialog from the scene for a refused save, with no failure toast over it', async () => {
@@ -174,10 +241,10 @@ describe('hogFunctionSecretReentryLogic', () => {
         await expectLogic(configLogic).delay(10).toNotHaveDispatchedActions(['setConfigurationManualErrors'])
         expect(mockApi.update).toHaveBeenCalledTimes(1)
         expect(configLogic.values.configuration.inputs?.url).toEqual({ value: 'https://new.example.com' })
-        expect(configLogic.values.configuration.inputs?.api_key).toEqual({ secret: true })
+        expect(configLogic.values.configuration.inputs?.api_key).toEqual(MASKED_API_KEY)
     })
 
-    it('retries a refused test run with the entered secrets', async () => {
+    it('retries a refused test run with the entered secrets, without writing them into the form', async () => {
         const testLogic = await mountTestLogic()
         mockApi.createTestInvocation
             .mockRejectedValueOnce(refusal('api_key'))
@@ -191,14 +258,18 @@ describe('hogFunctionSecretReentryLogic', () => {
         logic.actions.setSecretValue('api_key', 'new key')
         logic.actions.setSecretEntry('secret_headers', 'Authorization', 'Bearer new')
         await expectLogic(testLogic, () => logic.actions.confirmSecretReentry()).toDispatchActions([
-            'submitTestInvocation',
+            'submitTestInvocationRequest',
             'setTestResult',
         ])
 
         expect(mockApi.createTestInvocation).toHaveBeenCalledTimes(2)
         expect(mockApi.createTestInvocation.mock.calls[1][1].configuration.inputs).toMatchObject({
-            api_key: { value: 'new key' },
+            api_key: { value: 'new key', templating: 'liquid' },
             secret_headers: { value: { Authorization: 'Bearer new' } },
+        })
+        expect(configLogic.values.configuration.inputs).toMatchObject({
+            api_key: MASKED_API_KEY,
+            secret_headers: MASKED_SECRET_HEADERS,
         })
     })
 
@@ -250,7 +321,7 @@ describe('hogFunctionSecretReentryLogic', () => {
             },
         })
         // The form holds the live config, so the secret entered for the draft never lands in it.
-        expect(configLogic.values.configuration.inputs?.api_key).toEqual({ secret: true })
+        expect(configLogic.values.configuration.inputs?.api_key).toEqual(MASKED_API_KEY)
     })
 
     // A form that shows an error does not submit, so the other field's error arrives while the request is in flight.
@@ -314,6 +385,17 @@ describe('hogFunctionSecretReentryLogic', () => {
             })
         }
     )
+
+    it("clears a secret's re-entry error once its input changes, after a refused test run", async () => {
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        storeSigningCertificate()
+        await expectLogic(logic, () => refuseTestRun('api_key')).toDispatchActions(['requireSecretReentry'])
+        expect(configLogic.values.configurationManualErrors.inputs?.signing_cert).toEqual(REFUSAL_DETAIL)
+
+        configLogic.actions.setConfigurationValue('inputs.signing_cert', { value: '{"key": "new"}' })
+
+        expect(configLogic.values.configurationManualErrors).toEqual(OTHER_FIELD_ERRORS)
+    })
 
     it.each([
         ['a refusal', refusal('api_key'), { key: 'api_key', detail: REFUSAL_DETAIL }],

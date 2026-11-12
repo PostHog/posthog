@@ -5,25 +5,26 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { MASKED_SECRET_VALUE, secretEntries } from 'lib/components/CyclotronJob/dictionarySecretRows'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 
 import type { CyclotronJobInputType, HogFunctionConfigurationType } from '~/types'
+
+import type {
+    HogFunctionPublishRequestApiInputs,
+    HogFunctionPublishSecretInputApiValue,
+} from 'products/cdp/frontend/generated/api.schemas'
 
 import {
     HogFunctionConfigurationLogicProps,
     hogFunctionConfigurationLogic,
     hogFunctionConfigurationLogicKey,
 } from './hogFunctionConfigurationLogic'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
-// Save and test send the form, so the entered secret goes into the form. Publish sends the staged draft,
-// which the form does not hold, so the entered secret goes with the publish request instead.
 export type SecretReentrySource = 'save' | 'test' | 'publish'
 
 export type SecretReentryConfiguration = Pick<Partial<HogFunctionConfigurationType>, 'inputs_schema' | 'inputs'>
 
-export type SecretReentryValue = string | Record<string, string>
-
-export type EnteredSecretInputs = Record<string, { value: SecretReentryValue }>
+export type EnteredSecretInputs = HogFunctionPublishRequestApiInputs
 
 export interface SecretReentryField {
     key: string
@@ -41,6 +42,23 @@ export interface SecretReentryPrompt {
 interface SecretReentryCache {
     onContinue?: (entered: EnteredSecretInputs) => void
     configuration?: SecretReentryConfiguration | null
+    markedInputKeys?: Set<string>
+}
+
+export function withEnteredSecrets<T extends SecretReentryConfiguration>(
+    configuration: T,
+    entered: EnteredSecretInputs | undefined
+): T {
+    if (!entered) {
+        return configuration
+    }
+    const inputs = { ...configuration.inputs }
+    for (const [key, { value }] of Object.entries(entered)) {
+        // A `secret` input means "keep the stored value", so the entered one drops the flag. The masked input
+        // carries the stored templating, so the entered value runs with it.
+        inputs[key] = { ...inputs[key], secret: false, value }
+    }
+    return { ...configuration, inputs }
 }
 
 function textEntries(input: CyclotronJobInputType | undefined): Record<string, string> {
@@ -49,6 +67,12 @@ function textEntries(input: CyclotronJobInputType | undefined): Record<string, s
             (entry): entry is [string, string] => typeof entry[1] === 'string'
         )
     )
+}
+
+// Like the backend, which needs no blank secret entered again, because it holds nothing the code could send.
+function isBlankSecret(input: CyclotronJobInputType | undefined): boolean {
+    const entries = secretEntries(input)
+    return input?.value === '' || (!!entries && Object.keys(entries).length === 0)
 }
 
 // The dialog types text, so it can ask for a secret stored as text or as a dictionary that lists its masked keys.
@@ -60,10 +84,10 @@ function storedSecrets(configuration: SecretReentryConfiguration): {
     const fields: SecretReentryField[] = []
     const unaskable: SecretReentryField[] = []
     for (const schema of configuration.inputs_schema ?? []) {
-        if (!schema.secret) {
+        const input = configuration.inputs?.[schema.key]
+        if (!schema.secret || isBlankSecret(input)) {
             continue
         }
-        const input = configuration.inputs?.[schema.key]
         const field = { key: schema.key, label: schema.label || schema.key, entryKeys: null }
         if (schema.type === 'dictionary') {
             const entries = textEntries(input)
@@ -83,6 +107,11 @@ function storedSecrets(configuration: SecretReentryConfiguration): {
     return { fields, unaskable }
 }
 
+function changedInputKey(name: FieldName): string | null {
+    const path = Array.isArray(name) ? name : String(name).split('.')
+    return path[0] === 'inputs' && path.length > 1 ? String(path[1]) : null
+}
+
 function unavailableMessage(label: string, source: SecretReentrySource): string {
     return source === 'publish'
         ? `The staged changes need ${label} entered again, which isn't possible here. Discard the draft and make the change in the form.`
@@ -98,7 +127,7 @@ function enteredValue(
     input: CyclotronJobInputType | undefined,
     secretValues: Record<string, string>,
     secretEntryValues: Record<string, Record<string, string>>
-): SecretReentryValue {
+): HogFunctionPublishSecretInputApiValue {
     return field.entryKeys ? { ...textEntries(input), ...secretEntryValues[field.key] } : secretValues[field.key]
 }
 
@@ -125,8 +154,8 @@ export interface hogFunctionSecretReentryLogicActions {
         name: FieldName
         value: any
     } // hogFunctionConfigurationLogic
-    submitConfiguration: () => {
-        value: boolean
+    submitConfigurationRequest: (configuration: HogFunctionConfigurationType) => {
+        configuration: HogFunctionConfigurationType
     } // hogFunctionConfigurationLogic
     upsertHogFunctionFailure: (
         error: string,
@@ -209,7 +238,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
             [
                 'setConfigurationValue',
                 'setConfigurationManualErrors',
-                'submitConfiguration',
+                'submitConfigurationRequest',
                 'upsertHogFunctionFailure',
             ],
         ],
@@ -289,8 +318,22 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
             upsertHogFunctionFailure: ({ errorObject }) => {
                 const refusal = parseSecretReentryRefusal(errorObject)
                 if (refusal) {
-                    actions.requireSecretReentry(refusal, 'save', () => actions.submitConfiguration())
+                    // The retry skips the form's own submit, which would send the form without the entered secrets.
+                    actions.requireSecretReentry(refusal, 'save', (entered) =>
+                        actions.submitConfigurationRequest(withEnteredSecrets(values.configuration, entered))
+                    )
                 }
+            },
+            setConfigurationValue: ({ name }) => {
+                // The form clears manual errors only after a failed save, and a refused test run is not one.
+                const key = changedInputKey(name)
+                const inputErrors = values.configurationManualErrors.inputs
+                if (!key || !cache.markedInputKeys?.has(key) || !inputErrors?.[key]) {
+                    return
+                }
+                cache.markedInputKeys.delete(key)
+                const { [key]: _cleared, ...otherInputErrors } = inputErrors
+                actions.setConfigurationManualErrors({ ...values.configurationManualErrors, inputs: otherInputErrors })
             },
             requireSecretReentry: ({ refusal, source, onContinue, configuration }) => {
                 const asked = configuration ?? values.configuration
@@ -304,6 +347,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
                     lemonToast.error(unavailableMessage(label, source))
                     if (marked.length && source !== 'publish') {
                         const manualErrors = values.configurationManualErrors
+                        cache.markedInputKeys = new Set(marked.map(({ key }) => key))
                         actions.setConfigurationManualErrors({
                             ...manualErrors,
                             inputs: {
@@ -337,16 +381,19 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
                     return
                 }
                 const configuration = cache.configuration ?? values.configuration
-                const entered: EnteredSecretInputs = {}
-                for (const field of prompt.secrets) {
-                    const input = configuration.inputs?.[field.key]
-                    const value = enteredValue(field, input, secretValues, secretEntryValues)
-                    entered[field.key] = { value }
-                    if (prompt.source !== 'publish') {
-                        // Save sends a `secret` input as "keep the stored value", so the entered one drops the flag.
-                        actions.setConfigurationValue(['inputs', field.key], { ...input, secret: false, value })
-                    }
-                }
+                const entered: EnteredSecretInputs = Object.fromEntries(
+                    prompt.secrets.map((field) => [
+                        field.key,
+                        {
+                            value: enteredValue(
+                                field,
+                                configuration.inputs?.[field.key],
+                                secretValues,
+                                secretEntryValues
+                            ),
+                        },
+                    ])
+                )
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('hog function secret reentry confirmed', trackingProperties(prompt))
                 const onContinue = cache.onContinue

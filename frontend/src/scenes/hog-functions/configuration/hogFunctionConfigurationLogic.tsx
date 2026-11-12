@@ -36,6 +36,7 @@ import { uuid } from 'lib/utils/dom'
 import { isEmptyObject } from 'lib/utils/guards'
 import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
@@ -101,7 +102,6 @@ import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
-import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string

@@ -18,6 +18,7 @@ import {
     stripTrailingSlashFromUrl,
     urlPatternOptions,
 } from 'lib/utils/kea-router'
+import { parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 import { identifierToHuman } from 'lib/utils/strings'
 
 /*
@@ -262,10 +263,11 @@ const SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     upsertHogFunction: 'scenes.pipeline.hogFunctionConfigurationLogic',
 }
 
+// A refused mapping has no dialog, so it keeps the generic toast.
 function isSelfHandledSecretReentry(error: any, actionKey: string, logicPath: string): boolean {
     return (
         error?.status === 400 &&
-        error?.code === 'secret_reentry_required' &&
+        !!parseSecretReentryRefusal(error) &&
         isOwnedByLogic(SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     )
 }
