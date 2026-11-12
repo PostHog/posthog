@@ -29,6 +29,9 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
  * Reads a rollup-built index of re-exports. Returns a map from each export name to the file that
  * defines it and the name it has in that file.
  */
+const INDEX_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*"(\.[^"]+)";?$/
+const INDEX_EXPORT = /^export\s*\{([^}]*)\}(?:\s*from\s*"(\.[^"]+)")?;?$/
+
 export function quillExportMap(indexSource, distDir) {
     const localBindings = new Map()
     const exports = new Map()
@@ -37,17 +40,30 @@ export function quillExportMap(indexSource, distDir) {
             .split(',')
             .map((part) => part.trim().split(/\s+as\s+/))
             .filter(([name]) => name)
-    for (const [, list, file] of indexSource.matchAll(/^import\s*\{([^}]*)\}\s*from\s*"(\.[^"]+)";?$/gm)) {
-        for (const [imported, local] of bindings(list)) {
-            localBindings.set(local ?? imported, { file: path.join(distDir, file), imported })
+    for (const line of indexSource.split('\n').map((text) => text.trim())) {
+        if (!line || line.startsWith('/*')) {
+            continue
         }
-    }
-    for (const [, list, file] of indexSource.matchAll(/^export\s*\{([^}]*)\}(?:\s*from\s*"(\.[^"]+)")?;?$/gm)) {
+        const importMatch = INDEX_IMPORT.exec(line)
+        if (importMatch) {
+            const [, list, file] = importMatch
+            for (const [imported, local] of bindings(list)) {
+                localBindings.set(local ?? imported, { file: path.join(distDir, file), imported })
+            }
+            continue
+        }
+        const exportMatch = INDEX_EXPORT.exec(line)
+        if (!exportMatch) {
+            // A name read from a half-understood index would silently stay on the index and ship with every primitive.
+            throw new Error(`quill-imports: cannot read this line of a quill index: ${line}`)
+        }
+        const [, list, file] = exportMatch
         for (const [name, exported] of bindings(list)) {
             const target = file ? { file: path.join(distDir, file), imported: name } : localBindings.get(name)
-            if (target) {
-                exports.set(exported ?? name, target)
+            if (!target) {
+                throw new Error(`quill-imports: ${name} is exported from a quill index but defined nowhere in it`)
             }
+            exports.set(exported ?? name, target)
         }
     }
     return exports
@@ -65,7 +81,8 @@ export function rewriteQuillImports(source, maps) {
     )
     let changed = false
     const contents = source.replace(namedImport, (statement, indent, typeOnly, list, _quote, specifier) => {
-        if (typeOnly) {
+        // A comment in the list would swallow the rest of the one-line statement we emit.
+        if (typeOnly || /\/[/*]/.test(list)) {
             return statement
         }
         const map = maps.get(specifier)
@@ -91,13 +108,13 @@ export function rewriteQuillImports(source, maps) {
         }
         changed = true
         const statements = [...byFile].map(
-            ([file, names]) => `import { ${names.join(', ')} } from ${JSON.stringify(file)}`
+            ([file, names]) => `import { ${names.join(', ')} } from ${JSON.stringify(file)};`
         )
         if (onIndex.length > 0) {
-            statements.push(`import { ${onIndex.join(', ')} } from '${specifier}'`)
+            statements.push(`import { ${onIndex.join(', ')} } from '${specifier}';`)
         }
         // The same number of lines as the statement it replaces, so the source map of the file stays right.
-        return `${indent}${statements.join('; ')}${'\n'.repeat(statement.split('\n').length - 1)}`
+        return `${indent}${statements.join(' ')}${'\n'.repeat(statement.split('\n').length - 1)}`
     })
     return changed ? contents : null
 }

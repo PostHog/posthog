@@ -69,7 +69,7 @@
         },
         "build": {
             "dependsOn": ["^build"],
-            "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
+            "inputs": ["src", "vite.config.ts", "Cargo.toml", "!**/*.pyc"],
             "outputs": ["dist", "index.node", ".turbo"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": [
