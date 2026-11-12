@@ -107,11 +107,7 @@ def suggestion_status(
     surface: WarehouseSuggestionSurface | None = None,
 ) -> SuggestionStatus:
     config = WarehouseSuggestionTeamConfig.objects.filter(team_id=team_id).first() or WarehouseSuggestionTeamConfig()
-    waiting = (
-        job.waiting_suggestions(team_id, actionable_waiting(team_id, user_access_control, surface, subject_kinds))
-        if surface is not None
-        else job.NOTHING_WAITING
-    )
+    waiting = job.waiting_suggestions(team_id, actionable_waiting(team_id, user_access_control, surface, subject_kinds))
     return SuggestionStatus(
         enabled=config.enabled,
         eligible=config.eligible,
@@ -128,7 +124,7 @@ def surface_more(
     team: "Team",
     user_access_control: "UserAccessControl",
     *,
-    surface: WarehouseSuggestionSurface,
+    surface: WarehouseSuggestionSurface | None,
     subject_kinds: SubjectKinds,
 ) -> SurfaceMoreResult:
     surfaced = job.surface_more(team, actionable_waiting(team.pk, user_access_control, surface, subject_kinds))
