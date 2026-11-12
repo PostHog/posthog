@@ -13,6 +13,7 @@ export enum PosthogJwtAudience {
     WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = 'posthog:workflows:send_transactional_email',
     WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL = 'posthog:workflows:manage_transactional_email',
     WORKFLOWS_RESUME_BATCH = 'posthog:workflows:resume_batch',
+    WORKFLOWS_SANDBOX_EMAIL_TEST = 'posthog:workflows:sandbox_email_test',
     CUSTOMER_TASKS_CREATE = 'posthog:customer-tasks:create',
     TASKS_CREATE = 'posthog:tasks:create',
     WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',

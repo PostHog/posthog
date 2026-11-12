@@ -249,7 +249,7 @@ const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
 // Recovery paths pass a workflow stub with only an id. A run that started before its template became
 // sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
 const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
-    if (invocation.state?.sensitive === true) {
+    if (invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true) {
         return true
     }
     if (!Array.isArray(invocation.hogFlow?.actions)) {

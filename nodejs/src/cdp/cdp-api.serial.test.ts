@@ -2755,23 +2755,86 @@ describe('CDP API', () => {
             })
         })
 
-        it.each([
-            ['a code send with rendered content', codeSend],
-            [
-                'a code send with html that has no text to derive',
-                { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
-            ],
-            ['a code send for a local template', { tracking: { captureEngagement: false } }],
-            [
-                'a code send with copies to addresses that use atext symbols',
-                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
-            ],
-        ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
-            const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+        describe('through the cyclotron queue', () => {
+            const queuedSends = async (flowId: string): Promise<unknown[]> => {
+                const { rows } = await cyclotron.query('SELECT state FROM cyclotron_jobs WHERE function_id = $1', [
+                    flowId,
+                ])
+                return rows.map((row) => parseJSON(row.state.toString('utf-8')).state.send)
+            }
 
-            expect(res.status).toEqual(202)
-            const [invocation] = mockQueueInvocations.mock.calls[0][0]
-            expect(invocation.state.send).toEqual(acceptedSend)
+            beforeEach(async () => {
+                await useRealQueue()
+            })
+
+            it.each([
+                ['a code send with rendered content', codeSend],
+                [
+                    'a code send with html that has no text to derive',
+                    { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
+                ],
+                ['a code send for a local template', { tracking: { captureEngagement: false } }],
+                [
+                    'a code send without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false } },
+                ],
+                [
+                    'a code send with click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: true } },
+                ],
+                [
+                    'a code send without click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: false } },
+                ],
+                ['a code send marked sensitive', { ...codeSend, sensitive: true }],
+                ['a code send marked not sensitive', { ...codeSend, sensitive: false }],
+                [
+                    'a code send with copies to addresses that use atext symbols',
+                    { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+                ],
+            ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(202)
+                expect(await queuedSends(hogFlow.id)).toEqual([acceptedSend])
+            })
+
+            it.each([
+                ['a field this version does not know', { ...codeSend, priority: 'high' }],
+                [
+                    'a content field this version does not know',
+                    { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+                ],
+                [
+                    'a sender field this version does not know',
+                    { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+                ],
+                [
+                    'a tracking field this version does not know',
+                    { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+                ],
+                [
+                    'click tracking without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
+                ],
+                ['a sensitivity that is not a boolean', { ...codeSend, sensitive: 'yes' }],
+                ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
+                ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
+                ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
+                ['no tracking choice', { content: codeSend.content }],
+                [
+                    'more than 10 cc addresses',
+                    { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+                ],
+            ])('refuses a code send with %s', async (_desc, acceptedSend) => {
+                const invalidBefore = await outcomeCount('invalid_request')
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
         })
 
         it('queues a template send without an accepted send, even when the request carries one', async () => {

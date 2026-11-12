@@ -70,6 +70,7 @@ export function makeOfflineDetailCells(itemIds: string[], versionIds: string[]):
             return scorerVersions.map((scorer) => ({
                 id: `55555555-5555-4555-8555-${String(itemIndex * 1000 + detailSummaries.findIndex((summary) => summary.scorer.id === scorer.id) + 1).padStart(12, '0')}`,
                 item_id: itemId,
+                input_result_ids: null,
                 scorer_version_id: scorer.id,
                 status:
                     itemIndex === 3 && scorer.id === detailSummaries[0].scorer.id
