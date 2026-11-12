@@ -23,9 +23,13 @@ class LogsConfig(AppConfig):
             register_source_alert_creator,
             register_source_describer,
         )
+        from products.alerts_platform.backend.facade.legacy_config_drift import (  # noqa: PLC0415
+            register_legacy_drift_source,
+        )
         from products.alerts_platform.backend.facade.source_access import register_source_alert_viewer  # noqa: PLC0415
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
         from products.logs.backend import activity_logging  # noqa: F401, PLC0415
+        from products.logs.backend.legacy_config_drift import logs_copy_expectations  # noqa: PLC0415
         from products.logs.backend.platform_alert_legacy_events import emit_logs_legacy_events  # noqa: PLC0415
         from products.logs.backend.platform_alert_wording import (  # noqa: PLC0415
             describe_logs_transition,
@@ -40,3 +44,4 @@ class LogsConfig(AppConfig):
         register_source_config(SourceKind.LOGS, load_logs_source_config)
         register_source_alert_creator(SourceKind.LOGS, logs_alert_creator)
         register_source_alert_viewer(SourceKind.LOGS, logs_alert_viewer)
+        register_legacy_drift_source(SourceKind.LOGS, logs_copy_expectations)
