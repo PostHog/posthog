@@ -2003,11 +2003,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     def _reads_text(self, expr: ast.Expr) -> bool:
         """Whether HogQL reads `expr` as text. A constant does not count: two constants compare without an error."""
-        return (
-            not isinstance(expr, ast.Constant)
-            and expr.type is not None
-            and isinstance(expr.type.resolve_constant_type(self.context), ast.StringType)
-        )
+        return not isinstance(expr, ast.Constant) and isinstance(self._operand_semantic_type(expr), ast.StringType)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         node = self._boolean_constant_as_text(node)
