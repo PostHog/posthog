@@ -943,7 +943,7 @@ Paymongo,api_key,,,,,paymongo
 Paystack,secret_api_key,,,,,paystack
 PeecAI,api_key project_id,,,start_date,,peec-ai
 Pendo,integration_key region,,,,,pendo
-Pennylane,,,,,,pennylane
+Pennylane,api_key,,,,,pennylane
 Perigon,api_key,,,,,perigon
 Perk,,,,,,perk
 PersistIq,api_key,,,,,persist-iq
