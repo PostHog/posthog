@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.alerts_platform.backend.facade.api import get_configuration, subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
@@ -205,6 +206,19 @@ class TestUpsertAlertTool(BaseTest):
         assert (updated.name, updated.check_interval_minutes) == ("Daily signups below 50", 60 * 24)
         assert updated.source_config["condition"]["threshold"]["bounds"]["lower"] == 50.0
         assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def can_view(_access_control: UserAccessControl, obj: object, *_args: object) -> bool:
+            return not isinstance(obj, Insight)
+
+        with mock.patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view):
+            hidden_content, hidden = await tool._arun_impl(
+                action=UpdateAlertAction(alert_id=str(alert_id), name="Renamed without insight access")
+            )
+
+        assert hidden.get("error"), hidden_content
+        still_named, _ = await sync_to_async(_stored)()
+        assert still_named is not None
+        assert still_named.name == "Daily signups below 50"
 
         refused_content, refused = await tool._arun_impl(
             action=UpdateAlertAction(alert_id=str(alert_id), upper_threshold=10.0)

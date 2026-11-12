@@ -658,6 +658,10 @@ class UpsertAlertTool(MaxTool):
                 return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
+            # Access control has no resource for an alert, so the check above passes everyone. The alert
+            # API gates every alert on viewer access to its insight, and so does this tool.
+            insight = await sync_to_async(lambda: alert.insight)()
+            await self.check_object_access(insight, "viewer", resource="insight", action="edit an alert on")
 
             if interval_msg := await self._validate_interval_entitlement(
                 action.calculation_interval,
@@ -672,7 +676,6 @@ class UpsertAlertTool(MaxTool):
                 alert = await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=str(alert.id)) or alert
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
-            insight = await sync_to_async(lambda: alert.insight)()
             alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
             return (
                 f"Alert '{alert.name}' updated successfully. [View alert]({alert_url}).",
