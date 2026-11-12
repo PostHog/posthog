@@ -741,7 +741,6 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
     return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
 
 
-# Error code clients key on to offer turning off "Free credits only" when a free-only scanner can't turn on.
 FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
 
 

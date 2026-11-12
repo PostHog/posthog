@@ -1322,7 +1322,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 **source_kwargs,
             )
         # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
-        # `disabled_reason` moves with `enabled`, so a plain toggle is not an edit.
         if any(field not in ("enabled", "disabled_reason") for field in changed_fields):
             report_user_action(
                 user,

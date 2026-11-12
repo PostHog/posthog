@@ -1269,7 +1269,6 @@ class TestAdvanceScannerWatermarkActivity:
         # Credits left, but not enough for one more observation.
         (20 * _OBSERVATION_CREDITS - 1, 19, False, True),
         (20 * _OBSERVATION_CREDITS, 20, False, True),
-        # No scanner limit, but free-only: under the free credits it runs while billing allows more.
         (None, 100, True, False),
     ],
 )
@@ -1307,7 +1306,6 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
 @pytest.mark.parametrize(
     "credit_limit, spent_observations, expect_turned_off",
     [
-        # The free credits bind, so waiting for them to reset would restart it on its own.
         (None, 200, True),
         (100 * _OBSERVATION_CREDITS, 120, False),
         (100 * _OBSERVATION_CREDITS, 200, True),

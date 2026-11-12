@@ -2464,7 +2464,6 @@ export const ScannerOverviewFreeCreditsUsed: StoryObj = {
     ],
 }
 
-// Once the sweep turns a free-only scanner off, the strip says why and offers the way to keep scanning.
 export const ScannerOverviewTurnedOffByFreeCredits: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [

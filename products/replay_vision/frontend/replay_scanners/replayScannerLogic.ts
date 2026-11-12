@@ -2671,7 +2671,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         actions.toggleEnabledFailure()
                         return
                     }
-                    // Turning on can take the scanner over, which changes its creator.
                     actions.setScannerValues(enabledFields(saved))
                     actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
