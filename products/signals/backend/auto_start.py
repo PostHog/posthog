@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -807,6 +808,7 @@ def _create_implementation_task_if_absent(
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+    custom_image_id = resolve_custom_image_id(team_id, SignalAgentRole.IMPLEMENTATION)
 
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
@@ -965,6 +967,7 @@ def _create_implementation_task_if_absent(
             stack_base_branch=stack_base_branch,
             github_access_repositories=access_repositories,
             service_tier=agent_runtime.service_tier,
+            extra_run_state={"custom_image_id": custom_image_id} if custom_image_id is not None else None,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
