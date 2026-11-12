@@ -1,0 +1,90 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cooldown_minutes": {
+            "description": "Minimum minutes between messages for the same failing table, source or destination. 0 sends every time.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "enabled": {
+            "description": "Whether the alert runs. Defaults to true.",
+            "type": "boolean"
+        },
+        "grouping": {
+            "description": "How the alert splits into groups, each of which fires and resolves on its own. Replaces the stored grouping as a whole.",
+            "properties": {
+                "keys": {
+                    "description": "One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination.",
+                    "items": {
+                        "enum": ["source_id", "schema_id", "destination_id"],
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "mode": {
+                    "const": "by_result_labels",
+                    "description": "Always by_result_labels for warehouse alerts.",
+                    "type": "string"
+                }
+            },
+            "required": ["mode", "keys"],
+            "type": "object"
+        },
+        "name": {
+            "description": "Name of the alert, such as \"Stripe sync failures\".",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "source_config": {
+            "additionalProperties": false,
+            "description": "What to watch. Send {} to watch every source (or destination) in the project.",
+            "properties": {
+                "destination_ids": {
+                    "description": "For source_kind=warehouse_destination: IDs of the destinations to watch, from external-data-destinations-list. Empty or omitted watches every destination in the project, including destinations added later.",
+                    "items": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                "email_project_members": {
+                    "description": "Also email the project members who get data pipeline error emails when the alert fires or resolves. Defaults to false.",
+                    "type": "boolean"
+                },
+                "group_by": {
+                    "description": "For source_kind=warehouse_source. source (default) keeps one alert group, and sends one message, per failing source. schema does the same per failing table. It must match grouping.keys: source_id for source, schema_id for schema.",
+                    "enum": ["schema", "source"],
+                    "type": "string"
+                },
+                "include_billing_limits": {
+                    "description": "For source_kind=warehouse_source. Also fire when a table stops syncing at the project's billing limit. Defaults to false.",
+                    "type": "boolean"
+                },
+                "source_ids": {
+                    "description": "For source_kind=warehouse_source: IDs of the sources to watch, from external-data-sources-list. Empty or omitted watches every source in the project, including sources added later.",
+                    "items": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "source_kind": {
+            "description": "What the alert watches. warehouse_source alerts when a source or one of its tables fails to sync. warehouse_destination alerts when a destination that sources sync to fails or is paused.",
+            "enum": ["warehouse_source", "warehouse_destination"],
+            "type": "string"
+        }
+    },
+    "required": ["source_kind", "source_config", "grouping"],
+    "type": "object"
+}
