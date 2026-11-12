@@ -5,8 +5,8 @@ plain string for the API, MCP, and scouts. The web renderer turns both tokens in
 
 Each mentioned person, and each valid member of a mentioned role, gets the mention on every channel
 that is set up for them: in-app, email, mobile push, and Slack. Recipients resolve on a worker at
-send time, so a person who lost Inbox access between the write and the send gets nothing. Each
-channel is best effort, so one failed channel does not stop the others.
+send time, so a person who lost project or Inbox access between the write and the send gets nothing.
+Each channel is best effort, so one failed channel does not stop the others.
 """
 
 from __future__ import annotations
@@ -21,14 +21,17 @@ from django.db import transaction
 import structlog
 import posthoganalytics
 from celery import shared_task
+from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import groups
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Team, User
 from posthog.models.scoping import with_team_scope
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.ph_client import ph_scoped_capture
 from posthog.tasks.email import NotificationSetting, get_members_to_notify
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.access_control.backend.facade.api import organization_role_names, valid_role_member_user_ids
 from products.notifications.backend.facade.api import (
@@ -38,25 +41,35 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import parse_artefact_content
+from products.signals.backend.artefact_schemas import NoteArtefact, parse_artefact_content
 from products.signals.backend.inbox_push_notifications import notify_report_note_mention
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url, report_path
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
-from products.signals.backend.slack_inbox_notifications import deliver_report_note_mention_to_slack
+from products.signals.backend.slack_inbox_notifications import (
+    NoteMentionSlackResult,
+    deliver_report_note_mention_to_slack,
+)
 
 logger = structlog.get_logger(__name__)
 
 FEATURE_FLAG_KEY = "signals-report-note-mentions"
 # A role mention reaches every member of the role, so this caps how many people one note can ping.
 MAX_MENTION_RECIPIENTS = 50
+# Bounds the per-person access checks for a large role, most of whose members may lack Inbox access.
+MAX_MENTION_CANDIDATES = 4 * MAX_MENTION_RECIPIENTS
+# Each recipient costs one token, so one author can ping two full notes at once and about 300 people an hour.
+MENTION_SEND_BUDGET = Budget(burst=2 * MAX_MENTION_RECIPIENTS, per_hour=300)
+SLACK_RETRY_DELAY_SECONDS = 60
+MAX_SLACK_ATTEMPTS = 3
 _EXCERPT_LIMIT = 280
 # NotificationEvent.title is a varchar(255).
 _TITLE_LIMIT = 255
 
 # A token counts only at the start of the text or after whitespace, the same rule as the web renderer.
-_MEMBER_TOKEN = re.compile(r"(?<!\S)@member:(\d+)")
+# A user id has at most 18 digits, so a longer run of digits is plain text, not an id to convert.
+_MEMBER_TOKEN = re.compile(r"(?<!\S)@member:(\d{1,18})(?!\d)")
 _ROLE_TOKEN = re.compile(r"(?<!\S)@role:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
 
 _NOTE_ARTEFACT_TYPES = (SignalReportArtefact.ArtefactType.NOTE, SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT)
@@ -73,6 +86,9 @@ class NoteMentions:
 
     def added_since(self, previous: NoteMentions) -> NoteMentions:
         return NoteMentions(user_ids=self.user_ids - previous.user_ids, role_ids=self.role_ids - previous.role_ids)
+
+    def kept_in(self, current: NoteMentions) -> NoteMentions:
+        return NoteMentions(user_ids=self.user_ids & current.user_ids, role_ids=self.role_ids & current.role_ids)
 
 
 @frozen
@@ -128,8 +144,10 @@ def resolve_note_mention_recipients(
 ) -> list[MentionRecipient]:
     """The people to notify for `mentions`, in a stable order and capped at `MAX_MENTION_RECIPIENTS`.
 
-    A direct mention comes before a role mention of the same person. The author, people outside the
-    report's organization, and people without Inbox access are left out.
+    A direct mention comes before a role mention of the same person. The author, people who may not
+    open the project, and people without Inbox access are left out. `may_read_reports` checks only
+    the Inbox resource, so project access is a separate filter: on a private project an organization
+    member without access must not get the report's title or the note.
     """
     candidates: dict[int, str | None] = dict.fromkeys(sorted(mentions.user_ids))
     for role_id in sorted(role_names, key=str):
@@ -140,34 +158,44 @@ def resolve_note_mention_recipients(
     if not candidates:
         return []
 
-    member_ids = set(
-        OrganizationMembership.objects.filter(
-            organization_id=team.organization_id, user_id__in=candidates, user__is_active=True
-        ).values_list("user_id", flat=True)
-    )
-    users_by_id = User.objects.in_bulk([user_id for user_id in candidates if user_id in member_ids])
+    users_by_id = team.all_users_with_access().filter(is_active=True).in_bulk(list(candidates))
     recipients: list[MentionRecipient] = []
+    examined = 0
     for user_id, role_name in candidates.items():
         user = users_by_id.get(user_id)
-        if user is None or not may_read_reports(user=user, team=team):
+        if user is None:
             continue
-        recipients.append(MentionRecipient(user=user, role_name=role_name))
-        if len(recipients) >= MAX_MENTION_RECIPIENTS:
+        examined += 1
+        if may_read_reports(user=user, team=team):
+            recipients.append(MentionRecipient(user=user, role_name=role_name))
+        if len(recipients) >= MAX_MENTION_RECIPIENTS or examined >= MAX_MENTION_CANDIDATES:
             break
     return recipients
 
 
+def request_mention_author_id(request: Request, attribution: ArtefactAttribution) -> int | None:
+    """The person whose note mentions a write may send, or None when no person wrote it.
+
+    Attribution comes from request headers, which a caller chooses. A task-bound sandbox token is
+    an agent whatever headers it sends, so the credential decides as well.
+    """
+    if is_sandbox_oauth_request(request) or getattr(get_oauth_access_token(request), "sandbox_task_id", None):
+        return None
+    if attribution.kind != "user":
+        return None
+    return attribution.user_id
+
+
 def schedule_note_mention_notifications(
-    *, team_id: int, artefact_id: str, attribution: ArtefactAttribution, mentions: NoteMentions
+    *, team_id: int, artefact_id: str, author_id: int | None, mentions: NoteMentions
 ) -> None:
     """Queue the mention notifications for a note after the write commits.
 
-    Only a person can ping people. A note from an agent or a task never notifies, so an automated
-    writer cannot fan out to the organization.
+    Only a person can ping people. `author_id` is None for a note from an agent or a task, which
+    never notifies, so an automated writer cannot fan out to the organization.
     """
-    if not mentions or attribution.kind != "user" or attribution.user_id is None:
+    if not mentions or author_id is None:
         return
-    author_id = attribution.user_id
     user_ids = sorted(mentions.user_ids)
     role_ids = sorted(str(role_id) for role_id in mentions.role_ids)
 
@@ -208,13 +236,86 @@ def note_text(artefact_type: str, content: str) -> str | None:
     return note if isinstance(note, str) else None
 
 
+def _mentionable_note_text(artefact: SignalReportArtefact) -> str | None:
+    """The note's text, or None when the note must not notify anyone.
+
+    A monitoring assessment note carries `analytics_query_context`. The reports API shows its text
+    only to the assessment's acting user, and the author never notifies themself, so no recipient
+    may read it.
+    """
+    try:
+        parsed = parse_artefact_content(artefact.type, artefact.content)
+    except Exception:
+        return None
+    if isinstance(parsed, NoteArtefact) and parsed.analytics_query_context is not None:
+        return None
+    note = getattr(parsed, "note", None)
+    return note if isinstance(note, str) else None
+
+
 @frozen
 class _MentionMessage:
     report: SignalReport
     author_name: str
     text: str
-    # Changes when the note text changes, so an edit that re-adds a person is a new delivery.
+    # One value per version of the note, so a mention re-added by a later edit is a new delivery.
     digest: str
+
+
+@frozen
+class _PreparedMentions:
+    message: _MentionMessage
+    recipients: list[MentionRecipient]
+
+
+def _prepare_note_mentions(
+    *, team_id: int, artefact_id: str, author_id: int, mentions: NoteMentions
+) -> _PreparedMentions | None:
+    artefact = (
+        SignalReportArtefact.objects.filter(team_id=team_id, id=artefact_id, type__in=_NOTE_ARTEFACT_TYPES)
+        .select_related("report", "report__team", "report__team__organization")
+        .first()
+    )
+    if artefact is None:
+        return None
+    report = artefact.report
+    team = report.team
+    if report.status in _HIDDEN_STATUSES or report_is_hidden_from_inbox(team_id, str(report.id)):
+        return None
+    text = _mentionable_note_text(artefact)
+    author = User.objects.filter(id=author_id).first()
+    if text is None or author is None or not _mentions_enabled(team):
+        return None
+
+    # The queue can run after a later edit, so only mentions the note still makes are sent.
+    current_mentions = parse_note_mentions(text)
+    mentions = mentions.kept_in(current_mentions)
+    if not mentions:
+        return None
+    role_names = organization_role_names(organization_id=team.organization_id, role_ids=mentions.role_ids)
+    recipients = resolve_note_mention_recipients(
+        team=team, author_id=author_id, mentions=mentions, role_names=role_names
+    )
+    if not recipients:
+        return None
+
+    # Names come from every token in the note, not only the new ones, so an edit renders whole.
+    # Only members of this organization get a name, so a token cannot reveal who an outside user id is.
+    names_by_user_id = {
+        user.id: display_name(user)
+        for user in User.objects.filter(
+            id__in=current_mentions.user_ids, organization_membership__organization_id=team.organization_id
+        )
+    }
+    names_by_role_id = organization_role_names(organization_id=team.organization_id, role_ids=current_mentions.role_ids)
+    version = artefact.updated_at or artefact.created_at
+    message = _MentionMessage(
+        report=report,
+        author_name=display_name(author),
+        text=excerpt(render_note_text(text, names_by_user_id=names_by_user_id, names_by_role_id=names_by_role_id)),
+        digest=hashlib.sha256(version.isoformat().encode()).hexdigest()[:16],
+    )
+    return _PreparedMentions(message=message, recipients=recipients)
 
 
 def _send_in_app(message: _MentionMessage, recipients: Collection[MentionRecipient], artefact_id: str) -> int:
@@ -246,17 +347,16 @@ def _send_email(message: _MentionMessage, recipients: Collection[MentionRecipien
         return 0
     report = message.report
     try:
-        recipient_ids = {recipient.user.id for recipient in recipients}
         # Honors each person's "discussions mentioned" email setting and project access.
-        memberships = [
-            membership
-            for membership in get_members_to_notify(report.team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
-            if membership.user_id in recipient_ids
-        ]
+        memberships = get_members_to_notify(
+            report.team,
+            NotificationSetting.DISCUSSIONS_MENTIONED.value,
+            user_ids=[recipient.user.id for recipient in recipients],
+        )
         if not memberships:
             return 0
         email = EmailMessage(
-            # One campaign per note version, so a retry or a re-add after an edit does not send twice.
+            # One campaign per note version, so a retry does not send twice and a later edit can.
             campaign_key=f"signals_report_note_mention_{artefact_id}_{message.digest}",
             subject=f"{message.author_name} mentioned you on a report in {report.team.name}",
             template_name="report_note_mentioned",
@@ -293,7 +393,7 @@ def _send_push(message: _MentionMessage, recipients: Collection[MentionRecipient
         return 0
 
 
-def _send_slack(message: _MentionMessage, recipients: Collection[MentionRecipient]) -> int:
+def _send_slack(message: _MentionMessage, recipients: Collection[MentionRecipient]) -> NoteMentionSlackResult:
     try:
         return deliver_report_note_mention_to_slack(
             message.report,
@@ -303,10 +403,34 @@ def _send_slack(message: _MentionMessage, recipients: Collection[MentionRecipien
         )
     except Exception:
         logger.exception("signals.report_note_mentions.slack_failed", report_id=str(message.report.id))
-        return 0
+        return NoteMentionSlackResult(sent=0, deferred_user_ids=())
 
 
-def _capture_notified(report: SignalReport, *, recipient_count: int, sent: dict[str, int]) -> None:
+def _schedule_slack_retry(
+    *, team_id: int, artefact_id: str, author_id: int, mentions: NoteMentions, user_ids: Collection[int], attempt: int
+) -> None:
+    if not user_ids or attempt > MAX_SLACK_ATTEMPTS:
+        return
+    try:
+        send_report_note_mention_slack.apply_async(
+            kwargs={
+                "team_id": team_id,
+                "artefact_id": artefact_id,
+                "author_id": author_id,
+                "user_ids": sorted(mentions.user_ids),
+                "role_ids": sorted(str(role_id) for role_id in mentions.role_ids),
+                "only_user_ids": sorted(user_ids),
+                "attempt": attempt,
+            },
+            countdown=SLACK_RETRY_DELAY_SECONDS,
+        )
+    except Exception:
+        logger.exception("signals.report_note_mentions.slack_retry_enqueue_failed", artefact_id=artefact_id)
+
+
+def _capture_notified(
+    report: SignalReport, *, recipient_count: int, sent: dict[str, int], throttled: bool = False
+) -> None:
     try:
         team = report.team
         with ph_scoped_capture() as capture:
@@ -317,6 +441,7 @@ def _capture_notified(report: SignalReport, *, recipient_count: int, sent: dict[
                     "team_id": report.team_id,
                     "report_id": str(report.id),
                     "recipient_count": recipient_count,
+                    "throttled": throttled,
                     **{f"{channel}_sent": count for channel, count in sent.items()},
                 },
                 groups=groups(team.organization, team),
@@ -325,71 +450,103 @@ def _capture_notified(report: SignalReport, *, recipient_count: int, sent: dict[
         logger.exception("signals.report_note_mentions.capture_failed", report_id=str(report.id))
 
 
+def _within_send_budget(*, team_id: int, author_id: int, recipient_count: int) -> bool:
+    decision = consume(f"signals_note_mentions:{team_id}:{author_id}", MENTION_SEND_BUDGET, cost=recipient_count)
+    # Fail open when Redis cannot answer: the recipient cap still bounds a single note.
+    return not isinstance(decision, BucketDecision) or decision.allowed
+
+
 def deliver_note_mentions(
     *, team_id: int, artefact_id: str, author_id: int, mentions: NoteMentions
 ) -> list[MentionRecipient]:
-    """Send one note's mentions on every channel. Returns the people it resolved as recipients."""
-    artefact = (
-        SignalReportArtefact.objects.filter(team_id=team_id, id=artefact_id, type__in=_NOTE_ARTEFACT_TYPES)
-        .select_related("report", "report__team", "report__team__organization")
-        .first()
-    )
-    if artefact is None:
+    """Send one note's mentions on every channel. Returns the people it notified."""
+    prepared = _prepare_note_mentions(team_id=team_id, artefact_id=artefact_id, author_id=author_id, mentions=mentions)
+    if prepared is None:
         return []
-    report = artefact.report
-    team = report.team
-    if report.status in _HIDDEN_STATUSES or report_is_hidden_from_inbox(team_id, str(report.id)):
+    message, recipients = prepared.message, prepared.recipients
+    if not _within_send_budget(team_id=team_id, author_id=author_id, recipient_count=len(recipients)):
+        logger.warning("signals.report_note_mentions.throttled", team_id=team_id, artefact_id=artefact_id)
+        _capture_notified(message.report, recipient_count=len(recipients), sent={}, throttled=True)
         return []
-    text = note_text(artefact.type, artefact.content)
-    author = User.objects.filter(id=author_id).first()
-    if text is None or author is None or not _mentions_enabled(team):
-        return []
-
-    role_names = organization_role_names(organization_id=team.organization_id, role_ids=mentions.role_ids)
-    recipients = resolve_note_mention_recipients(
-        team=team, author_id=author_id, mentions=mentions, role_names=role_names
-    )
-    if not recipients:
-        return []
-
-    # Names come from every token in the note, not only the new ones, so an edit renders whole.
-    all_mentions = parse_note_mentions(text)
-    # Only members of this organization get a name, so a token cannot reveal who an outside user id is.
-    names_by_user_id = {
-        user.id: display_name(user)
-        for user in User.objects.filter(
-            id__in=all_mentions.user_ids, organization_membership__organization_id=team.organization_id
-        )
-    }
-    names_by_role_id = organization_role_names(organization_id=team.organization_id, role_ids=all_mentions.role_ids)
-    message = _MentionMessage(
-        report=report,
-        author_name=display_name(author),
-        text=excerpt(render_note_text(text, names_by_user_id=names_by_user_id, names_by_role_id=names_by_role_id)),
-        digest=hashlib.sha256(text.encode()).hexdigest()[:16],
-    )
+    slack = _send_slack(message, recipients)
     sent = {
         "in_app": _send_in_app(message, recipients, artefact_id),
         "email": _send_email(message, recipients, artefact_id),
         "push": _send_push(message, recipients, artefact_id),
-        "slack": _send_slack(message, recipients),
+        "slack": slack.sent,
+        "slack_deferred": len(slack.deferred_user_ids),
     }
-    _capture_notified(report, recipient_count=len(recipients), sent=sent)
+    _schedule_slack_retry(
+        team_id=team_id,
+        artefact_id=artefact_id,
+        author_id=author_id,
+        mentions=mentions,
+        user_ids=slack.deferred_user_ids,
+        attempt=1,
+    )
+    _capture_notified(message.report, recipient_count=len(recipients), sent=sent)
     return recipients
 
 
+def retry_note_mention_slack(
+    *,
+    team_id: int,
+    artefact_id: str,
+    author_id: int,
+    mentions: NoteMentions,
+    only_user_ids: Collection[int],
+    attempt: int,
+) -> int:
+    """Send the Slack messages a lookup budget deferred. The send budget was already charged."""
+    prepared = _prepare_note_mentions(team_id=team_id, artefact_id=artefact_id, author_id=author_id, mentions=mentions)
+    if prepared is None:
+        return 0
+    wanted = set(only_user_ids)
+    recipients = [recipient for recipient in prepared.recipients if recipient.user.id in wanted]
+    slack = _send_slack(prepared.message, recipients)
+    _schedule_slack_retry(
+        team_id=team_id,
+        artefact_id=artefact_id,
+        author_id=author_id,
+        mentions=mentions,
+        user_ids=slack.deferred_user_ids,
+        attempt=attempt + 1,
+    )
+    return slack.sent
+
+
+def _mentions_from_ids(user_ids: list[int], role_ids: list[str]) -> NoteMentions:
+    return NoteMentions(user_ids=frozenset(user_ids), role_ids=frozenset(uuid.UUID(role_id) for role_id in role_ids))
+
+
 # No automatic retry: email, push, and Slack have no shared idempotency key, so a retry could ping
-# the same person twice.
+# the same person twice. Slack people deferred by the lookup budget get their own task below.
 @shared_task(ignore_result=True)
 @with_team_scope()
 def send_report_note_mention_notifications(
     team_id: int, artefact_id: str, author_id: int, user_ids: list[int], role_ids: list[str]
 ) -> None:
     deliver_note_mentions(
+        team_id=team_id, artefact_id=artefact_id, author_id=author_id, mentions=_mentions_from_ids(user_ids, role_ids)
+    )
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def send_report_note_mention_slack(
+    team_id: int,
+    artefact_id: str,
+    author_id: int,
+    user_ids: list[int],
+    role_ids: list[str],
+    only_user_ids: list[int],
+    attempt: int,
+) -> None:
+    retry_note_mention_slack(
         team_id=team_id,
         artefact_id=artefact_id,
         author_id=author_id,
-        mentions=NoteMentions(
-            user_ids=frozenset(user_ids), role_ids=frozenset(uuid.UUID(role_id) for role_id in role_ids)
-        ),
+        mentions=_mentions_from_ids(user_ids, role_ids),
+        only_user_ids=only_user_ids,
+        attempt=attempt,
     )

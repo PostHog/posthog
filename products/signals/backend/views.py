@@ -241,6 +241,7 @@ from products.signals.backend.report_monitoring_summary import ReportMonitoringS
 from products.signals.backend.report_note_mentions import (
     note_text,
     parse_note_mentions,
+    request_mention_author_id,
     schedule_note_mention_notifications,
 )
 from products.signals.backend.report_plan import report_plan
@@ -7243,7 +7244,7 @@ class SignalReportArtefactViewSet(
             schedule_note_mention_notifications(
                 team_id=self.team.id,
                 artefact_id=str(artefact.id),
-                attribution=attribution,
+                author_id=request_mention_author_id(request, attribution),
                 mentions=parse_note_mentions(parsed_content.note),
             )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
@@ -7335,7 +7336,7 @@ class SignalReportArtefactViewSet(
             schedule_note_mention_notifications(
                 team_id=self.team.id,
                 artefact_id=str(artefact.id),
-                attribution=resolve_request_attribution(request, self.team.id),
+                author_id=request_mention_author_id(request, resolve_request_attribution(request, self.team.id)),
                 mentions=parse_note_mentions(parsed_content.note).added_since(
                     parse_note_mentions(note_text(artefact.type, previous_content) or "")
                 ),

@@ -1,16 +1,19 @@
 import json
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -2383,10 +2386,37 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert artefact.created_by_id is None
         assert response.json()["task_id"] == str(task.id)
 
-    @parameterized.expand([("person", False, [[5]]), ("task", True, [])])
-    def test_post_note_pings_mentions_only_for_a_person(self, _name, with_task_header, expected_user_ids):
+    def _sandbox_token_header(self) -> dict[str, str]:
+        application = OAuthApplication.objects.create(
+            name="Sandbox app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_sandbox_note_mention_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="inbox:write task:write",
+            sandbox_task_id=self._create_task().id,
+        )
+        return {"Authorization": f"Bearer {token.token}"}
+
+    @parameterized.expand(
+        [("person", "none", [[5]]), ("task_header", "task_header", []), ("sandbox_token", "sandbox_token", [])]
+    )
+    def test_post_note_pings_mentions_only_for_a_person(self, _name, credential, expected_user_ids):
         report = self._create_report()
-        headers = {"X-PostHog-Task-Id": str(self._create_task().id)} if with_task_header else {}
+        headers: dict[str, str] = {}
+        if credential == "task_header":
+            headers = {"X-PostHog-Task-Id": str(self._create_task().id)}
+        elif credential == "sandbox_token":
+            self.client.logout()
+            headers = self._sandbox_token_header()
         with (
             patch(
                 "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"

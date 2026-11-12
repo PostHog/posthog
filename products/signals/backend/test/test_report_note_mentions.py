@@ -6,14 +6,23 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import serializers
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.integration import Integration
+from posthog.token_bucket import Budget, consume
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_note_mentions import (
     NoteMentions,
@@ -21,6 +30,7 @@ from products.signals.backend.report_note_mentions import (
     notification_title,
     parse_note_mentions,
     render_note_text,
+    retry_note_mention_slack,
 )
 
 ROLE_ID = uuid.UUID("0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d")
@@ -35,6 +45,7 @@ class TestNoteMentionText(SimpleTestCase):
             ("glued_to_a_word", "foo@member:12 and x@role:" + str(ROLE_ID), set(), set()),
             ("email_address", "write to dylan@example.com", set(), set()),
             ("role_with_a_number_id", "@role:12", set(), set()),
+            ("member_id_too_long_to_convert", "@member:" + "9" * 4301, set(), set()),
         ]
     )
     def test_parse_note_mentions(self, _name: str, text: str, user_ids: set[int], role_ids: set[uuid.UUID]) -> None:
@@ -81,24 +92,36 @@ class TestDeliverNoteMentions(BaseTest):
         for p in patches.values():
             self.addCleanup(p.stop)
 
-    def _note(self, text: str) -> SignalReportArtefact:
+    def _note(self, text: str, **content: object) -> SignalReportArtefact:
         return SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(self.report.id),
-            content=NoteArtefact(note=text),
+            content=NoteArtefact(note=text, **content),
             attribution=ArtefactAttribution.from_user(self.user.id),
         )
 
-    def _deliver(self, text: str) -> list[int]:
-        artefact = self._note(text)
+    def _deliver_artefact(self, artefact: SignalReportArtefact, mentions: NoteMentions) -> list[int]:
         with self.captureOnCommitCallbacks(execute=True):
             recipients = deliver_note_mentions(
-                team_id=self.team.id,
-                artefact_id=str(artefact.id),
-                author_id=self.user.id,
-                mentions=parse_note_mentions(text),
+                team_id=self.team.id, artefact_id=str(artefact.id), author_id=self.user.id, mentions=mentions
             )
         return [recipient.user.id for recipient in recipients]
+
+    def _deliver(self, text: str) -> list[int]:
+        return self._deliver_artefact(self._note(text), parse_note_mentions(text))
+
+    def _inbox_slack_workspace(self) -> Integration:
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T123", config={}, sensitive_config={"access_token": "x"}
+        )
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "default_slack_notification_integration_id": integration.id,
+                "default_slack_notification_channel": "C0INBOX|#inbox",
+            },
+        )
+        return integration
 
     def test_notifies_mentioned_people_and_role_members_on_every_channel(self) -> None:
         integration = Integration.objects.create(
@@ -129,14 +152,35 @@ class TestDeliverNoteMentions(BaseTest):
         assert [call.kwargs["channel"] for call in slack_posts] == ["U0DYLAN"]
         assert "mentioned you on" in slack_posts[0].kwargs["blocks"][0]["text"]["text"]
 
-    def test_leaves_out_people_without_inbox_access(self) -> None:
+    @parameterized.expand([("no_inbox_access",), ("no_access_to_a_private_project",)])
+    def test_leaves_out_people_who_may_not_read_the_report(self, case: str) -> None:
         def readable(*, user: User, team: object) -> bool:
             return user.id != self.mentioned.id and may_read_reports(user=user, team=team)  # type: ignore[arg-type]
 
-        with patch("products.signals.backend.report_note_mentions.may_read_reports", side_effect=readable):
-            recipient_ids = self._deliver(f"@member:{self.mentioned.id} @member:{self.role_member.id}")
+        text = f"@member:{self.mentioned.id} @member:{self.role_member.id}"
+        if case == "no_inbox_access":
+            with patch("products.signals.backend.report_note_mentions.may_read_reports", side_effect=readable):
+                recipient_ids = self._deliver(text)
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+            membership = self.role_member.organization_memberships.get(organization=self.organization)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
+            )
+            recipient_ids = self._deliver(text)
 
         assert recipient_ids == [self.role_member.id]
+        self.mocks["slack"].return_value.client.chat_postMessage.assert_not_called()
 
     def test_a_failed_channel_does_not_stop_the_others(self) -> None:
         self.mocks["in_app"].side_effect = RuntimeError("notifications down")
@@ -146,18 +190,102 @@ class TestDeliverNoteMentions(BaseTest):
         assert [call.args[0] for call in self.mocks["push"].call_args_list] == [self.mentioned.id]
         self.mocks["email"].return_value.send.assert_called_once()
 
-    @parameterized.expand([("flag_off",), ("deleted_report",), ("only_the_author",)])
+    @parameterized.expand(
+        [
+            ("flag_off",),
+            ("deleted_report",),
+            ("only_the_author",),
+            ("protected_assessment_note",),
+            ("mention_removed_before_the_send",),
+            ("author_out_of_send_budget",),
+        ]
+    )
     def test_sends_nothing(self, case: str) -> None:
         text = f"@member:{self.mentioned.id}"
+        artefact: SignalReportArtefact | None = None
         if case == "flag_off":
             self.mocks["flag"].return_value = False
         elif case == "deleted_report":
             self.report.status = SignalReport.Status.DELETED
             self.report.save()
-        else:
+        elif case == "only_the_author":
             text = f"@member:{self.user.id}"
+        elif case == "protected_assessment_note":
+            artefact = self._note(text, analytics_query_context=[], restricted_to_user_id=self.user.id)
+        elif case == "mention_removed_before_the_send":
+            artefact = self._note("Never mind, this is handled.")
+        else:
+            budget = Budget(burst=1, per_hour=1)
+            consume(f"signals_note_mentions:{self.team.id}:{self.user.id}", budget)
+            self.enterContext(patch("products.signals.backend.report_note_mentions.MENTION_SEND_BUDGET", budget))
 
-        assert self._deliver(text) == []
+        recipient_ids = (
+            self._deliver(text) if artefact is None else self._deliver_artefact(artefact, parse_note_mentions(text))
+        )
+
+        assert recipient_ids == []
         self.mocks["in_app"].assert_not_called()
         self.mocks["email"].assert_not_called()
         self.mocks["push"].assert_not_called()
+
+    def test_a_later_edit_is_a_new_delivery(self) -> None:
+        text = f"@member:{self.mentioned.id} can you look"
+        artefact = self._note(text)
+        self._deliver_artefact(artefact, parse_note_mentions(text))
+        artefact.update_content({"note": text})
+        self._deliver_artefact(artefact, parse_note_mentions(text))
+
+        keys = [call.args[0].idempotency_key for call in self.mocks["in_app"].call_args_list]
+        assert len(keys) == 2 and keys[0] != keys[1]
+
+    def test_slack_keeps_names_and_note_text_literal(self) -> None:
+        self.user.first_name = "<!channel>"
+        self.user.save()
+        integration = self._inbox_slack_workspace()
+        SignalUserAutonomyConfig.objects.create(
+            user=self.mentioned, slack_notification_integration=integration, slack_notification_channel="U0DYLAN|@dylan"
+        )
+
+        self._deliver(f"@member:{self.mentioned.id} @here please look")
+
+        post = self.mocks["slack"].return_value.client.chat_postMessage.call_args.kwargs
+        assert "<!channel>" not in post["text"]
+        assert post["blocks"][0]["text"]["verbatim"] is True
+
+    def test_slack_skips_a_member_who_is_no_longer_eligible(self) -> None:
+        integration = self._inbox_slack_workspace()
+        SignalUserAutonomyConfig.objects.create(
+            user=self.mentioned, slack_notification_integration=integration, slack_notification_channel="U0DYLAN|@dylan"
+        )
+        self.mocks["slack"].return_value.get_user_by_id.return_value = None
+
+        self._deliver(f"@member:{self.mentioned.id}")
+
+        self.mocks["slack"].return_value.client.chat_postMessage.assert_not_called()
+
+    def test_slack_retries_people_past_the_lookup_budget(self) -> None:
+        self._inbox_slack_workspace()
+        text = f"@member:{self.mentioned.id}"
+        lookup = "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email"
+        with (
+            patch(lookup, side_effect=serializers.ValidationError("budget")),
+            patch("products.signals.backend.report_note_mentions.send_report_note_mention_slack.apply_async") as retry,
+        ):
+            self._deliver(text)
+        self.mocks["slack"].return_value.client.chat_postMessage.assert_not_called()
+        retry_kwargs = retry.call_args.kwargs["kwargs"]
+        assert retry_kwargs["only_user_ids"] == [self.mentioned.id]
+        assert retry.call_args.kwargs["countdown"] == 60
+
+        with patch(lookup, return_value="U0DYLAN"):
+            retry_note_mention_slack(
+                team_id=self.team.id,
+                artefact_id=retry_kwargs["artefact_id"],
+                author_id=self.user.id,
+                mentions=parse_note_mentions(text),
+                only_user_ids=retry_kwargs["only_user_ids"],
+                attempt=retry_kwargs["attempt"],
+            )
+
+        post = self.mocks["slack"].return_value.client.chat_postMessage.call_args.kwargs
+        assert post["channel"] == "U0DYLAN"

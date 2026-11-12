@@ -991,20 +991,30 @@ def _note_mention_blocks(
     headline = f"*{_escape_mrkdwn(author_name)}* mentioned {recipient_label} on <{url}|{title}>"
     quoted = "\n".join(f">{line}" for line in _escape_mrkdwn(text).splitlines() or [""])
     body = truncate_slack_text(f"{headline}\n{quoted}", 2900)
-    fallback = f"{author_name} mentioned {recipient_label} on a report: {report.title or 'Untitled report'}"
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": body}}], fallback
+    # Slack shows the fallback in notification previews, so it is escaped like the body.
+    fallback = _escape_mrkdwn(
+        f"{author_name} mentioned {recipient_label} on a report: {report.title or 'Untitled report'}"
+    )
+    # `verbatim` keeps `@here` and `@channel` in the note as text, so a mention never pings a whole channel.
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": body, "verbatim": True}}], fallback
+
+
+@frozen
+class NoteMentionSlackResult:
+    sent: int
+    # People whose Slack lookup ran out of the workspace's lookup budget, to try again after it refills.
+    deferred_user_ids: tuple[int, ...]
 
 
 def deliver_report_note_mention_to_slack(
     report: SignalReport, users: Collection[User], *, author_name: str, text: str
-) -> int:
+) -> NoteMentionSlackResult:
     """Tell each mentioned person about a note mention in Slack, where Slack is set up for them.
 
-    The caller has already checked each person's Inbox access. Best effort per person; returns the
-    number of messages sent.
+    The caller has already checked each person's Inbox and project access. Best effort per person.
     """
     if not users:
-        return 0
+        return NoteMentionSlackResult(sent=0, deferred_user_ids=())
     config = (
         SignalTeamConfig.objects.filter(team_id=report.team_id)
         .only("default_slack_notification_channel", "default_slack_notification_integration_id")
@@ -1018,25 +1028,29 @@ def deliver_report_note_mention_to_slack(
     own_configs = _own_target_configs_by_user(report.team_id, {user.id for user in users})
 
     sent = 0
+    deferred: list[int] = []
     for user in users:
+        log_context = {"report_id": str(report.id), "team_id": report.team_id}
         try:
             destination = _note_mention_destination(user, own_configs.get(user.id), team_integration)
             if destination is None:
                 continue
+            slack = SlackIntegration(destination.integration, source="signals_inbox")
             channel_id = _channel_id_from_target(destination.channel)
             is_direct_message = is_slack_member_target(destination.channel)
+            # The same fail-closed check as report DMs: a member can have become a guest or left since.
+            if is_direct_message and slack.get_user_by_id(channel_id) is None:
+                logger.warning("Skipping a report note mention DM to an ineligible member", extra=log_context)
+                continue
             recipient_label = "you" if is_direct_message else _escape_mrkdwn(_posthog_user_display_name(user))
             blocks, fallback = _note_mention_blocks(
                 report, author_name=author_name, recipient_label=recipient_label, text=text
             )
-            SlackIntegration(destination.integration, source="signals_inbox").client.chat_postMessage(
-                channel=channel_id, blocks=blocks, text=fallback
-            )
+            slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=fallback)
             sent += 1
+        except serializers.ValidationError:
+            # The member lookup budget is shared by the workspace and refills each minute.
+            deferred.append(user.id)
         except Exception:
-            logger.warning(
-                "Failed to send a report note mention to Slack",
-                extra={"report_id": str(report.id), "team_id": report.team_id},
-                exc_info=True,
-            )
-    return sent
+            logger.warning("Failed to send a report note mention to Slack", extra=log_context, exc_info=True)
+    return NoteMentionSlackResult(sent=sent, deferred_user_ids=tuple(deferred))

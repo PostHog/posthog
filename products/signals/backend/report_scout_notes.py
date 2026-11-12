@@ -46,11 +46,13 @@ def leave_report_note(
     created_by_id: int | None,
     expires_at: datetime | None,
     attribution: ArtefactAttribution,
+    mention_author_id: int | None,
 ) -> ScoutNote:
     """Leave a scout note about `report` and record it on the report's activity log.
 
     `team_id` is the canonical team the scouts read notes from. The caller has already checked
-    that the report belongs to it and that the caller may write to reports and steer scouts.
+    that the report belongs to it and that the caller may write to reports and steer scouts. `mention_author_id`
+    is the person whose @mentions in the note notify people, or None when no person wrote it.
     """
     with transaction.atomic():
         note = leave_note(
@@ -70,7 +72,7 @@ def leave_report_note(
         schedule_note_mention_notifications(
             team_id=report.team_id,
             artefact_id=str(artefact.id),
-            attribution=attribution,
+            author_id=mention_author_id,
             mentions=parse_note_mentions(text),
         )
     return note

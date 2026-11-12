@@ -2,6 +2,7 @@ import uuid
 import hashlib
 import datetime
 import collections
+from collections.abc import Collection
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
@@ -116,13 +117,17 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
+def get_members_to_notify(
+    team: Team, notification_setting: NotificationSettingType, *, user_ids: Collection[int] | None = None
+) -> list[OrganizationMembership]:
+    """Members who turned this email on and may open the project. `user_ids` limits the check to those people."""
     memberships_to_email = []
-    memberships = list(
-        OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id, user__is_active=True
-        )
+    queryset = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id, user__is_active=True
     )
+    if user_ids is not None:
+        queryset = queryset.filter(user_id__in=user_ids)
+    memberships = list(queryset)
     # Resolved once, or this is a query per member on every fan-out.
     locks_by_user = notification_locks_for_users(
         [membership.user_id for membership in memberships], organization_id=team.organization_id
