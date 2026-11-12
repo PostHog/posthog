@@ -10,6 +10,7 @@ from posthog.utils import get_instance_region
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    GITLAB_TASKS_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
@@ -115,6 +116,25 @@ def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
         )
     except Exception:
         logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
+def gitlab_tasks_enabled(team: "Team", user: "User") -> bool:
+    """Whether this user may start coding tasks in GitLab projects; fail-closed when evaluation fails."""
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                GITLAB_TASKS_FEATURE_FLAG,
+                user.distinct_id or f"user_{user.id}",
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("gitlab-tasks flag check failed; treating as disabled")
         return False
 
 
