@@ -10,7 +10,9 @@ from psycopg import sql
 @functools.cache
 def _referencing_tables(model: type[Model]) -> frozenset[str]:
     return frozenset(
-        relation.related_model._meta.db_table for relation in get_candidate_relations_to_delete(model._meta)
+        relation.related_model._meta.db_table
+        for relation in get_candidate_relations_to_delete(model._meta)
+        if relation.related_model is not None
     )
 
 
