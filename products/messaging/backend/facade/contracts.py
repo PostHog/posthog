@@ -258,10 +258,6 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
-class OutcomePending(DeliveryUnavailable):
-    """The email pipeline no longer holds the email, and its status doesn't yet say what happened. Safe to retry."""
-
-
 class QueuedEmailStatus(LabeledStrEnum):
     QUEUED = "queued", "Queued"
     SCHEDULED = "scheduled", "Scheduled"

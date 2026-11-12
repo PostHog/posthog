@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from django.core.cache import cache
 from django.utils.dateparse import parse_datetime
 
 import requests
@@ -18,44 +19,59 @@ from products.messaging.backend.facade.contracts import (
     EmailCanceled,
     EmailNotFound,
     EmailSendStatus,
-    OutcomePending,
     RescheduleTooFar,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status, queued_at
 
 logger = structlog.get_logger(__name__)
 
-_WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
-# How long a status row can take to land after what it records.
-_STATUS_LAG = timedelta(minutes=5)
+# The CDP service deletes a job seconds after a cancel, and the `canceled` status row can land later than that. The
+# mark answers a repeat cancel in that gap, so it lives well past the time a status row takes to land.
+_CANCELED_MARK_TTL = timedelta(hours=1)
 
 
 def cancel_email(team_id: int, message_id: UUID) -> None:
     """Cancel the email, or confirm a cancel that already happened. Raises EmailNotFound, AlreadySending or
     DeliveryUnavailable."""
-    sent_at = queued_at(message_id)
-    if sent_at is None:
+    if queued_at(message_id) is None:
         raise EmailNotFound()
     response = _call(lambda: cancel_scheduled_email(team_id, str(message_id)), "cancel", team_id, message_id)
     refusal = _refusal_code(response)
     if response.status_code == 200:
+        _mark_canceled(team_id, message_id)
         return
     if response.status_code == 409 and refusal == "already_sending":
         raise AlreadySending()
     if response.status_code == 404 and refusal == "not_found":
-        # The CDP service deletes a job seconds after it is done with it, so a repeat cancel can find nothing there.
-        # The status says whether the email went away as a cancel. Status rows land a few seconds after what they
-        # record, so a status that still waits, or none yet, asks for a retry while it is recent. After that the
-        # row is taken as lost, so a retry can't loop.
+        # The CDP service holds no job once it is done with it, so a canceled email and a sent one look the same
+        # there. The mark or the status says which it was.
+        if _was_canceled(team_id, message_id):
+            return
         email_status = get_email_status(team_id, message_id)
         if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
             return
-        if email_status is None or email_status.status in _WAITING:
-            last_change = sent_at if email_status is None else email_status.status_at
-            if datetime.now(UTC) - last_change < _STATUS_LAG:
-                raise OutcomePending()
         raise EmailNotFound()
     raise _unexpected("cancel", team_id, message_id, response)
+
+
+def _canceled_mark_key(team_id: int, message_id: UUID) -> str:
+    return f"transactional_email_canceled:{team_id}:{message_id}"
+
+
+def _mark_canceled(team_id: int, message_id: UUID) -> None:
+    # The cancel already happened, so a cache outage must not turn it into an error.
+    try:
+        cache.set(_canceled_mark_key(team_id, message_id), True, timeout=int(_CANCELED_MARK_TTL.total_seconds()))
+    except Exception:
+        logger.exception("transactional_email_cancel_mark_failed", team_id=team_id, message_id=str(message_id))
+
+
+def _was_canceled(team_id: int, message_id: UUID) -> bool:
+    try:
+        return bool(cache.get(_canceled_mark_key(team_id, message_id)))
+    except Exception:
+        logger.exception("transactional_email_cancel_mark_failed", team_id=team_id, message_id=str(message_id))
+        return False
 
 
 def reschedule_email(team_id: int, message_id: UUID, scheduled_at: datetime) -> datetime:
