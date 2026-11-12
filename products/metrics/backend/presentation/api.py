@@ -391,6 +391,11 @@ class _MetricQueryBodySerializer(serializers.Serializer):
                 attrs["time"] - _INSTANT_LOOKBACK_LIMIT
             except OverflowError:
                 raise serializers.ValidationError({"time": "Too early for an instant query."})
+            # Aligning 'time' to a bucket in the project timezone can move it past the latest datetime.
+            try:
+                attrs["time"] + _INSTANT_LOOKBACK_LIMIT
+            except OverflowError:
+                raise serializers.ValidationError({"time": "Too late for an instant query."})
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
         date_from = _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom")
         if date_from is None:
