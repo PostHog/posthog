@@ -342,18 +342,6 @@ impl PersonHogLeaderService {
         .increment(1);
     }
 
-    fn first_lookup(&self, partition: u32, key: &PersonCacheKey) -> CacheLookup {
-        let lookup = self.cache.get(partition, key);
-        match lookup {
-            CacheLookup::Found(_) => counter!("personhog_leader_cache_hits_total").increment(1),
-            CacheLookup::PersonNotFound => {
-                counter!("personhog_leader_cache_misses_total").increment(1)
-            }
-            CacheLookup::PartitionNotOwned => {}
-        }
-        lookup
-    }
-
     /// Recover a cache miss from the right source. A person in the dirty
     /// index has acked state the writer may not have applied to PG yet, so
     /// the PG row cannot be trusted — recover the full latest state from
@@ -563,7 +551,7 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
         // Fast path: cache hit (no lock needed); a death document takes the locked path.
-        match self.first_lookup(partition, key) {
+        match self.cache.get(partition, key) {
             CacheLookup::Found(person) if !person.is_deleted => {
                 Self::record_cache_hit();
                 return Ok(person);
@@ -599,7 +587,7 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        let person = match self.first_lookup(partition, key) {
+        let person = match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
                 person

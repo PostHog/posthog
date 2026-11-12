@@ -141,14 +141,9 @@ impl PersonCache {
         }
     }
 
-    pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        self.lookup(key)
-    }
-
     /// A read for bookkeeping passes such as the death-document settle.
-    /// It skips the hit/miss counters and does not copy or decompress the
-    /// properties. It still promotes the entry's recency, which is
-    /// harmless for those passes.
+    /// It does not copy or decompress the properties. It still promotes
+    /// the entry's recency, which is harmless for those passes.
     pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedVersion> {
         self.inner
             .get(key)
@@ -156,7 +151,7 @@ impl PersonCache {
     }
 
     /// An entry that fails to decode is dropped and reads as absent.
-    fn lookup(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
+    pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
         let entry = self.inner.get(key)?;
         match entry.value().to_cached(&self.codec) {
             Ok(person) => Some(person),
