@@ -136353,28 +136353,12 @@ export namespace Schemas {
 
     export type LlmSkillsSearchRetrieveParams = {
     /**
-     * How much skill text to search. `full` searches names, descriptions, bodies, file paths, and Markdown file contents. `summary` searches only names and descriptions, which is much faster on projects with many or large skills.
-     *
-     * * `full` - Full
-     * * `summary` - Summary
-     * @minLength 1
-     */
-    mode?: LlmSkillsSearchRetrieveMode;
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */
     query: string;
     };
-
-    export type LlmSkillsSearchRetrieveMode = typeof LlmSkillsSearchRetrieveMode[keyof typeof LlmSkillsSearchRetrieveMode];
-
-
-    export const LlmSkillsSearchRetrieveMode = {
-      Full: 'full',
-      Summary: 'summary',
-    } as const;
 
     export type LogsAlertsListParams = {
     /**

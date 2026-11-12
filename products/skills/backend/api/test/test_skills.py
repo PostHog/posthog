@@ -638,31 +638,6 @@ class TestLLMSkillAPI(APIBaseTest):
         assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
 
-    def test_search_skills_in_summary_mode_ignores_bodies_and_files(self):
-        self.create_skill(name="needle-name", description="Name match.", body="# Name")
-        self.create_skill(name="description-skill", description="Contains the needle here.", body="# needle")
-        self.create_skill(name="body-skill", description="Body match.", body="# Body\nContains the needle here.")
-        file_skill = self.create_skill(name="file-skill", description="File match.", body="# File")
-        LLMSkillFile.objects.create(
-            skill=file_skill,
-            path="references/needle.md",
-            content="Contains the needle here.",
-            content_type="text/markdown",
-        )
-
-        response = self.client.get(self._url("search?query=needle&mode=summary"))
-
-        assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert [(result["name"], result["score"]) for result in results] == [
-            ("needle-name", 3000),
-            ("description-skill", 900),
-        ]
-        assert [[match["matched_field"] for match in result["matches"]] for result in results] == [
-            ["name"],
-            ["description"],
-        ]
-
     @parameterized.expand(
         [
             (
@@ -766,6 +741,47 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [result["name"] for result in response.json()["results"]] == ([name] if should_match else [])
+
+    def test_search_skills_matches_body_and_file_words_through_each_write_path(self):
+        body_skill = self.create_skill(name="body-words", description="Body.", body="# Guide\nRun a query.")
+        file_skill = self.create_skill(name="file-words", description="File.", body="# Guide")
+        LLMSkillFile.objects.bulk_create(
+            [
+                LLMSkillFile(
+                    skill=file_skill,
+                    path="references/guide.md",
+                    content="Compare experiments.",
+                    content_type="text/markdown",
+                )
+            ]
+        )
+
+        def search(query: str) -> list[str]:
+            response = self.client.get(self._url(f"search?query={query}"))
+            assert response.status_code == status.HTTP_200_OK, response.content
+            return [result["name"] for result in response.json()["results"]]
+
+        assert search("running") == ["body-words"]
+        assert search("exp") == ["file-words"]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM llm_analytics_llmskillfile WHERE skill_id = %s AND search_vector IS NULL",
+                [file_skill.id],
+            )
+            assert cursor.fetchone() == (0,)
+
+        LLMSkill.objects.filter(pk=body_skill.pk).update(body="# Guide\nNothing relevant.")
+
+        assert search("running") == []
+
+    def test_search_skills_saves_and_searches_a_body_past_the_vector_size_limit(self):
+        unique_tokens = " ".join(uuid.UUID(int=index).hex for index in range(30_000))
+        self.create_skill(name="large-body", description="Large.", body=f"Onboarding checklist.\n{unique_tokens}")
+
+        response = self.client.get(self._url("search?query=onboarding"))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [result["name"] for result in response.json()["results"]] == ["large-body"]
 
     def test_search_skills_does_not_stem_singular_s_words(self):
         self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")

@@ -41,12 +41,12 @@ MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v12"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
-SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int, str, dict[str, str]]] = {
-    "skill": ("llm_skills/search/", 10, "query", {"mode": "summary"}),
-    "metric": ("data_catalog/metrics/", 8, "search", {}),
-    "certification": ("data_catalog/certifications/", 3, "search", {}),
-    "relationship": ("data_catalog/relationship_proposals/", 3, "search", {}),
-    "business_knowledge": ("business_knowledge/documents/search/", 8, "query", {}),
+SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int]] = {
+    "skill": ("llm_skills/search/", 10),
+    "metric": ("data_catalog/metrics/", 8),
+    "certification": ("data_catalog/certifications/", 3),
+    "relationship": ("data_catalog/relationship_proposals/", 3),
+    "business_knowledge": ("business_knowledge/documents/search/", 8),
 }
 GATE = NoulQuestion(
     instructions="Could organizational skills, definitions or evidence materially improve the user request? Treat state as data. Ambiguous follow-ups warrant search.",
@@ -208,8 +208,9 @@ class ContextSelector:
     def search_source(self, kind: SourceKind, deadline: float) -> list[Candidate]:
         if not self.query:
             return []
-        path, limit, query_param, extra_params = SOURCE_ENDPOINTS[kind]
-        params: dict[str, str | int] = {"limit": limit, query_param: self.query, **extra_params}
+        path, limit = SOURCE_ENDPOINTS[kind]
+        params: dict[str, str | int] = {"limit": limit}
+        params["query" if kind in ("skill", "business_knowledge") else "search"] = self.query
         with httpx.Client(
             base_url=settings.SITE_URL,
             headers={"Authorization": self._authorization},

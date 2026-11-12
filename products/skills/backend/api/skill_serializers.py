@@ -30,7 +30,6 @@ from .community_publish_services import (
 )
 from .community_skill_serializers import CommunitySkillScoutConfigSerializer
 from .skill_manifest import SkillUnservableReason
-from .skill_search import SkillSearchMode
 from .skill_services import (
     MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
@@ -223,12 +222,7 @@ class LLMSkillSearchQuerySerializer(serializers.Serializer):
         min_length=1,
         max_length=200,
         trim_whitespace=True,
-        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
-    )
-    mode = serializers.ChoiceField(
-        choices=SkillSearchMode.choices,
-        default=SkillSearchMode.FULL,
-        help_text="How much skill text to search. `full` searches names, descriptions, bodies, file paths, and Markdown file contents. `summary` searches only names and descriptions, which is much faster on projects with many or large skills.",
+        help_text="Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.",
     )
 
 

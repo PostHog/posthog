@@ -4,9 +4,12 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal, Protocol, cast
 
-from django.db import OperationalError, models
-from django.db.models import Case, Exists, Expression, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.contrib.postgres.search import SearchQuery, SearchVectorExact, SearchVectorField
+from django.db import OperationalError
+from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.models import Case, Exists, Expression, F, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
+from django.db.models.sql.compiler import SQLCompiler
 
 import psycopg
 
@@ -35,11 +38,10 @@ SKILL_SEARCH_FIELD_LOOKUPS: dict[SkillSearchField, str] = {
     "path": "path__icontains",
     "content": "content__icontains",
 }
-
-
-class SkillSearchMode(models.TextChoices):
-    FULL = "full", "Full"
-    SUMMARY = "summary", "Summary"
+# A substring scan over large bodies and file contents outruns the timeout, so they match words and
+# word prefixes. Short fields keep substring matching, so `hog` still finds the name "posthog".
+SKILL_SEARCH_FULL_TEXT_FIELDS: frozenset[SkillSearchField] = frozenset({"body", "content"})
+SKILL_SEARCH_TEXT_SEARCH_CONFIG = "english"
 
 
 class _ScoredSkill(Protocol):
@@ -50,12 +52,7 @@ class SkillSearchTimeout(Exception):
     """The search exceeded SKILL_SEARCH_TIMEOUT_MS in the database."""
 
 
-def search_skills(
-    team: Team,
-    user_access_control: UserAccessControl,
-    query: str,
-    mode: SkillSearchMode = SkillSearchMode.FULL,
-) -> list[dict[str, Any]]:
+def search_skills(team: Team, user_access_control: UserAccessControl, query: str) -> list[dict[str, Any]]:
     """Every readable skill matching the query, best match first, with excerpts.
 
     Raises SkillSearchTimeout when the query outruns its database timeout. The search spans skill
@@ -68,9 +65,9 @@ def search_skills(
                     "name": skill.name,
                     "description": skill.description,
                     "score": cast(_ScoredSkill, skill).search_score,
-                    "matches": search_matches(skill, query, mode),
+                    "matches": search_matches(skill, query),
                 }
-                for skill in search_queryset(team, user_access_control, query, mode)
+                for skill in search_queryset(team, user_access_control, query)
             ]
     except OperationalError as err:
         if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
@@ -78,34 +75,9 @@ def search_skills(
         raise SkillSearchTimeout from err
 
 
-def search_queryset(
-    team: Team, user_access_control: UserAccessControl, query: str, mode: SkillSearchMode
-) -> QuerySet[LLMSkill]:
-    tokens = _skill_search_tokens(query)
-    queryset = LLMSkill.objects.filter(
-        team=team,
-        deleted=False,
-        is_latest=True,
-        category="",
-    )
-    queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
-    exact_name_score = Case(
-        When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
-        default=Value(0),
-        output_field=IntegerField(),
-    )
-    summary_score = (
-        exact_name_score
-        + _skill_search_field_score("name", query, tokens, 1_000)
-        + _skill_search_field_score("description", query, tokens, 300)
-    )
-    summary_query = _skill_search_field_query("name", query, tokens) | _skill_search_field_query(
-        "description", query, tokens
-    )
-    if mode == SkillSearchMode.SUMMARY:
-        return _ranked(queryset.filter(summary_query), summary_score)
-
+def search_queryset(team: Team, user_access_control: UserAccessControl, query: str) -> QuerySet[LLMSkill]:
     skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
+    tokens = _skill_search_tokens(query)
     matching_skill_files = skill_files.filter(
         _skill_search_field_query("path", query, tokens)
         | (markdown_file_query() & _skill_search_field_query("content", query, tokens))
@@ -130,18 +102,37 @@ def search_queryset(
         Value(0),
     )
 
-    queryset = queryset.filter(
-        summary_query | _skill_search_field_query("body", query, tokens) | Q(Exists(matching_skill_files))
+    queryset = LLMSkill.objects.filter(
+        team=team,
+        deleted=False,
+        is_latest=True,
+        category="",
     )
-    score = summary_score + _skill_search_field_score("body", query, tokens, 80) + file_path_score + file_content_score
-    return _ranked(queryset, score)
+    queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
+    queryset = queryset.filter(
+        _skill_search_field_query("name", query, tokens)
+        | _skill_search_field_query("description", query, tokens)
+        | _skill_search_field_query("body", query, tokens)
+        | Q(Exists(matching_skill_files))
+    )
 
-
-def _ranked(queryset: QuerySet[LLMSkill], score: Expression) -> QuerySet[LLMSkill]:
+    exact_name_score = Case(
+        When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    score = (
+        exact_name_score
+        + _skill_search_field_score("name", query, tokens, 1_000)
+        + _skill_search_field_score("description", query, tokens, 300)
+        + _skill_search_field_score("body", query, tokens, 80)
+        + file_path_score
+        + file_content_score
+    )
     return queryset.annotate(search_score=score).order_by("-search_score", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
 
 
-def search_matches(skill: LLMSkill, query: str, mode: SkillSearchMode) -> list[dict[str, Any]]:
+def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     tokens = _skill_search_tokens(query)
 
@@ -157,8 +148,6 @@ def search_matches(skill: LLMSkill, query: str, mode: SkillSearchMode) -> list[d
                 "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
             }
         )
-    if mode == SkillSearchMode.SUMMARY:
-        return matches
     body_match_term = _skill_search_match_term(skill.body, query, tokens)
     body_match = (
         _content_search_match(skill.body, body_match_term, matched_field="body", path="SKILL.md")
@@ -181,11 +170,8 @@ def search_matches(skill: LLMSkill, query: str, mode: SkillSearchMode) -> list[d
 
     if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
         remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
-        file_content_query = Q(content__icontains=query)
-        for variants in tokens:
-            file_content_query |= _skill_search_variant_query("content", variants)
         content_files = (
-            skill.files.filter(markdown_file_query(), file_content_query)
+            skill.files.filter(markdown_file_query(), _skill_search_field_query("content", query, tokens))
             .annotate(search_match_score=_skill_search_field_score("content", query, tokens, 40))
             .order_by("-search_match_score", "path")
             .values_list("path", "content")
@@ -248,6 +234,12 @@ def _skill_search_variants(token: str) -> tuple[str, ...]:
 
 
 def _skill_search_variant_query(field: SkillSearchField, variants: Sequence[str]) -> Q:
+    if field in SKILL_SEARCH_FULL_TEXT_FIELDS:
+        # Tokens hold only letters and digits, so they cannot inject tsquery operators.
+        prefix_query = " | ".join(f"{variant}:*" for variant in variants)
+        return _full_text_match(
+            field, SearchQuery(prefix_query, config=SKILL_SEARCH_TEXT_SEARCH_CONFIG, search_type="raw")
+        )
     lookup = SKILL_SEARCH_FIELD_LOOKUPS[field]
     query = Q()
     for variant in variants:
@@ -270,7 +262,42 @@ def _skill_search_any_token_query(field: SkillSearchField, tokens: Sequence[Sequ
 
 
 def _skill_search_field_query(field: SkillSearchField, phrase: str, tokens: Sequence[Sequence[str]]) -> Q:
-    return Q(**{SKILL_SEARCH_FIELD_LOOKUPS[field]: phrase}) | _skill_search_any_token_query(field, tokens)
+    if field in SKILL_SEARCH_FULL_TEXT_FIELDS:
+        phrase_query = _full_text_match(
+            field, SearchQuery(phrase, config=SKILL_SEARCH_TEXT_SEARCH_CONFIG, search_type="phrase")
+        )
+    else:
+        phrase_query = Q(**{SKILL_SEARCH_FIELD_LOOKUPS[field]: phrase})
+    return phrase_query | _skill_search_any_token_query(field, tokens)
+
+
+class _StoredSearchVector(Expression):
+    """The `search_vector` column that migration 0011 adds beside `source` and fills with a trigger.
+
+    The column is not a model field, so this expression takes the table alias from the compiled
+    source column. That keeps it correct inside subqueries, where Django renames the table.
+    """
+
+    output_field = SearchVectorField()
+
+    def __init__(self, source: str) -> None:
+        super().__init__()
+        self.source: Any = F(source)
+
+    def get_source_expressions(self) -> list[Any]:
+        return [self.source]
+
+    def set_source_expressions(self, exprs: Sequence[Any]) -> None:
+        (self.source,) = exprs
+
+    def as_sql(self, compiler: SQLCompiler, connection: BaseDatabaseWrapper) -> tuple[str, tuple[Any, ...]]:
+        source_sql, _ = compiler.compile(self.source)
+        table_sql = source_sql.rsplit(".", 1)[0]
+        return f'{table_sql}."search_vector"', ()
+
+
+def _full_text_match(field: SkillSearchField, search_query: SearchQuery) -> Q:
+    return Q(SearchVectorExact(_StoredSearchVector(field), search_query))
 
 
 def _skill_search_field_score(
