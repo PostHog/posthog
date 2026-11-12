@@ -5,8 +5,8 @@ import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { PromptConsensusCell, PromptConsensusMatrix } from './promptReport'
-import { engineLabel } from './utils'
 
 type ConsensusRow = PromptConsensusMatrix['rows'][number]
 
@@ -36,7 +36,8 @@ export const ContentAutopilotPromptConsensus = ({ matrix }: { matrix: PromptCons
             key: 'engine',
             render: (_, row) => (
                 <span className="whitespace-nowrap">
-                    {engineLabel(row.engine)} <span className="text-muted">({pluralize(row.checks, 'answer')})</span>
+                    <ContentAutopilotEngineLabel engine={row.engine} />{' '}
+                    <span className="text-muted">({pluralize(row.checks, 'answer')})</span>
                 </span>
             ),
         },

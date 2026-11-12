@@ -329,13 +329,20 @@ describe('tracingDataLogic', () => {
             countSpy.mockRestore()
         })
 
-        it('toasts on a real count failure', async () => {
+        it('hides the count instead of toasting on a real count failure', async () => {
             silenceKeaLoadersErrors()
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
-            jest.spyOn(api.tracing, 'count').mockRejectedValue(new Error('boom'))
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
             logic = mountWithSpans([])
-            await logic.asyncActions.fetchMatchingCounts().catch(() => {})
-            expect(toastSpy).toHaveBeenCalled()
+            await logic.asyncActions.fetchMatchingCounts()
+            expect(logic.values.totalMatchingFilters).toEqual(10)
+
+            countSpy.mockRejectedValue(new Error('boom'))
+            tracingFiltersLogic().actions.setServiceNames(['api'])
+            await expectLogic(logic).toDispatchActions(['fetchMatchingCountsFailure'])
+            expect(logic.values.totalMatchingFilters).toEqual(0)
+            expect(toastSpy).not.toHaveBeenCalled()
+            countSpy.mockRestore()
             toastSpy.mockRestore()
         })
     })

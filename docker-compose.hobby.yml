@@ -8,6 +8,9 @@
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 
+# Long-running services restart on any exit. A Node or Rust service that loses Kafka, Redis or
+# Postgres, for example while an upgrade recreates them, shuts down cleanly with exit code 0, and
+# `on-failure` never restarts a clean exit. `unless-stopped` also brings them back after a reboot.
 x-logging: &default-logging
     driver: json-file
     options:
@@ -29,11 +32,28 @@ x-hypercache-s3: &hypercache-s3
 x-single-temporal-queue: &single-temporal-queue
     TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
 
+# The Node consumers default to a short fetch.wait.max.ms, so on an idle install Redpanda spends its
+# CPU answering empty fetches. A fetch still returns as soon as data arrives, because fetch.min.bytes
+# stays at 1, so a longer wait only cuts the polling while there is nothing to read.
+x-slow-idle-kafka-fetch: &slow-idle-kafka-fetch
+    KAFKA_CONSUMER_FETCH_WAIT_MAX_MS: '1000'
+
+# The PersonHog services default to shadow-mode validation tables. Hobby has no shadow
+# mode, so identity and the publisher name the real tables.
+x-personhog-tables: &personhog-tables
+    PERSON_TABLE: 'posthog_person'
+    PERSON_DISTINCT_ID_TABLE: 'posthog_persondistinctid'
+    FF_HASH_KEY_OVERRIDE_TABLE: 'posthog_featureflaghashkeyoverride'
+    LIFECYCLE_OP_TABLE: 'lifecycle_op'
+    LIFECYCLE_OP_PERSON_TABLE: 'lifecycle_op_person'
+    PERSON_PUBLISH_OUTBOX_TABLE: 'person_publish_outbox'
+
 services:
     db:
         extends:
             file: docker-compose.base.yml
             service: db
+        restart: unless-stopped
         image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
         logging: *default-logging
         volumes:
@@ -43,6 +63,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: redis7
+        restart: unless-stopped
         logging: *default-logging
         volumes:
             - redis7-data:/data
@@ -51,13 +72,14 @@ services:
         extends:
             file: docker-compose.base.yml
             service: valkey
+        restart: unless-stopped
         logging: *default-logging
 
     clickhouse:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         depends_on:
             - kafka
@@ -67,6 +89,7 @@ services:
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./posthog/docker/clickhouse/config.d/hobby.xml:/etc/clickhouse-server/config.d/hobby.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - ./posthog/docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -76,6 +99,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: zookeeper
+        restart: unless-stopped
         logging: *default-logging
         environment:
             ZOO_AUTOPURGE_PURGEINTERVAL: 1
@@ -88,6 +112,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: kafka
+        restart: unless-stopped
         logging: *default-logging
         depends_on:
             - zookeeper
@@ -102,10 +127,25 @@ services:
         extends:
             file: docker-compose.base.yml
             service: worker
+        restart: unless-stopped
+        # Hobby runs one worker, so the scheduler runs inside it and shares its memory.
+        command: ./bin/docker-worker-celery --with-embedded-scheduler
         logging: *default-logging
         environment:
+            # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
+            # which is more memory than a small host has. Raise it in .env on a larger host.
+            WEB_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
+            # The pool children share one copy of Django with the worker parent instead of copying it.
+            GC_FREEZE_BEFORE_POOL_FORK: ${GC_FREEZE_BEFORE_POOL_FORK:-true}
+            # The pool replaces a child after this many tasks, which returns the memory that tasks
+            # leave behind in it.
+            CELERY_MAX_TASKS_PER_CHILD: ${CELERY_MAX_TASKS_PER_CHILD:-1000}
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; beat and the
+            # Celery tasks run here, so without it the opt-out never reaches them.
+            # Same default as web, so web and both workers make the same capture decision.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -144,7 +184,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -165,12 +205,30 @@ services:
         extends:
             file: docker-compose.base.yml
             service: web
+        restart: unless-stopped
         command: /compose/start
         logging: *default-logging
         volumes:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
+            # Each granian worker loads all of Django, and bin/docker-server starts 4 by default.
+            # That is more memory than a small host has. Raise it in .env on a larger host.
+            GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
+            # The workers share one copy of Django with the granian parent instead of loading their own.
+            POSTHOG_GRANIAN_PRELOAD: ${POSTHOG_GRANIAN_PRELOAD:-true}
+            # A worker's own memory grows as it writes to the pages it shares with the parent. Granian
+            # replaces each worker after six hours, which returns that memory. It starts the new
+            # worker before it stops the old one.
+            GRANIAN_WORKERS_LIFETIME: ${GRANIAN_WORKERS_LIFETIME:-21600}
+            # Seconds a replaced worker gets to finish its requests. Without a limit, one connection
+            # that never closes stops granian from replacing or restarting any worker.
+            GRANIAN_WORKERS_KILL_TIMEOUT: ${GRANIAN_WORKERS_KILL_TIMEOUT:-60}
+            # The workers take connections from one listen socket. With a socket for each worker,
+            # the connections that wait in a replaced worker's queue are reset.
+            POSTHOG_GRANIAN_SHARED_SOCKET: ${POSTHOG_GRANIAN_SHARED_SOCKET:-true}
+            # See the same setting on feature-flags.
+            FLAGS_BILLING_COUNTERS_ENABLED: 'false'
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
@@ -214,7 +272,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         depends_on:
             - db
             - redis7
@@ -228,11 +286,15 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
+            TEMPORAL_SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -268,9 +330,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-general
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -290,9 +354,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-sessionreplay
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
@@ -308,9 +374,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: recording-api
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             # Read side of the session recording V2 blob store. Must point at the same
             # SeaweedFS the ingestion-sessionreplay writer uses — without these the
             # service falls back to its localhost:8333 default, so every playback
@@ -335,9 +403,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
@@ -349,9 +419,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-logs
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
@@ -362,9 +434,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-traces
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            <<: *slow-idle-kafka-fetch
             TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
@@ -394,7 +468,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         # The dev/CI bootstrap this replaces also registers an `anonymous` identity with
         # Admin rights. Hobby must not, because Caddy proxies /posthog/* straight to this
@@ -437,7 +511,7 @@ services:
             file: docker-compose.base.yml
             service: seaweedfs
         container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         ports:
             - '127.0.0.1:8333:8333' # S3 API
@@ -460,7 +534,7 @@ services:
     browserless:
         # Renders image exports and heatmap screenshots (no browser ships in the PostHog image).
         image: ghcr.io/browserless/chromium:v2.51.2
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
@@ -482,19 +556,13 @@ services:
     temporal:
         extends:
             file: docker-compose.base.yml
-            service: temporal
+            service: temporal-sql-visibility
+        restart: unless-stopped
         logging: *default-logging
-        environment:
-            - ENABLE_ES=false
         ports:
             - '127.0.0.1:7233:7233'
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
-    elasticsearch:
-        extends:
-            file: docker-compose.base.yml
-            service: elasticsearch
-        logging: *default-logging
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
@@ -515,6 +583,7 @@ services:
             db:
                 condition: service_healthy
     temporal-django-worker:
+        restart: unless-stopped
         command: /compose/temporal-django-worker
         extends:
             file: docker-compose.base.yml
@@ -526,6 +595,10 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; the Temporal
+            # activities run Django code here, so without it the opt-out never reaches them.
+            # Same default as web, so web and both workers make the same capture decision.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
@@ -559,7 +632,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         depends_on:
             - db
             - redis7
@@ -572,6 +645,7 @@ services:
             - personhog-router
 
     capture:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -580,6 +654,7 @@ services:
         logging: *default-logging
 
     capture-ai:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -588,6 +663,7 @@ services:
         logging: *default-logging
 
     capture-logs:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -596,6 +672,7 @@ services:
         logging: *default-logging
 
     replay-capture:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -604,6 +681,7 @@ services:
         logging: *default-logging
 
     property-defs-rs:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -617,6 +695,7 @@ services:
                 condition: service_healthy
 
     property-defs-ai:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -636,6 +715,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: livestream
+        restart: unless-stopped
         logging: *default-logging
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
@@ -643,6 +723,7 @@ services:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
     personhog-replica:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -656,6 +737,7 @@ services:
                 condition: service_healthy
 
     personhog-router:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -665,7 +747,182 @@ services:
         depends_on:
             - personhog-replica
 
+    personhog-router-leader:
+        restart: unless-stopped
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router-leader
+        logging: *default-logging
+        environment:
+            IDENTITY_ENABLED: 'true'
+            IDENTITY_URL: 'http://personhog-identity:50055'
+        depends_on:
+            etcd:
+                condition: service_healthy
+            personhog-replica:
+                condition: service_started
+
+    personhog-leader:
+        restart: unless-stopped
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-leader
+        logging: *default-logging
+        environment:
+            FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            FALLBACK_TABLE: 'posthog_person'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+            personhog-tables-ready:
+                condition: service_completed_successfully
+
+    personhog-writer:
+        restart: unless-stopped
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-writer
+        logging: *default-logging
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PG_TARGET_TABLE: 'posthog_person'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+
+    personhog-identity:
+        restart: unless-stopped
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-identity
+        logging: *default-logging
+        environment:
+            <<: *personhog-tables
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            LIFECYCLE_OUTBOX_ENABLED: 'true'
+        depends_on:
+            db:
+                condition: service_healthy
+            personhog-router-leader:
+                condition: service_started
+            personhog-tables-ready:
+                condition: service_completed_successfully
+
+    personhog-publisher:
+        image: ghcr.io/posthog/posthog/personhog-publisher:master
+        build:
+            context: ./posthog/rust
+            args:
+                BIN: personhog-publisher
+        restart: unless-stopped
+        logging: *default-logging
+        environment:
+            <<: *personhog-tables
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            PERSON_DISTINCT_ID_TOPIC: 'clickhouse_person_distinct_id'
+            RUST_LOG: 'info'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+
+    personhog-changelog-relay:
+        image: ghcr.io/posthog/posthog/personhog-changelog-relay:master
+        build:
+            context: ./posthog/rust
+            args:
+                BIN: personhog-changelog-relay
+        restart: unless-stopped
+        logging: *default-logging
+        environment:
+            KAFKA_HOSTS: 'kafka:9092'
+            OUTPUT_KAFKA_HOSTS: 'kafka:9092'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
+            RUST_LOG: 'info'
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: unless-stopped
+        logging: *default-logging
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_DATA_DIR: /etcd-data
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        volumes:
+            - etcd-data:/etcd-data
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    # Seeds the changelog config the PersonHog services read at boot. One partition matches
+    # the personhog_updates topic kafka-init creates, and the relay's group must be listed
+    # in retire_groups or the relay refuses to start.
+    personhog-etcd-init:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: 'no'
+        logging: *default-logging
+        entrypoint:
+            [
+                'etcdctl',
+                '--endpoints=http://etcd:2379',
+                'put',
+                '/personhog/config/changelog',
+                '{"topic":"personhog_updates","partitions":1,"epoch":1,"writer_group":"personhog-writer","retire_groups":["personhog-changelog-relay"],"draining":[]}',
+            ]
+        depends_on:
+            etcd:
+                condition: service_healthy
+
+    # Waits until web's persons migrations create the tables that personhog-leader and
+    # personhog-identity read at boot. Both exit when the tables are missing, and web runs
+    # migrations in its own entrypoint, so they cannot depend on a migration step directly.
+    personhog-tables-ready:
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
+        restart: 'no'
+        logging: *default-logging
+        environment:
+            PGPASSWORD: posthog
+        entrypoint:
+            - sh
+            - -c
+            - |
+                until psql -h db -U posthog -d posthog -tAc "SELECT to_regclass('lifecycle_op_person') IS NOT NULL AND to_regclass('person_publish_outbox') IS NOT NULL" | grep -q t; do
+                    echo "Waiting for the persons migrations"
+                    sleep 5
+                done
+        depends_on:
+            db:
+                condition: service_healthy
+
     feature-flags:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -679,6 +936,9 @@ services:
             # Never fall back to POSTHOG_SECRET: this container faces the internet, and that
             # value is Django's SECRET_KEY.
             INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
+            # Only PostHog Cloud reads and deletes the flag request counters, so here they would
+            # grow in Redis forever. web sets the same variable.
+            FLAGS_BILLING_COUNTERS_ENABLED: 'false'
         depends_on:
             db:
                 condition: service_started
@@ -688,6 +948,7 @@ services:
                 condition: service_healthy
 
     hypercache-server:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -730,7 +991,9 @@ services:
                 # docker-compose.dev.yml so the two stacks cannot drift apart. That header
                 # explains what needs pre-creating.
                 # Note: $$ escapes $ for docker-compose variable substitution
-                TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt)
+                # The PersonHog changelog's partition count must equal the one in
+                # personhog-etcd-init's seed, or the leader refuses to start.
+                TOPICS="$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt) personhog_updates personhog_changelog_relay_dlq"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
@@ -758,7 +1021,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: cymbal
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         volumes:
             - ./share:/share
@@ -802,7 +1065,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: cymbal
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             CYMBAL_MODE: resolution
@@ -837,3 +1100,4 @@ volumes:
     redis7-data:
     kafka-data:
     redpanda-data:
+    etcd-data:

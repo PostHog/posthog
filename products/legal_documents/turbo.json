@@ -9,7 +9,12 @@
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/admin.py",
+                "backend/apps.py",
+                "backend/signals.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

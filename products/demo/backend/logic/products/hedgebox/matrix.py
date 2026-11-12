@@ -56,10 +56,9 @@ from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
 from products.demo.backend.logic.matrix.models import SimEvent
@@ -253,7 +252,7 @@ class HedgeboxMatrix(Matrix):
         team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
 
         # Actions
-        interacted_with_file_action = Action.objects.create(
+        interacted_with_file_action = create_action(
             name="Interacted with file",
             team=team,
             description="Logged-in interaction with a file.",
@@ -273,7 +272,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
         )
-        Action.objects.create(
+        create_action(
             name="Visited Marius Tech Tips campaign",
             team=team,
             description="Visited page of the campaign we did with Marius Tech Tips, the best YouTube channel for tech tips.",
@@ -315,16 +314,16 @@ class HedgeboxMatrix(Matrix):
         ]
 
         # Dashboard: Key metrics (project home)
-        key_metrics_dashboard = Dashboard.objects.create(
-            team=team,
+        key_metrics_dashboard = dashboards_api.create_dashboard(
+            team_id=team.id,
             name="🔑 Key metrics",
             description="Company overview.",
             pinned=True,
         )
-        team.primary_dashboard = key_metrics_dashboard
+        team.primary_dashboard_id = key_metrics_dashboard.id
         weekly_signups_insight = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="Weekly signups",
             query=InsightVizNode(
@@ -347,9 +346,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=23),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=weekly_signups_insight,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=weekly_signups_insight.id,
             color="blue",
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
@@ -367,7 +366,7 @@ class HedgeboxMatrix(Matrix):
         )
         signups_by_country_insight = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="Last month's signups by country",
             query=InsightVizNode(
@@ -393,9 +392,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=6),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=signups_by_country_insight,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=signups_by_country_insight.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
                 "xs": {
@@ -412,7 +411,7 @@ class HedgeboxMatrix(Matrix):
         )
         activation_funnel = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="Activation",
             query=InsightVizNode(
@@ -424,7 +423,7 @@ class HedgeboxMatrix(Matrix):
                             custom_name="Signed up",
                         ),
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                         ),
                         EventsNode(
@@ -446,9 +445,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=activation_funnel,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=activation_funnel.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
                 "xs": {
@@ -465,7 +464,7 @@ class HedgeboxMatrix(Matrix):
         )
         new_user_retention = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="New user retention",
             query=InsightVizNode(
@@ -488,7 +487,7 @@ class HedgeboxMatrix(Matrix):
                             type=EntityType.EVENTS,
                         ),
                         returningEntity=RetentionEntity(
-                            id=str(interacted_with_file_action.pk),
+                            id=str(interacted_with_file_action.id),
                             name=interacted_with_file_action.name,
                             type=EntityType.ACTIONS,
                         ),
@@ -498,9 +497,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=new_user_retention,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=new_user_retention.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
                 "xs": {
@@ -517,7 +516,7 @@ class HedgeboxMatrix(Matrix):
         )
         active_user_lifecycle = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="Active user lifecycle",
             description="An active user being defined by interaction with files.",
@@ -525,7 +524,7 @@ class HedgeboxMatrix(Matrix):
                 source=LifecycleQuery(
                     series=[
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                             math=BaseMathType.TOTAL,
                         )
@@ -541,9 +540,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=active_user_lifecycle,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=active_user_lifecycle.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
                 "xs": {
@@ -560,7 +559,7 @@ class HedgeboxMatrix(Matrix):
         )
         weekly_file_volume = Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
+            dashboard_id=key_metrics_dashboard.id,
             saved=True,
             name="Weekly file volume",
             query=InsightVizNode(
@@ -594,9 +593,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=18),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=weekly_file_volume,
+        dashboards_api.add_insight_tile(
+            dashboard_id=key_metrics_dashboard.id,
+            insight_id=weekly_file_volume.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
                 "xs": {
@@ -613,10 +612,10 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Dashboard: Revenue
-        revenue_dashboard = Dashboard.objects.create(team=team, name="💸 Revenue", pinned=True)
+        revenue_dashboard = dashboards_api.create_dashboard(team_id=team.id, name="💸 Revenue", pinned=True)
         monthly_app_revenue_trends = Insight.objects.create(
             team=team,
-            dashboard=revenue_dashboard,
+            dashboard_id=revenue_dashboard.id,
             saved=True,
             name="Monthly app revenue",
             query=InsightVizNode(
@@ -641,9 +640,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=revenue_dashboard,
-            insight=monthly_app_revenue_trends,
+        dashboards_api.add_insight_tile(
+            dashboard_id=revenue_dashboard.id,
+            insight_id=monthly_app_revenue_trends.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
                 "xs": {
@@ -660,7 +659,7 @@ class HedgeboxMatrix(Matrix):
         )
         bills_paid_trends = Insight.objects.create(
             team=team,
-            dashboard=revenue_dashboard,
+            dashboard_id=revenue_dashboard.id,
             saved=True,
             name="Bills paid",
             query=InsightVizNode(
@@ -689,9 +688,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=revenue_dashboard,
-            insight=bills_paid_trends,
+        dashboards_api.add_insight_tile(
+            dashboard_id=revenue_dashboard.id,
+            insight_id=bills_paid_trends.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
                 "xs": {
@@ -708,10 +707,10 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Dashboard: Website
-        website_dashboard = Dashboard.objects.create(team=team, name="🌐 Website")
+        website_dashboard = dashboards_api.create_dashboard(team_id=team.id, name="🌐 Website")
         daily_unique_visitors_trends = Insight.objects.create(
             team=team,
-            dashboard=website_dashboard,
+            dashboard_id=website_dashboard.id,
             saved=True,
             name="Daily unique visitors over time",
             query=InsightVizNode(
@@ -735,9 +734,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=website_dashboard,
-            insight=daily_unique_visitors_trends,
+        dashboards_api.add_insight_tile(
+            dashboard_id=website_dashboard.id,
+            insight_id=daily_unique_visitors_trends.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
                 "xs": {
@@ -754,7 +753,7 @@ class HedgeboxMatrix(Matrix):
         )
         most_popular_pages_trends = Insight.objects.create(
             team=team,
-            dashboard=website_dashboard,
+            dashboard_id=website_dashboard.id,
             saved=True,
             name="Most popular pages",
             query=InsightVizNode(
@@ -790,9 +789,9 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=26),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=website_dashboard,
-            insight=most_popular_pages_trends,
+        dashboards_api.add_insight_tile(
+            dashboard_id=website_dashboard.id,
+            insight_id=most_popular_pages_trends.id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
                 "xs": {
@@ -930,7 +929,7 @@ class HedgeboxMatrix(Matrix):
                 )
                 for order, (item_type, item_ref, item_name) in enumerate(
                     [
-                        ("dashboard", key_metrics_dashboard.pk, key_metrics_dashboard.name),
+                        ("dashboard", key_metrics_dashboard.id, key_metrics_dashboard.name),
                         ("insight", weekly_signups_insight.short_id, weekly_signups_insight.name),
                         ("insight", signups_by_country_insight.short_id, signups_by_country_insight.name),
                     ]

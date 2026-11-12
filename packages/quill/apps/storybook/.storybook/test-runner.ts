@@ -62,6 +62,7 @@ module.exports = {
                         checkStability()
                     })
                 },
+                undefined,
                 { timeout: 3000 }
             )
             .catch(() => {

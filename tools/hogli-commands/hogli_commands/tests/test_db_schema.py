@@ -400,6 +400,46 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
+@pytest.mark.parametrize(
+    "recorded,restores",
+    [
+        ([("posthog", "0001_initial"), ("posthog", "0002_newer_than_checkout")], False),
+        ([("posthog", "0001_initial")], True),
+        ([("posthog", "0000_replaced_by_squash"), ("posthog", "0001_initial")], True),
+        ([("posthog", "0001_initial"), ("stamphog", "0009_routed_away"), ("oauth2_provider", "0099_vendor")], True),
+    ],
+)
+def test_restore_schema_dump_refuses_dump_newer_than_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: list[tuple[str, str]], restores: bool
+) -> None:
+    migrations_dir = tmp_path / "posthog" / "migrations"
+    migrations_dir.mkdir(parents=True)
+    (migrations_dir / "0001_initial.py").write_text(
+        'class Migration:\n    replaces = [\n        ("posthog", "0000_replaced_by_squash"),\n    ]\n'
+    )
+    (migrations_dir / "0003_pending_in_checkout.py").write_text("")
+    rows = "".join(f"{row_id}\t{app}\t{name}\t2026-01-01 00:00:00+00\n" for row_id, (app, name) in enumerate(recorded))
+    schema_path = tmp_path / "schema.sql.gz"
+    with gzip.open(schema_path, "wt") as schema:
+        schema.write(f"SELECT 1;\nCOPY public.django_migrations (id, app, name, applied) FROM stdin;\n{rows}\\.\n")
+    restored: list[str] = []
+
+    monkeypatch.setattr(
+        db_schema, "get_managed_app_paths", lambda root: {"posthog": migrations_dir, "stamphog": tmp_path}
+    )
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog"])
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: None)
+    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: restored.append(target_db))
+
+    if restores:
+        db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
+        assert restored == ["test_posthog"]
+    else:
+        with pytest.raises(db_schema.SchemaRestoreError, match="posthog.0002_newer_than_checkout"):
+            db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
+        assert restored == []
+
+
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)

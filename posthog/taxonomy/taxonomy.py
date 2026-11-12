@@ -550,6 +550,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$conversation_ticket_tag_added": {
+            "label": "Conversation ticket tag added",
+            "description": "Fires when a tag is added to a support conversation ticket.",
+        },
         "$slack_message_received": {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
@@ -1464,6 +1468,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "App build",
             "description": "The build number for the app.",
         },
+        "$app_language": {
+            "label": "App language",
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+        },
         "$app_name": {
             "label": "App name",
             "description": "The name of the app.",
@@ -1887,6 +1896,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag ID",
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
+        },
+        "$feature_flag_config_version": {
+            "label": "Feature flag config version",
+            "description": "The config format version of the feature flag that was called. Only sent for flags that use config version 2.",
+            "examples": ["2"],
+        },
+        "$feature_flag_reason_code": {
+            "label": "Feature flag reason code",
+            "description": "The machine-readable reason for the feature flag result. Sent in place of the feature flag evaluation reason for flags that use config version 2.",
+            "examples": ["experiment_split", "targeting_match", "rollout_miss", "holdout"],
+        },
+        "$feature_flag_rule_id": {
+            "label": "Feature flag rule ID",
+            "description": "The unique identifier of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_rule_type": {
+            "label": "Feature flag rule type",
+            "description": "The type of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["experiment", "percentage_rollout", "targeted_release"],
+        },
+        "$feature_flag_variant_key": {
+            "label": "Feature flag variant key",
+            "description": "The key of the experiment variant that the user was assigned to. Only sent for flags that use config version 2, when an experiment rule assigned a variant.",
+            "examples": ["control", "test"],
+        },
+        "locally_evaluated": {
+            "label": "Locally evaluated",
+            "description": "Whether the server SDK evaluated the feature flag locally, without a request to PostHog.",
+            "examples": ["true", "false"],
         },
         "$feature_flag_has_experiment": {
             "label": "Feature flag has experiment",
@@ -2929,7 +2968,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_status": {
             "label": "MCP error status",
-            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "description": "HTTP status code behind a failed MCP tool call (e.g. 429, 503). PostHog's own MCP server sets the status of the PostHog API request that failed. Servers using the MCP Analytics SDKs get the first status found on the thrown error or its cause chain. Only set when a status was found.",
             "type": "Numeric",
             "examples": [429, 500, 403],
         },

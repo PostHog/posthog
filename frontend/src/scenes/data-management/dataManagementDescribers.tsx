@@ -124,11 +124,17 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
     }
 
     if (logItem.activity == 'deleted') {
+        // The periodic task that deletes an event definition some time after its ingestion stopped
+        const reason =
+            logItem.detail.trigger?.job_type === 'scheduled_event_definition_deletion'
+                ? ' after its ingestion was stopped'
+                : ''
         return {
             summary: activityLogSummary(
                 logItem,
                 <>
                     Deleted the <DescribeType logItem={logItem} />
+                    {reason}
                 </>,
                 nameAndLink(logItem)
             ),
@@ -136,6 +142,23 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted <DescribeType logItem={logItem} />{' '}
                     {nameAndLink(logItem)}
+                    {reason}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'stopped_ingesting') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Stopped ingesting the event and scheduled its deletion',
+                nameAndLink(logItem)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> stopped ingesting event {nameAndLink(logItem)} and
+                    scheduled its deletion
                 </>
             ),
         }

@@ -45,6 +45,14 @@ pub fn parse_expr_with_emit<E: Emitter + Clone>(
     src: &str,
     is_internal: bool,
 ) -> Result<E::Value, ParseError> {
+    parse_expr_inner(emit, src, is_internal).map_err(|err| err.into_char_offsets(src))
+}
+
+fn parse_expr_inner<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+    is_internal: bool,
+) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
     p.suppress_pos = is_internal;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
@@ -77,6 +85,10 @@ pub fn parse_order_expr_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
 ) -> Result<E::Value, ParseError> {
+    parse_order_expr_inner(emit, src).map_err(|err| err.into_char_offsets(src))
+}
+
+fn parse_order_expr_inner<E: Emitter + Clone>(emit: E, src: &str) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
     let exprs = p.parse_order_expr_list()?;
     // cpp's `parse_order_expr_json` entry point silently drops any
@@ -101,6 +113,10 @@ pub fn parse_select_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
 ) -> Result<E::Value, ParseError> {
+    parse_select_inner(emit, src).map_err(|err| err.into_char_offsets(src))
+}
+
+fn parse_select_inner<E: Emitter + Clone>(emit: E, src: &str) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
     // `select` rule top-level admits a bare HogQLX tag element as the
     // third alternative (alongside selectSetStmt / selectStmt). The tag
@@ -124,6 +140,10 @@ pub fn parse_program_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
 ) -> Result<E::Value, ParseError> {
+    parse_program_inner(emit, src).map_err(|err| err.into_char_offsets(src))
+}
+
+fn parse_program_inner<E: Emitter + Clone>(emit: E, src: &str) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
     let prog = p.parse_program()?;
     p.expect_eof()?;
@@ -135,6 +155,13 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
 }
 
 pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    parse_full_template_string_inner(emit, src).map_err(|err| err.into_char_offsets(src))
+}
+
+fn parse_full_template_string_inner<E: Emitter + Clone>(
     emit: E,
     src: &str,
 ) -> Result<E::Value, ParseError> {

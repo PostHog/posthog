@@ -1,0 +1,34 @@
+{# Operation buttons. `operations` is a list of RenderedOperation from posthog/admin/console/views.py. #}
+<ul class="m-0 p-0 list-none grid grid-cols-[max-content_1fr] items-center gap-x-3 gap-y-2">
+    {% for rendered_operation in operations %}
+        {% with operation=rendered_operation.operation %}
+            <li class="grid grid-cols-subgrid col-span-2 items-center">
+                {% if not rendered_operation.allowed %}
+                    <button type="button"
+                            disabled
+                            class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                        {{ operation.label }}
+                    </button>
+                {% elif operation.form_class %}
+                    <a href="{{ rendered_operation.url }}"
+                       class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</a>
+                {% else %}
+                    <form method="post" action="{{ rendered_operation.url }}">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                            {{ operation.label }}
+                        </button>
+                    </form>
+                {% endif %}
+                <span class="text-xs text-muted-foreground">
+                    {% if operation.danger %}
+                        {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
+                    {% endif %}
+                    {{ operation.description }}
+                    {% if not rendered_operation.allowed %}Only {{ rendered_operation.gate.label }} can run this.{% endif %}
+                </span>
+            </li>
+        {% endwith %}
+    {% endfor %}
+</ul>

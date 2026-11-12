@@ -54,6 +54,7 @@ REQUEST_TIMEOUT_SECONDS = 120
 # headers. One file is retried on its own so a late failure does not restart the whole refresh.
 DOWNLOAD_ATTEMPTS = 3
 NO_MANIFEST = "NoManifest"
+NO_BILLING_PERIODS = "NoBillingPeriods"
 DELIVERY_IN_PROGRESS = "DeliveryInProgress"
 MANIFEST_UNREADABLE = "ManifestUnreadable"
 UNSUPPORTED_COMPRESSION = "UnsupportedCompression"
@@ -270,13 +271,16 @@ class S3Client:
         destination.seek(0)
 
 
-def list_billing_periods(client: S3Client, base: str, first_period: Optional[dt.date]) -> list[dt.date]:
-    periods: set[dt.date] = set()
+def list_billing_periods(client: S3Client, base: str, first_period: Optional[dt.date]) -> dict[dt.date, str]:
+    """Each billing period in range, oldest first, with the name of its partition directory."""
+    partitions: dict[dt.date, str] = {}
     for prefix in client.list_all(f"{base}/data/").prefixes:
         match = BILLING_PERIOD_DIRECTORY.search(prefix)
         if match:
-            periods.add(dt.date(int(match.group(1)), int(match.group(2)), 1))
-    return sorted(period for period in periods if first_period is None or period >= first_period)
+            partitions[dt.date(int(match.group(2)), int(match.group(3)), 1)] = match.group(1)
+    return {
+        period: partitions[period] for period in sorted(partitions) if first_period is None or period >= first_period
+    }
 
 
 def _strings(value: Any) -> Iterator[str]:
@@ -329,13 +333,12 @@ def manifest_column_types(manifest: Any) -> dict[str, str]:
     return types
 
 
-def latest_delivery(client: S3Client, bucket: str, base: str, export_name: str, period: dt.date) -> Optional[Delivery]:
+def latest_delivery(client: S3Client, bucket: str, base: str, export_name: str, partition: str) -> Optional[Delivery]:
     """The latest complete delivery of one billing period, or None while it has no manifest.
 
     AWS writes the manifest only after every data file of a delivery has landed, so a partition
     without one is still being delivered and its files would be incomplete.
     """
-    partition = f"BILLING_PERIOD={period:%Y-%m}"
     # An "overwrite" export writes `<export>-Manifest.json` and a "create new" one `Manifest.json`.
     # An export switched between the two leaves the old one behind, so the newer one wins.
     found: list[tuple[dt.datetime, str, S3Body]] = []
@@ -560,16 +563,22 @@ def get_rows(
     base = export_base(prefix, export_name)
     periods = list_billing_periods(client, base, parse_billing_period(first_billing_period))
     if not periods:
-        logger.warning(f"No billing periods found under s3://{bucket.strip()}/{base}/data/")
-        return
+        in_range = (
+            f" from {first_billing_period.strip()} on" if first_billing_period and first_billing_period.strip() else ""
+        )
+        raise AwsCostAndUsageReportError(
+            f"{ERROR_PREFIX}: {NO_BILLING_PERIODS} - no billing period{in_range} under s3://{bucket.strip()}/{base}/data/. "
+            "Check the S3 path prefix, export name and first billing period of the source.",
+            NO_BILLING_PERIODS,
+        )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     delivered = 1 if resume is not None else 0
-    for period in periods:
+    for period, partition in periods.items():
         billing_period = f"{period:%Y-%m}"
         if resume is not None and billing_period < resume.billing_period:
             continue
-        delivery = latest_delivery(client, bucket.strip(), base, export_name, period)
+        delivery = latest_delivery(client, bucket.strip(), base, export_name, partition)
         if delivery is None:
             logger.warning(f"Skipping billing period {billing_period}: AWS has not finished delivering it")
             continue

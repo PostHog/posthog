@@ -2,14 +2,24 @@
 
 import pytest
 
+from django.db import connections
 from django.db.models.signals import post_save
+from django.test.utils import CaptureQueriesContext
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunReviewFilter, RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.logic import approvals, artifact_store, errors, repos, run_queries, runs
+from products.visual_review.backend.facade.enums import (
+    BaselineMode,
+    RunReviewFilter,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.logic import approvals, artifact_store, errors, github_api, repos, run_queries, runs
+from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.logic.ledger_fakes import button_flow
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -195,7 +205,23 @@ class TestRunOperations:
         assert run.new_count == 2
         assert run.snapshots.count() == 2
 
-    def test_add_snapshots_idempotent(self, repo):
+    @pytest.mark.parametrize(
+        "first_batch,second_batch,expected_added,expected_hashes",
+        [
+            ([("btn", "h1")], [("btn", "h1")], 0, {"btn": "h1"}),
+            ([("btn", "h1")], [("btn", "h1"), ("card", "h2")], 1, {"btn": "h1", "card": "h2"}),
+            ([], [("btn", "h1"), ("btn", "h2")], 1, {"btn": "h1"}),
+        ],
+        ids=["resent_batch", "existing_and_new_identifiers", "duplicate_identifier_in_batch"],
+    )
+    def test_add_snapshots_counts_only_new_identifiers(
+        self,
+        repo: Repo,
+        first_batch: list[tuple[str, str]],
+        second_batch: list[tuple[str, str]],
+        expected_added: int,
+        expected_hashes: dict[str, str],
+    ) -> None:
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -208,14 +234,52 @@ class TestRunOperations:
             team_id=repo.team_id,
         )
 
-        for _ in range(2):
-            runs.add_snapshots_to_run(
+        def add(batch: list[tuple[str, str]]) -> int:
+            added, _uploads = runs.add_snapshots_to_run(
                 run_id=run.id,
                 team_id=repo.team_id,
-                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+                snapshots=[
+                    {"identifier": identifier, "content_hash": content_hash} for identifier, content_hash in batch
+                ],
             )
+            return added
 
-        assert run.snapshots.count() == 1
+        add(first_batch)
+
+        assert add(second_batch) == expected_added
+        run.refresh_from_db()
+        assert run.total_snapshots == len(expected_hashes)
+        assert dict(run.snapshots.values_list("identifier", "current_hash")) == expected_hashes
+
+    def test_add_snapshots_query_count_does_not_grow_per_snapshot(self, repo: Repo) -> None:
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
+            team_id=repo.team_id,
+        )
+
+        def add_new_snapshots(count: int, prefix: str) -> CaptureQueriesContext:
+            with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+                runs.add_snapshots_to_run(
+                    run_id=run.id,
+                    team_id=repo.team_id,
+                    snapshots=[
+                        {"identifier": f"{prefix}-{index}", "content_hash": f"{prefix}-{index}"}
+                        for index in range(count)
+                    ],
+                )
+            return queries
+
+        single_queries = add_new_snapshots(1, "single")
+        scaled_queries = add_new_snapshots(5, "scaled")
+
+        assert len(scaled_queries) <= len(single_queries)
 
     def test_add_snapshots_rejects_non_pending(self, repo):
         run, _ = runs.create_run(
@@ -905,3 +969,26 @@ class TestRecomputeRun:
 
         assert result["ci_rerun_triggered"] is False
         assert "403" in result["ci_rerun_error"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestCompleteRunByBaselineMode:
+    def test_a_ledger_that_cannot_place_the_run_fails_a_ledger_mode_run(self, team, mocker):
+        _repo, _git, flow = button_flow(team.id, BaselineMode.LEDGER, mocker, external_id=99996)
+        mocker.patch.object(github_api, "default_branch_name", return_value=None)
+
+        run = flow.run("p1a", {"Button": "b0"}, branch="feat", pr_number=1)
+
+        assert run.status == RunStatus.FAILED
+        assert "default branch" in run.error_message
+
+    def test_a_ledger_that_cannot_place_the_run_leaves_a_shadow_mode_run_complete(self, team, mocker):
+        _repo, _git, flow = button_flow(team.id, BaselineMode.SHADOW, mocker, external_id=99996)
+        mocker.patch.object(github_api, "default_branch_name", return_value=None)
+
+        run = flow.run("p1a", {"Button": "b0"}, branch="feat", pr_number=1)
+
+        assert run.status == RunStatus.COMPLETED
+        record = BaselineRecord.from_json(run.metadata[METADATA_KEY])
+        assert record is not None and record.mode == BaselineMode.SHADOW
+        assert "default branch" in record.unavailable_reason

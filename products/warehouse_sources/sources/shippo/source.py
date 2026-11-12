@@ -142,6 +142,8 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

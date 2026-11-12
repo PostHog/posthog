@@ -5,8 +5,8 @@ use etcd_client::{Compare, CompareOp, DeleteOptions, Txn, TxnOp, WatchStream};
 use super::{count_call, PersonhogStore, StoreKey};
 use crate::error::Result;
 use crate::types::{
-    ChangelogConfig, DrainReport, Generation, MigrationPhase, MigrationRequest, MigrationState,
-    SealAck,
+    ChangelogConfig, ClusterEndpoint, DrainReport, Generation, MigrationPhase, MigrationRequest,
+    MigrationState, SealAck,
 };
 
 impl PersonhogStore {
@@ -146,10 +146,12 @@ impl PersonhogStore {
             topic: migration.from.topic.clone(),
             partitions: migration.from.partitions,
             epoch: config.epoch,
+            cluster: migration.from.cluster.clone(),
         });
         let flipped = ChangelogConfig {
             topic: migration.to.topic.clone(),
             partitions: migration.to.partitions,
+            cluster: migration.to.cluster.clone(),
             epoch: config.epoch + 1,
             writer_group: config.writer_group.clone(),
             retire_groups: config.retire_groups.clone(),
@@ -316,6 +318,33 @@ impl PersonhogStore {
                     Some(DeleteOptions::new().with_prefix()),
                 ),
             ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    /// Records the cluster of a live config that has none, at its epoch. Refused while a
+    /// migration is requested or running, since a request names the live config as it was.
+    pub async fn set_changelog_cluster(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+        cluster: &ClusterEndpoint,
+    ) -> Result<bool> {
+        count_call("set_changelog_cluster");
+        if config.cluster.is_some() {
+            return Ok(false);
+        }
+        let named = ChangelogConfig {
+            cluster: Some(cluster.clone()),
+            ..config.clone()
+        };
+        let key = self.key(StoreKey::ChangelogConfig);
+        let txn = Txn::new()
+            .when(vec![
+                Compare::mod_revision(key.clone(), CompareOp::Equal, mod_revision),
+                Compare::create_revision(self.key(StoreKey::Migration), CompareOp::Equal, 0),
+                Compare::create_revision(self.key(StoreKey::MigrationRequest), CompareOp::Equal, 0),
+            ])
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&named)?, None)]);
         Ok(self.inner.txn(txn).await?.succeeded())
     }
 

@@ -1,6 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { urls } from 'scenes/urls'
 
@@ -11,9 +12,15 @@ export interface LineageTarget {
     lookup: DataModelingNodesRetrieveLookup
 }
 
-export function SeeLineageMenuItem({ target }: { target: LineageTarget }): JSX.Element {
+export function SeeLineageMenuItem({
+    target,
+    MenuItem = DropdownMenuItem,
+}: {
+    target: LineageTarget
+    MenuItem?: typeof ContextMenuItem | typeof DropdownMenuItem
+}): JSX.Element {
     return (
-        <DropdownMenuItem asChild>
+        <MenuItem asChild>
             <Link
                 to={combineUrl(urls.nodeDetail(target.id, 'lineage'), { lookup: target.lookup }).url}
                 onClick={(e) => e.stopPropagation()}
@@ -22,6 +29,6 @@ export function SeeLineageMenuItem({ target }: { target: LineageTarget }): JSX.E
             >
                 See lineage
             </Link>
-        </DropdownMenuItem>
+        </MenuItem>
     )
 }

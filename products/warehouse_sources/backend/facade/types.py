@@ -22,6 +22,7 @@ __all__ = [
     "ExternalDataSchemaStatus",
     "ExternalDataSchemaSyncFrequency",
     "ExternalDataSchemaSyncType",
+    "SettableSyncFrequency",
     "ExternalDataSourceAccessMethod",
     "ExternalDataSourceCreatedVia",
     "ExternalDataSourceStatus",
@@ -59,6 +60,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
+    recommended: bool
+    notes: list[str]
 
 
 class PartitionSettings(typing.NamedTuple):
@@ -1646,10 +1649,41 @@ class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
     # TODO provide flexible schedule definition
 
 
+class SettableSyncFrequency(LabeledStrEnum):
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor.
+
+    There is no "never": a table that should not sync sets should_sync to false instead.
+    """
+
+    FIVE_MINUTES = "5min", "5min"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
+
 class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class WarehouseColumnSensitivity(LabeledStrEnum):
+    """The kind of personal or secret data a column's name and type suggest it holds."""
+
+    EMAIL = "email", "Email"
+    PHONE = "phone", "Phone"
+    NAME = "name", "Name"
+    ADDRESS = "address", "Address"
+    DATE_OF_BIRTH = "date_of_birth", "Date of birth"
+    IP_ADDRESS = "ip_address", "IP address"
+    TOKEN = "token", "Token"
+    SECRET = "secret", "Secret"
+    CARD_NUMBER = "card_number", "Card number"
 
 
 class UploadedFileFormat(LabeledStrEnum):

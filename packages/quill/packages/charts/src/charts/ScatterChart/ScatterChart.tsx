@@ -94,7 +94,7 @@ export interface ScatterChartProps<Meta = unknown> {
 
 export function ScatterChart<Meta = unknown>({ onError, ...rest }: ScatterChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <ScatterChartInner {...rest} />
         </ChartErrorBoundary>
     )

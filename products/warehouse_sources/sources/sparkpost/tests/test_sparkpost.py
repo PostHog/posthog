@@ -1,9 +1,10 @@
 import json
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import pyarrow as pa
@@ -35,6 +36,7 @@ from products.warehouse_sources.sources.sparkpost.sparkpost import (
 )
 
 HOST = "https://api.sparkpost.com"
+NOW = datetime(2026, 3, 10, 15, 30, tzinfo=UTC)
 
 
 def _response(results: Any, links: Any = None) -> Response:
@@ -189,6 +191,89 @@ class TestPaginationAndResume:
         # The resumed run starts at the saved next-page URL and drops the initial cursor params.
         assert result.urls[0] == "https://api.sparkpost.com/resume-here"
         assert dict(result.requests[0].query) == {}
+
+    @pytest.mark.parametrize(
+        ("db_incremental_field_last_value", "expected_days"),
+        [
+            # Incremental runs re-fetch the watermark day, which was still in progress at the last sync.
+            (datetime(2026, 3, 8, 0, 0, tzinfo=UTC), ["2026-03-08", "2026-03-09", "2026-03-10"]),
+            ("2026-03-09", ["2026-03-09", "2026-03-10"]),
+            # A watermark ahead of the clock still requests today rather than nothing.
+            (date(2026, 3, 12), ["2026-03-10"]),
+        ],
+    )
+    def test_daily_window_requests_one_day_per_page_and_stamps_rows(
+        self, db_incremental_field_last_value: Any, expected_days: list[str]
+    ) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _run(
+                "bounce_reasons",
+                always(_page([{"reason": "550 mailbox unavailable", "classification_id": 10, "count_bounce": 3}])),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
+
+        assert result.params("from") == [f"{day}T00:00" for day in expected_days]
+        # The window ends at the next midnight: SparkPost leaves out the ``to`` minute itself.
+        assert result.params("to") == [
+            f"{(date.fromisoformat(day) + timedelta(days=1)).isoformat()}T00:00" for day in expected_days
+        ]
+        assert set(result.params("metrics")) == {
+            "count_bounce,count_inband_bounce,count_outofband_bounce,count_admin_bounce"
+        }
+        assert set(result.params("limit")) == {"10000"}
+        assert [row["date"] for row in result.rows] == expected_days
+        assert result.saved_states == [SparkPostResumeConfig(next_day=day) for day in expected_days[1:]]
+
+    def test_daily_window_first_sync_reaches_back_over_metrics_retention(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _run("delay_reasons", always(_page([])))
+
+        days = result.params("from")
+        assert len(days) == 181
+        assert (days[0], days[-1]) == ("2025-09-11T00:00", "2026-03-10T00:00")
+        assert result.params("metrics") == [None] * 181
+
+    def test_daily_window_resumes_from_saved_day(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _run(
+                "deliverability_by_template",
+                always(_page([{"template_id": "welcome", "count_sent": 5}])),
+                resume_state=SparkPostResumeConfig(next_day="2026-03-09"),
+            )
+
+        assert result.params("from") == ["2026-03-09T00:00", "2026-03-10T00:00"]
+        assert [(row["date"], row["template_id"]) for row in result.rows] == [
+            ("2026-03-09", "welcome"),
+            ("2026-03-10", "welcome"),
+        ]
+
+    @pytest.mark.parametrize(("row_count", "expects_warning"), [(9999, False), (10000, True)])
+    def test_daily_window_warns_when_a_breakdown_reaches_the_row_limit(
+        self, row_count: int, expects_warning: bool
+    ) -> None:
+        rows = [{"reason": f"reason {i}", "domain": "example.com"} for i in range(row_count)]
+        with (
+            time_machine.travel(NOW, tick=False),
+            mock.patch("products.warehouse_sources.sources.sparkpost.sparkpost.LOGGER") as logger,
+        ):
+            result = _run(
+                "delay_reasons_by_domain",
+                always(_page(rows)),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 10),
+            )
+
+        assert len(result.rows) == row_count
+        if expects_warning:
+            logger.warning.assert_called_once()
+            assert logger.warning.call_args.kwargs == {
+                "endpoint": "delay_reasons_by_domain",
+                "day": "2026-03-10",
+                "limit": 10000,
+            }
+        else:
+            logger.warning.assert_not_called()
 
     @pytest.mark.parametrize(
         "resume_url",

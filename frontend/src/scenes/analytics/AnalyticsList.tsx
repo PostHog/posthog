@@ -26,7 +26,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Spinner,
     Text,
 } from '@posthog/quill'
 
@@ -40,9 +39,10 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
-import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
+import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
@@ -255,14 +255,6 @@ function AnalyticsListContent(): JSX.Element {
                             empty={EMPTY_COLLECTION}
                         />
                     </Card>
-                )}
-                {hasMore && (
-                    <div className="flex items-center justify-center gap-2 py-3" aria-busy>
-                        <Spinner />
-                        <Text size="xs" variant="muted">
-                            Loading more…
-                        </Text>
-                    </div>
                 )}
             </div>
         )

@@ -4,7 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import type { MetricsDashboardTemplateApi } from 'products/metrics/frontend/generated/api.schemas'
@@ -41,12 +41,7 @@ export function QuillDashboardTemplateDetailActions({
                 data-attr="metrics-dashboard-review-edit-with-ai"
             >
                 <IconSparkles className="text-ai" />
-                <span
-                    className={cn(
-                        'rainbow-text font-semibold',
-                        !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
-                    )}
-                >
+                <span className={cn('rainbow-text font-semibold', !inStorybook() && 'rainbow-text-animating')}>
                     Edit with PostHog AI
                 </span>
             </Button>

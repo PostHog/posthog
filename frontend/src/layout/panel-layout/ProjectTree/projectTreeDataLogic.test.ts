@@ -134,17 +134,25 @@ describe('projectTreeDataLogic', () => {
         }
     )
 
-    it.each([false, true])('shows a starred flagged product only while its flag is on (%s)', (flagOn) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]: flagOn })
+    it.each<[string, string[], string[]]>([
+        ['its flag is off', [], ['Models', 'SQL editor']],
+        ['its flag is on', [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION], ['ELT', 'Models', 'SQL editor']],
+        [
+            'both catalog flags hide Models',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            ['SQL editor'],
+        ],
+        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['Models', 'SQL editor']],
+    ])('shows starred products by their flags when %s', (_case, enabledFlags, expectedNames) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
         logic.actions.loadShortcutsSuccess([
             { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
+            { id: 'star-models', path: 'Models', type: 'product', href: urls.models() },
             { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
         ])
 
-        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(
-            flagOn ? ['ELT', 'SQL editor'] : ['SQL editor']
-        )
-        expect(logic.values.shortcutData).toHaveLength(2)
+        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(expectedNames)
+        expect(logic.values.shortcutData).toHaveLength(3)
     })
 
     it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {

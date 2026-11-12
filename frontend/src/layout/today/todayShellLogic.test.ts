@@ -19,6 +19,7 @@ import {
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -47,7 +48,7 @@ describe('todayShellLogic', () => {
         ['/project/1/dashboard/12', 'analytics'],
         ['/project/1/notebooks', 'analytics'],
         ['/project/1/dashboard', 'analytics'],
-        ['/project/1/persons', 'products'],
+        ['/project/1/persons', 'people'],
         ['/project/1/activity/events', 'products'],
         ['/project/1/settings/project-replay', 'settings'],
         ['/organization/billing/overview', 'settings'],
@@ -58,6 +59,65 @@ describe('todayShellLogic', () => {
     ])('puts %s under %s', (pathname, pane) => {
         expect(railPaneForPath(pathname)).toBe(pane)
     })
+
+    test.each([
+        ['/project/1/persons/0190-uuid', 'people'],
+        ['/project/1/person/ada%40example.com', 'people'],
+        ['/project/1/cohorts', 'people'],
+        ['/project/1/cohorts/5', 'people'],
+        ['/project/1/groups/0', 'people'],
+        ['/project/1/groups/0/acme', 'people'],
+        ['/project/1/customer_analytics/dashboard', 'people'],
+        ['/project/1/customer_analytics/journeys', 'people'],
+        ['/project/1/customer_analytics/journeys/new', 'people'],
+        ['/project/1/customer_analytics/accounts', 'people'],
+        ['/project/1/customer_analytics/accounts/1', 'people'],
+        ['/project/1/customer_analytics/feed', 'people'],
+        ['/project/1/support/tickets', 'people'],
+        ['/project/1/support/tickets/12', 'people'],
+        ['/project/1/customer_analytics/configuration', 'people'],
+    ])('puts %s under %s', (pathname, pane) => {
+        expect(railPaneForPath(pathname)).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/person/ada%40example.com', 'analytics'],
+        ['/project/1/persons/0190-uuid', 'analytics'],
+        ['/project/1/groups/0/acme', 'analytics'],
+        ['/project/1/cohorts/5', 'analytics'],
+        ['/project/1/persons', 'people'],
+        ['/project/1/groups/0', 'people'],
+        ['/project/1/cohorts', 'people'],
+    ])('%s opened from an insight shows the %s pane', (pathname, pane) => {
+        router.actions.push('/project/1/insights/abc')
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['a rail pick on Analytics', '/project/1/airplane', 'analytics', 'analytics'],
+        ['a fresh load of an insight', '/project/1/insights/abc', null, 'analytics'],
+        ['a rail pick on Products', '/project/1/airplane', 'products', 'people'],
+    ] as const)(
+        'a person opened after %s (from %s, %s picked) shows the %s pane, and the persons list shows People',
+        (_, startPath, pickedPane, pane) => {
+            router.actions.push(startPath)
+            const logic = todayShellLogic()
+            logic.mount()
+
+            if (pickedPane) {
+                logic.actions.pickPane(pickedPane)
+            }
+            router.actions.push('/project/1/person/ada%40example.com')
+            expect(logic.values.activePane).toBe(pane)
+
+            router.actions.push('/project/1/persons')
+            expect(logic.values.activePane).toBe('people')
+        }
+    )
 
     test.each([
         ['/data-management/destinations', '/data-management/destinations?tab=all'],
@@ -91,7 +151,7 @@ describe('todayShellLogic', () => {
 
     test.each([
         ['home', false, '/home'],
-        ['spaces', true, '/spaces/new'],
+        ['spaces', true, '/ai/new'],
         ['spaces', false, '/ai'],
         ['analytics', false, '/analytics/all'],
         ['products', false, '/airplane'],
@@ -119,15 +179,26 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['home', 'new', urls.projectHomepage()],
-        ['spaces', 'new', urls.taskNewSession()],
-        ['spaces', 'legacy', urls.ai()],
-        ['analytics', 'new', urls.analyticsList()],
-        ['products', 'new', undefined],
-        ['settings', 'new', urls.settings('project')],
-    ] as const)('a rail pick on %s with the %s PostHog AI view opens %s', (pane, phaiView, href) => {
-        expect(railPaneHref(pane, phaiView)).toBe(href)
-    })
+        ['home', 'new', {}, urls.projectHomepage()],
+        ['spaces', 'new', {}, urls.taskNewSession()],
+        ['spaces', 'legacy', {}, urls.ai()],
+        ['analytics', 'new', {}, urls.analyticsList()],
+        ['products', 'new', {}, undefined],
+        ['settings', 'new', {}, urls.settings('project')],
+        ['people', 'new', {}, urls.persons()],
+        ['people', 'new', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }, urls.customerAnalyticsDashboard()],
+        [
+            'people',
+            'new',
+            { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true },
+            urls.customerAnalyticsDashboard(),
+        ],
+    ] as const)(
+        'a rail pick on %s with the %s PostHog AI view and flags %o opens %s',
+        (pane, phaiView, flags, href) => {
+            expect(railPaneHref(pane, phaiView, flags)).toBe(href)
+        }
+    )
 
     test.each(['spaces', 'analytics', 'products'] as const)(
         'a second rail click on %s hides the sidebar it opened',
@@ -169,6 +240,56 @@ describe('todayShellLogic', () => {
 
         router.actions.push('/project/1/ai')
         expect(logic.values.activePane).toBe('spaces')
+    })
+
+    test.each([
+        ['/project/1/dashboard', 'products'],
+        ['/project/1/sql', 'products'],
+        ['/project/1/support/tickets', 'products'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/cohorts', 'products'],
+        ['/project/1/groups/0', 'products'],
+        ['/project/1/customer_analytics/accounts', 'products'],
+        ['/project/1/person/ada%40example.com', 'people'],
+    ])('%s opened while the Products pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('products')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/replay/home', 'analytics'],
+        ['/project/1/replay/0193a2b4-recording', 'analytics'],
+        ['/project/1/heatmaps', 'analytics'],
+        ['/project/1/sql', 'analytics'],
+        ['/project/1/feature-flags', 'products'],
+    ])('%s opened while the Analytics pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('analytics')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/cohorts', 'products'],
+        ['/project/1/ai', 'spaces'],
+    ])('a reload on %s after picking the Products pane shows the %s pane', (pathname, pane) => {
+        todayShellLogic.mount()
+        todayShellLogic.actions.pickPane('products')
+        router.actions.push('/project/1/persons')
+
+        // A reload starts a new kea context and keeps localStorage.
+        initKeaTests()
+        router.actions.push(pathname)
+        todayShellLogic.mount()
+        expect(todayShellLogic.values.activePane).toBe(pane)
     })
 
     it('sizes the left navigation from the clamped sidebar width, and from the rail alone when hidden', () => {

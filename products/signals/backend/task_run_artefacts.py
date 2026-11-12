@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from django.db import transaction
 
+from pydantic import ValidationError
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
@@ -32,7 +34,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.billing import mark_report_billing_exempt, report_has_implementation_pr
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
-from products.signals.backend.report_claims import get_active_claim, is_user_claim_of, is_user_claim_of_task_creator
+from products.signals.backend.report_claims import get_active_claim, is_claim_of_person, is_claim_of_task_creator
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -218,6 +220,59 @@ def _implementation_slot_claim(
     return None
 
 
+def implementation_in_flight_report_ids(*, team_id: int, report_ids: Sequence[str]) -> set[str]:
+    """The reports whose implementation run is still working, by the same rule as the slot.
+
+    One query for a page of reports, so every surface can block Create PR on a run in flight.
+    """
+    if not report_ids:
+        return set()
+    rows = (
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id__in=report_ids, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .exclude(task__deleted=True)
+        .values_list("report_id", "task_id", "task__runs__status", "task__runs__output__pr_url")
+    )
+    runs_by_task: dict[tuple[str, str], list[tuple[str | None, object]]] = {}
+    for report_id, task_id, status, pr_url in rows:
+        runs_by_task.setdefault((str(report_id), str(task_id)), []).append((status, pr_url))
+    return {
+        report_id
+        for (report_id, _task_id), runs in runs_by_task.items()
+        if _runs_claim_implementation_slot(runs) is _ImplementationSlotClaim.IN_FLIGHT
+    }
+
+
+def _release_settled_task_claim(*, team_id: int, report_id: str, task_id: str) -> None:
+    """Release a task claim whose implementation run ended without a PR, so another task can run again.
+
+    A task claim names no person, so nobody owns the report once that run settles. A run still
+    working keeps its claim, and so does one that shipped a PR. Creating a task releases any task
+    claim in `enforce_report_task_cap`, so only a rerun of an existing task needs this. The caller
+    holds the report row lock.
+    """
+    claim = get_active_claim(team_id=team_id, report_id=report_id)
+    if (
+        claim is None
+        or claim.actor_kind != "task"
+        or claim.actor_task_id is None
+        or str(claim.actor_task_id) == task_id
+    ):
+        return
+    runs: list[tuple[str | None, object]] = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            task_id=claim.actor_task_id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        ).values_list("task__runs__status", "task__runs__output__pr_url")
+    )
+    if not runs or _runs_claim_implementation_slot(runs) is not None:
+        return
+    release_claim(claim, ArtefactAttribution.from_task(task_id), takeover=True)
+
+
 def enforce_report_task_cap(
     *,
     team_id: int,
@@ -251,8 +306,8 @@ def enforce_report_task_cap(
         if claim is not None:
             raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
         assignment = get_active_claim(team_id=team_id, report_id=report_id)
-        if assignment and is_user_claim_of(assignment, created_by_id):
-            # The person who claimed the report starts the task, and the task works under their claim.
+        if assignment and is_claim_of_person(assignment, created_by_id):
+            # The claim's owner starts the task, directly or through their agent, so it works under that claim.
             return
         if assignment and assignment.actor_kind:
             if assignment.actor_kind != "task":
@@ -326,12 +381,13 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
+    _release_settled_task_claim(team_id=team_id, report_id=report_id, task_id=task_id)
     assignment = get_active_claim(team_id=team_id, report_id=report_id)
     if (
         assignment
         and assignment.actor_kind
         and str(assignment.actor_task_id) != task_id
-        and not is_user_claim_of_task_creator(assignment, task_id)
+        and not is_claim_of_task_creator(assignment, task_id)
     ):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
@@ -339,7 +395,40 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
     if claim is not None:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
-    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    claim_report_for_task(
+        team_id=team_id,
+        report_id=report_id,
+        task_id=task_id,
+        for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+    )
+
+
+def implementation_started_by_person(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether a person started this implementation task by hand, rather than auto-start.
+
+    Auto-start stamps its generated branch on the run artefact of every run it starts, and the
+    manual start-task API leaves it unset. One stamped run makes the task automatic, because
+    auto-start runs a task as a suggested reviewer who never took the work on. A row that does not
+    parse also counts as automatic, so that no claim names a person without evidence.
+    """
+    rows = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        task_id=task_id,
+    ).values_list("content", flat=True)
+    found = False
+    for content in rows:
+        try:
+            artefact = TaskRunArtefact.model_validate_json(content)
+        except ValidationError:
+            return False
+        if artefact.type != TASK_RUN_TYPE_IMPLEMENTATION:
+            continue
+        if artefact.automation_branch is not None:
+            return False
+        found = True
+    return found
 
 
 def record_implementation_task(
@@ -387,7 +476,12 @@ def record_implementation_task(
         attribution=ArtefactAttribution.from_task(task_id),
     )
     try:
-        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+        claim_report_for_task(
+            team_id=team_id,
+            report_id=report_id,
+            task_id=task_id,
+            for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+        )
     except ReportClaimConflict as error:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=str(error)) from error
     return artefact

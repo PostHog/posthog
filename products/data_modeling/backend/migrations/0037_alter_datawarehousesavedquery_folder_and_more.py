@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0036_alter_dag_team_and_more"),
-        ("data_tools", "0002_alter_datawarehouseexpression_created_by_and_more"),
         ("posthog", "1350_alter_userscenepersonalisation_dashboard"),
     ]
 

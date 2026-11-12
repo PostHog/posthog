@@ -65,6 +65,9 @@ HTTP_NOT_ALLOWED_ERROR = "Chatwoot host must use HTTPS"
 RESPONSE_TOO_LARGE_ERROR = "Chatwoot response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Chatwoot response download was too slow"
 INVALID_ACCOUNT_ID_ERROR = "Chatwoot account ID must be a number"
+INVALID_ACCOUNT_ID_FORM_ERROR = (
+    "Your Chatwoot account ID must be a number. Copy the number after /accounts/ in your Chatwoot URL, then try again."
+)
 REPORTING_EVENTS_UNAVAILABLE_ERROR = "Chatwoot reporting events are not available on this instance"
 AUDIT_LOGS_UNAVAILABLE_ERROR = "Chatwoot audit logs are not available on this instance"
 
@@ -281,7 +284,7 @@ def validate_credentials(
     try:
         base_url = _account_base_url(host, account_id)
     except ValueError:
-        return False, INVALID_ACCOUNT_ID_ERROR
+        return False, INVALID_ACCOUNT_ID_FORM_ERROR
 
     if not _is_https(host):
         return False, HTTP_NOT_ALLOWED_ERROR
@@ -294,8 +297,20 @@ def validate_credentials(
         # stream=True so a customer-controlled host can't force us to buffer an unbounded probe
         # body: we only inspect the status line here.
         response = session.get(f"{base_url}/agents", timeout=15, allow_redirects=False, stream=True)
-    except Exception as e:
-        return False, f"Could not connect to Chatwoot: {e}"
+    except requests.exceptions.SSLError:
+        return False, (
+            "Couldn't establish a secure connection to Chatwoot because its TLS certificate failed verification. "
+            "Install a publicly trusted certificate on your instance, then try again."
+        )
+    except requests.exceptions.Timeout:
+        return (
+            False,
+            "Your Chatwoot instance took too long to respond. Check that the server is reachable, then try again.",
+        )
+    except requests.exceptions.ConnectionError:
+        return False, "Couldn't connect to Chatwoot. Check the instance URL is correct and the server is reachable."
+    except Exception:
+        return False, "Couldn't reach Chatwoot. Check the instance URL and that the server is online, then try again."
 
     try:
         if response.is_redirect or response.is_permanent_redirect:
@@ -311,8 +326,16 @@ def validate_credentials(
             )
         if response.status_code == 404:
             return False, "Chatwoot account not found. Check the account ID and instance URL."
+        if response.status_code == 403:
+            return False, (
+                "Your Chatwoot access token doesn't have permission to read this account. "
+                "Use an administrator's access token, then try again."
+            )
         if not response.ok:
-            return False, f"Chatwoot returned HTTP {response.status_code}"
+            return False, (
+                "Chatwoot couldn't complete the connection check. "
+                "Check the instance URL points at a healthy Chatwoot server, then try again."
+            )
         return True, None
     finally:
         response.close()
@@ -768,6 +791,12 @@ def _normalize_webhook_row(endpoint: str, row: dict[str, Any]) -> dict[str, Any]
         message_type = row.get("message_type")
         if isinstance(message_type, str):
             row["message_type"] = MESSAGE_TYPE_TO_INT.get(message_type, message_type)
+
+    if endpoint == "conversations":
+        # REST serializes first_reply_created_at with `.to_i` (0 before the first reply). The
+        # webhook presenter sends the raw time (an ISO string, or null), which does not fit the
+        # int64 column that the first REST sync created.
+        row["first_reply_created_at"] = _iso_to_epoch(row.get("first_reply_created_at")) or 0
 
     if row.get("id") is None:
         return None

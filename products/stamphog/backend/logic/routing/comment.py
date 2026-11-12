@@ -11,7 +11,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 
 ROUTING_COMMENT_MARKER = "<!-- stamphog-reviewer-routing -->"
 
-_REASON_MAX_CHARS = 200
+REASON_MAX_CHARS = 200
 _CODE_SPAN_BREAKERS_RE = re.compile(r"[`\x00-\x1f\x7f]")
 # Backslash-escaped ASCII punctuation is literal in CommonMark, so a reason cannot open a link,
 # an image, an HTML tag, a table cell or emphasis. Block markers such as `#` or `-` need no escape,
@@ -25,14 +25,22 @@ def sanitize_for_code_span(text: str) -> str:
     return _CODE_SPAN_BREAKERS_RE.sub("?", text)
 
 
-def _plain_reason(reason: str) -> str:
-    # The model reads untrusted pull request content, so its reason is untrusted too. Joining on
-    # whitespace removes every line break, which keeps the reason inside its list item.
+def clean_reason(reason: str) -> str:
+    """The model's reason as one line of plain text, cut to `REASON_MAX_CHARS`, with active markdown neutralized.
+
+    The model reads untrusted pull request content, so its reason is untrusted too. The routing comment
+    and the routing run log both start from this.
+    """
+    # Joining on whitespace removes every line break, which keeps the reason inside its list item.
     text = " ".join(reason.split())
     text = _CODE_SPAN_BREAKERS_RE.sub("", text)
-    if len(text) > _REASON_MAX_CHARS:
-        text = text[: _REASON_MAX_CHARS - 3].rstrip() + "..."
-    text = neutralize_active_markdown(text)
+    if len(text) > REASON_MAX_CHARS:
+        text = text[: REASON_MAX_CHARS - 3].rstrip() + "..."
+    return neutralize_active_markdown(text)
+
+
+def _plain_reason(reason: str) -> str:
+    text = clean_reason(reason)
     text = _MARKDOWN_PUNCTUATION_RE.sub(r"\\\1", text)
     # A zero-width space after `@` stops GitHub from turning the text into a mention.
     return text.replace("@", "@​")
@@ -48,9 +56,14 @@ def render_routing_comment(*, decision: RoutingDecision, org: str) -> str | None
         "These owners were not requested because their part of this change looks trivial:",
         "",
     ]
+    # A change the pull request repeats across many owners gets the same reason for each, so one
+    # line per reason keeps the comment short.
+    handles_by_reason: dict[str, list[str]] = {}
     for cut in decision.cut:
         handle = sanitize_for_code_span(owner_handle(cut.candidate.owner, org))
-        lines.append(f"- `{handle}`: {_plain_reason(cut.reason)}")
+        handles_by_reason.setdefault(_plain_reason(cut.reason), []).append(f"`{handle}`")
+    for reason, handles in handles_by_reason.items():
+        lines.append(f"- {', '.join(handles)}: {reason}")
     lines += ["", "If you were listed here and want to review, you can still assign yourself as a reviewer."]
     return "\n".join(lines)
 

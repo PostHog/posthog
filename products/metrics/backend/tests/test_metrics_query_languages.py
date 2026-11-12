@@ -34,6 +34,7 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.metrics.backend.facade.contracts import MetricPoint
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.series import rank_and_fill_series
 from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.tests._seeder import seed_metric
@@ -409,7 +410,9 @@ def _snuffle_response(status_code: int, payload: dict[str, Any]) -> MagicMock:
     return response
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
+@override_settings(
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+)
 @time_machine.travel(NOW, tick=False)
 class TestMetricsPromQLMode(APIBaseTest):
     def _runner(self, promql: str = "sum by (job) (rate(http_requests_total))") -> MetricsQueryRunner:
@@ -443,6 +446,9 @@ class TestMetricsPromQLMode(APIBaseTest):
         assert [point.value for point in by_job["worker"].points] == [None, 4.0]
         assert [point.value for point in by_job["api"].points] == [1.5, None]
         assert by_job["worker"].metricName == "up"
+        assert [(count.metric_name, count.query_count) for count in list_metric_query_counts(self.team)] == [
+            ("http_requests_total", 1)
+        ]
 
     @parameterized.expand(
         [
@@ -621,7 +627,7 @@ class TestMetricsPromQLMode(APIBaseTest):
                 self._runner().calculate()
 
     def test_explains_when_snuffle_is_not_configured(self) -> None:
-        with override_settings(SNUFFLE_APM_URL=""):
+        with override_settings(SNUFFLE_METRICS_URL=""):
             with pytest.raises(ExposedHogQLError, match="not available"):
                 self._runner().calculate()
 

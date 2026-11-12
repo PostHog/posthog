@@ -12,6 +12,7 @@ from dns.rdtypes.ANY.NS import NS
 from dns.rdtypes.ANY.TXT import TXT
 from dns.rdtypes.IN.A import A
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.security.oob_domains import matched_oob_domain
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
+MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 
 
@@ -49,8 +51,11 @@ class PublishedRecords:
 # resolver then checks what they could not confirm, because they cannot follow a CNAME to another
 # zone, such as a DMARC record hosted by a DMARC reporting service.
 def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:
-    if (oob_domain := matched_oob_domain(domain)) is not None:
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=email_domain_dns", oob_domain)
+        # The lookup alone confirms the path to whoever runs the collaborator, so the name is
+        # refused rather than resolved. No record is published for it, so the domain never verifies.
+        return PublishedRecords(records=frozenset())
     authoritative = _authoritative_resolver(domain)
     from_zone = _published_with(authoritative, records) if authoritative else PublishedRecords(records=frozenset())
     from_public = _published_with(_system_resolver(), [record for record in records if record not in from_zone.records])
@@ -61,7 +66,7 @@ def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDoma
     if not records:
         return PublishedRecords(records=frozenset())
     lookups = {_lookup_for(record) for record in records}
-    with ThreadPoolExecutor(max_workers=len(lookups)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(lookups), MAX_PARALLEL_LOOKUPS)) as pool:
         answers = dict(zip(lookups, pool.map(lambda lookup: _resolve(resolver, lookup), lookups)))
     return PublishedRecords(
         records=frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or [])),
@@ -139,6 +144,8 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return any(_spf_includes(answer, record.value) for answer in answers)
         case _, RecordType.CNAME:
             return _normalized_hostname(record.value) in answers
+        case _, RecordType.MX if record.priority is None:
+            return any(answer.partition(" ")[2] == _normalized_hostname(record.value) for answer in answers)
         case _, RecordType.MX:
             return f"{record.priority} {_normalized_hostname(record.value)}" in answers
         case _:

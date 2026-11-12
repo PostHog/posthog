@@ -27,6 +27,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -37,7 +38,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
-from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, CheckValues, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -77,6 +78,38 @@ _MIN_PEOPLE_ASSIGNED_OUTSIDE = 10
 _OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
+OTHER_EXPERIMENT_DECIDES = "Another experiment on the same feature flag decides the flag's state"
+
+
+def flag_state_values(ctx: HealthContext) -> CheckValues:
+    flag = ctx.flag
+    if flag is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.FLAG_ACTIVE: flag.active,
+        ExperimentHealthValueKey.FLAG_DELETED: flag.deleted,
+        ExperimentHealthValueKey.FLAG_ROLLED_OUT: not _has_zero_rollout(flag),
+        ExperimentHealthValueKey.SHIPPED_VARIANT: shipped_variant_key(flag)
+        if is_single_variant_shipped(flag)
+        else None,
+        # After the end, a call of the flag decides whether a flag that still serves variants is a warning.
+        **_last_called_values(ctx.flag_last_called_at if ctx.has_ended else None),
+        **_assigned_outside_values(ctx),
+    }
+
+
+def _assigned_outside_values(ctx: HealthContext) -> CheckValues:
+    # At a 0% rollout, the people who still got a variant decide between the note and the warning.
+    traffic = ctx.condition_set_traffic
+    if traffic is None or not needs_outside_assignment_check(ctx):
+        return {}
+    return {ExperimentHealthValueKey.ASSIGNED_OUTSIDE_COUNT: traffic.people_assigned_outside}
+
+
+def _last_called_values(last_called_at: datetime | None) -> CheckValues:
+    if last_called_at is None:
+        return {}
+    return {ExperimentHealthValueKey.FLAG_LAST_CALLED_AT: last_called_at.astimezone(UTC).isoformat()}
 
 
 def flag_state(ctx: HealthContext) -> CheckOutcome:
@@ -140,7 +173,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
         if _running_others(ctx):
-            return None
+            return not_applicable(OTHER_EXPERIMENT_DECIDES)
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
@@ -199,7 +232,7 @@ def _flag_disabled(pause: PauseHistory | None, *, running_others: int) -> Experi
                 "conclusion."
             ),
         )
-    if pause is not None and pause.launched_at >= PAUSE_ENTRIES_SINCE:
+    if pause is not None and pause.start_date >= PAUSE_ENTRIES_SINCE:
         return _finding(
             code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
             subcode=RUNNING_BUT_FLAG_DISABLED,
@@ -248,11 +281,11 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
     )
 
 
-def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
+def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | CheckSkip:
     others = ctx.other_experiments_on_flag
     # The flag's state belongs to the later experiment, and that experiment's own check reports it.
     if any(_serves_later_experiment(other, ended_at) for other in others):
-        return None
+        return not_applicable(OTHER_EXPERIMENT_DECIDES)
     if any(other.is_draft and not other.archived for other in others):
         return _shared_with_draft(ended_at, ctx.team_timezone)
     if ctx.flag_called_after_end is True:
@@ -268,7 +301,8 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
     if ctx.flag_called_after_end is False:
         return _ended_flag_not_called(ended_at, ctx.flag_last_called_at, ctx.team_timezone)
     # Info, because only a recorded call shows that users still get a variant. PostHog can't tell yet in the first
-    # days after the end, and never for an organization whose flag calls it can't read.
+    # days after the end, and never for an organization whose flag calls it can't read or for a reader who can't
+    # read them.
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
         subcode=ENDED_FLAG_CALLS_UNKNOWN,
@@ -282,7 +316,7 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
 
 
 def _serves_later_experiment(other: ExperimentOnFlag, ended_at: datetime) -> bool:
-    return other.launched_at is not None and (other.ended_at is None or other.launched_at > ended_at)
+    return other.start_date is not None and (other.ended_at is None or other.start_date > ended_at)
 
 
 def _shared_with_draft(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:

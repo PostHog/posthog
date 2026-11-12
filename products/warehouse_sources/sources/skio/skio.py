@@ -17,7 +17,9 @@ from products.warehouse_sources.sources.skio.settings import (
     ENDPOINTS,
     SKIO_GRAPHQL_URL,
     SKIO_PAGE_SIZE,
+    SKIO_PARENT_PAGE_SIZE,
     SkioEndpointConfig,
+    SkioParentConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -42,10 +44,14 @@ class SkioAPIError(Exception):
 class SkioResumeConfig:
     """Keyset cursor: the last row already yielded. The next page filters strictly past it, so a
     resumed run continues exactly after the last committed batch. `last_value` is the incremental
-    field's value on that row, unset on full refresh (which pages on `id` alone)."""
+    field's value on that row, unset on full refresh (which pages on `id` alone).
+
+    For an endpoint read through a parent, `parent_id` is the last parent whose rows were yielded,
+    and `last_id` / `last_value` locate the last row within that parent, unset once it is done."""
 
     last_id: str | None = None
     last_value: str | None = None
+    parent_id: str | None = None
 
 
 def _headers(api_token: str) -> dict[str, str]:
@@ -169,6 +175,124 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     return False, f"Skio API error: {messages}"
 
 
+def _row_cursor(row: dict[str, Any], field: str | None, parent_id: str | None = None) -> SkioResumeConfig:
+    return SkioResumeConfig(
+        last_id=str(row["id"]),
+        last_value=str(row[field]) if field and row.get(field) is not None else None,
+        parent_id=parent_id,
+    )
+
+
+def _get_top_level_rows(
+    session: requests.Session,
+    api_token: str,
+    config: SkioEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SkioResumeConfig],
+    field: str | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    document = config.query_document
+    cursor = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    order_by = _build_order_by(field)
+
+    while True:
+        variables: dict[str, Any] = {"limit": SKIO_PAGE_SIZE, "orderBy": order_by}
+        where = _build_where(field, db_incremental_field_last_value, cursor)
+        if where is not None:
+            variables["where"] = where
+
+        data = _post_query(session, api_token, document, variables, logger)
+        rows = data.get(config.query_name) or []
+        if not rows:
+            break
+
+        cursor = _row_cursor(rows[-1], field)
+        # Staged before the yield it covers: the pipeline commits right after it writes these rows,
+        # so a resumed run picks up exactly after the last written batch.
+        resumable_source_manager.save_state(cursor)
+        yield rows
+
+        if len(rows) < SKIO_PAGE_SIZE:
+            break
+
+
+def _get_nested_rows(
+    session: requests.Session,
+    api_token: str,
+    config: SkioEndpointConfig,
+    parent: SkioParentConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SkioResumeConfig],
+    field: str | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read an array relationship a page of parents at a time, each parent with up to one page of
+    rows. Rows are ordered per parent, not across the table."""
+    document = config.query_document
+    order_by = _build_order_by(field)
+    row_filter = _build_where(field, db_incremental_field_last_value, None)
+    # Restrict parents to those with at least one matching row, so full refresh skips the parents
+    # without any and incremental reads only the parents with changes since the watermark.
+    has_rows = {config.query_name: row_filter or {"id": {"_is_null": False}}}
+
+    def fetch_rows_of(parent_id: str, cursor: SkioResumeConfig) -> list[dict[str, Any]]:
+        variables: dict[str, Any] = {
+            "parentLimit": 1,
+            "parentWhere": {"id": {"_eq": parent_id}},
+            "limit": SKIO_PAGE_SIZE,
+            "orderBy": order_by,
+        }
+        where = _build_where(field, db_incremental_field_last_value, cursor)
+        if where is not None:
+            variables["where"] = where
+        parents = _post_query(session, api_token, document, variables, logger).get(parent.query_name) or []
+        return (parents[0].get(config.query_name) or []) if parents else []
+
+    def read_parent(parent_id: str, rows: list[dict[str, Any]]) -> Iterator[list[dict[str, Any]]]:
+        while rows:
+            if len(rows) < SKIO_PAGE_SIZE:
+                resumable_source_manager.save_state(SkioResumeConfig(parent_id=parent_id))
+                yield rows
+                return
+            cursor = _row_cursor(rows[-1], field, parent_id)
+            resumable_source_manager.save_state(cursor)
+            yield rows
+            rows = fetch_rows_of(parent_id, cursor)
+
+        # The parent's rows ended exactly on a page boundary; nothing is buffered here.
+        resumable_source_manager.save_state(SkioResumeConfig(parent_id=parent_id))
+        resumable_source_manager.safe_point()
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    after_parent = resume.parent_id if resume is not None else None
+    if resume is not None and resume.parent_id is not None and resume.last_id is not None:
+        yield from read_parent(resume.parent_id, fetch_rows_of(resume.parent_id, resume))
+
+    while True:
+        parent_where: dict[str, Any] = (
+            has_rows if after_parent is None else {"_and": [{"id": {"_gt": after_parent}}, has_rows]}
+        )
+        variables: dict[str, Any] = {
+            "parentLimit": SKIO_PARENT_PAGE_SIZE,
+            "parentWhere": parent_where,
+            "limit": SKIO_PAGE_SIZE,
+            "orderBy": order_by,
+        }
+        if row_filter is not None:
+            variables["where"] = row_filter
+        parents = _post_query(session, api_token, document, variables, logger).get(parent.query_name) or []
+        if not parents:
+            break
+
+        for parent_row in parents:
+            yield from read_parent(str(parent_row["id"]), parent_row.get(config.query_name) or [])
+
+        after_parent = str(parents[-1]["id"])
+        if len(parents) < SKIO_PARENT_PAGE_SIZE:
+            break
+
+
 def get_rows(
     api_token: str,
     endpoint: str,
@@ -179,38 +303,19 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config: SkioEndpointConfig = ENDPOINTS[endpoint]
-    document = config.query_document
     # One session for every page so urllib3 keeps the connection alive; the token is redacted from
     # tracked-transport samples because it rides in a non-standard `authorization` header value.
     session = make_tracked_session(redact_values=(api_token,))
 
     field = incremental_field if should_use_incremental_field else None
-    cursor = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    order_by = _build_order_by(field)
+    watermark = db_incremental_field_last_value if field else None
 
-    while True:
-        variables: dict[str, Any] = {"limit": SKIO_PAGE_SIZE, "orderBy": order_by}
-        where = _build_where(field, db_incremental_field_last_value if field else None, cursor)
-        if where is not None:
-            variables["where"] = where
-
-        data = _post_query(session, api_token, document, variables, logger)
-        rows = data.get(config.query_name) or []
-        if not rows:
-            break
-
-        last_row = rows[-1]
-        cursor = SkioResumeConfig(
-            last_id=str(last_row["id"]),
-            last_value=str(last_row[field]) if field and last_row.get(field) is not None else None,
+    if config.parent is not None:
+        yield from _get_nested_rows(
+            session, api_token, config, config.parent, logger, resumable_source_manager, field, watermark
         )
-        # Staged before the yield it covers: the pipeline commits right after it writes these rows,
-        # so a resumed run picks up exactly after the last written batch.
-        resumable_source_manager.save_state(cursor)
-        yield rows
-
-        if len(rows) < SKIO_PAGE_SIZE:
-            break
+    else:
+        yield from _get_top_level_rows(session, api_token, config, logger, resumable_source_manager, field, watermark)
 
 
 def skio_source(
@@ -234,7 +339,8 @@ def skio_source(
             incremental_field=incremental_field,
         ),
         primary_keys=["id"],
-        sort_mode="asc",
+        # A nested endpoint's rows are ordered per parent, so they are not one ascending series.
+        sort_mode=None if ENDPOINTS[endpoint].parent is not None else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconNotification, IconSend } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { createDisabledReason } from './broadcastLifecycle'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { SendTestBroadcastModal } from './SendTestBroadcastModal'
@@ -21,6 +22,7 @@ export function BroadcastPushPreview({ showTestButton = true }: { showTestButton
                         size="small"
                         icon={<IconSend />}
                         onClick={() => setModalOpen(true)}
+                        disabledReason={createDisabledReason()}
                         data-attr="broadcast-open-test-push"
                     >
                         Send test notification

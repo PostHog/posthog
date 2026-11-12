@@ -6,7 +6,6 @@ import {
   LinkIcon,
   ReceiptIcon,
 } from "@phosphor-icons/react";
-import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
@@ -21,6 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { canResolveReport } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";

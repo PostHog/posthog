@@ -8,7 +8,9 @@ export type TraceDrawerListId =
     | 'reviews'
     | 'review-queue'
     | 'evaluation-runs'
+    | 'evaluation-preview'
     | 'dataset-items'
+    | 'offline-experiment'
     | 'cluster-traces'
 
 export interface TraceDrawerListConfig {
@@ -20,6 +22,9 @@ export interface TraceDrawerListConfig {
     openingMode?: TraceOpeningMode
     detailTab?: NodeDetailTab
     rowClick: boolean
+    showNavigation?: boolean
+    /** For a list on a form: the full page opens in a new tab, so leaving does not drop unsaved edits. */
+    fullPageInNewTab?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -62,11 +67,26 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         detailTab: 'evals',
         rowClick: true,
     },
+    // Shares its path with evaluation runs: the preview shows while setting the evaluation up, the runs list after.
+    'evaluation-preview': {
+        pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
+        backTo: 'evaluation',
+        backLabel: 'Back to evaluation',
+        rowClick: true,
+        fullPageInNewTab: true,
+    },
     'dataset-items': {
         pathMatcher: /^\/ai-evals\/evaluations\/offline\/datasets\/[^/]+$/,
         backTo: 'dataset',
         backLabel: 'Back to dataset',
         rowClick: false,
+    },
+    'offline-experiment': {
+        pathMatcher: /^\/ai-evals\/evaluations\/offline\/experiments\/[^/]+$/,
+        backTo: 'offline-experiment',
+        backLabel: 'Back to experiment',
+        rowClick: false,
+        showNavigation: false,
     },
     'cluster-traces': {
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,

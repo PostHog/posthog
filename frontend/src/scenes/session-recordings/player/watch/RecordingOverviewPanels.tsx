@@ -3,19 +3,19 @@ import { ReactNode } from 'react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
-import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { OverviewTab } from 'scenes/session-recordings/player/player-meta/overviewTabs'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { OVERVIEW_SNAPSHOT_SCOPE } from 'scenes/session-recordings/player/sidebar/overviewSnapshotScope'
-import { PlayerSidebarExperimentsSection } from 'scenes/session-recordings/player/sidebar/PlayerSidebarExperimentsSection'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
-import { PlayerSidebarOverviewOtherWatchers } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewOtherWatchers'
 
+import { QuillExperimentsSection } from './QuillExperimentsSection'
 import { QuillOverviewDeviceCard } from './QuillOverviewDeviceCard'
+import { QuillOverviewOtherWatchers } from './QuillOverviewOtherWatchers'
 import { QuillOverviewPersonCard } from './QuillOverviewPersonCard'
 import { QuillOverviewSessionCard } from './QuillOverviewSessionCard'
+import { QuillSettingsSnapshot } from './QuillSettingsSnapshot'
 import { QuillTTLWarning } from './QuillTTLWarning'
 
 const WIDE_OVERVIEW_PX = 960
@@ -105,15 +105,11 @@ function OverviewExtras(): JSX.Element {
                     <span className="grow" />
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                    <div data-not-quill className="contents">
-                        <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
-                    </div>
+                    <QuillSettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} />
                 </CollapsibleContent>
             </Collapsible>
-            <div data-not-quill className="contents">
-                <PlayerSidebarExperimentsSection />
-                <PlayerSidebarOverviewOtherWatchers />
-            </div>
+            <QuillExperimentsSection />
+            <QuillOverviewOtherWatchers />
         </>
     )
 }

@@ -24,6 +24,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 
+from products.data_modeling.backend.facade.contracts import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.facade.managed_viewset_hooks import (
     ProvidedView,
     _expected_views_providers,
@@ -38,7 +39,6 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.flags import MANAGED_VIEWSETS_FEATURE_FLAG
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -390,6 +390,23 @@ class TestManagedViewSetProviders(BaseTest):
 
         view = next(v for v in self._views(viewset) if v.name == provided[0].name)
         self.assertEqual(view.incremental_state, state)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_a_view_that_names_the_window_start_gets_a_dag_node(self, _):
+        fake_view = ProvidedView(
+            name="windowed",
+            query="SELECT 1 AS id WHERE 1 >= ifNull({incremental_window_start}, 0)",
+            fields={"id": IntegerDatabaseField(name="id")},
+            incremental_config=INCREMENTAL_CONFIG,
+        )
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertTrue(Node.objects.filter(saved_query=view).exists())
 
     def test_provisioning_a_new_team_puts_every_view_on_tier_schedules(self):
         # Managed viewsets are how most new teams first materialize anything (a provider makes

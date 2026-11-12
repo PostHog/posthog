@@ -9,9 +9,10 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
 from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
+
+from products.event_definitions.backend.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 MAX_PROPERTY_NAME_LENGTH = 200
 

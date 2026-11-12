@@ -1,8 +1,10 @@
+import { JsonObject, parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { hostKey } from '@/posthog/host'
+import type { ProjectId } from '@/posthog/ids'
 
-import { parseJson, parseSecret } from './helpers'
+import { StoredSecretSchema } from './helpers'
+import { parseItemName, type ItemName, type LoginTarget } from './item-name'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -25,38 +27,42 @@ export class FileStore implements CredentialStore {
             }
             throw error
         }
-        const parsed = parseJson(text)
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {}
+        return parseJsonOrUndefined(text, JsonObject) ?? {}
     }
 
-    async hosts(): Promise<string[]> {
-        return Object.keys(await this.readAll())
+    async owners(): Promise<LoginTarget<ProjectId | null>[]> {
+        return Object.keys(await this.readAll()).flatMap((name) => parseItemName(name) ?? [])
     }
 
-    async read(host: string): Promise<StoredSecret | undefined> {
-        return parseSecret((await this.readAll())[hostKey(host)])
+    async read(name: ItemName): Promise<StoredSecret | undefined> {
+        // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
+        return StoredSecretSchema.safeParse((await this.readAll())[name]).data
     }
 
-    async write(host: string, secret: StoredSecret): Promise<void> {
+    async write(name: ItemName, secret: StoredSecret): Promise<void> {
         const all = await this.readAll()
-        all[hostKey(host)] = secret
+        all[name] = secret
         await this.runtime.writePrivateFile(this.path, JSON.stringify(all, null, 2))
     }
 
-    async remove(host: string): Promise<boolean> {
+    async remove(name: ItemName): Promise<boolean> {
+        return (await this.removeWhere((key) => key === name)).length > 0
+    }
+
+    async removeWhere(matches: (name: string) => boolean): Promise<string[]> {
         const all = await this.readAll()
-        const key = hostKey(host)
-        if (!(key in all)) {
-            return false
+        const removed = Object.keys(all).filter(matches)
+        if (removed.length === 0) {
+            return []
         }
-        delete all[key]
-        if (Object.keys(all).length === 0) {
+
+        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
+        if (Object.keys(kept).length === 0) {
             await this.runtime.removeFile(this.path)
         } else {
-            await this.runtime.writePrivateFile(this.path, JSON.stringify(all, null, 2))
+            await this.runtime.writePrivateFile(this.path, JSON.stringify(kept, null, 2))
         }
-        return true
+
+        return removed
     }
 }

@@ -1,33 +1,45 @@
-//! Deterministic aperture: ring-slice candidate selection.
+//! Deterministic aperture: weighted ring-slice candidate selection.
 //!
-//! Every consumer sorts the full worker set into the same ring, takes the
-//! slice starting at `peer_index * ring_len / peer_count`, and places its
-//! requests only within that slice (via the configured selection
-//! strategy). Because peers agree on both the ring order (same EndpointSlices,
-//! same sort) and their own indices ([`k8s_awareness::PeerTracker`]), the
-//! slices tile the ring without any coordination, so each consumer talks to
-//! a handful of workers instead of the whole pool, which is what keeps
-//! sub-batches consolidated. Modeled on Finagle's deterministic aperture.
+//! Every consumer sorts the workers into the same ring, takes an arc
+//! of it, and places its requests only on the workers under that arc (via the
+//! configured selection strategy). Because peers agree on both the ring order
+//! (same EndpointSlices, same sort) and their own indices
+//! ([`k8s_awareness::PeerTracker`]), the arcs need no coordination, so each
+//! consumer talks to a handful of workers instead of the whole pool, which is
+//! what keeps sub-batches consolidated. Modeled on Finagle's deterministic
+//! aperture.
 //!
-//! The configured width is a *minimum*: it's floored at
-//! `ceil(ring_len / peer_count)` — the narrowest equal slices that can cover
-//! the ring — so the union of the fleet's slices covers every worker even
-//! when workers outnumber `width x dispatchers`. Every peer computes the same
-//! floor from the same inputs, so the property stays coordination-free.
+//! The ring is measured in units: each worker spans `peer_count` units. Peer
+//! `i`'s arc starts at unit `i x ring_len`, so the arcs start at equal
+//! distances, and its length is a multiple of `ring_len` units. So every unit
+//! is under the same number of arcs. A worker's weight is the number of its
+//! units under the arc, so every worker gets the same total weight from the
+//! fleet. With 7 workers, 3 peers, and arcs of 7 units:
 //!
-//! Unroutable ring positions (unhealthy or draining workers) are skipped and
-//! the slice extends further around the ring, so the *effective* width holds
-//! under partial failure.
+//! | peer | arc   | weights          |
+//! |------|-------|------------------|
+//! | 0    | 0-7   | w0 3, w1 3, w2 1 |
+//! | 1    | 7-14  | w2 2, w3 3, w4 2 |
+//! | 2    | 14-21 | w4 1, w5 3, w6 3 |
+//!
+//! The ring holds the workers that discovery lists, so a draining worker
+//! leaves every peer's ring and the arcs move to share its units. A worker
+//! that only this consumer finds unhealthy leaves only this slice, and the
+//! other workers of the slice take its share. When the routable workers hold
+//! less than half of the arc's weight, the consumer takes its arc of a ring of
+//! the routable workers instead, so that a large failure spreads over the
+//! whole routable pool and does not fall on the few workers left in a slice.
 
 use std::collections::HashSet;
+use std::iter;
+use std::num::NonZeroU64;
 
+use crate::routing::Candidate;
 use crate::worker_registry::WorkerId;
 
-/// The candidate workers for one assignment round: walk the ring from this
-/// dispatcher's slice start, collecting healthy workers until the effective
-/// width (`width` floored at `ceil(ring_len / peer_count)` for coverage) is
-/// reached or the ring is exhausted. `ring` is the canonically sorted full
-/// worker set; `healthy` the subset this dispatcher may route to.
+/// The weighted candidate workers for one assignment round. `ring` is the
+/// canonically sorted set of workers that discovery lists; `healthy` the
+/// subset this dispatcher may route to.
 ///
 /// Returns `None` (caller falls back to the full healthy pool) when the
 /// slice can't be computed: no peers known yet, an out-of-range index, or an
@@ -37,38 +49,125 @@ pub fn ring_slice(
     healthy: &[WorkerId],
     peer_index: Option<usize>,
     peer_count: usize,
-    width: usize,
-) -> Option<Vec<WorkerId>> {
+    min_width: usize,
+) -> Option<Vec<Candidate>> {
     let index = peer_index?;
-    if ring.is_empty() || peer_count == 0 || index >= peer_count || width == 0 {
+    if ring.is_empty() || peer_count == 0 || index >= peer_count || min_width == 0 {
         return None;
     }
+    let healthy: HashSet<&WorkerId> = healthy.iter().collect();
 
-    // Coverage floor: consecutive slice starts are at most `ceil(len/peers)`
-    // apart, so any narrower width would leave ring positions no dispatcher
-    // ever routes fresh keys to. Flooring the width there guarantees the
-    // union of the fleet's slices covers the whole ring for any pool/peer
-    // ratio, at the cost of slight slice overlap when the division is uneven.
-    let width = width.max(ring.len().div_ceil(peer_count));
+    let arc = arc_slice(ring, index, peer_count, min_width);
+    let arc_weight = total_weight(&arc);
+    let slice: Vec<Candidate> = arc
+        .into_iter()
+        .filter(|candidate| healthy.contains(&candidate.worker))
+        .collect();
+    if total_weight(&slice) * 2 >= arc_weight {
+        return Some(slice);
+    }
+    let routable_ring: Vec<WorkerId> = ring
+        .iter()
+        .filter(|worker| healthy.contains(worker))
+        .cloned()
+        .collect();
+    (!routable_ring.is_empty()).then(|| arc_slice(&routable_ring, index, peer_count, min_width))
+}
 
-    let healthy_set: HashSet<&WorkerId> = healthy.iter().collect();
-    let start = index * ring.len() / peer_count;
+fn total_weight(slice: &[Candidate]) -> u64 {
+    slice.iter().map(|candidate| candidate.weight.get()).sum()
+}
 
-    let mut candidates = Vec::with_capacity(width.min(ring.len()));
-    for offset in 0..ring.len() {
-        let worker = &ring[(start + offset) % ring.len()];
-        if healthy_set.contains(worker) {
-            candidates.push(worker.clone());
-            if candidates.len() == width {
-                break;
-            }
+/// Every worker under peer `index`'s arc of `ring`, weighted by its units
+/// under the arc. `ring` and `peer_count` must not be empty or zero.
+fn arc_slice(
+    ring: &[WorkerId],
+    index: usize,
+    peer_count: usize,
+    min_width: usize,
+) -> Vec<Candidate> {
+    let arc = Arc::new(ring.len(), peer_count, index, min_width);
+    let full_weight = NonZeroU64::new(arc.units_per_worker).expect("peer_count is above zero");
+    let covered = take_units(arc.spans(ring.len()), arc.len);
+    sum_by_position(covered, ring.len())
+        .into_iter()
+        .map(|(position, units)| {
+            let weight = NonZeroU64::new(units).expect("take_units yields no empty span");
+            Candidate::new(ring[position].clone(), weight, full_weight)
+        })
+        .collect()
+}
+
+/// The spans in order, cut so that their units add up to at most `units`.
+fn take_units(
+    spans: impl Iterator<Item = (usize, u64)>,
+    mut units: u64,
+) -> impl Iterator<Item = (usize, u64)> {
+    spans.map_while(move |(position, span)| {
+        let taken = span.min(units);
+        units -= taken;
+        (taken > 0).then_some((position, taken))
+    })
+}
+
+/// The units of each position, in the order of each position's first span.
+/// Every span must hold at least one unit.
+fn sum_by_position(
+    spans: impl Iterator<Item = (usize, u64)>,
+    ring_len: usize,
+) -> Vec<(usize, u64)> {
+    let mut units_at = vec![0u64; ring_len];
+    let mut order = Vec::new();
+    for (position, units) in spans {
+        if units_at[position] == 0 {
+            order.push(position);
+        }
+        units_at[position] += units;
+    }
+    order
+        .into_iter()
+        .map(|position| (position, units_at[position]))
+        .collect()
+}
+
+/// One peer's arc of the ring, in units.
+struct Arc {
+    units_per_worker: u64,
+    start: u64,
+    len: u64,
+}
+
+impl Arc {
+    /// The arc is the smallest multiple of `ring_len` units that covers
+    /// `min_width` workers. `spans` visits each unit of the ring once, so a
+    /// longer arc would still cover the ring only once. The clamp keeps the
+    /// numbers small.
+    fn new(ring_len: usize, peer_count: usize, index: usize, min_width: usize) -> Self {
+        let units_per_worker = peer_count as u64;
+        let spacing = ring_len as u64;
+        let multiple = (min_width as u64 * units_per_worker)
+            .div_ceil(spacing)
+            .clamp(1, units_per_worker);
+        Self {
+            units_per_worker,
+            start: index as u64 * spacing,
+            len: multiple * spacing,
         }
     }
 
-    if candidates.is_empty() {
-        return None;
+    /// The ring positions in walk order from the worker that holds `start`,
+    /// each with its units from the walk point on. That worker comes again
+    /// last with its units before `start`. Only an arc as long as the ring
+    /// gets to them.
+    fn spans(&self, ring_len: usize) -> impl Iterator<Item = (usize, u64)> + '_ {
+        let first = (self.start / self.units_per_worker) as usize;
+        let before_start = self.start % self.units_per_worker;
+        let whole =
+            (1..ring_len).map(move |offset| ((first + offset) % ring_len, self.units_per_worker));
+        iter::once((first, self.units_per_worker - before_start))
+            .chain(whole)
+            .chain(iter::once((first, before_start)))
     }
-    Some(candidates)
 }
 
 /// The canonical worker ring: the full registered set, sorted. All dispatchers
@@ -80,6 +179,8 @@ pub fn sorted_ring(mut workers: Vec<WorkerId>) -> Vec<WorkerId> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     fn wid(n: usize) -> WorkerId {
@@ -90,72 +191,206 @@ mod tests {
         sorted_ring((1..=n).map(wid).collect())
     }
 
+    fn weights(slice: &[Candidate]) -> Vec<(WorkerId, u64)> {
+        slice
+            .iter()
+            .map(|c| (c.worker.clone(), c.weight.get()))
+            .collect()
+    }
+
+    fn fleet_weights(ring: &[WorkerId], peers: usize, min_width: usize) -> HashMap<WorkerId, u64> {
+        let mut total = HashMap::new();
+        for index in 0..peers {
+            for candidate in ring_slice(ring, ring, Some(index), peers, min_width).unwrap() {
+                *total.entry(candidate.worker).or_insert(0) += candidate.weight.get();
+            }
+        }
+        total
+    }
+
     #[test]
     fn test_slices_tile_the_ring_across_peers() {
-        // 3 peers x width 2 over 6 workers: each peer gets a distinct pair and
-        // the union covers the whole ring — the coordination-free guarantee
-        // the whole design rests on.
         let ring = ring(6);
         let mut seen = Vec::new();
         for index in 0..3 {
             let slice = ring_slice(&ring, &ring, Some(index), 3, 2).unwrap();
             assert_eq!(slice.len(), 2, "peer {index}");
-            seen.extend(slice);
+            seen.extend(slice.into_iter().map(|c| c.worker));
         }
-        let mut sorted = seen.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 6, "slices must tile the ring without overlap");
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), 6, "slices must tile the ring without overlap");
     }
 
     #[test]
-    fn test_width_floored_so_slices_cover_an_oversized_ring() {
-        // 2 peers x configured width 3 over 8 workers: unfloored slices would
-        // be spaced 4 apart and leave positions 3 and 7 with no traffic. The ceil(8/2)=4 floor widens each slice just enough that
-        // the union covers the whole ring.
-        let ring = ring(8);
-        let mut seen = HashSet::new();
-        for index in 0..2 {
-            let slice = ring_slice(&ring, &ring, Some(index), 2, 3).unwrap();
-            assert_eq!(slice.len(), 4, "peer {index} floored to ceil(8/2)");
-            seen.extend(slice);
+    fn test_every_worker_gets_the_same_fleet_weight_when_peers_do_not_divide_the_ring() {
+        struct Case {
+            workers: usize,
+            peers: usize,
+            min_width: usize,
         }
-        assert_eq!(seen.len(), 8, "every ring position must be covered");
+        let cases = [
+            Case {
+                workers: 7,
+                peers: 3,
+                min_width: 1,
+            },
+            Case {
+                workers: 100,
+                peers: 17,
+                min_width: 3,
+            },
+            Case {
+                workers: 250,
+                peers: 30,
+                min_width: 3,
+            },
+            Case {
+                workers: 250,
+                peers: 30,
+                min_width: 32,
+            },
+            Case {
+                workers: 50,
+                peers: 8,
+                min_width: 48,
+            },
+            Case {
+                workers: 3,
+                peers: 5,
+                min_width: 1,
+            },
+            Case {
+                workers: 5,
+                peers: 3,
+                min_width: 10,
+            },
+        ];
+        for case in cases {
+            let ring = ring(case.workers);
+            let total = fleet_weights(&ring, case.peers, case.min_width);
+            assert_eq!(total.len(), case.workers, "every worker is covered");
+            let distinct: HashSet<u64> = total.values().copied().collect();
+            assert_eq!(
+                distinct.len(),
+                1,
+                "{} workers, {} peers, min width {}: {distinct:?}",
+                case.workers,
+                case.peers,
+                case.min_width
+            );
+        }
     }
 
     #[test]
-    fn test_width_floor_overlaps_slices_on_uneven_division() {
-        // 3 peers over 7 workers: starts 0, 2, 4 with floor ceil(7/3)=3 give
-        // slices {0,1,2}, {2,3,4}, {4,5,6} — full coverage, with boundary
-        // positions shared by two peers rather than left uncovered.
+    fn test_every_worker_gets_the_same_fleet_slots_when_arcs_end_inside_workers() {
+        let ring = ring(6);
+        let mut slots: HashMap<WorkerId, usize> = HashMap::new();
+        for index in 0..4 {
+            for candidate in ring_slice(&ring, &ring, Some(index), 4, 3).unwrap() {
+                *slots.entry(candidate.worker.clone()).or_insert(0) += candidate.slots(8);
+            }
+        }
+        assert_eq!(slots.len(), 6);
+        assert!(slots.values().all(|n| *n == 16), "{slots:?}");
+    }
+
+    #[test]
+    fn test_arc_ends_get_the_covered_part_of_the_worker() {
         let ring = ring(7);
-        let mut seen = HashSet::new();
-        for index in 0..3 {
-            seen.extend(ring_slice(&ring, &ring, Some(index), 3, 1).unwrap());
-        }
-        assert_eq!(seen.len(), 7, "uneven division must still cover the ring");
-    }
-
-    #[test]
-    fn test_slice_wraps_around_the_ring() {
-        // Last peer's slice starts near the ring end and wraps to the front.
-        let ring = ring(5);
-        let slice = ring_slice(&ring, &ring, Some(2), 3, 3).unwrap();
-        // start = 2 * 5 / 3 = 3 → positions 3, 4, 0.
+        let slice = ring_slice(&ring, &ring, Some(1), 3, 1).unwrap();
         assert_eq!(
-            slice,
-            vec![ring[3].clone(), ring[4].clone(), ring[0].clone()]
+            weights(&slice),
+            vec![
+                (ring[2].clone(), 2),
+                (ring[3].clone(), 3),
+                (ring[4].clone(), 2),
+            ]
         );
     }
 
     #[test]
-    fn test_slice_extends_past_unhealthy_workers() {
-        // An unroutable worker inside the slice must not shrink the effective
-        // width — the slice walks on around the ring.
+    fn test_width_is_at_least_the_minimum() {
+        let ring = ring(8);
+        let slice = ring_slice(&ring, &ring, Some(0), 2, 5).unwrap();
+        assert_eq!(slice.len(), 8);
+    }
+
+    #[test]
+    fn test_slice_wraps_around_the_ring() {
+        let ring = ring(5);
+        let slice = ring_slice(&ring, &ring, Some(2), 3, 3).unwrap();
+        assert_eq!(
+            weights(&slice),
+            vec![
+                (ring[3].clone(), 2),
+                (ring[4].clone(), 3),
+                (ring[0].clone(), 3),
+                (ring[1].clone(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_an_arc_over_the_whole_ring_gives_every_worker_the_same_weight() {
+        let ring = ring(4);
+        let slice = ring_slice(&ring, &ring, Some(1), 3, 10).unwrap();
+        assert_eq!(slice.len(), 4);
+        assert!(slice.iter().all(|c| c.weight.get() == 3), "{slice:?}");
+    }
+
+    #[test]
+    fn test_with_exactly_half_the_arc_healthy_the_unhealthy_worker_leaves_the_slice() {
         let ring = ring(6);
         let healthy: Vec<WorkerId> = ring.iter().filter(|w| **w != ring[1]).cloned().collect();
         let slice = ring_slice(&ring, &healthy, Some(0), 3, 2).unwrap();
-        assert_eq!(slice, vec![ring[0].clone(), ring[2].clone()]);
+        assert_eq!(weights(&slice), vec![(ring[0].clone(), 3)]);
+    }
+
+    #[test]
+    fn test_with_less_than_half_the_arc_healthy_the_peer_takes_its_arc_of_the_healthy_ring() {
+        let ring = ring(7);
+        let arc = ring_slice(&ring, &ring, Some(1), 3, 1).unwrap();
+        assert_eq!(
+            weights(&arc),
+            vec![
+                (ring[2].clone(), 2),
+                (ring[3].clone(), 3),
+                (ring[4].clone(), 2)
+            ]
+        );
+        let healthy: Vec<WorkerId> = ring
+            .iter()
+            .filter(|w| **w != ring[2] && **w != ring[4])
+            .cloned()
+            .collect();
+
+        let slice = ring_slice(&ring, &healthy, Some(1), 3, 1).unwrap();
+
+        assert_eq!(
+            slice,
+            ring_slice(&healthy, &healthy, Some(1), 3, 1).unwrap()
+        );
+        assert_ne!(weights(&slice), vec![(ring[3].clone(), 3)]);
+    }
+
+    #[test]
+    fn test_with_no_healthy_worker_under_the_arc_the_peer_takes_its_arc_of_the_healthy_ring() {
+        let ring = ring(6);
+        let healthy: Vec<WorkerId> = ring[2..].to_vec();
+        let slice = ring_slice(&ring, &healthy, Some(0), 3, 2).unwrap();
+        assert_eq!(
+            slice,
+            ring_slice(&healthy, &healthy, Some(0), 3, 2).unwrap()
+        );
+        assert_eq!(
+            weights(&slice),
+            vec![
+                (ring[2].clone(), 3),
+                (ring[3].clone(), 3),
+                (ring[4].clone(), 2)
+            ]
+        );
     }
 
     #[test]

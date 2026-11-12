@@ -6,31 +6,41 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 
 from functools import reduce
 from operator import or_
-from typing import cast
+from typing import Any, cast
 
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
-from django.db.models import Func, Q, QuerySet, Value
+from django.contrib.postgres.search import SearchQuery, SearchRank
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import CombinedExpression
-from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import SearchFilter
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
-from posthog.models import User
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
+from posthog.models import Team, User
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
+    MetricSearchBurstRateThrottle,
+    MetricSearchSustainedRateThrottle,
+    MetricWriteBurstRateThrottle,
+    MetricWriteSustainedRateThrottle,
+)
 
 from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
@@ -50,8 +60,11 @@ from .serializers import (
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
     MetricSerializer,
+    MetricUsageSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
+    UsageSnapshotSerializer,
+    UsageSnapshotSummarySerializer,
 )
 
 # Kinds that execute a ClickHouse query through the trends/funnels pipeline (node kinds run as a
@@ -74,6 +87,16 @@ def _resolve_bulk_metrics(
     )
 
 
+def _require_usage_enabled(request: Request, team: Team) -> None:
+    # A 404 rather than a 403, so the endpoints stay invisible until the flag is on for the team.
+    if not api.is_usage_enabled(cast(User, request.user), team):
+        raise NotFound()
+
+
+_NO_USAGE_SCAN = "No usage scan has finished for this project yet."
+_USAGE_404 = OpenApiResponse(description="Usage is not enabled for this project, or no scan has finished.")
+
+
 class CatalogSearchFilter(SearchFilter):
     def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
         return build_search_vector(dict.fromkeys(self.get_search_fields(view, request) or [], "A"), config="english")
@@ -92,25 +115,20 @@ class CatalogSearchFilter(SearchFilter):
 
 
 class MetricSearchFilter(CatalogSearchFilter):
-    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
-        definition = Func(
-            Value("english"),
-            "definition",
-            Value('["string"]'),
-            function="jsonb_to_tsvector",
-            output_field=SearchVectorField(),
-        )
-        return CombinedExpression(
-            super().get_search_vector(request, view),
-            "||",
-            Func(
-                Coalesce(definition, Value("", output_field=SearchVectorField())),
-                Value("A"),
-                function="setweight",
-                output_field=SearchVectorField(),
-            ),
-            output_field=SearchVectorField(),
-        )
+    search_description = (
+        "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely "
+        "metric name, and the spelled-out form of an acronym, separated by commas, such as "
+        "'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason "
+        "says why each one matched. Words match by stem in the name, display name, description, and "
+        "definition. Synonyms do not match unless the metric's text contains them."
+    )
+
+
+class MetricListPagination(PrecountedLimitOffsetPagination):
+    """Pages the ranked search from a count the search returns, so the view loads only the rows on the page."""
+
+    def get_schema_operation_parameters(self, view: APIView) -> list[dict[str, Any]]:
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -121,18 +139,19 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [MetricSearchFilter]
     search_fields = ["name", "display_name", "description"]
     serializer_class = MetricSerializer
+    pagination_class = MetricListPagination
     queryset = Metric.objects.unscoped()
+
+    def _list_filters(self) -> api.MetricListFilters:
+        params = self.request.query_params
+        return api.MetricListFilters(
+            status=params.get("status") or None, definition_kind=params.get("definition_kind") or None
+        )
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
         metrics = api.metrics_visible_to_user(
-            self.team,
-            cast(User, self.request.user),
-            self.user_access_control,
+            self.team, cast(User, self.request.user), self.user_access_control, self._list_filters()
         )
-        if status_filter := self.request.query_params.get("status"):
-            metrics = metrics.filter(status=status_filter)
-        if definition_kind := self.request.query_params.get("definition_kind"):
-            metrics = metrics.filter(definition__kind=definition_kind)
         return metrics.select_related("created_by", "owner")
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
@@ -156,6 +175,12 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return [HogQLQueryThrottle()]
             if kind in _STRUCTURED_QUERY_KINDS:
                 return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        # A search can embed its query, and a write can embed the metric, which spends model provider budget.
+        action = getattr(self, "action", None)
+        if action == "list" and self.request.query_params.get(api_settings.SEARCH_PARAM):
+            return [*super().get_throttles(), MetricSearchBurstRateThrottle(), MetricSearchSustainedRateThrottle()]
+        if action in ("create", "update", "partial_update"):
+            return [*super().get_throttles(), MetricWriteBurstRateThrottle(), MetricWriteSustainedRateThrottle()]
         return super().get_throttles()
 
     @extend_schema(
@@ -167,6 +192,9 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        search = request.query_params.get(api_settings.SEARCH_PARAM, "").strip()
+        if search:
+            return self._ranked_search_list(request, search)
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
         # into a per-metric insight lookup (an N+1 over the catalog list).
         queryset = self.filter_queryset(self.get_queryset())
@@ -177,6 +205,32 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+    def _ranked_search_list(self, request: Request, search: str) -> Response:
+        paginator = cast(MetricListPagination, self.paginator)
+        if paginator.limit_query_param not in request.query_params:
+            paginator.default_limit = api.SEARCH_DEFAULT_LIMIT
+        limit = paginator.get_limit(request) or api.SEARCH_DEFAULT_LIMIT
+        result = api.search_catalog(
+            team=self.team,
+            user=cast(User, request.user),
+            user_access_control=self.user_access_control,
+            search=search,
+            filters=self._list_filters(),
+            limit=limit,
+            offset=paginator.get_offset(request),
+            analytics_props=get_request_analytics_properties(request),
+        )
+        # The search already cut the page, so the paginator takes the total from it and slices nothing.
+        paginator.set_count(result.total)
+        metrics = paginator.paginate_queryset([hit.metric for hit in result.hits], request, view=self) or []
+        context = {
+            **self.get_serializer_context(),
+            "drift_map": api.compute_drift(metrics),
+            "match_reasons": {hit.metric.id: hit.match_reason for hit in result.hits},
+        }
+        serializer = self.get_serializer(metrics, many=True, context=context)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         description="Create a metric. When a live metric already holds the name, returns 409 unless overwrite "
@@ -209,7 +263,6 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "source_insight_short_id",
                 "created_source",
                 "ai_model",
-                "confidence",
                 "reasoning",
             )
             if key in data
@@ -344,6 +397,21 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
 
+    @action(
+        detail=True,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: MetricUsageSerializer, 404: _USAGE_404},
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        """How the metric was used in the latest usage scan: direct runs and agent re-derivations."""
+        _require_usage_enabled(request, self.team)
+        reader = api.usage_reader(self.team, cast(User, request.user), self.user_access_control)
+        usage = api.metric_usage(self.team_id, self.get_object().id, reader)
+        if usage is None:
+            raise NotFound(_NO_USAGE_SCAN)
+        return Response(MetricUsageSerializer(usage).data)
+
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
     # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
     @extend_schema(
@@ -383,6 +451,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             date_from=overrides.get("date_from"),
             date_to=overrides.get("date_to"),
             interval=overrides.get("interval"),
+            offset=overrides.get("offset"),
             query_id=overrides.get("query_id"),
             request=request,
         )
@@ -564,3 +633,29 @@ class RelationshipProposalViewSet(
             request=request,
         )
         return Response(self.get_serializer(proposal).data)
+
+
+class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Usage scans of the catalog, newest first. The list omits payloads; latest includes them."""
+
+    scope_object = "data_catalog"
+    # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
+    scope_object_read_actions = ["list", "latest"]
+
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)
+        _require_usage_enabled(request, self.team)
+
+    @extend_schema(responses={200: UsageSnapshotSummarySerializer(many=True), 404: _USAGE_404})
+    def list(self, request: Request, **kwargs) -> Response:
+        """Up to a year of usage scans for the project, newest first, without payloads."""
+        return Response(UsageSnapshotSummarySerializer(api.usage_snapshot_history(self.team_id), many=True).data)
+
+    @action(detail=False, methods=["GET"], responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
+    def latest(self, request: Request, **kwargs) -> Response:
+        """The newest finished usage scan, with its payload."""
+        reader = api.usage_reader(self.team, cast(User, request.user), self.user_access_control)
+        snapshot = api.latest_usage_snapshot(self.team_id, reader)
+        if snapshot is None:
+            raise NotFound(_NO_USAGE_SCAN)
+        return Response(UsageSnapshotSerializer(snapshot).data)
