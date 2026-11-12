@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
+import { ChartHoverSync } from '@posthog/quill-charts'
 
 import { cn } from 'lib/utils/css-classes'
 import { dateFilterToText } from 'lib/utils/dateFilters'
@@ -76,18 +77,21 @@ export function MetricsTableDrilldownModal({
                 <p className="m-0 text-xs text-secondary" data-attr="metrics-table-widget-drilldown-range">
                     {intervalLabel ? `${rangeText}, one point every ${intervalLabel}` : rangeText}
                 </p>
-                <div className="@container">
-                    <div className={cn('grid grid-cols-1 gap-4', gridColumnsClass(charts.length))}>
-                        {charts.map((chart, index) => (
-                            <section key={index} className="flex min-w-0 flex-col gap-1">
-                                <h5 className="m-0 truncate text-sm font-semibold">{chart.title}</h5>
-                                <div className="flex h-52 flex-col">
-                                    <Query query={chart.query} readOnly embedded />
-                                </div>
-                            </section>
-                        ))}
+                {/* Hovering one chart draws a crosshair at the same time on the others, so a spike lines up across columns. */}
+                <ChartHoverSync>
+                    <div className="@container">
+                        <div className={cn('grid grid-cols-1 gap-4', gridColumnsClass(charts.length))}>
+                            {charts.map((chart, index) => (
+                                <section key={index} className="flex min-w-0 flex-col gap-1">
+                                    <h5 className="m-0 truncate text-sm font-semibold">{chart.title}</h5>
+                                    <div className="flex h-52 flex-col">
+                                        <Query query={chart.query} readOnly embedded />
+                                    </div>
+                                </section>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </ChartHoverSync>
             </div>
         </LemonModal>
     )
