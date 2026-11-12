@@ -20583,6 +20583,10 @@
                 {
                     "param": "job_inputs",
                     "key": "job_inputs"
+                },
+                {
+                    "param": "payload",
+                    "key": "payload"
                 }
             ],
             "injectBody": {},
@@ -24590,75 +24594,6 @@
             "validators": []
         }
     },
-    "inbox-report-checks-create": {
-        "name": "inbox-report-checks-create",
-        "kind": "http",
-        "requires": [],
-        "hooks": null,
-        "uiApp": null,
-        "request": {
-            "method": "POST",
-            "path": "/api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/",
-            "pathParams": ["run_id"],
-            "fallbacks": [],
-            "query": null,
-            "body": [
-                {
-                    "param": "title",
-                    "key": "title"
-                },
-                {
-                    "param": "rationale",
-                    "key": "rationale"
-                },
-                {
-                    "param": "kind",
-                    "key": "kind"
-                },
-                {
-                    "param": "config",
-                    "key": "config"
-                },
-                {
-                    "param": "next_run_at",
-                    "key": "next_run_at"
-                },
-                {
-                    "param": "run_interval_minutes",
-                    "key": "run_interval_minutes"
-                },
-                {
-                    "param": "runs_remaining",
-                    "key": "runs_remaining"
-                },
-                {
-                    "param": "expires_at",
-                    "key": "expires_at"
-                },
-                {
-                    "param": "report_id",
-                    "key": "report_id"
-                }
-            ],
-            "injectBody": {},
-            "softDelete": null,
-            "transformBody": false
-        },
-        "response": {
-            "list": false,
-            "filter": null,
-            "stripNulls": false,
-            "enrich": null,
-            "agentNote": null,
-            "informational": null,
-            "textInclude": []
-        },
-        "input": {
-            "aliases": {},
-            "casts": {},
-            "validators": []
-        }
-    },
     "inbox-report-checks-list": {
         "name": "inbox-report-checks-list",
         "kind": "http",
@@ -25422,6 +25357,15 @@
                     "inbox_merge_key",
                     "personal_tier",
                     "personal_reason",
+                    "monitoring_started_at",
+                    "monitoring_summary.state",
+                    "monitoring_summary.started_at",
+                    "monitoring_summary.ends_at",
+                    "monitoring_summary.lead_check.check_id",
+                    "monitoring_summary.lead_check.title",
+                    "monitoring_summary.lead_check.comparison",
+                    "monitoring_summary.lead_check.baseline_value",
+                    "monitoring_summary.lead_check.next_measurement_at",
                     "created_at",
                     "updated_at"
                 ],
@@ -36499,6 +36443,149 @@
                     "csv": false
                 }
             ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "platform-alerts-destroy": {
+        "name": "platform-alerts-destroy",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "DELETE",
+            "path": "/api/projects/{project_id}/platform_alerts/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "platform-alerts-list": {
+        "name": "platform-alerts-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/platform_alerts/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "created_by",
+                    "key": "created_by",
+                    "csv": false
+                },
+                {
+                    "param": "legacy_configuration_id",
+                    "key": "legacy_configuration_id",
+                    "csv": false
+                },
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "source_kind",
+                    "key": "source_kind",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "id",
+                    "name",
+                    "enabled",
+                    "source_kind",
+                    "source_config",
+                    "grouping",
+                    "cooldown_minutes",
+                    "check_status",
+                    "last_checked_at",
+                    "last_error_message",
+                    "destination_types",
+                    "owner",
+                    "alerts"
+                ],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/data-management/sources"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "platform-alerts-retrieve": {
+        "name": "platform-alerts-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/platform_alerts/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
             "body": null,
             "injectBody": {},
             "softDelete": null,
@@ -51872,6 +51959,144 @@
             "aliases": {
                 "id": ["run_id"]
             },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "warehouse-alerts-destinations-create": {
+        "name": "warehouse-alerts-destinations-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/warehouse_alerts/{id}/destinations/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "type",
+                    "key": "type"
+                },
+                {
+                    "param": "event_kinds",
+                    "key": "event_kinds"
+                },
+                {
+                    "param": "slack_workspace_id",
+                    "key": "slack_workspace_id"
+                },
+                {
+                    "param": "slack_channel_id",
+                    "key": "slack_channel_id"
+                },
+                {
+                    "param": "slack_channel_name",
+                    "key": "slack_channel_name"
+                },
+                {
+                    "param": "webhook_url",
+                    "key": "webhook_url"
+                },
+                {
+                    "param": "pagerduty_routing_key",
+                    "key": "pagerduty_routing_key"
+                },
+                {
+                    "param": "pagerduty_severity",
+                    "key": "pagerduty_severity"
+                },
+                {
+                    "param": "pagerduty_region",
+                    "key": "pagerduty_region"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "warehouse-alerts-destinations-delete": {
+        "name": "warehouse-alerts-destinations-delete",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/warehouse_alerts/{id}/destinations/delete/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "destination_ids",
+                    "key": "destination_ids"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "warehouse-alerts-destinations-list": {
+        "name": "warehouse-alerts-destinations-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/warehouse_alerts/{id}/destinations/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
             "casts": {},
             "validators": []
         }
