@@ -5,6 +5,7 @@ import requests
 
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
+    MailgunDomainLimitReached,
     MailgunDomainNotRegistered,
     MailgunError,
     MailgunNotConfigured,
@@ -12,6 +13,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
     add_domain,
     get_domain,
+    list_unverified_domains,
     send_mime,
 )
 
@@ -65,6 +67,14 @@ class TestAddDomain:
         with pytest.raises(MailgunDomainConflict, match="already exists"):
             add_domain("example.com")
 
+    def test_forbidden_raises_domain_limit_reached(self, mock_post: MagicMock, _mock_key: MagicMock):
+        resp = _mailgun_response(403, {"message": "Forbidden"})
+        resp.raise_for_status.side_effect = RuntimeError("http 403")
+        mock_post.return_value = resp
+
+        with pytest.raises(MailgunDomainLimitReached, match="Forbidden"):
+            add_domain("example.com")
+
     def test_unrecognised_400_falls_through_to_raise_for_status(self, mock_post: MagicMock, _mock_key: MagicMock):
         resp = _mailgun_response(400, {"message": "some other error"})
         resp.raise_for_status.side_effect = RuntimeError("http 400")
@@ -95,6 +105,22 @@ class TestGetDomain:
 
         with pytest.raises(MailgunError, match="no domain data"):
             get_domain("example.com")
+
+
+@patch("products.conversations.backend.mailgun.MAILGUN_DOMAIN_PAGE_SIZE", 2)
+@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@patch("products.conversations.backend.mailgun.requests.get")
+def test_list_unverified_domains_reads_every_page(mock_get: MagicMock, _mock_key: MagicMock):
+    mock_get.side_effect = [
+        _mailgun_response(
+            200,
+            {"items": [{"name": "a.example.com", "state": "unverified"}, {"name": "b.example.com", "state": "active"}]},
+        ),
+        _mailgun_response(200, {"items": [{"name": "c.example.com", "state": "unverified"}]}),
+    ]
+
+    assert [domain["name"] for domain in list_unverified_domains()] == ["a.example.com", "c.example.com"]
+    assert [c.kwargs["params"]["skip"] for c in mock_get.call_args_list] == [0, 2]
 
 
 @patch("products.conversations.backend.mailgun.get_instance_setting", return_value="")

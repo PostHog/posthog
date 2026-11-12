@@ -15,6 +15,7 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.post_reply_to_slack",
     "products.conversations.backend.tasks.send_email_reply",
     "products.conversations.backend.tasks.flush_pending_email_replies",
+    "products.conversations.backend.tasks.prune_unverified_email_domains",
     "products.conversations.backend.tasks.send_teams_help",
     "products.conversations.backend.tasks.process_teams_event",
     "products.conversations.backend.tasks.post_reply_to_teams",

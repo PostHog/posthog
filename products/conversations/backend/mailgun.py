@@ -17,6 +17,8 @@ MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 
 MAILGUN_SEND_TIMEOUT = 30  # seconds
 
+MAILGUN_DOMAIN_PAGE_SIZE = 1000  # the largest page Mailgun returns from the domain list
+
 
 def get_email_webhook_signing_key() -> str | None:
     """The Mailgun account signing key the route endpoints verify with.
@@ -62,6 +64,14 @@ class MailgunDomainConflict(MailgunError):
         self.status_code = status_code
 
 
+class MailgunDomainLimitReached(MailgunError):
+    """Mailgun refuses to register a new domain because our account is at its domain limit.
+
+    Mailgun answers 403 on domain creation in this state. A retry fails the same way until
+    unverified domains are pruned or the account limit goes up.
+    """
+
+
 class MailgunDomainNotRegistered(MailgunError):
     """Mailgun returned 404 when sending — the domain no longer exists in the account.
 
@@ -95,6 +105,14 @@ def _filter_sending_records(records: list[MailgunDnsRecord]) -> list[MailgunDnsR
     return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
 
 
+def _provider_message(resp: requests.Response) -> str:
+    try:
+        message = resp.json().get("message", "")
+    except Exception:
+        message = ""
+    return message if isinstance(message, str) else ""
+
+
 def add_domain(domain: str) -> MailgunDnsRecords:
     """Register a sending domain with Mailgun. Returns DNS records to configure."""
     resp = requests.post(
@@ -110,12 +128,11 @@ def add_domain(domain: str) -> MailgunDnsRecords:
             "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
         }
 
+    if resp.status_code == 403:
+        raise MailgunDomainLimitReached(f"Mailgun refused to register {domain}: {_provider_message(resp)[:500]}")
+
     if resp.status_code == 400:
-        try:
-            provider_message = resp.json().get("message", "")
-        except Exception:
-            provider_message = ""
-        provider_message = provider_message if isinstance(provider_message, str) else ""
+        provider_message = _provider_message(resp)
         normalized_message = provider_message.lower()
         provider_message = provider_message[:500]
         # Never silently adopt a pre-existing Mailgun domain — the shared
@@ -155,6 +172,26 @@ def get_domain(domain: str) -> dict[str, Any] | None:
     if not isinstance(domain_info, dict) or not domain_info:
         raise MailgunError(f"Mailgun returned no domain data for {domain}")
     return domain_info
+
+
+def list_unverified_domains() -> list[dict[str, Any]]:
+    """List the domains in our Mailgun account that Mailgun has not verified."""
+    api_key = _get_api_key()
+    domains: list[dict[str, Any]] = []
+    skip = 0
+    while True:
+        resp = requests.get(
+            f"{MAILGUN_API_BASE}/domains",
+            auth=("api", api_key),
+            params={"state": "unverified", "limit": MAILGUN_DOMAIN_PAGE_SIZE, "skip": skip},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("items") or []
+        domains.extend(item for item in items if isinstance(item, dict) and item.get("state") == "unverified")
+        if len(items) < MAILGUN_DOMAIN_PAGE_SIZE:
+            return domains
+        skip += MAILGUN_DOMAIN_PAGE_SIZE
 
 
 def get_domain_dns_records(domain: str) -> MailgunDnsRecords:

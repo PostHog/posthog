@@ -1728,8 +1728,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 } else {
                     lemonToast.warning('Domain not yet verified. Please check your DNS records and try again.')
                 }
-            } catch {
-                lemonToast.error('Failed to verify domain')
+            } catch (error) {
+                lemonToast.error(emailSettingsErrorMessage(error, 'Failed to verify domain'))
                 actions.verifyEmailDomainDone(configId, false, null)
             }
         },
