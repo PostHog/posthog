@@ -438,6 +438,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
         const matchedJobs: MatchedJob[] = []
         const pendingWakes: PendingWakeWrite[] = []
+        // Runs of one flow for one person see the same events, so each wait is judged once per person.
+        const waitWakes = new Map<string, Promise<PendingWakeWrite['wakes'][string] | null>>()
         for (const candidate of candidates) {
             const hogflow = hogflows[candidate.functionId]
             if (!hogflow) {
@@ -456,13 +458,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     if (wait.type !== 'wait_until_condition') {
                         continue
                     }
-                    const wake = await evaluateWaitWake(
-                        eventsOnly ? eventsOnlyWait(wait) : wait,
-                        candidateGlobals,
-                        filterGlobalsFor,
-                        source,
-                        hogflow.id
-                    )
+                    const key = `${hogflow.id}:${wait.id}:${candidate.teamId}:${candidate.distinctId ?? ''}:${candidate.personId ?? ''}`
+                    let pending = waitWakes.get(key)
+                    if (!pending) {
+                        pending = evaluateWaitWake(
+                            eventsOnly ? eventsOnlyWait(wait) : wait,
+                            candidateGlobals,
+                            filterGlobalsFor,
+                            source,
+                            hogflow.id
+                        )
+                        waitWakes.set(key, pending)
+                    }
+                    const wake = await pending
                     if (wake) {
                         wakes[wait.id] = wake
                     }
@@ -593,7 +601,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         try {
             await client.query('BEGIN')
             const locked = await client.query(
-                `SELECT id, status, action_id, state, pending_wake, last_transition
+                `SELECT id, status, action_id, CASE WHEN status = 'available' THEN state END AS state, pending_wake, last_transition
                  FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) AND status IN ('available', 'running')
                  ORDER BY id FOR UPDATE`,
                 [ids]
@@ -607,7 +615,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 const changed: PendingWakeWrite['wakes'] = {}
                 for (const [actionId, wake] of Object.entries(wakesById.get(row.id) ?? {})) {
                     const current = existing[actionId]
-                    const fresh = current && new Date(current.at).getTime() >= dequeuedAt
+                    // A parked row keeps only entries its next dequeue has yet to apply.
+                    const fresh =
+                        current && (row.status === 'available' || new Date(current.at).getTime() >= dequeuedAt)
                     // A fresh match carries the event, which a later re-check of the same step would lose.
                     if (fresh && (current.kind === 'match' || wake.kind === 'recheck')) {
                         continue

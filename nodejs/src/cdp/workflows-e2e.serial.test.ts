@@ -1517,10 +1517,19 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(row.pending_wake.wait_condition).toMatchObject(match)
             })
 
-            it('keeps a recorded match when a re-check for the same step follows', async () => {
+            it.each([
+                ['while the run is parked', false],
+                ['after the run parked again with the match still unapplied', true],
+            ])('keeps a recorded match when a re-check for the same step follows %s', async (_name, reparked) => {
                 const id = await parkOutOfReach()
 
                 await record(id, match)
+                if (reparked) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET last_transition = clock_timestamp() WHERE id = $1`,
+                        [id]
+                    )
+                }
                 await record(id, { kind: 'recheck' })
 
                 expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
