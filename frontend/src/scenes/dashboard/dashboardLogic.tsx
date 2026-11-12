@@ -518,6 +518,8 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
+export type TileDisplayOptions = Partial<Pick<DashboardTile, 'show_description' | 'transparent_background'>>
+
 export interface PendingInsertion {
     x: number
     y: number
@@ -916,6 +918,7 @@ export interface dashboardLogicValues {
     terraformModalOpen: boolean
     textTileId: DashboardTileIdOrNew
     textTiles: DashboardTile[]
+    tileDisplayOptionsSavingIds: number[]
     tileGroupDisplay: TileGroupDisplay
     tileGroupKeys: Map<number, string>
     tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
@@ -1584,6 +1587,13 @@ export interface dashboardLogicActions {
     setTextTileId: (textTileId: DashboardTileIdOrNew) => {
         textTileId: DashboardTileIdOrNew
     }
+    setTileDisplayOptionsSaving: (
+        tileId: number,
+        saving: boolean
+    ) => {
+        saving: boolean
+        tileId: number
+    }
     setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
         groups: Record<string, DashboardTileGroupApi>
     }
@@ -1592,9 +1602,13 @@ export interface dashboardLogicActions {
     }
     setTileProperty: (
         tileId: number,
-        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+        properties: Partial<
+            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+        >
     ) => {
-        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+        properties: Partial<
+            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+        >
         tileId: number
     }
     setTileSavesPending: (pending: boolean) => {
@@ -1682,6 +1696,13 @@ export interface dashboardLogicActions {
         color: InsightColor | null
     ) => {
         color: InsightColor | null
+        tileId: number
+    }
+    updateTileDisplayOptions: (
+        tileId: number,
+        displayOptions: TileDisplayOptions
+    ) => {
+        displayOptions: Partial<Pick<DashboardTile, 'show_description' | 'transparent_background'>>
         tileId: number
     }
     updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => {
@@ -2435,9 +2456,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
+        updateTileDisplayOptions: (tileId: number, displayOptions: TileDisplayOptions) => ({ tileId, displayOptions }),
+        setTileDisplayOptionsSaving: (tileId: number, saving: boolean) => ({ tileId, saving }),
         setTileProperty: (
             tileId: number,
-            properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
+            properties: Partial<
+                Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+            >
         ) => ({
             tileId,
             properties,
@@ -3103,6 +3128,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setTileSavesPending: (_, { pending }) => pending,
+            },
+        ],
+        tileDisplayOptionsSavingIds: [
+            [] as number[],
+            {
+                setTileDisplayOptionsSaving: (state, { tileId, saving }) =>
+                    saving ? [...state.filter((id) => id !== tileId), tileId] : state.filter((id) => id !== tileId),
             },
         ],
         // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
@@ -5075,6 +5107,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
+        // TODO: move color into updateTileDisplayOptions so every tile property save shares one optimistic update and rollback path.
         updateTileColor: async ({ tileId, color }) => {
             // Defense in depth: shared dashboards (DashboardPlacement.Public)
             // shouldn't render the tile-color editor, so this listener should
@@ -5095,23 +5128,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 lemonToast.error('Failed to update tile color')
             }
         },
-        toggleTileDescription: async ({ tileId }) => {
+        toggleTileDescription: ({ tileId }) => {
+            const previousValue = values.tiles.find((tile) => tile.id === tileId)?.show_description
+            actions.updateTileDisplayOptions(tileId, { show_description: previousValue === false })
+        },
+        updateTileDisplayOptions: async ({ tileId, displayOptions }) => {
             // Defense in depth — same reason as updateTileColor above.
             if (isSharedView()) {
                 return
             }
-            const matchingTile = values.tiles.find((tile) => tile.id === tileId)
-            const previousValue = matchingTile?.show_description
-            const newValue = previousValue === false
-            actions.setTileProperty(tileId, { show_description: newValue })
+            // A second save before the first resolves can land out of order and leave the UI disagreeing with storage.
+            if (values.tileDisplayOptionsSavingIds.includes(tileId)) {
+                return
+            }
+            const currentTile = values.tiles.find((tile) => tile.id === tileId)
+            const previousOptions: TileDisplayOptions = {
+                show_description: currentTile?.show_description,
+                transparent_background: currentTile?.transparent_background,
+            }
+            actions.setTileProperty(tileId, displayOptions)
+            actions.setTileDisplayOptionsSaving(tileId, true)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                    tiles: [{ id: tileId, show_description: newValue }],
+                    tiles: [{ id: tileId, ...displayOptions }],
                 })
             } catch {
-                actions.setTileProperty(tileId, { show_description: previousValue })
+                actions.setTileProperty(tileId, previousOptions)
                 lemonToast.error('Failed to update tile')
+            } finally {
+                actions.setTileDisplayOptionsSaving(tileId, false)
             }
         },
         setRefreshError: sharedListeners.reportRefreshTiming,
