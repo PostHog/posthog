@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
 import { MARKER_KEY } from './processes'
@@ -75,6 +76,14 @@ export function roleSpecs(
             [MARKER_KEY]: stateDir,
         },
     }))
+}
+
+export function fetchRetriesOf({ env }: RoleSpec): number {
+    const retries = overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_FETCH_RETRIES
+    if (!Number.isFinite(retries)) {
+        throw new Error(`CDP_FETCH_RETRIES ${env.CDP_FETCH_RETRIES} is not a number of retries`)
+    }
+    return retries
 }
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {

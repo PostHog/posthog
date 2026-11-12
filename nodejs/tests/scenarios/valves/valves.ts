@@ -6,20 +6,19 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
-import { sesThrottle } from './ses'
+import { SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
     probe: Pick<CyclotronProbe, 'runningJobs'>
     teams: number[]
-    edgeUrl: string
 }
-
-export type ApplyContext = ValveContext & { pollMs: number; faultObservedWithinMs: number; signal: AbortSignal }
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
-    apply(context: ApplyContext, target: string, dose: unknown): Promise<Actuation>
+    strandsRunningJobs: boolean
+    apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
 }
 
 export type ValveTimelineEntry = {
@@ -42,17 +41,66 @@ export const roleKill: ValveDefinition = {
     name: 'role.kill',
     params: z.object({}).strict(),
     target: CdpRole,
+    strandsRunningJobs: true,
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, sesThrottle]
+export const roleFreeze: ValveDefinition = {
+    name: 'role.freeze',
+    params: z.object({}).strict(),
+    target: CdpRole,
+    strandsRunningJobs: true,
+    apply: ({ environment }, target) => environment.actuate({ kind: 'freeze', role: CdpRole.parse(target) }),
+}
+
+const ConnectionShare = z.object({ share: z.number().gt(0).max(1) }).strict()
+
+export const pgDropConnections: ValveDefinition = {
+    name: 'pg.drop_connections',
+    params: ConnectionShare,
+    target: z.literal('postgres'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({ kind: 'pg.terminate', share: ConnectionShare.parse(dose).share }),
+}
+
+const StatusCode = z.number().int().min(400).max(599)
+const DestinationStatus = z.union([
+    z.object({ code: StatusCode, count: z.number().int().min(1) }).strict(),
+    z.object({ code: StatusCode, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const destStatus: ValveDefinition = {
+    name: 'dest.status',
+    params: DestinationStatus,
+    target: z.literal(WEBHOOK_HOST),
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) => {
+        const { code, ...amount } = DestinationStatus.parse(dose)
+        const rule = ruleOf({ name: 'dest.status', params: { code }, match: { host: target }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
+export const sesThrottle: ValveDefinition = {
+    name: 'ses.throttle',
+    params: SesThrottleParams,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'ses.throttle', params: SesThrottleParams.parse(dose) }),
+        }),
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus, sesThrottle]
 
 const POLL_MS = 1000
-const FAULT_OBSERVED_WITHIN_MS = 30_000
 
 const now = (): string => new Date().toISOString()
 
-export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_OBSERVED_WITHIN_MS } = {}): Valves {
+export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
@@ -98,26 +146,24 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
-        const holdMs = durationMs(entry.for)
-        const held = AbortSignal.any([released.signal, AbortSignal.timeout(holdMs)])
         let actuation: Actuation | undefined
         try {
-            actuation = await definition.apply(
-                { ...context, pollMs, faultObservedWithinMs, signal: held },
-                entry.target,
-                entry.dose
-            )
+            actuation = await definition.apply(context, entry.target, entry.dose)
             record.appliedAt = now()
-            if (!(await actuation.observed())) {
+            if (!(await actuation.observed(released.signal))) {
                 record.error = 'applied but not observed'
-            } else if (entry.when && (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast) {
+            } else if (
+                entry.when &&
+                definition.strandsRunningJobs &&
+                (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast
+            ) {
                 record.error = withProbeFailure(
                     `applied after running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} stopped holding`
                 )
             } else {
                 record.observedAt = now()
             }
-            await sleep(holdMs, undefined, { signal: held }).catch(() => undefined)
+            await sleep(durationMs(entry.for), undefined, { signal: released.signal }).catch(() => undefined)
         } catch (error) {
             record.error = (error as Error).message
         } finally {

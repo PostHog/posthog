@@ -13,7 +13,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from '../environment/roles'
 import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
@@ -160,7 +160,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 },
             ] = consumerGroupsOf(specs)
             const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
-            const judge = createJudge({ edgeUrl, probe })
+            const judge = createJudge({
+                edgeUrl,
+                probe,
+                fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
+            })
             const valves = createValves()
             const postgres = new PostgresRouter(
                 {
@@ -189,7 +193,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 sampler = await startSampler(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
-                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds, edgeUrl })
+                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
