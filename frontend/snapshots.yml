@@ -8507,9 +8507,9 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--onboarding--light:
         hash: v1.k794b7964.43db8fae97d0c1d904bbc77258a41cbf9ce99992a214721db5869aca949828bd.2dCjwtWR3d2g3FGZx9hQhvz4NCBI2AmaSEAUEJHAj-I
     products-web-analytics-content-autopilot-workspace--prompts-tab--dark:
-        hash: v1.k794b7964.f0dd75cf0eeb3bf8e59efc3d5f9fdc13e13b56dff728ba5cce763cebaf788488.qLIQ01gpHesByTbelTMaJ5SAionS37ljoapJ59EXiAA
+        hash: v1.k794b7964.951e4500627de81ffb39e5efbae0db14b89463ffacdd19669c54e55fedc50ad0.oLPz4Q30qqPOeE_LUODgrXlhAt2SUccSjgfOCSQrymY
     products-web-analytics-content-autopilot-workspace--prompts-tab--light:
-        hash: v1.k794b7964.913bd29cfd045e167ebc7da2f6392a72d58359273bc939c399d5a7622979bf27.xr2M74JCmbd80T41Gn12P_eNhGAmhoGXUY4UPjL_Ygk
+        hash: v1.k794b7964.b25684117b59eb3983cb34930605cca2ba7fbe6700f683f6a75eebdec1997014.3Z_y-Qoxek2mnZFfI4RXFT8l4-mbCJ1-AjuJSBF1cAY
     products-web-analytics-content-autopilot-workspace--proposal-preview--dark:
         hash: v1.k794b7964.027845aa6aabf35b46b401274dbe1accc110240ecc777400917458ce6d5912a5.KxqJoLZ0-VTVCNNWD7njKCFTDPiGvPNB2JHtS0IIZE8
     products-web-analytics-content-autopilot-workspace--proposal-preview--light:
@@ -16107,9 +16107,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-surveys--light:
         hash: v1.k794b7964.e9827e5efbfff9b19d1b4f098f696ad6d296f6add9613ce8ffbe009cc6fded44.l7ZGtwkwtPW0kyb9a-szWxrK6JH4AmtiTJ_lYSUeu7s
     scenes-app-settings-environment--settings-environment-web-analytics--dark:
-        hash: v1.k794b7964.cbd11afdb52bfbe06b5b69eba28b8dadeb8d3f2a556643d13105487f8001093a.hQesAKzcDGhLHI2B9jA3atorwrhmkAmqWxDG1h_zXak
+        hash: v1.k794b7964.8a5299a88f53d58a6d59b93a7244a6b8fa4421f948aca47c2ff848044808b043.mYFWy4MhmdHxvxbfnhk18iYuFXannFJHWVkh9UQZkeg
     scenes-app-settings-environment--settings-environment-web-analytics--light:
-        hash: v1.k794b7964.63ad32bda9eb1f2621c5853c00ffcce71da7efd7e23fe9dd77f4413be2a27177.JwTgWsFTs-aE2uvCypvAK5E9w7Ll6vZLogvx7J0sJQU
+        hash: v1.k794b7964.595d5f0953b706ad4b5b09ffbc26dcfa8cef49d4b9f4aba378dd5c30ef0ce780.ob7RbEDt7VCVwzLHPwgZJrfp1nj7j1Zwyyx1x2meJXQ
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--dark:
         hash: v1.k794b7964.8b9284d27c164bda6e3890920f638b4a3fcac7a43bf3229340e854588a431fea.wIRwiaah0nvMmvF4AotThQ1Wb_gT1kYUl6qkng1e6j4
     scenes-app-settings-environment--settings-mcp-analytics-custom-harnesses--light:
