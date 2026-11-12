@@ -282,8 +282,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
             {
                 setImportError: (_, { error }) => error,
                 startImport: () => null,
-                startImportFailure: (_, { error, errorObject }) =>
-                    errorObject?.detail ?? error ?? "Couldn't start the import. Check your API key and try again.",
+                startImportFailure: (_, { errorObject }) =>
+                    errorObject?.detail ?? "Couldn't start the import. Check your API key and try again.",
                 resetImport: () => null,
                 selectProvider: () => null,
             },
@@ -294,6 +294,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 toggleImportStep: (deselected, { step }) =>
                     deselected.includes(step) ? deselected.filter((key) => key !== step) : [...deselected, step],
                 selectProvider: () => [],
+                openImportModal: () => [],
             },
         ],
         trackedImportRunIds: [
@@ -313,12 +314,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         importForm: {
             defaults: {
                 api_key: '',
             } as ImportFormValues,
             submit: ({ api_key }) => {
+                if (values.startedImportRunLoading || values.selectedImportSteps.length === 0) {
+                    return
+                }
                 actions.startImport({ apiKey: api_key })
             },
         },
@@ -408,7 +412,9 @@ export const providerImportLogic = kea<providerImportLogicType>([
                     if (run.status === 'completed') {
                         lemonToast.success(`${label ?? 'The'} import finished.`)
                     } else {
-                        lemonToast.error(`Some ${label ?? ''} import steps failed. Open the import to see which ones.`)
+                        lemonToast.error(
+                            `${label ? `Some ${label}` : 'Some'} import steps failed. Open the import to see which ones.`
+                        )
                     }
                     optOutCategoriesLogic.findMounted()?.actions.loadCategories()
                 }

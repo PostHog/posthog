@@ -22,6 +22,7 @@ export function OptOutCategories(): JSX.Element {
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
     const { openImportModal } = useActions(providerImportLogic)
+    const { hasSeveralProviders } = useValues(providerImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -141,7 +142,7 @@ export function OptOutCategories(): JSX.Element {
                                         icon={<IconDownload />}
                                         onClick={() => openImportModal()}
                                     >
-                                        Import from Customer.io
+                                        {hasSeveralProviders ? 'Import from another tool' : 'Import from Customer.io'}
                                     </LemonButton>
                                     <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>
                                         Create category
