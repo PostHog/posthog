@@ -796,8 +796,14 @@ class TestListScheduledEmails(EmailsApiTestBase):
                 "invalid_input",
             ),
             (
-                "a_cursor_time_clickhouse_cannot_hold",
+                "a_cursor_time_before_clickhouse_can_hold",
                 f"status=scheduled&cursor={_encoded_cursor('0001-01-01T00:00:00+00:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_after_clickhouse_can_hold",
+                f"status=scheduled&cursor={_encoded_cursor('2300-01-01T00:00:00+00:00', _CURSOR_ID)}",
                 "cursor",
                 "invalid_input",
             ),

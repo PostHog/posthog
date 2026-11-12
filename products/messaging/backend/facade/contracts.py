@@ -370,7 +370,6 @@ class ScheduledEmail:
 @frozen
 class ScheduledEmailPage:
     results: tuple[ScheduledEmail, ...]
-    # The last email of this page, by its time and ID, when more emails wait after it.
     next_after: tuple[datetime, str] | None
 
 

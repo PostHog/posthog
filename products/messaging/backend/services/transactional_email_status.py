@@ -80,11 +80,7 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     )
 
 
-# A send waits at most 30 days after it was queued, so an email that still waits was queued within that time.
 _LONGEST_WAIT = timedelta(days=30)
-# Only scheduled rows carry `scheduled_at`, and a reschedule writes a new one. The latest row of a message says
-# whether it still waits: a cancel or a send outranks every scheduled row. An email on the page has its latest
-# scheduled row due after now and after the cursor, so the candidates need only those rows.
 _SCHEDULED_EMAILS_QUERY = f"""
 SELECT toString(message_id) AS id, argMax(recipient, version), argMax(scheduled_at, version) AS due, any(created_at)
 FROM {EMAIL_STATUS_EVENTS_TABLE}
@@ -105,9 +101,7 @@ LIMIT %(limit)s
 _AFTER_AT = "toDateTime64(%(after_at)s, 6, 'UTC')"
 
 
-def _microseconds(value: datetime) -> str:
-    # The ClickHouse driver binds a datetime to whole seconds, and `scheduled_at` keeps microseconds. A cursor cut to
-    # the second would return its own email again on the next page.
+def _datetime64_with_microseconds(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
@@ -117,11 +111,11 @@ def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, l
     params: dict[str, Any] = {
         "team_id": team_id,
         "start": now - _LONGEST_WAIT - _CLOCK_SKEW,
-        "now": _microseconds(now),
+        "now": _datetime64_with_microseconds(now),
         "limit": limit + 1,
     }
     if after is not None:
-        params["after_at"], params["after_id"] = _microseconds(after[0]), after[1]
+        params["after_at"], params["after_id"] = _datetime64_with_microseconds(after[0]), after[1]
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     rows = cast(
         list,

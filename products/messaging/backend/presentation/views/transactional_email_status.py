@@ -132,8 +132,7 @@ class ListedEmailStatus(LabeledStrEnum):
     SCHEDULED = "scheduled", "Scheduled"
 
 
-# ClickHouse's DateTime64 holds 1900 to 2299, so the list query fails on a cursor time outside that range.
-_CURSOR_TIMES = (datetime(1900, 1, 1, tzinfo=UTC), datetime(2300, 1, 1, tzinfo=UTC))
+_CLICKHOUSE_DATETIME64_RANGE = (datetime(1900, 1, 1, tzinfo=UTC), datetime(2300, 1, 1, tzinfo=UTC))
 
 
 class ScheduledEmailListQuerySerializer(serializers.Serializer):
@@ -157,7 +156,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
             if due_at.tzinfo is None:
                 raise ValueError
             due_at = due_at.astimezone(UTC)
-            if not _CURSOR_TIMES[0] <= due_at < _CURSOR_TIMES[1]:
+            if not _CLICKHOUSE_DATETIME64_RANGE[0] <= due_at < _CLICKHOUSE_DATETIME64_RANGE[1]:
                 raise ValueError
             return due_at, str(UUID(message_id))
         except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
