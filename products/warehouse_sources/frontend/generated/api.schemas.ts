@@ -990,7 +990,9 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
 }
 
@@ -1555,6 +1557,13 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
+}
+
+export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+    enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+    include_invoiceless_charges?: boolean
 }
 
 /**
