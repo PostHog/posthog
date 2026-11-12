@@ -10,7 +10,6 @@ import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
-import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
@@ -25,6 +24,7 @@ import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
+    SES_RATE_LIMIT_KEY,
     STACK,
     downServices,
     forgetSesBucket,
@@ -496,6 +496,10 @@ describe('scenario environment', () => {
         const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
         const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
+            const emailQueue = readFileSync(path.join(__dirname, '../../../src/server.ts'), 'utf8').match(
+                /new RateLimiterService\(sesValkey, \{ name: 'ses' \}\),\s*key: '([^']+)'/
+            )
+            expect(emailQueue?.[1]).toBe(SES_RATE_LIMIT_KEY)
             await limiter.claimUpTo(claim)
             expect(await limiter.claimUpTo(claim)).toBe(0)
 

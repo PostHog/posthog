@@ -6,12 +6,13 @@ import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
 
-import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { internalFetch } from '~/common/utils/request'
 
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
+
+export const SES_RATE_LIMIT_KEY = '@posthog/ses/global'
 
 export const STACK = {
     postgresUrl: 'postgres://posthog:posthog@localhost:5432/posthog',
