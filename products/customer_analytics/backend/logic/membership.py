@@ -20,6 +20,8 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from products.customer_analytics.backend.logic.membership_metrics import MembershipTimings
 
 QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
+# Longer keys cannot exist in the primary group's varchar(400) column.
+MAX_GROUP_KEY_LENGTH = 400
 MEMBERSHIP_LEASE_SECONDS = 60 * 60
 MEMBERSHIP_LEASE_RENEWAL_SECONDS = 5
 
@@ -114,6 +116,9 @@ def _get_live_groups(
     lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
         (key.group_type_index, key.group_key): (key.group_type_index, _parse_group_key(key.group_key)) for key in keys
     }
+    lookup_keys = {stored: lookup for stored, lookup in lookup_keys.items() if len(lookup[1]) <= MAX_GROUP_KEY_LENGTH}
+    if not lookup_keys:
+        return frozenset()
     with timings.measure("read_groups") if timings else nullcontext():
         groups = sync_execute(
             """SELECT DISTINCT group_type_index, group_key FROM groups

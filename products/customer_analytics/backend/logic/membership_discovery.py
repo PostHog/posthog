@@ -1,6 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,6 +33,9 @@ from products.customer_analytics.backend.models.membership_cleanup import (
     MembershipCleanupCandidate,
     MembershipCleanupScan,
 )
+
+if TYPE_CHECKING:
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 logger = structlog.get_logger(__name__)
 BATCH_SIZE = 100
@@ -67,6 +71,17 @@ class MembershipDiscoveryCounts:
     has_more: bool = False
 
 
+def get_membership_key_table(keys: Sequence[MembershipKey]) -> "ClickHouseExternalTable":
+    return {
+        "name": "membership_keys",
+        "structure": [("group_type_index", "UInt8"), ("group_key", "String"), ("distinct_id", "String")],
+        "data": [
+            {"group_type_index": key.group_type_index, "group_key": key.group_key, "distinct_id": key.distinct_id}
+            for key in keys
+        ],
+    }
+
+
 class MembershipDiscoveryStore:
     def __init__(self, deadline: float | None = None) -> None:
         self.deadline = deadline
@@ -100,17 +115,23 @@ class MembershipDiscoveryStore:
         return sorted(set(teams))[:TEAM_BATCH_SIZE]
 
     def list_keys(self, team_id: int, cursor: list[int | str]) -> list[MembershipKey]:
+        cursor_key = (
+            MembershipKey(group_type_index=int(cursor[0]), group_key=str(cursor[1]), distinct_id=str(cursor[2]))
+            if cursor
+            else MembershipKey(group_type_index=0, group_key="", distinct_id="")
+        )
         rows = sync_execute(
             """SELECT DISTINCT group_type_index, group_key, distinct_id FROM person_group_membership
             WHERE team_id = %(team_id)s
-              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) >= %(cursor)s)
+              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) >=
+                   (SELECT tuple(group_type_index, group_key, distinct_id) FROM membership_keys LIMIT 1))
             ORDER BY group_type_index, group_key, distinct_id LIMIT %(limit)s""",
             {
                 "team_id": team_id,
                 "has_cursor": bool(cursor),
-                "cursor": tuple(cursor or [0, "", ""]),
                 "limit": BATCH_SIZE + 1,
             },
+            external_tables=[get_membership_key_table([cursor_key])],
             settings={**get_membership_query_settings(self.deadline), "optimize_distinct_in_order": "1"},
             workload=Workload.OFFLINE,
         )
@@ -122,11 +143,9 @@ class MembershipDiscoveryStore:
         rows = sync_execute(
             """SELECT DISTINCT group_type_index, group_key, distinct_id FROM person_group_membership
             WHERE team_id = %(team_id)s
-              AND (group_type_index, group_key, distinct_id) IN %(keys)s""",
-            {
-                "team_id": team_id,
-                "keys": [(key.group_type_index, key.group_key, key.distinct_id) for key in keys],
-            },
+              AND (group_type_index, group_key, distinct_id) IN membership_keys""",
+            {"team_id": team_id},
+            external_tables=[get_membership_key_table(list(keys))],
             settings=get_membership_query_settings(self.deadline),
             workload=Workload.OFFLINE,
         )

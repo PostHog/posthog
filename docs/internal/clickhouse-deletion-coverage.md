@@ -119,6 +119,8 @@ When ClickHouse reports a person as missing, a strong personhog read confirms th
 Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
 When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
 Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
+Decoded group keys longer than the primary identity column's 400-character limit count as missing without an identity lookup.
+Scan cursors and pending membership keys use ClickHouse external tables so large stored keys do not expand SQL text.
 Deleted teams need no identity reads.
 
 Each batch scans at most 100 membership keys and rechecks 100 saved candidates.

@@ -137,6 +137,7 @@ class TestMembershipDiscovery(MembershipTestCase):
             ("high_surrogate", "account\ud800north"),
             ("low_surrogate", "account\udcffnorth"),
             ("surrogate_pair", "account\U0001f600north"),
+            ("max_length", "\U0001f600" * 400),
         ]
     )
     def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
@@ -161,6 +162,22 @@ class TestMembershipDiscovery(MembershipTestCase):
             assert self.run_discovery().discovered == 0
         assert self.get_rows() == [(self.key.distinct_id,)]
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
+
+    def test_large_group_keys_do_not_block_discovery_or_candidate_rechecks(self) -> None:
+        self.create_mapping(self.create_person())
+        for index in range(25):
+            self.create_membership(
+                MembershipKey(
+                    group_type_index=0, group_key=f"large-{index}-" + "a" * 400000, distinct_id=self.key.distinct_id
+                )
+            )
+        assert self.run_discovery().discovered == 25
+        MembershipCleanupScan.objects.for_team(self.team.pk).update(cursor=[1, "", ""])
+        assert self.run_discovery().discovered == 0
+        candidates = MembershipCleanupCandidate.objects.for_team(self.team.pk)
+        assert candidates.count() == 25
+        assert set(candidates.values_list("missing_side", flat=True)) == {"group"}
+        assert len(self.get_rows()) == 25
 
     @parameterized.expand([("live",), ("missing",), ("unavailable",)])
     def test_primary_group_check_protects_membership(self, group_state: str) -> None:
