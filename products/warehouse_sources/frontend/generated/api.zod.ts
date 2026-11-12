@@ -844,83 +844,6 @@ export const ExternalDataSourcesDestinationsPartialUpdateBody = /* @__PURE__ */ 
 })
 
 /**
- * Disable CDC on an existing source.
- *
- * Cancels any running CDC extraction workflow, deletes the extraction schedule,
- * delegates engine-side teardown to the source's adapter (drops slot/publication
- * for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
- * ``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
- * ``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
- * strategy before they resume.
- */
-export const externalDataSourcesDisableCdcCreateBodyPrefixMax = 100
-
-export const externalDataSourcesDisableCdcCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesDisableCdcCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesDisableCdcCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-        payload: zod
-            .object({
-                credential_id: zod
-                    .uuid()
-                    .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
-                    ),
-            })
-            .optional()
-            .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
  * Enable CDC on an existing source.
  *
  * Provisions engine-side CDC resources via the source's adapter, writes the CDC
@@ -934,72 +857,43 @@ export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
  * ``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
  * (optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
  */
-export const externalDataSourcesEnableCdcCreateBodyPrefixMax = 100
+export const externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault = `posthog`
 
-export const externalDataSourcesEnableCdcCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesEnableCdcCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesEnableCdcCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-        payload: zod
-            .object({
-                credential_id: zod
-                    .uuid()
-                    .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
-                    ),
-            })
-            .optional()
-            .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod.object({
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - PostHog\n\* `self_managed` - Self managed')
+        .default(externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault)
+        .describe(
+            "Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.\n\n\* `posthog` - PostHog\n\* `self_managed` - Self managed"
+        ),
+    cdc_slot_name: zod
+        .string()
+        .optional()
+        .describe('Name of the replication slot to use. Defaults to a name derived from the source id.'),
+    cdc_publication_name: zod
+        .string()
+        .optional()
+        .describe(
+            "Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode."
+        ),
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
+})
 
 /**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
@@ -1222,72 +1116,25 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
  * across engines. Engine-specific identifiers (slot name, management mode, …)
  * are immutable post-enable — switching them requires disable + enable.
  */
-export const externalDataSourcesUpdateCdcSettingsCreateBodyPrefixMax = 100
 
-export const externalDataSourcesUpdateCdcSettingsCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesUpdateCdcSettingsCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesUpdateCdcSettingsCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-        payload: zod
-            .object({
-                credential_id: zod
-                    .uuid()
-                    .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
-                    ),
-            })
-            .optional()
-            .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zod.object({
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
