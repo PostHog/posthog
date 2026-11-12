@@ -25,8 +25,6 @@ const RETRY_TIMES = 2
 // changing, which then keeps its last capture.
 const MAX_SNAPSHOT_CAPTURES = 4
 const RECAPTURE_SETTLE_MS = 100
-// A target that grows with the viewport (a `100vh` child) never fits, so stop growing after this many rounds.
-const MAX_VIEWPORT_FIT_ROUNDS = 3
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
@@ -535,57 +533,6 @@ async function waitForChartCanvasesPainted(page: Page): Promise<void> {
         .catch(() => {})
 }
 
-/** The element a snapshot captures, or null for a viewport snapshot, which captures the viewport and so always fits. */
-function locateSnapshotTarget(page: Page, storyContext: StoryContext): Locator | null {
-    const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
-    if (storyContext.parameters?.layout !== 'fullscreen') {
-        return page.locator(snapshotTargetSelector ?? '#storybook-root')
-    }
-    if (includeNavigationInSnapshot) {
-        return null
-    }
-    return page.locator('body, main').last()
-}
-
-/**
- * Grows the viewport until the snapshot target fits in it, and returns whether it grew.
- *
- * Playwright captures a target that does not fit by capturing beyond the viewport, and the page sees a
- * resize during the capture. Components that react to the size then render again or reload their data
- * while the capture runs, so the capture can show a loading state. A target that fits is captured
- * without a resize. The next story starts from its own viewport, because `preVisit` sets it again.
- */
-async function growViewportToFitTarget(page: Page, target: Locator | null): Promise<boolean> {
-    if (target === null) {
-        return false
-    }
-    let grew = false
-    for (let round = 1; round <= MAX_VIEWPORT_FIT_ROUNDS; round++) {
-        const viewport = page.viewportSize()
-        const needed = await target
-            .evaluate((element) => {
-                const rect = element.getBoundingClientRect()
-                return {
-                    width: Math.ceil(rect.right + window.scrollX),
-                    height: Math.ceil(rect.bottom + window.scrollY),
-                }
-            })
-            .catch(() => null)
-        if (!viewport || !needed) {
-            return grew
-        }
-        if (needed.width <= viewport.width && needed.height <= viewport.height) {
-            return grew
-        }
-        await resizeViewportAndWait(page, {
-            width: Math.max(viewport.width, needed.width),
-            height: Math.max(viewport.height, needed.height),
-        })
-        grew = true
-    }
-    return grew
-}
-
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -599,7 +546,6 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
-    await growViewportToFitTarget(page, locateSnapshotTarget(page, storyContext))
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -858,12 +804,8 @@ async function expectStoryToMatchComponentSnapshot(
             }
         })
     })
-    // Widening the root for a popover can make it overflow the viewport, and can resize a chart again.
-    const grew = await growViewportToFitTarget(page, page.locator(targetSelector))
+    // Widening the root for a popover can resize a chart again.
     await waitForChartCanvasesPainted(page)
-    if (grew) {
-        await finishAnimations(page)
-    }
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, loaderWaitTimeout, {
         omitBackground: true,
