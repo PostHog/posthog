@@ -143,7 +143,7 @@ describe('StateManager', () => {
 
     it.each([true, false, undefined])('reports lookup errors with cached suppression=%s', async (suppressed) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
-        const error = new Error('Synthetic project lookup failure')
+        const error = new Error('Synthetic project lookup failure for phx_INVENTEDpersonalKEY0000000000000000')
         const lookup = vi
             .spyOn(stateManager, 'getApiKey')
             .mockRejectedValue(new Error('Synthetic introspection failure'))
@@ -156,7 +156,7 @@ describe('StateManager', () => {
         await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
 
         expect(capture).toHaveBeenCalledWith(
-            error,
+            expect.objectContaining({ message: 'Synthetic project lookup failure for phx_[REDACTED]' }),
             undefined,
             expect.objectContaining({ suppress_analytics: suppressed === true })
         )

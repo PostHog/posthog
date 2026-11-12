@@ -9,6 +9,7 @@ export interface CliConfig {
 }
 
 const DEFAULT_HOST = 'https://us.posthog.com'
+const API_KEY_ENV_NAMES = ['POSTHOG_API_KEY', 'POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN']
 
 function firstEnv(names: string[]): string | undefined {
     for (const name of names) {
@@ -20,6 +21,22 @@ function firstEnv(names: string[]): string | undefined {
     return undefined
 }
 
+function resolveApiKey(): string | undefined {
+    const name = API_KEY_ENV_NAMES.find((candidate) => process.env[candidate])
+    if (!name) {
+        return undefined
+    }
+    const trimmed = process.env[name]!.trim()
+    const apiKey = (trimmed.match(/^(["'])([\s\S]*)\1$/)?.[2] ?? trimmed).trim()
+    // Keep the value out of the message, because terminal output and CI logs are often shared.
+    if (/[^\x21-\x7E]|["']/.test(apiKey)) {
+        throw new Error(
+            `The API key in ${name} contains invalid characters. Remove any spaces, quotes or line breaks inside the key, then run the command again.`
+        )
+    }
+    return apiKey || undefined
+}
+
 function parseVersion(value: string | undefined): number {
     if (!value) {
         return 2
@@ -29,7 +46,7 @@ function parseVersion(value: string | undefined): number {
 }
 
 export function resolveCliConfig(args: string[] = []): CliConfig {
-    const apiKey = firstEnv(['POSTHOG_API_KEY', 'POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN'])
+    const apiKey = resolveApiKey()
     const targetOrganizationId = takeOption(args, '--organization-id')
     const targetProjectId = takeOption(args, '--project-id')
     const hasTarget = targetOrganizationId !== undefined || targetProjectId !== undefined

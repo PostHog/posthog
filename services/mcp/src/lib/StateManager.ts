@@ -5,6 +5,7 @@ import { classifyAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
+import { redactError } from '@/lib/credential-redaction'
 import {
     ErrorCode,
     findPostHogPermissionError,
@@ -393,7 +394,7 @@ export class StateManager {
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
-            getPostHogClient().captureException(error, undefined, {
+            getPostHogClient().captureException(redactError(error), undefined, {
                 tag: 'mcp',
                 team: 'posthog_ai',
                 context,

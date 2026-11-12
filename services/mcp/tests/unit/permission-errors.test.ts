@@ -436,6 +436,22 @@ describe('handleToolError with API errors', () => {
         }
     )
 
+    it('masks an API key in a captured transport failure', () => {
+        const error = new PostHogTransportError({
+            url: 'https://us.posthog.com/api/users/@me/',
+            method: 'GET',
+            attempts: 1,
+            retryable: true,
+            cause: new TypeError('Headers.append: "Bearer "phx_INVENTEDpersonalKEY0000000000000000"" is invalid.'),
+        })
+
+        handleToolError(error, 'user-get')
+
+        const [captured] = captureException.mock.calls[0]!
+        expect(captured.message).toContain('Bearer "[REDACTED]"')
+        expect(captured.message).not.toContain('INVENTEDpersonalKEY')
+    })
+
     it('short-circuits PostHogValidationError without capturing an exception', () => {
         const error = new PostHogValidationError({
             detail: 'invalid uuid',
