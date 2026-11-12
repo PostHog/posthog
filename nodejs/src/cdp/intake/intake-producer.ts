@@ -61,10 +61,10 @@ export class IntakeProducer {
             launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()
             return encoded.status
         }
-        const endTimer = ackMs.startTimer({ kind })
+        const startedAt = performance.now()
         try {
             await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message))
-            endTimer()
+            ackMs.labels({ kind }).observe(performance.now() - startedAt)
             launchesCounter.labels({ kind, mode, outcome: 'acked' }).inc()
             return 'acked'
         } catch (error) {

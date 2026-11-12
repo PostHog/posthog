@@ -1,3 +1,5 @@
+import { MetricValueWithName, register } from 'prom-client'
+
 import { IngestionOutput } from '~/common/outputs/ingestion-output'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
@@ -97,6 +99,29 @@ describe('IntakeProducer', () => {
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
 
         await expect(outcome).resolves.toBe('unacked')
+    })
+
+    it('records the wait for the ack in milliseconds', async () => {
+        jest.useFakeTimers()
+        produce = () => new Promise<void>((resolve) => setTimeout(resolve, 400))
+        const ackSum = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_intake_ack_ms')!.get()
+            const values = metric.values as MetricValueWithName<string>[]
+            const sum = values.find(
+                (value) => value.metricName === 'cdp_intake_ack_ms_sum' && value.labels.kind === 'workflow-webhook'
+            )
+            return sum?.value ?? 0
+        }
+        const before = await ackSum()
+
+        const outcome = new IntakeProducer(outputs()).produce(
+            { kind: 'workflow-webhook', invocation: invocation() },
+            'shadow'
+        )
+        await jest.advanceTimersByTimeAsync(400)
+
+        await expect(outcome).resolves.toBe('acked')
+        expect((await ackSum()) - before).toBe(400)
     })
 
     it.each([
