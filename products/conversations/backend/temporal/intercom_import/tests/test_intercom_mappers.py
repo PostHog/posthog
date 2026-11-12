@@ -45,6 +45,8 @@ class TestIntercomMappers:
             ("user", "note", ("support", True)),
             # 2.18 reports part types it can't describe as `unknown`; never show those to the customer.
             ("admin", "unknown", ("support", True)),
+            # Side conversations are held with people outside the conversation.
+            ("admin", "side_conversation_reply", ("support", True)),
         ]
     )
     def test_map_intercom_author_type(self, author_type: str, part_type: str | None, expected: tuple) -> None:

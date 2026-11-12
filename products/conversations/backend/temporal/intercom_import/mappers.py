@@ -36,12 +36,14 @@ def map_intercom_priority(priority: str | None) -> str | None:
 def map_intercom_author_type(*, author_type: str | None, part_type: str | None) -> tuple[str, bool]:
     """Return (author_type, is_private) for Comment.item_context.
 
-    Notes are internal regardless of who wrote them. So are `unknown` parts: the API returns that
-    type for parts it can't describe, and importing them as replies could show the customer
-    content that was never sent to them. Contacts (users and leads) are the customer; admins, bots
-    (including the AI agent) and teams are support.
+    Notes are internal regardless of who wrote them, and so are side conversations, which teammates
+    hold with people outside the conversation. So are `unknown` parts: the API returns that type for
+    parts it can't describe, and importing them as replies could show the customer content that was
+    never sent to them. Contacts (users and leads) are the customer; admins, bots (including the AI
+    agent) and teams are support.
     """
-    if part_type and ("note" in part_type.lower() or part_type.lower() == "unknown"):
+    kind = (part_type or "").lower()
+    if "note" in kind or kind == "unknown" or kind.startswith("side_conversation"):
         return "support", True
     if author_type in CUSTOMER_AUTHOR_TYPES:
         return "customer", False

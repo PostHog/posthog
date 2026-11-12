@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+import requests
 import structlog
 from requests import Response
 
@@ -21,11 +22,8 @@ logger = structlog.get_logger(__name__)
 # 2.18 is the first version that paginates conversation parts; older versions return only the 500
 # most recent parts, which silently drops the start of long conversations.
 INTERCOM_API_VERSION = "2.18"
-# Documented maximum for list endpoints.
 CONVERSATIONS_PER_PAGE = 150
-# Documented maximum for conversation parts per page.
 PARTS_PER_PAGE = 500
-# Safety stop for a runaway pagination loop (MAX_PART_PAGES * PARTS_PER_PAGE parts).
 MAX_PART_PAGES = 100
 
 REGION_HOSTS: dict[str, str] = {
@@ -56,6 +54,27 @@ class IntercomRateLimitError(Exception):
 
 class IntercomAttachmentTooLargeError(Exception):
     """Raised when an attachment exceeds the caller's byte cap, so the caller can skip it."""
+
+
+class IntercomNotFoundError(Exception):
+    """Raised when Intercom answers 404, so a caller can tell a deleted record from an outage."""
+
+
+class IntercomIncompleteConversationError(Exception):
+    """Raised when a conversation has more parts than the import will page through.
+
+    Importing the collected prefix would mark the ticket done, and deduplication would then stop
+    later runs from fetching the rest, so the conversation fails instead.
+    """
+
+
+def is_retryable_error(exc: BaseException) -> bool:
+    """True for failures a later attempt can fix: rate limits, timeouts, connection errors, 5xx."""
+    if isinstance(exc, IntercomRateLimitError | requests.ConnectionError | requests.Timeout):
+        return True
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        return exc.response.status_code >= 500
+    return False
 
 
 @dataclass(frozen=True)
@@ -89,7 +108,6 @@ def _has_more_parts(container: dict[str, Any], page: int) -> bool:
     page_parts = container.get("conversation_parts") or []
     if not page_parts:
         return False
-    # The docs note some lists omit `next`, so compare the page with total_pages instead.
     total_pages = (container.get("pages") or {}).get("total_pages")
     if isinstance(total_pages, int):
         return page < total_pages
@@ -139,7 +157,6 @@ class IntercomImportClient:
         time.sleep(sleep_seconds)
 
     def _send(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> Response:
-        # Only ever relative paths: the token is never sent anywhere but the pinned regional host.
         url = f"{self._base_url}{path}"
         attempt = 0
         while True:
@@ -179,12 +196,9 @@ class IntercomImportClient:
         page = 1
         while _has_more_parts(container, page):
             if page >= MAX_PART_PAGES:
-                logger.warning(
-                    "intercom_import_conversation_parts_page_cap",
-                    intercom_conversation_id=conversation_id,
-                    max_pages=MAX_PART_PAGES,
+                raise IntercomIncompleteConversationError(
+                    f"Intercom conversation {conversation_id} has more than {MAX_PART_PAGES} pages of parts"
                 )
-                break
             page += 1
             container = self._request("GET", path, params=self._parts_page_params(page)).get("conversation_parts") or {}
             parts.extend(container.get("conversation_parts") or [])
@@ -208,7 +222,9 @@ class IntercomImportClient:
         if response.status_code == 410:
             merged_into = _CONTACT_LINK_RE.search(response.headers.get("Link") or "")
             if merged_into:
-                return self._request("GET", f"/contacts/{merged_into.group(1)}", params=params)
+                response = self._send("GET", f"/contacts/{merged_into.group(1)}", params=params)
+        if response.status_code == 404:
+            raise IntercomNotFoundError(f"Intercom contact {contact_id} not found")
         response.raise_for_status()
         return response.json()
 

@@ -116,8 +116,6 @@ def _create_ticket_comments(built: list[BuiltTicket]) -> None:
     if not all_comments:
         return
     created_comments = Comment.objects.bulk_create(all_comments)
-    # bulk_create's auto_now_add overwrote created_at, so re-apply the stashed
-    # historical timestamps for comments that had one.
     comment_ts_updates: list[Comment] = []
     for c in created_comments:
         historical = getattr(c, _HISTORICAL_CREATED_AT_ATTR, None)
@@ -176,7 +174,6 @@ def persist_ticket_batch(team: Team, built: list[BuiltTicket], tags_by_name: dic
         tickets_to_create = [b.ticket for b in built]
         for offset, ticket_to_number in enumerate(tickets_to_create):
             ticket_to_number.ticket_number = max_num + 1 + offset
-        # bulk_create sets each object's id in place, so built[i].ticket now carries its new id.
         Ticket.objects.bulk_create(tickets_to_create)
 
         _apply_ticket_timestamps(built)

@@ -5,11 +5,17 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from products.conversations.backend.temporal.intercom_import.client import (
+    MAX_PART_PAGES,
     IntercomAttachmentTooLargeError,
     IntercomCredentials,
     IntercomImportClient,
+    IntercomIncompleteConversationError,
+    IntercomNotFoundError,
     IntercomRateLimitError,
+    is_retryable_error,
     validate_intercom_credentials,
 )
 
@@ -137,6 +143,30 @@ class TestIntercomImportClient:
         ]
         assert all(c.kwargs["params"]["escape_identity"] == "false" for c in session.request.call_args_list)
 
+    def test_conversation_over_the_page_cap_fails_instead_of_returning_a_prefix(self) -> None:
+        client, session = _client()
+        session.request.side_effect = lambda *a, **kw: _FakeResponse(
+            json_body={
+                "id": "42",
+                "conversation_parts": {
+                    "conversation_parts": [{"id": f"p{kw['params']['page']}"}],
+                    "pages": {"page": kw["params"]["page"], "total_pages": MAX_PART_PAGES + 1},
+                },
+            }
+        )
+
+        with pytest.raises(IntercomIncompleteConversationError):
+            client.fetch_conversation("42")
+
+        assert session.request.call_count == MAX_PART_PAGES
+
+    def test_missing_contact_raises_not_found(self) -> None:
+        client, session = _client()
+        session.request.return_value = _FakeResponse(status_code=404)
+
+        with pytest.raises(IntercomNotFoundError):
+            client.fetch_contact("abc123")
+
     def test_rate_limit_beyond_budget_raises_for_temporal_retry(self) -> None:
         client, session = _client()
         session.request.return_value = _FakeResponse(status_code=429)
@@ -218,3 +248,25 @@ class TestValidateIntercomCredentials:
         session.get.side_effect = ConnectionError("dns failure")
         with patch(f"{M}.make_tracked_session", return_value=session):
             assert validate_intercom_credentials(IntercomCredentials(region="us", access_token=FAKE_TOKEN)) is False
+
+
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(response=response)
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        pytest.param(IntercomRateLimitError("slow"), True, id="rate_limit"),
+        pytest.param(requests.Timeout(), True, id="timeout"),
+        pytest.param(requests.ConnectionError(), True, id="connection"),
+        pytest.param(_http_error(503), True, id="server_error"),
+        pytest.param(_http_error(404), False, id="not_found"),
+        pytest.param(_http_error(403), False, id="expired_link"),
+        pytest.param(ValueError("bad id"), False, id="bad_data"),
+    ],
+)
+def test_is_retryable_error(exc: BaseException, expected: bool) -> None:
+    assert is_retryable_error(exc) is expected

@@ -12,7 +12,6 @@ from temporalio import activity, workflow
 # The package __init__ imports this module inside the Temporal workflow sandbox; only the activity
 # sync helpers touch Django/models at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
-    from django.db.models import F
     from django.utils import timezone
 
     from posthog.dataclasses import frozen
@@ -29,13 +28,17 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
+        MAX_ATTACHMENTS_PER_MESSAGE,
         build_content_with_images,
+        sanitize_attachment_filename,
         save_file_to_uploaded_media,
     )
     from products.conversations.backend.temporal.intercom_import.client import (
         IntercomAttachmentTooLargeError,
         IntercomCredentials,
         IntercomImportClient,
+        IntercomNotFoundError,
+        is_retryable_error,
     )
     from products.conversations.backend.temporal.intercom_import.mappers import (
         CUSTOMER_AUTHOR_TYPES,
@@ -53,6 +56,10 @@ with workflow.unsafe.imports_passed_through():
     )
 
 logger = structlog.get_logger(__name__)
+
+# A contact controls how many files they attach, so cap what one conversation can make the import
+# download and store. Attachments past the budget are skipped, not failed.
+MAX_ATTACHMENT_BYTES_PER_CONVERSATION = 200 * 1024 * 1024
 
 
 @frozen
@@ -72,8 +79,6 @@ class ImportBatchInput:
     job_id: str
     team_id: int
     conversation_ids: list[str]
-    # Email channel (UUID str) to attach imported tickets to so agents can reply by email.
-    # None = leave the ticket's email_config null.
     default_email_channel_id: str | None = None
 
 
@@ -93,12 +98,14 @@ class UpdateJobStatusInput:
 
 @frozen
 class UpdateJobProgressInput:
+    """Absolute cumulative counts, so replaying an update after a retry is harmless."""
+
     job_id: str
-    processed_delta: int = 0
-    imported_delta: int = 0
-    skipped_delta: int = 0
-    failed_delta: int = 0
-    total_delta: int = 0
+    total: int
+    processed: int
+    imported: int
+    skipped: int
+    failed: int
     export_cursor: str | None = None
 
 
@@ -114,6 +121,11 @@ class _Requester:
     name: str
     email: str
     contact_id: str
+
+
+class _AttachmentBudget:
+    def __init__(self, max_bytes: int) -> None:
+        self.remaining = max_bytes
 
 
 @frozen(eq=False)
@@ -204,9 +216,10 @@ def _resolve_requester(client: IntercomImportClient, conversation: dict[str, Any
         return _Requester(name="", email="", contact_id="")
     try:
         contact = client.fetch_contact(contact_id)
-    except Exception as exc:
-        # A deleted contact shouldn't drop the whole conversation; import it without an email.
-        logger.warning("intercom_import_contact_fetch_failed", contact_id=contact_id, error=str(exc))
+    except IntercomNotFoundError:
+        # A deleted contact shouldn't drop the whole conversation, so import it without an email.
+        # Any other failure propagates so Temporal retries rather than saving a ticket with no email.
+        logger.warning("intercom_import_contact_not_found", contact_id=contact_id)
         return _Requester(name="", email="", contact_id=contact_id)
     return _Requester(name=_clean(contact.get("name")), email=_clean(contact.get("email")), contact_id=contact_id)
 
@@ -216,45 +229,44 @@ def _process_attachments(
     team: Team,
     attachments: list[dict[str, Any]],
     content: str,
+    budget: _AttachmentBudget,
 ) -> tuple[str, dict[str, Any] | None]:
     images: list[dict[str, Any]] = []
-    file_links: list[str] = []
-    for attachment in attachments:
+    files: list[dict[str, Any]] = []
+    for attachment in attachments[:MAX_ATTACHMENTS_PER_MESSAGE]:
         url = attachment.get("url")
-        file_name = attachment.get("name") or "attachment"
+        # Contacts choose the filename, and it is rendered inside Markdown link and image syntax.
+        file_name = sanitize_attachment_filename(attachment.get("name"))
         content_type = attachment.get("content_type") or "application/octet-stream"
         if not url:
             continue
+        max_bytes = min(CONVERSATIONS_MAX_IMAGE_BYTES, budget.remaining)
+        if max_bytes <= 0:
+            logger.warning("intercom_import_attachment_budget_exhausted", team_id=team.id, file_name=file_name)
+            continue
         try:
-            raw = client.download_attachment(url, max_bytes=CONVERSATIONS_MAX_IMAGE_BYTES)
+            raw = client.download_attachment(url, max_bytes=max_bytes)
         except IntercomAttachmentTooLargeError:
             logger.warning(
-                "intercom_import_attachment_too_large",
-                team_id=team.id,
-                file_name=file_name,
-                max_bytes=CONVERSATIONS_MAX_IMAGE_BYTES,
+                "intercom_import_attachment_too_large", team_id=team.id, file_name=file_name, max_bytes=max_bytes
             )
             continue
         except Exception as exc:
+            # Timeouts and 5xx retry the whole batch through Temporal; an expired or deleted link
+            # (4xx) won't come back on a retry, so skip it.
+            if is_retryable_error(exc):
+                raise
             logger.warning(
-                "intercom_import_attachment_download_failed",
-                team_id=team.id,
-                file_name=file_name,
-                error=str(exc),
+                "intercom_import_attachment_download_failed", team_id=team.id, file_name=file_name, error=str(exc)
             )
             continue
+        budget.remaining -= len(raw)
         is_image = content_type.startswith("image/")
         media_url = save_file_to_uploaded_media(team, file_name, content_type, raw, validate_images=is_image)
         if not media_url:
             continue
-        if is_image:
-            images.append({"url": media_url, "name": file_name})
-        else:
-            file_links.append(f"[{file_name}]({media_url})")
-    if file_links:
-        suffix = "\n".join(file_links)
-        content = f"{content}\n\n{suffix}" if content else suffix
-    return build_content_with_images(content, None, images)
+        (images if is_image else files).append({"url": media_url, "name": file_name})
+    return build_content_with_images(content, None, images, files)
 
 
 def _build_comment(
@@ -264,12 +276,13 @@ def _build_comment(
     *,
     part_type: str | None,
     created_at: Any,
+    budget: _AttachmentBudget,
 ) -> _BuiltComment | None:
     """Build one Comment from the conversation source or a part. Empty messages return None."""
     author = message.get("author") or {}
     author_type, is_private = map_intercom_author_type(author_type=author.get("type"), part_type=part_type)
     body, rich_content = _process_attachments(
-        client, team, message.get("attachments") or [], strip_nul((message.get("body") or "").strip())
+        client, team, message.get("attachments") or [], strip_nul((message.get("body") or "").strip()), budget
     )
     if not body and not rich_content:
         return None
@@ -303,10 +316,14 @@ def _build_comments(client: IntercomImportClient, team: Team, conversation: dict
     source = conversation.get("source") or {}
     parts = (conversation.get("conversation_parts") or {}).get("conversation_parts") or []
 
-    # The source is the conversation's opening message; parts follow in chronological order.
-    candidates = [_build_comment(client, team, source, part_type=None, created_at=conversation.get("created_at"))]
+    budget = _AttachmentBudget(MAX_ATTACHMENT_BYTES_PER_CONVERSATION)
+    candidates = [
+        _build_comment(client, team, source, part_type=None, created_at=conversation.get("created_at"), budget=budget)
+    ]
     candidates.extend(
-        _build_comment(client, team, part, part_type=part.get("part_type"), created_at=part.get("created_at"))
+        _build_comment(
+            client, team, part, part_type=part.get("part_type"), created_at=part.get("created_at"), budget=budget
+        )
         for part in parts
     )
 
@@ -316,7 +333,6 @@ def _build_comments(client: IntercomImportClient, team: Team, conversation: dict
     for built_comment in candidates:
         if built_comment is None:
             continue
-        # Private notes are dropped from every denormalized widget stat (see persistence).
         if built_comment.is_private:
             pass
         elif built_comment.author_type == "customer":
@@ -400,6 +416,10 @@ def _fetch_and_build_tickets(
             conversation = client.fetch_conversation(conversation_id)
             built.append(_build_ticket(client, team, conversation, default_email_channel))
         except Exception as exc:
+            # Rate limits, timeouts and 5xx retry the whole batch through Temporal. Conversations
+            # already persisted are skipped on the retry, so nothing is imported twice.
+            if is_retryable_error(exc):
+                raise
             failed += 1
             logger.exception(
                 "intercom_import_conversation_failed",
@@ -480,11 +500,11 @@ def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
 
 def _update_job_progress_sync(input: UpdateJobProgressInput) -> None:
     updates: dict[str, Any] = {
-        "processed_conversations": F("processed_conversations") + input.processed_delta,
-        "imported_conversations": F("imported_conversations") + input.imported_delta,
-        "skipped_conversations": F("skipped_conversations") + input.skipped_delta,
-        "failed_conversations": F("failed_conversations") + input.failed_delta,
-        "total_conversations": F("total_conversations") + input.total_delta,
+        "total_conversations": input.total,
+        "processed_conversations": input.processed,
+        "imported_conversations": input.imported,
+        "skipped_conversations": input.skipped,
+        "failed_conversations": input.failed,
     }
     if input.export_cursor is not None:
         updates["export_cursor"] = input.export_cursor

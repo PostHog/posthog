@@ -67,6 +67,13 @@ class Migration(migrations.Migration):
                     models.Index(fields=["team", "-created_at"], name="posthog_con_ic_import_team_idx"),
                     models.Index(fields=["team", "status"], name="posthog_con_ic_import_stat_idx"),
                 ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        condition=models.Q(("status__in", ["pending", "running"])),
+                        fields=("team",),
+                        name="posthog_con_ic_import_one_active",
+                    ),
+                ],
             },
         ),
     ]

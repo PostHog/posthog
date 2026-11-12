@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import (
     serializers,
@@ -20,6 +22,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, IntercomImportJob
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -31,9 +34,9 @@ from products.conversations.backend.temporal.intercom_import.starter import star
 
 logger = structlog.get_logger(__name__)
 
-# Generic, user-safe message stored in `latest_error` and returned to admins. The real error is
-# logged server-side, since raw exception strings can carry internal details.
 WORKFLOW_START_FAILED_MESSAGE = "Failed to start the import. Please try again or contact support if it persists."
+ALREADY_RUNNING_MESSAGE = "An Intercom import is already running for this team"
+INTERCOM_IMPORT_FLAG = "product-support-intercom-import"
 
 
 class IntercomImportStartSerializer(serializers.Serializer):
@@ -114,9 +117,8 @@ class IntercomImportJobSerializer(serializers.ModelSerializer):
 
 
 class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    # Settings-only, admin-gated, session-auth endpoint — not exposed as a public API scope.
-    # IsConversationsAdmin gates on the routed team's org admin; the mixin's
-    # TeamMemberAccessPermission additionally enforces membership of the routed project.
+    # IsConversationsAdmin checks the routed team's org admin, and the mixin's
+    # TeamMemberAccessPermission also requires membership of the routed project.
     scope_object = "INTERNAL"
     serializer_class = IntercomImportJobSerializer
     permission_classes = [IsConversationsAdmin]
@@ -127,16 +129,49 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset):
         return IntercomImportJob.objects.all().order_by("-created_at")
 
+    def _flag_enabled(self, request: Request) -> bool:
+        # The settings UI is flag-gated per user, so gate the endpoint the same way. A flag-service
+        # error counts as disabled.
+        user = request.user
+        if not isinstance(user, User):
+            return False
+        try:
+            org_id = str(self.team.organization_id)
+            return bool(
+                posthoganalytics.feature_enabled(
+                    INTERCOM_IMPORT_FLAG,
+                    str(user.distinct_id),
+                    groups={"organization": org_id, "project": str(self.team.id)},
+                    group_properties={"organization": {"id": org_id}, "project": {"id": str(self.team.id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception as e:
+            logger.warning("intercom_import_flag_eval_failed", team_id=self.team.id, error=str(e))
+            return False
+
+    def _mark_failed_if_pending(self, job: IntercomImportJob) -> None:
+        IntercomImportJob.objects.filter(id=job.id, status=IntercomImportJob.Status.PENDING).update(
+            status=IntercomImportJob.Status.FAILED,
+            latest_error=WORKFLOW_START_FAILED_MESSAGE,
+            finished_at=timezone.now(),
+            updated_at=timezone.now(),
+        )
+
     @extend_schema(
         request=IntercomImportStartSerializer,
         responses={
             201: IntercomImportJobSerializer,
             400: IntercomImportErrorSerializer,
+            403: IntercomImportErrorSerializer,
             500: IntercomImportErrorSerializer,
         },
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = self.team_id
+        if not self._flag_enabled(request):
+            return Response({"detail": "Intercom import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
         if not self.team.conversations_enabled:
             return Response({"detail": "Support is not enabled for this team"}, status=drf_status.HTTP_400_BAD_REQUEST)
 
@@ -144,16 +179,11 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # Cheap local checks first — don't probe Intercom with the submitted token when the request
-        # would be rejected anyway.
         running = IntercomImportJob.objects.filter(
             status__in=[IntercomImportJob.Status.PENDING, IntercomImportJob.Status.RUNNING],
         ).exists()
         if running:
-            return Response(
-                {"detail": "An Intercom import is already running for this team"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": ALREADY_RUNNING_MESSAGE}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         default_email_channel_id = data.get("default_email_channel_id")
         if (
@@ -176,11 +206,17 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        job = IntercomImportJob.objects.create(
-            team_id=team_id,
-            status=IntercomImportJob.Status.PENDING,
-            job_inputs={"region": credentials.region, "access_token": credentials.access_token},
-        )
+        # The exists() check above is only a fast path. A partial unique index allows one pending or
+        # running job per team, so a concurrent submission that passed the same check fails here.
+        try:
+            with transaction.atomic():
+                job = IntercomImportJob.objects.create(
+                    team_id=team_id,
+                    status=IntercomImportJob.Status.PENDING,
+                    job_inputs={"region": credentials.region, "access_token": credentials.access_token},
+                )
+        except IntegrityError:
+            return Response({"detail": ALREADY_RUNNING_MESSAGE}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         try:
             workflow_id, workflow_run_id = asyncio.run(
@@ -192,18 +228,21 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     ),
                 )
             )
-            job.workflow_id = workflow_id
-            job.workflow_run_id = workflow_run_id
-            job.status = IntercomImportJob.Status.RUNNING
-            job.started_at = timezone.now()
-            job.save(update_fields=["workflow_id", "workflow_run_id", "status", "started_at", "updated_at"])
         except Exception:
             logger.exception("intercom_import_workflow_start_failed", job_id=str(job.id), team_id=team_id)
-            job.status = IntercomImportJob.Status.FAILED
-            job.latest_error = WORKFLOW_START_FAILED_MESSAGE
-            job.finished_at = timezone.now()
-            job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+            self._mark_failed_if_pending(job)
             return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # The workflow owns status from here: it may already have moved the job on (even to a
+        # terminal state for a small workspace), so only advance a job that is still pending.
+        now = timezone.now()
+        IntercomImportJob.objects.filter(id=job.id).update(
+            workflow_id=workflow_id, workflow_run_id=workflow_run_id, updated_at=now
+        )
+        IntercomImportJob.objects.filter(id=job.id, status=IntercomImportJob.Status.PENDING).update(
+            status=IntercomImportJob.Status.RUNNING, started_at=now, updated_at=now
+        )
+        job.refresh_from_db()
 
         try:
             report_user_action(
@@ -226,11 +265,14 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         responses={
             200: IntercomImportJobSerializer,
+            403: IntercomImportErrorSerializer,
             404: IntercomImportErrorSerializer,
         },
     )
     @action(detail=False, methods=["get"])
     def status(self, request: Request, *args, **kwargs) -> Response:
+        if not self._flag_enabled(request):
+            return Response({"detail": "Intercom import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
         job = IntercomImportJob.objects.order_by("-created_at").first()
         if job is None:
             return Response({"detail": "No Intercom import job found"}, status=drf_status.HTTP_404_NOT_FOUND)

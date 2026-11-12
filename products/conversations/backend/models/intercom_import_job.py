@@ -4,13 +4,11 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from .import_job_base import ImportJobLifecycleFields, ImportJobStatus
 
-class IntercomImportJob(TeamScopedRootMixin, UUIDModel):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        RUNNING = "running", "Running"
-        COMPLETED = "completed", "Completed"
-        FAILED = "failed", "Failed"
+
+class IntercomImportJob(TeamScopedRootMixin, UUIDModel, ImportJobLifecycleFields):
+    Status = ImportJobStatus
 
     class Region(models.TextChoices):
         US = "us", "United States"
@@ -28,20 +26,8 @@ class IntercomImportJob(TeamScopedRootMixin, UUIDModel):
     skipped_conversations = models.BigIntegerField(default=0)
     failed_conversations = models.BigIntegerField(default=0)
 
-    export_cursor = models.TextField(null=True, blank=True)
-
-    started_at = models.DateTimeField(null=True, blank=True)
-    finished_at = models.DateTimeField(null=True, blank=True)
-
-    workflow_id = models.CharField(max_length=400, null=True, blank=True)
-    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
-    latest_error = models.TextField(null=True, blank=True)
-
     # Encrypted: region, access_token
     job_inputs = EncryptedJSONField(null=True, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         app_label = "conversations"
@@ -49,4 +35,11 @@ class IntercomImportJob(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "-created_at"], name="posthog_con_ic_import_team_idx"),
             models.Index(fields=["team", "status"], name="posthog_con_ic_import_stat_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team"],
+                condition=models.Q(status__in=["pending", "running"]),
+                name="posthog_con_ic_import_one_active",
+            ),
         ]

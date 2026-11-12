@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -9,7 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { intercomImportLogic, IntercomImportJobStatus, IntercomRegion } from './intercomImportLogic'
+import { ImportStatusHeader } from '../../components/ImportStatusHeader/ImportStatusHeader'
+import { intercomImportLogic, IntercomRegion } from './intercomImportLogic'
 
 const REGION_OPTIONS: { label: string; value: IntercomRegion }[] = [
     { label: 'United States', value: 'us' },
@@ -17,29 +18,11 @@ const REGION_OPTIONS: { label: string; value: IntercomRegion }[] = [
     { label: 'Australia', value: 'au' },
 ]
 
-function statusTag(status: IntercomImportJobStatus | undefined): JSX.Element | null {
-    if (!status) {
-        return null
+function startDisabledReason(isImportRunning: boolean, accessToken: string): string | undefined {
+    if (isImportRunning) {
+        return 'Import already running'
     }
-    if (status === 'running' || status === 'pending') {
-        return (
-            <LemonTag type="warning" size="small">
-                Syncing
-            </LemonTag>
-        )
-    }
-    if (status === 'completed') {
-        return (
-            <LemonTag type="success" size="small">
-                Done
-            </LemonTag>
-        )
-    }
-    return (
-        <LemonTag type="danger" size="small">
-            Failed
-        </LemonTag>
-    )
+    return accessToken.trim() ? undefined : 'Enter an access token'
 }
 
 export function IntercomImportSection(): JSX.Element | null {
@@ -78,11 +61,11 @@ function IntercomImportForm(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-3">
-            <div className="flex items-center gap-2">
-                <span className="font-medium">Import status</span>
-                {statusTag(importJob?.status)}
-                {importProgressLabel ? <span className="text-xs text-muted-alt">{importProgressLabel}</span> : null}
-            </div>
+            <ImportStatusHeader
+                status={importJob?.status}
+                progressLabel={importProgressLabel}
+                latestError={importJob?.latest_error}
+            />
 
             {importJob?.status === 'completed' ? (
                 <p className="text-xs text-muted-alt m-0">
@@ -90,10 +73,6 @@ function IntercomImportForm(): JSX.Element {
                     {importJob.skipped_conversations.toLocaleString()} skipped,{' '}
                     {importJob.failed_conversations.toLocaleString()} failed).
                 </p>
-            ) : null}
-
-            {importJob?.status === 'failed' && importJob.latest_error ? (
-                <p className="text-xs text-danger m-0">{importJob.latest_error}</p>
             ) : null}
 
             <LemonField.Pure label="Workspace region" info="Where your Intercom workspace is hosted.">
@@ -146,14 +125,7 @@ function IntercomImportForm(): JSX.Element {
                     type="primary"
                     onClick={submitImport}
                     loading={importJobLoading}
-                    disabledReason={
-                        adminRestrictionReason ||
-                        (isImportRunning
-                            ? 'Import already running'
-                            : !accessToken.trim()
-                              ? 'Enter an access token'
-                              : undefined)
-                    }
+                    disabledReason={adminRestrictionReason || startDisabledReason(isImportRunning, accessToken)}
                 >
                     Start import
                 </LemonButton>

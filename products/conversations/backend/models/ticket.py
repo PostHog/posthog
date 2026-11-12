@@ -185,8 +185,7 @@ class Ticket(Taggable, UUIDTModel):
     # No standalone index: the partial unique constraint below covers the dedup lookup
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
-    # Intercom import dedup — same pattern as zendesk_ticket_id. Intercom conversation ids are
-    # opaque strings in its API, so store them verbatim.
+    # Intercom conversation ids are opaque strings in its API, so they are stored verbatim.
     intercom_conversation_id = models.CharField(max_length=64, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

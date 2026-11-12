@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -20,8 +21,11 @@ from products.conversations.backend.models.constants import Priority, Status
 from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
 from products.conversations.backend.temporal.intercom_import.activities import (
     ImportBatchInput,
+    UpdateJobProgressInput,
     _import_conversation_batch_sync,
+    _update_job_progress_sync,
 )
+from products.conversations.backend.temporal.intercom_import.client import IntercomNotFoundError, IntercomRateLimitError
 
 M = "products.conversations.backend.temporal.intercom_import.activities"
 
@@ -99,13 +103,20 @@ class TestIntercomImportBatchActivity(BaseTest):
         self,
         conversations: list[dict[str, Any]],
         *,
-        contacts: dict[str, dict[str, Any]] | None = None,
+        contacts: dict[str, Any] | None = None,
         default_email_channel_id: str | None = None,
     ) -> tuple[Any, MagicMock]:
         by_id = {c["id"]: c for c in conversations}
         client = MagicMock()
         client.fetch_conversation.side_effect = lambda cid: by_id[cid]
-        client.fetch_contact.side_effect = lambda contact_id: (contacts or {})[contact_id]
+
+        def fetch_contact(contact_id: str) -> dict[str, Any]:
+            contact = (contacts or {})[contact_id]
+            if isinstance(contact, Exception):
+                raise contact
+            return contact
+
+        client.fetch_contact.side_effect = fetch_contact
         client.download_attachment.return_value = b"filebytes"
 
         with (
@@ -139,6 +150,9 @@ class TestIntercomImportBatchActivity(BaseTest):
                 _part("p2", part_type="note", body="Internal: refund approved", created_at=CREATED_AT + 120),
                 _part("p3", part_type="assignment", body="", created_at=CREATED_AT + 130),
                 _part(
+                    "p5", part_type="side_conversation_reply", body="Vendor: ETA Friday", created_at=CREATED_AT + 150
+                ),
+                _part(
                     "p4",
                     author_type="user",
                     body="Thanks!",
@@ -166,15 +180,18 @@ class TestIntercomImportBatchActivity(BaseTest):
             "I need help",
             "Looking into it",
             "Internal: refund approved",
+            "Vendor: ETA Friday",
             "Thanks!",
         ]
         assert [(c.item_context or {})["author_type"] for c in comments] == [
             "customer",
             "support",
             "support",
+            "support",
             "customer",
         ]
-        assert [(c.item_context or {})["is_private"] for c in comments] == [False, False, True, False]
+        # Notes and side conversations stay internal.
+        assert [(c.item_context or {})["is_private"] for c in comments] == [False, False, True, True, False]
         assert comments[0].created_at == datetime.fromtimestamp(CREATED_AT, tz=UTC)
 
         # The note is excluded from every customer-facing counter and from last_message_text.
@@ -238,6 +255,29 @@ class TestIntercomImportBatchActivity(BaseTest):
             Ticket.objects.filter(team_id=self.team.id).values_list("intercom_conversation_id", "email_config_id")
         ) == {"401": channel.id, "402": channel.id}
 
+    def test_deleted_contact_imports_without_email_but_outage_retries(self) -> None:
+        outbound = {"type": "admin", "id": "9", "name": "Agent Smith", "email": "agent@example.com"}
+        deleted = _conversation("311", source_author=outbound, contacts=[{"type": "contact", "id": "gone1"}])
+
+        result, _ = self._run_batch([deleted], contacts={"gone1": IntercomNotFoundError("gone")})
+
+        assert (result.imported, result.failed) == (1, 0)
+        assert Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="311").email_from is None
+
+        flaky = _conversation("312", source_author=outbound, contacts=[{"type": "contact", "id": "slow1"}])
+        with pytest.raises(IntercomRateLimitError):
+            self._run_batch([flaky], contacts={"slow1": IntercomRateLimitError("slow down")})
+        assert not Ticket.objects.filter(team_id=self.team.id, intercom_conversation_id="312").exists()
+
+    def test_rate_limited_fetch_propagates_so_temporal_retries_the_batch(self) -> None:
+        client = MagicMock()
+        client.fetch_conversation.side_effect = IntercomRateLimitError("slow down")
+
+        with patch(f"{M}.IntercomImportClient", return_value=client), pytest.raises(IntercomRateLimitError):
+            _import_conversation_batch_sync(
+                ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, conversation_ids=["520"])
+            )
+
     def test_failed_fetch_counts_failure_without_dropping_the_batch(self) -> None:
         client = MagicMock()
         good = _conversation("501")
@@ -274,3 +314,56 @@ class TestIntercomImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="601")
         image_comment = self._comments(ticket)[1]
         assert "https://media.posthog.test/file" in str(image_comment.rich_content)
+
+    def test_attachment_names_are_sanitized_and_file_links_stay_clickable(self) -> None:
+        conversation = _conversation(
+            "602",
+            parts=[
+                _part(
+                    "p1",
+                    body="see attached",
+                    attachments=[
+                        {"name": "shot.png", "url": "https://downloads.example.com/a", "content_type": "image/png"},
+                        {
+                            "name": "invoice.pdf](https://evil.example)![x",
+                            "url": "https://downloads.example.com/b",
+                            "content_type": "application/pdf",
+                        },
+                    ],
+                )
+            ],
+        )
+
+        self._run_batch([conversation])
+
+        comment = self._comments(Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="602"))[1]
+        content = comment.content or ""
+        # The sanitizer strips the brackets and "!" the injection needs, so no attacker link target forms.
+        assert "](https://evil.example)" not in content and "![x" not in content
+        file_nodes = [
+            node["content"][0]
+            for node in (comment.rich_content or {})["content"]
+            if node["type"] == "paragraph" and node["content"][0].get("marks")
+        ]
+        assert [n["marks"][0]["attrs"]["href"] for n in file_nodes] == ["https://media.posthog.test/file"]
+
+
+class TestIntercomImportJobProgress(BaseTest):
+    def test_replayed_progress_update_does_not_double_count(self) -> None:
+        job = IntercomImportJob.objects.unscoped().create(team_id=self.team.id, status=IntercomImportJob.Status.RUNNING)
+        progress = UpdateJobProgressInput(
+            job_id=str(job.id), total=150, processed=50, imported=40, skipped=8, failed=2, export_cursor="c2"
+        )
+
+        _update_job_progress_sync(progress)
+        _update_job_progress_sync(progress)
+
+        job.refresh_from_db()
+        assert (
+            job.total_conversations,
+            job.processed_conversations,
+            job.imported_conversations,
+            job.skipped_conversations,
+            job.failed_conversations,
+            job.export_cursor,
+        ) == (150, 50, 40, 8, 2, "c2")

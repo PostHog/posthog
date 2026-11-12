@@ -181,8 +181,7 @@ export const intercomImportLogic = kea<intercomImportLogicType>([
             }, 'pollImportJob')
         },
         loadImportJobSuccess: ({ importJob }) => {
-            // The token is never returned, but the region is, so prefill it for the next run.
-            // Only while the token is empty so a poll refresh can't change it under the user.
+            // Only while the token is empty, so a poll refresh can't change the region under the user.
             if (importJob?.region && !values.accessToken) {
                 actions.setRegion(importJob.region)
             }

@@ -52,6 +52,8 @@ class IntercomImportCoordinatorInput:
     imported_offset: int = 0
     skipped_offset: int = 0
     failed_offset: int = 0
+    total_offset: int = 0
+    processed_offset: int = 0
 
 
 @frozen
@@ -70,6 +72,8 @@ class IntercomImportBatchWorkflowInput:
 
 
 RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
+# Lets Temporal notice a dead worker well before the 30-minute start-to-close timeout.
+BATCH_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 
 
 @workflow.defn(name="intercom-import-coordinator")
@@ -96,23 +100,33 @@ class IntercomImportCoordinatorWorkflow:
             workflow.logger.info("intercom_import_batch_already_running", extra={"child_id": child_id})
             return IntercomImportCoordinatorOutput(imported=0, skipped=0, failed=0)
 
+    async def _publish_progress(self, progress: UpdateJobProgressInput) -> None:
+        await workflow.execute_activity(
+            intercom_import_update_job_progress_activity,
+            progress,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RETRY_POLICY,
+        )
+
     @workflow.run
     async def run(self, input: IntercomImportCoordinatorInput) -> IntercomImportCoordinatorOutput:
-        if input.pages_processed == 0 and input.pages_offset == 0:
-            await workflow.execute_activity(
-                intercom_import_update_job_status_activity,
-                UpdateJobStatusInput(job_id=input.job_id, status=IntercomImportJob.Status.RUNNING),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RETRY_POLICY,
-            )
-
         total_imported = input.imported_offset
         total_skipped = input.skipped_offset
         total_failed = input.failed_offset
+        total_conversations = input.total_offset
+        total_processed = input.processed_offset
         cursor = input.cursor
         pages_processed = input.pages_processed
 
         try:
+            if input.pages_processed == 0 and input.pages_offset == 0:
+                await workflow.execute_activity(
+                    intercom_import_update_job_status_activity,
+                    UpdateJobStatusInput(job_id=input.job_id, status=IntercomImportJob.Status.RUNNING),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RETRY_POLICY,
+                )
+
             while True:
                 page = await workflow.execute_activity(
                     intercom_import_enumerate_conversations_activity,
@@ -123,18 +137,20 @@ class IntercomImportCoordinatorWorkflow:
                 cursor = page.next_cursor
                 pages_processed += 1
 
-                # Publish a running total as conversations are enumerated so the UI can render
-                # "processed / total".
+                # Progress carries absolute totals from workflow state, so an activity retry after
+                # a committed write rewrites the same values instead of counting them twice.
                 if page.conversation_ids:
-                    await workflow.execute_activity(
-                        intercom_import_update_job_progress_activity,
+                    total_conversations += len(page.conversation_ids)
+                    await self._publish_progress(
                         UpdateJobProgressInput(
                             job_id=input.job_id,
-                            total_delta=len(page.conversation_ids),
+                            total=total_conversations,
+                            processed=total_processed,
+                            imported=total_imported,
+                            skipped=total_skipped,
+                            failed=total_failed,
                             export_cursor=cursor,
                         ),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RETRY_POLICY,
                     )
 
                 ids = page.conversation_ids
@@ -161,25 +177,21 @@ class IntercomImportCoordinatorWorkflow:
                         ]
                     )
 
-                    window_imported = sum(r.imported for r in results)
-                    window_skipped = sum(r.skipped for r in results)
-                    window_failed = sum(r.failed for r in results)
-                    total_imported += window_imported
-                    total_skipped += window_skipped
-                    total_failed += window_failed
+                    total_imported += sum(r.imported for r in results)
+                    total_skipped += sum(r.skipped for r in results)
+                    total_failed += sum(r.failed for r in results)
+                    total_processed += sum(len(batch) for batch in window)
 
-                    await workflow.execute_activity(
-                        intercom_import_update_job_progress_activity,
+                    await self._publish_progress(
                         UpdateJobProgressInput(
                             job_id=input.job_id,
-                            processed_delta=sum(len(batch) for batch in window),
-                            imported_delta=window_imported,
-                            skipped_delta=window_skipped,
-                            failed_delta=window_failed,
+                            total=total_conversations,
+                            processed=total_processed,
+                            imported=total_imported,
+                            skipped=total_skipped,
+                            failed=total_failed,
                             export_cursor=cursor,
                         ),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RETRY_POLICY,
                     )
 
                 if cursor is None:
@@ -198,6 +210,8 @@ class IntercomImportCoordinatorWorkflow:
                             imported_offset=total_imported,
                             skipped_offset=total_skipped,
                             failed_offset=total_failed,
+                            total_offset=total_conversations,
+                            processed_offset=total_processed,
                         )
                     )
 
@@ -259,6 +273,7 @@ class IntercomImportBatchWorkflow:
                 default_email_channel_id=input.default_email_channel_id,
             ),
             start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=BATCH_HEARTBEAT_TIMEOUT,
             retry_policy=RETRY_POLICY,
         )
         return IntercomImportCoordinatorOutput(imported=result.imported, skipped=result.skipped, failed=result.failed)
