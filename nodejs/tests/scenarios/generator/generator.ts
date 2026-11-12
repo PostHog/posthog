@@ -40,15 +40,17 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
+export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
     const teamIds: number[] = []
     for (let i = 0; i < card.setup.teams; i++) {
+        signal.throwIfAborted()
         const { team } = await createTestTeamFixture(postgres)
         const integration = await insertIntegration(postgres, team.id, {
             kind: 'email',
             config: { ...SENDER, verified: true },
         })
         for (const { name } of card.drive.traffic) {
+            signal.throwIfAborted()
             await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
         }
         teamIds.push(team.id)

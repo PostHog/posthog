@@ -20,6 +20,8 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from products.data_modeling.backend.facade.contracts import IncrementalFilterError
+
 SelectLike = Union[ast.SelectQuery, ast.SelectSetQuery]
 
 # The alias the outer guard binds the user's query to. Leading underscores keep it clear of
@@ -30,14 +32,6 @@ GUARD_ALIAS = "__ph_incremental"
 # injected filter cannot reach, such as the right side of a join. Everywhere but an incremental
 # run it is bound to NULL, so a query guards it with ``ifNull`` and a floor that keeps every row.
 WINDOW_START_PLACEHOLDER = "incremental_window_start"
-
-
-class IncrementalFilterError(ValueError):
-    """The query cannot carry an incremental window filter.
-
-    A user-input problem (a 400), not a server fault: the key column is missing, or it is produced
-    by an aggregate and so cannot be filtered before grouping.
-    """
 
 
 def inject_incremental_filter(query: str, *, incremental_key: str, since: Any) -> SelectLike:

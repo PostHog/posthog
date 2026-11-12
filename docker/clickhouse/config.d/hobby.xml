@@ -10,9 +10,66 @@
     <trace_log remove="1"/>
     <total_memory_profiler_step>0</total_memory_profiler_step>
 
+    <!-- ClickHouse collects these metrics every second by default. The instance status page is the
+         only reader, and it can show values that are a minute old. -->
+    <asynchronous_metrics_update_period_s>60</asynchronous_metrics_update_period_s>
+
     <!-- PostHog reads query_log, so it stays on. config.xml flushes it every 500 ms, and each flush
          writes a new part that must be merged later. -->
     <query_log>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </query_log>
+
+    <!-- An idle Kafka consumer asks the broker for data again every 500 ms by default, and ClickHouse
+         runs at least one consumer for each Kafka engine table. This setting lets the broker hold an
+         empty fetch for up to 5 s. The broker still answers as soon as a message arrives, so
+         ingestion is not delayed. A table created from a named collection reads its Kafka client
+         settings from that collection, so each collection in default.xml needs the setting. -->
+    <named_collections>
+        <msk_cluster>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </msk_cluster>
+        <warpstream_ingestion>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_ingestion>
+        <warpstream_calculated_events>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_calculated_events>
+        <warpstream_replay>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_replay>
+        <warpstream_shared>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_shared>
+        <warpstream_cyclotron>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_cyclotron>
+        <warpstream_logs>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_logs>
+        <warpstream_traces>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_traces>
+        <warpstream_metrics>
+            <kafka>
+                <fetch_wait_max_ms>5000</fetch_wait_max_ms>
+            </kafka>
+        </warpstream_metrics>
+    </named_collections>
 </clickhouse>
