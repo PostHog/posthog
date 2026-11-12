@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     LegacyHistoryTableError,
     UndecryptedConfigError,
 )
-from products.warehouse_sources.backend.facade.incremental_field_model import recommend_incremental_fields
+from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -3430,9 +3430,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
-        # The form keeps a configured cursor, so a recommendation would cost a model call for nothing.
+        # The form keeps a configured cursor, so it needs no recommendation.
         if not instance.incremental_field:
-            recommend_incremental_fields([schema], team=self.team)
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

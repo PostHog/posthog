@@ -11,7 +11,7 @@ import json
 import asyncio
 import hashlib
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
@@ -39,6 +39,8 @@ from posthog.llm.system_one_client import (
 from posthog.ph_client import feature_enabled_or_false
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
+from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     is_temporal,
@@ -55,8 +57,10 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-# The sync settings form waits for the answer, so _ask_all gives every request together this long.
+# The wizard's recommendations request waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
+# The stored-pick task has no one waiting, so a slow gateway answer still gets stored instead of asked again.
+TASK_TIMEOUT_SECONDS = 20.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
 # The open tables one call asks about, so a caller sending more gets no answer for the rest.
@@ -65,6 +69,7 @@ MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
 # position, so a cut name still resolves to its full column.
 MAX_NAME_CHARS = 256
 CACHE_TTL_SECONDS = 24 * 60 * 60
+QUEUED_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
 # Gateway requests per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
@@ -72,6 +77,8 @@ TEAM_BUDGET = Budget(burst=12, per_hour=60)
 TEAM_BUDGET_KEY_PREFIX = "warehouse_incremental_field_model_rate"
 
 MODEL_PICK_NOTE = "Picked by AI from the table and column names."
+# Key in the schema's sync_type_config that holds the stored model pick for the sync settings form.
+SUGGESTION_KEY = "incremental_field_suggestion"
 
 _INSTRUCTIONS = (
     "state.tables.{table_id} is a database table and its columns that can be the cursor of an incremental sync. "
@@ -83,17 +90,19 @@ _INSTRUCTIONS = (
 PROMPT_VERSION = hashlib.sha256(_INSTRUCTIONS.encode()).hexdigest()[:12]
 
 
-def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team") -> None:
+def recommend_incremental_fields(
+    schemas: Sequence[SourceSchema], *, team: "Team", timeout: float | None = None
+) -> None:
     """Move the model's confident pick to the front of each open table's `incremental_fields`."""
     try:
-        _recommend(schemas, team)
+        _recommend(schemas, team, timeout)
     except Exception as error:
         # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
         capture_exception(error, {"team_id": team.pk})
 
 
 def recommend_for_candidates(
-    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team"
+    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team", timeout: float | None = None
 ) -> dict[str, list[IncrementalField]]:
     """The reordered candidates of each table where the model made a pick, keyed by table name.
 
@@ -110,12 +119,96 @@ def recommend_for_candidates(
         )
         for name, fields in tables
     ]
-    recommend_incremental_fields(schemas, team=team)
+    recommend_incremental_fields(schemas, team=team, timeout=timeout)
     return {
         schema.name: schema.incremental_fields
         for schema in schemas
         if schema.incremental_fields and schema.incremental_fields[0].get("picked_by_model")
     }
+
+
+def apply_stored_suggestion(
+    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team: "Team", schema_id: str
+) -> None:
+    """Move a stored model pick to the front, or queue one to be computed and stored.
+
+    The sync settings form opens one table at a time, so asking the model on each open would make
+    the person wait for it. The first open shows the rule-based order and queues the question; later
+    opens read the stored answer. A stored pick only counts while the table has the same candidates.
+    """
+    try:
+        _apply_stored_suggestion(schema, sync_type_config, team=team, schema_id=schema_id)
+    except Exception as error:
+        # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
+        capture_exception(error, {"team_id": team.pk})
+
+
+def _apply_stored_suggestion(
+    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team: "Team", schema_id: str
+) -> None:
+    # Checked before a stored pick too, so turning the flag off also withdraws stored picks.
+    if not _is_open(schema) or not _model_allowed(team):
+        return
+    key = _candidates_key(schema)
+    stored = (sync_type_config or {}).get(SUGGESTION_KEY)
+    if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str):
+        _apply_pick(schema, stored["field"])
+        return
+    # Taken before a pick reorders them, so the task asks about and keys the same columns.
+    candidates = _candidates(schema)
+    # The wizard or an earlier task may have asked about these columns already.
+    answer_key = _cache_key(team.pk, schema)
+    cached = _cache_get_many([answer_key]).get(answer_key)
+    if cached in ("", candidates[0]["field"]):
+        # The model was unsure or agreed with the rules, so there is nothing to store.
+        return
+    if cached:
+        _apply_pick(schema, cached)
+    _queue_suggestion(schema.name, candidates, team=team, schema_id=schema_id, candidates_key=key)
+
+
+def _queue_suggestion(
+    table: str, candidates: list[IncrementalField], *, team: "Team", schema_id: str, candidates_key: str
+) -> None:
+    queued_key = f"{CACHE_KEY_PREFIX}:queued:{team.pk}:{schema_id}:{candidates_key}"
+    if not _cache_add(queued_key, QUEUED_TTL_SECONDS):
+        return
+    try:
+        # No publish retries: the form waits on this call, and the next open can try again.
+        compute_incremental_field_suggestion.apply_async(
+            kwargs={
+                "team_id": team.pk,
+                "schema_id": schema_id,
+                "table": table,
+                "fields": [dict(field) for field in candidates],
+            },
+            retry=False,
+        )
+    except Exception as error:
+        capture_exception(error, {"team_id": team.pk})
+        _cache_delete(queued_key)
+
+
+def store_incremental_field_suggestion(
+    team: "Team", schema_id: str, table: str, fields: list[IncrementalField]
+) -> None:
+    """Ask the model for one table and store a confident pick on the schema."""
+    picks = recommend_for_candidates([(table, fields)], team=team, timeout=TASK_TIMEOUT_SECONDS)
+    if table not in picks:
+        return
+    asked = SourceSchema(name=table, supports_incremental=True, supports_append=True, incremental_fields=fields)
+    update_sync_type_config_keys(
+        schema_id,
+        team.pk,
+        updates={SUGGESTION_KEY: {"field": picks[table][0]["field"], "candidates": _candidates_key(asked)}},
+    )
+
+
+def _candidates_key(schema: SourceSchema) -> str:
+    # The columns as the model reads them, so a change to what it reads or how sure it must be
+    # withdraws stored picks. The table name is left out, so a renamed table keeps its pick.
+    columns = _table_state(schema)["columns"]
+    return hashlib.sha256(json.dumps([MODEL, PROMPT_VERSION, MIN_CONFIDENCE, columns]).encode()).hexdigest()
 
 
 def _without_model_pick(field: IncrementalField) -> IncrementalField:
@@ -126,7 +219,8 @@ def _without_model_pick(field: IncrementalField) -> IncrementalField:
     return cleaned
 
 
-def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
+def _recommend(schemas: Sequence[SourceSchema], team: "Team", timeout: float | None) -> None:
+    timeout = TIMEOUT_SECONDS if timeout is None else timeout
     pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
         return
@@ -144,12 +238,12 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
             model=MODEL,
             ai_product=AI_PRODUCT,
             distinct_id=team_distinct_id(team.pk),
-            timeout=TIMEOUT_SECONDS,
+            timeout=timeout,
             privacy_mode=True,
         )
         # No TypeSafe fallback is passed, so the client is always the gateway one.
         assert isinstance(client, GatewaySystemOneClient)
-        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches])
+        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches], timeout)
         picks.update({index: field_name for index, field_name in answers.items() if field_name})
         _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
 
@@ -223,10 +317,12 @@ def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     }
 
 
-async def _ask_all(client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]]) -> dict[int, str]:
+async def _ask_all(
+    client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]], timeout: float
+) -> dict[int, str]:
     """Run every batch under one deadline. A request still open at the deadline is cancelled."""
     tasks = [asyncio.create_task(_ask(client, batch)) for batch in batches]
-    done, late = await asyncio.wait(tasks, timeout=TIMEOUT_SECONDS)
+    done, late = await asyncio.wait(tasks, timeout=timeout)
     for task in late:
         task.cancel()
     if late:
@@ -300,6 +396,22 @@ def _cache_key(team_id: int, schema: SourceSchema) -> str:
         json.dumps([MODEL, PROMPT_VERSION, MIN_CONFIDENCE, _table_state(schema)], sort_keys=True).encode()
     ).hexdigest()
     return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
+
+
+def _cache_add(key: str, timeout: int) -> bool:
+    """Set `key` only if it is absent. False when it was present or the cache failed."""
+    try:
+        return bool(cache.add(key, 1, timeout))
+    except Exception:
+        logger.warning("incremental_field_model_cache_add_failed", exc_info=True)
+        return False
+
+
+def _cache_delete(key: str) -> None:
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("incremental_field_model_cache_delete_failed", exc_info=True)
 
 
 def _cache_get_many(keys: list[str]) -> dict[str, str]:

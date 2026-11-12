@@ -2,8 +2,8 @@
 
 from products.warehouse_sources.backend.logic.incremental_field_model import (
     MAX_TABLES_PER_CALL,
+    apply_stored_suggestion,
     recommend_for_candidates,
-    recommend_incremental_fields,
 )
 
-__all__ = ["MAX_TABLES_PER_CALL", "recommend_for_candidates", "recommend_incremental_fields"]
+__all__ = ["MAX_TABLES_PER_CALL", "apply_stored_suggestion", "recommend_for_candidates"]
