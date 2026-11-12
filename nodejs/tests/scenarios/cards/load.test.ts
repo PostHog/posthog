@@ -208,7 +208,7 @@ describe('load', () => {
             'transactional traffic with no verdict on intake refusals',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'transactional_email' }] } },
             { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
-            'invariants: transactional_email counts a unit cdp-api refused as offered, so the card needs refused_at_intake',
+            'invariants: transactional_email counts a unit its intake refused as offered, so the card needs refused_at_intake',
         ],
         [
             'a profile without the traffic a card drives',

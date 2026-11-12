@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
 
@@ -139,14 +140,16 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
+const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
+
 function checkIntakeVerdict(card: Card): string[] {
-    const answeredAtIntake = card.drive.traffic.find(({ name }) => name === 'transactional_email')
-    const judged = card.invariants.some(({ name }) => name === 'refused_at_intake')
-    return answeredAtIntake && !judged
-        ? [
-              'invariants: transactional_email counts a unit cdp-api refused as offered, so the card needs refused_at_intake',
-          ]
-        : []
+    const unjudged = card.drive.traffic.filter(({ name }) => ANSWERED_AT_INTAKE.includes(name))
+    if (unjudged.length === 0 || card.invariants.some(({ name }) => name === 'refused_at_intake')) {
+        return []
+    }
+    return [
+        `invariants: ${unjudged.map(({ name }) => name).join(', ')} counts a unit its intake refused as offered, so the card needs refused_at_intake`,
+    ]
 }
 
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
