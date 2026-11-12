@@ -11262,6 +11262,10 @@ snapshots:
         hash: v1.k794b7964.f90080b48e02650b50bee9d714dc226f41aec9108a4878a67abccc18735aa7a2.9vBFfiHItb00dBAS4YWq2EugPAeQUVjYFkobGWL8pHE
     scenes-app-data-pipelines-event-filtering--switch-mode-to-dry-run--light:
         hash: v1.k794b7964.ac76cb9e4e3fb7b45c5feadceb9e14744becd1935a7a6bbe7f5f775a7d3ef9e2.z3k9FQwdN9CDRW-qb07bLD5FTh2wGHdRVMhKL9Fbzms
+    scenes-app-data-warehouse-alerts--source-alerts--dark:
+        hash: v1.k794b7964.fbb3653c478f74bf175c1063c2964903705090a1e22970781e82253ba062a13f.em5E_k9u2c1emBR0MXdnr695BWQFFF3vdlo0rZl0_Po
+    scenes-app-data-warehouse-alerts--source-alerts--light:
+        hash: v1.k794b7964.75c32489d1a164ff00b3c94d953cd82a64ee508aac58d07e8a84902de0dfe272.qZcRtBjUXRqtrw8koZmKUEmE4aIJT3rilbJBXuEa-e8
     scenes-app-data-warehouse-materialization-run-error--completed-run-with-warning--dark:
         hash: v1.k794b7964.54a8e3f469997cba9dfbab0a050d2d0439e74bf259f442327bd6a2356d9e4e73.JnN1Qxo45clF2f-uORt5bA2IGJN2qLOisuftssUGLys
     scenes-app-data-warehouse-materialization-run-error--completed-run-with-warning--light:
