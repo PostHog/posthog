@@ -567,17 +567,17 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             ("no_filter", [], [3, 4, 3]),
-            # Like v2, the overview maps a page filter to the entry page, so it counts the sessions that
-            # started on the page and every pageview in them.
+            # Like v2, the overview maps a page filter to the entry page. Only user_c's session has an entry
+            # page in this fixture, because the entry page comes from $current_url.
             (
                 "pathname_exact",
-                [EventPropertyFilter(key="$pathname", value="/", operator=PropertyOperator.EXACT)],
-                None,
+                [EventPropertyFilter(key="$pathname", value="/blog", operator=PropertyOperator.EXACT)],
+                [1, 1, 1],
             ),
             (
                 "pathname_contains",
-                [EventPropertyFilter(key="$pathname", value="blog", operator=PropertyOperator.ICONTAINS)],
-                None,
+                [EventPropertyFilter(key="$pathname", value="blo", operator=PropertyOperator.ICONTAINS)],
+                [1, 1, 1],
             ),
         ]
     )
@@ -600,7 +600,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
         v2_query_types, v2 = run(LEGACY, None)
-        dimensional_query_types, dimensional = run(None, OPT_IN)
+        dimensional_query_types, dimensional = run(LEGACY, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
         assert dimensional_query_types == ["web_overview_dimensional_query"]
@@ -610,6 +610,5 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert [(item.key, item.value) for item in dimensional.results] == [
             (item.key, item.value) for item in v2.results
         ]
-        # visitors, views, sessions: user_a has 2 pageviews, user_b and user_c have 1 each.
-        if expected_counts is not None:
-            assert [item.value for item in dimensional.results[:3]] == expected_counts
+        # visitors, views, sessions
+        assert [item.value for item in dimensional.results[:3]] == expected_counts
