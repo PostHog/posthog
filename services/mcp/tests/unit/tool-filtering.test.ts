@@ -1164,6 +1164,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
             'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
