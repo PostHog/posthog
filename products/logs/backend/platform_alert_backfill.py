@@ -11,6 +11,7 @@ rather than duplicates, and a later comparison can line the two stacks up per al
 
 from collections.abc import Collection
 from datetime import datetime
+from functools import partial
 from typing import Final
 from uuid import UUID
 
@@ -197,7 +198,7 @@ def backfill_copies_first_enabled_at(*, team_ids: Collection[int] | None, dry_ru
             matched[team_id] = match_first_enabled_at(
                 source_kind=SourceKind.LOGS,
                 team_id=team_id,
-                first_enabled_of=lambda ids, team_id=team_id: _first_enabled_of(team_id, ids),
+                first_enabled_of=partial(_first_enabled_of, team_id),
                 dry_run=dry_run,
             )
         except Exception:
