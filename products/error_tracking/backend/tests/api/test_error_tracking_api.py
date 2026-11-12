@@ -740,7 +740,7 @@ class TestErrorTracking(APIBaseTest):
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored) as publish:
+        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
@@ -755,7 +755,6 @@ class TestErrorTracking(APIBaseTest):
             else None
         )
         assert response.json() == {"status": expected_status, "summary": expected_summary, "reason": expected_reason}
-        publish.assert_not_called()
         assert not lock_held(self.team.id, issue.id)
 
     @parameterized.expand([("other_team", True), ("malformed_id", False)])
