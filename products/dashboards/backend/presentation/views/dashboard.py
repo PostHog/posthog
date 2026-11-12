@@ -3638,6 +3638,7 @@ class DashboardsViewSet(
             require_parsed_results=True,
             compute_surface=ComputeSurface.DASHBOARD_RUN_INSIGHTS,
         )
+        context.update(tile_insights_context(tiles))
         by_id = {tile.id: tile for tile in tiles}
         jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
         for order, tile_id in enumerate(tile_ids):

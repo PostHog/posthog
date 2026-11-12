@@ -86,6 +86,45 @@ class TestDashboardQuerySharingAccess(APIBaseTest):
 
 
 class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTest):
+    def test_tiles_share_one_native_alert_lookup(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")
+        tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                insight=Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": f"SELECT {n}"}),
+            )
+            for n in (1, 2)
+        ]
+        with (
+            patch(
+                "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+            ),
+            # One worker serializes the tiles in turn, so the second tile reads what the first one loaded.
+            patch("products.dashboards.backend.query_sharing_stream.WORKERS_PER_STREAM", 1),
+            patch(
+                "products.product_analytics.backend.presentation.insight.native_insight_alerts",
+                return_value={},
+            ) as lookup,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/stream_query_results/",
+                {
+                    "tile_ids": ",".join(str(tile.id) for tile in tiles),
+                    "client_query_id": str(uuid4()),
+                    "refresh": "blocking",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            events = [
+                json.loads(chunk.removeprefix(b"data: ").strip())
+                for chunk in cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content)
+            ]
+            response.close()
+
+        self.assertEqual(sum(event["type"] == "tile" for event in events), 2)
+        self.assertEqual(lookup.call_count, 1)
+
     @parameterized.expand([("top_n", False, False), ("counts", True, False), ("daily_counts", True, True)])
     def test_shared_results_are_independently_cached(self, _name: str, counts: bool, daily: bool) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")
