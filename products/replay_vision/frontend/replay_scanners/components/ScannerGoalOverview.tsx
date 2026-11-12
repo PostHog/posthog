@@ -3,11 +3,9 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import * as researchPng from '@posthog/brand/hoggies/png/research'
-import { IconChevronDown, IconChevronRight, IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook } from 'lib/utils/dom'
@@ -24,7 +22,7 @@ import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerEditorStep, scannerEditorSceneLogic, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
+import { STEP_LABELS, ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
     SCANNER_TYPE_TAG_TYPE,
@@ -58,52 +56,6 @@ function activityFilterLabel(mode: string): string {
         return 'Only most active'
     }
     return 'All recordings'
-}
-
-const HedgehogResearch = pngHoggie(researchPng)
-
-/** Says the overview is a draft to check, with the agent's reasoning one click away. */
-function DraftReviewHeader(): JSX.Element {
-    return (
-        <div className="flex items-start gap-3 pb-1">
-            <HedgehogResearch className="h-16 w-auto shrink-0" />
-            <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-base font-semibold">Review your draft scanner</span>
-                    <LemonTag type="highlight">Draft</LemonTag>
-                </div>
-                <div className="text-sm text-muted">
-                    The agent drafted this from your goal. Check each section and edit anything that is not right.
-                    Nothing runs until you click Create scanner.
-                </div>
-            </div>
-        </div>
-    )
-}
-
-/** The agent's reasoning as a card like the others, closed because it mostly restates the goal. */
-function RationaleSection({ rationale }: { rationale: string }): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
-    return (
-        <div className="bg-bg-light border rounded-lg p-4 space-y-2">
-            <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-tertiary uppercase tracking-wide cursor-pointer hover:text-primary"
-                onClick={() => setIsOpen(!isOpen)}
-                aria-expanded={isOpen}
-                aria-controls="vision-goal-overview-rationale-text"
-                data-attr="vision-goal-overview-rationale"
-            >
-                {isOpen ? <IconChevronDown className="text-sm" /> : <IconChevronRight className="text-sm" />}
-                <span>Why the agent chose this setup</span>
-            </button>
-            {isOpen ? (
-                <div id="vision-goal-overview-rationale-text" className="text-sm">
-                    {rationale}
-                </div>
-            ) : null}
-        </div>
-    )
 }
 
 /** One label:value row in the eligible-recordings and sampling blocks. */
@@ -283,20 +235,14 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
  */
 export function eligibleFilterGroups(
     scanner: ReplayScanner,
-    {
-        experimentName,
-        cohortNames,
-        recordingsFirst,
-    }: { experimentName?: string; cohortNames?: Record<string, string>; recordingsFirst?: boolean } = {}
+    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
 ): EligibleFilterGroup[] {
-    // The recordings-first experiment arm uses the filter's own name from the recordings filter.
-    const [pageSingular, pagePlural] = recordingsFirst ? ['Visited page', 'Visited pages'] : ['Page', 'Pages']
     const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
         ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
         ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
             `page:${index}`,
-            pageSingular,
-            pagePlural,
+            'Page',
+            'Pages',
             values,
         ]),
         ['event', 'Event', 'Events', namedQueryEntities(scanner, 'events')],
@@ -330,8 +276,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         experimentContext,
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
-    const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
-    const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -351,7 +295,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     const filterGroups = eligibleFilterGroups(scanner, {
         experimentName: experimentContext?.experiment.name,
         cohortNames,
-        recordingsFirst,
     })
     // Read against the form, so an addition the person removed by hand is not credited to the AI.
     const currentFilterValues = new Set(filterGroups.flatMap((group) => group.values))
@@ -363,7 +306,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
-        return <ScannerGoalOverviewSkeleton recordingsFirst={recordingsFirst} />
+        return <ScannerGoalOverviewSkeleton />
     }
 
     const zeroMatches = scannerEstimate !== null && scannerEstimate.matched_sessions_in_window === 0
@@ -391,54 +334,42 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             ? `No recordings matched in the last ${pluralize(scannerEstimate.window_days, 'day')}. The scanner scans new matching recordings when they arrive.`
             : undefined
 
-    // The recordings-first experiment arm reviews what the scanner watches before what it asks.
-    const askSection = (
-        <OverviewSection label={sectionLabels.configure} editStep="configure" scannerId={scannerId}>
-            <div className="space-y-3">
-                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
-                    {scannerTypeLabel(scanner.scanner_type)}
-                </LemonTag>
-                <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
-                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
-                    <StatRow label="Model">
-                        <span className="inline-flex items-center gap-2">
-                            <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
-                            {creditsPerObservation != null ? (
-                                <span className="text-muted">
-                                    {formatCreditCount(creditsPerObservation)} / observation
-                                </span>
-                            ) : null}
-                        </span>
-                    </StatRow>
-                </div>
-                <div className="text-xs text-muted">{modelRoleLabel(scanner.model, stepLabels.configure)}</div>
-            </div>
-        </OverviewSection>
-    )
-
     const rationale = goalDraft?.rationale?.trim()
 
     return (
         <div className="flex flex-col gap-3">
-            {recordingsFirst ? (
-                <>
-                    <DraftReviewHeader />
-                    {rationale ? <RationaleSection rationale={rationale} /> : null}
-                </>
-            ) : (
-                <OverviewSection label="What it understood" scannerId={scannerId}>
-                    <div className="text-sm">{rationale || scanner.description}</div>
-                </OverviewSection>
-            )}
+            <OverviewSection label="What it understood" scannerId={scannerId}>
+                <div className="text-sm">{rationale || scanner.description}</div>
+            </OverviewSection>
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
                 {scanner.description ? <div className="text-sm text-muted">{scanner.description}</div> : null}
             </OverviewSection>
 
-            {recordingsFirst ? null : askSection}
+            <OverviewSection label={GOAL_OVERVIEW_SECTION_TITLES.configure} editStep="configure" scannerId={scannerId}>
+                <div className="space-y-3">
+                    <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
+                        {scannerTypeLabel(scanner.scanner_type)}
+                    </LemonTag>
+                    <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
+                        <StatRow label="Model">
+                            <span className="inline-flex items-center gap-2">
+                                <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
+                                {creditsPerObservation != null ? (
+                                    <span className="text-muted">
+                                        {formatCreditCount(creditsPerObservation)} / observation
+                                    </span>
+                                ) : null}
+                            </span>
+                        </StatRow>
+                    </div>
+                    <div className="text-xs text-muted">{modelRoleLabel(scanner.model, STEP_LABELS.configure)}</div>
+                </div>
+            </OverviewSection>
 
-            <OverviewSection label={sectionLabels.triggers} editStep="triggers" scannerId={scannerId}>
+            <OverviewSection label={GOAL_OVERVIEW_SECTION_TITLES.triggers} editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
@@ -486,10 +417,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : null}
             </OverviewSection>
 
-            {recordingsFirst ? askSection : null}
-
             <OverviewSection
-                label={sectionLabels.budget}
+                label={GOAL_OVERVIEW_SECTION_TITLES.budget}
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
@@ -558,7 +487,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : overBudget ? (
                     <LemonBanner type="warning">
                         Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
-                        recordings a month. Narrow the {sectionLabels.triggers.toLowerCase()} above.
+                        recordings a month. Narrow the {GOAL_OVERVIEW_SECTION_TITLES.triggers.toLowerCase()} above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
@@ -634,29 +563,27 @@ function DraftLoadingBar(): JSX.Element {
     )
 }
 
-/** Each overview section's title. The recordings-first experiment arm uses its wizard step names. */
-export function goalOverviewSectionTitles(
-    recordingsFirst: boolean
-): Record<'configure' | 'triggers' | 'budget', string> {
-    return recordingsFirst
-        ? { triggers: 'Target recordings', configure: 'Prompt & output', budget: 'Sampling & limits' }
-        : { triggers: 'Eligible recordings', configure: 'What it will ask', budget: 'Sampling and budget' }
+const GOAL_OVERVIEW_SECTION_TITLES: Record<'configure' | 'triggers' | 'budget', string> = {
+    configure: 'What it will ask',
+    triggers: 'Eligible recordings',
+    budget: 'Sampling and budget',
 }
 
-/** The overview's section titles in render order, which the recordings-first experiment arm changes. */
-export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
-    const titles = goalOverviewSectionTitles(recordingsFirst)
-    return recordingsFirst
-        ? ['Name', titles.triggers, titles.configure, titles.budget]
-        : ['What it understood', 'Name', titles.configure, titles.triggers, titles.budget]
-}
+/** The overview's section titles in render order. */
+const GOAL_OVERVIEW_SECTION_LABELS = [
+    'What it understood',
+    'Name',
+    GOAL_OVERVIEW_SECTION_TITLES.configure,
+    GOAL_OVERVIEW_SECTION_TITLES.triggers,
+    GOAL_OVERVIEW_SECTION_TITLES.budget,
+]
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
-function ScannerGoalOverviewSkeleton({ recordingsFirst }: { recordingsFirst: boolean }): JSX.Element {
+function ScannerGoalOverviewSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <DraftLoadingBar />
-            {goalOverviewSectionLabels(recordingsFirst).map((label) => (
+            {GOAL_OVERVIEW_SECTION_LABELS.map((label) => (
                 <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
                     <div className="text-xs text-tertiary uppercase tracking-wide">{label}</div>
                     <LemonSkeleton className="h-4 w-3/4" />

@@ -2,7 +2,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ReplayScanner } from '../types'
-import { eligibleFilterGroups, goalOverviewSectionLabels } from './ScannerGoalOverview'
+import { eligibleFilterGroups } from './ScannerGoalOverview'
 
 const scanner = (overrides: Partial<ReplayScanner> = {}): ReplayScanner =>
     ({
@@ -61,32 +61,25 @@ describe('eligibleFilterGroups', () => {
         ])
     })
 
-    it.each([
-        [false, 'Page'],
-        [true, 'Visited page'],
-    ])(
-        'gives each page filter its own row, so a page added to a chosen one does not merge into it (recordingsFirst=%s)',
-        (recordingsFirst, label) => {
-            const page = (value: string): AnyPropertyFilter => ({
-                type: PropertyFilterType.Recording,
-                key: 'visited_page',
-                value: [value],
-                operator: PropertyOperator.Regex,
+    it('gives each page filter its own row, so a page added to a chosen one does not merge into it', () => {
+        const page = (value: string): AnyPropertyFilter => ({
+            type: PropertyFilterType.Recording,
+            key: 'visited_page',
+            value: [value],
+            operator: PropertyOperator.Regex,
+        })
+
+        const groups = eligibleFilterGroups(
+            scanner({
+                query: { kind: NodeKind.RecordingsQuery, properties: [page('/checkout'), page('/billing')] },
             })
+        )
 
-            const groups = eligibleFilterGroups(
-                scanner({
-                    query: { kind: NodeKind.RecordingsQuery, properties: [page('/checkout'), page('/billing')] },
-                }),
-                { recordingsFirst }
-            )
-
-            expect(groups).toEqual([
-                { key: 'page:0', label, values: ['/checkout'] },
-                { key: 'page:1', label, values: ['/billing'] },
-            ])
-        }
-    )
+        expect(groups).toEqual([
+            { key: 'page:0', label: 'Page', values: ['/checkout'] },
+            { key: 'page:1', label: 'Page', values: ['/billing'] },
+        ])
+    })
 
     it('names an experiment and a cohort it cannot resolve yet', () => {
         // Both load separately from the form, so the row has to stand on its own until they arrive.
@@ -200,23 +193,5 @@ describe('eligibleFilterGroups', () => {
 
     it('has no groups when the draft watches every recording', () => {
         expect(eligibleFilterGroups(scanner({ query: { kind: NodeKind.RecordingsQuery } }))).toEqual([])
-    })
-})
-
-describe('goalOverviewSectionLabels', () => {
-    it('reviews the target recordings before the prompt, under the wizard step names, in the recordings-first arm', () => {
-        expect(goalOverviewSectionLabels(false)).toEqual([
-            'What it understood',
-            'Name',
-            'What it will ask',
-            'Eligible recordings',
-            'Sampling and budget',
-        ])
-        expect(goalOverviewSectionLabels(true)).toEqual([
-            'Name',
-            'Target recordings',
-            'Prompt & output',
-            'Sampling & limits',
-        ])
     })
 })

@@ -15670,10 +15670,6 @@ snapshots:
         hash: v1.k794b7964.e0c4064c632065d2d85178d1022c720ae82c1dc35734e1f3e057cb3967fc6f12.QezpH6V2c3BF8QzeOEYIKHMyIoApGYrqB9S6rKLMxGQ
     scenes-app-replay-vision--scanner-editor-goal-overview-long-filters--light:
         hash: v1.k794b7964.7a8ee25c52a654a3714bfa0f25ff8e64c5752dd25f878678e9db4a70690e0615.Qm6ln1Dyw24XjxE87KRXp-qqMO0dxdjOrOSvBJvjCZU
-    scenes-app-replay-vision--scanner-editor-goal-overview-recordings-first--dark:
-        hash: v1.k794b7964.8f7a8a0f99884efce84d267995fa014f9e6c83eff1f3b3f9418c26559c9c954b.usrBEwfdIF5oNSO4VjRkqKy-EyQXhaSNI7iuXk4UXRk
-    scenes-app-replay-vision--scanner-editor-goal-overview-recordings-first--light:
-        hash: v1.k794b7964.53baca9d4ae7b53e5b0c37137a8d6899ef441c069576c570aed0f786688a0611.REuQy8DrwaQkdccJ2RdLAVuSSB4J0zgVfSjPfNyoqQM
     scenes-app-replay-vision--scanner-editor-triggers--dark:
         hash: v1.k794b7964.9f1bb49fff5845e0b4fa240c76f160d11f6c3191fd9a70e818f6381ccbf73233.4oEBUb1L-2niWMCoHVODRY57bXqKEUrEnBKF0tdmsCc
     scenes-app-replay-vision--scanner-editor-triggers--light:
@@ -15682,10 +15678,6 @@ snapshots:
         hash: v1.k794b7964.6840daeb52b0dd348e8c84a00b15ff2b6ad55aa1524644114909f7835cf136e2.uVGB9n2x91ojCZtbjTG75aqwdBbS2H6Du9erZCHGcnc
     scenes-app-replay-vision--scanner-editor-triggers-experiment--light:
         hash: v1.k794b7964.d4b09a024eb703d39795d30163abcc944075d571d25bdd2487c2240668a8503d.vz8tgcbgNGUkJaO7uOOf1MVey6BKMh7nw5HxBXLNOCc
-    scenes-app-replay-vision--scanner-editor-triggers-recordings-first--dark:
-        hash: v1.k794b7964.cd7dc17b3cc9810b046e482be7ca3e9a7c69704ae1d20f83703d9f2182313e0d.1XoO-LQZMLzrlQZu_bJRaHNWPoQ3ismnZlAKoOQt60I
-    scenes-app-replay-vision--scanner-editor-triggers-recordings-first--light:
-        hash: v1.k794b7964.e6af0d6ae39ce04a5fe9455cfba1b4305c25c650b44c451783d4f70b77a60a09.NWNHU3zZKTcxW-3zh02O6tvXSc1vZ5DKQwcR0PB_TSU
     scenes-app-replay-vision--scanner-no-recordings--dark:
         hash: v1.k794b7964.359ca5b6fa1e38b3e9cef4b9bb9d13758c0532b91ae97efaf492b2ef51cc15b3.zfaw-EukpeHhsBNQx8e3RukykwJzuRA2HcBUlgbQ6BQ
     scenes-app-replay-vision--scanner-no-recordings--light:
