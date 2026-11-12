@@ -23,7 +23,7 @@ import {
 } from '../monitoring/hog-invocation-results.service'
 import { FAIR_DEQUEUE_CANDIDATE_CAP } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Manager, IDEMPOTENCY_KEY_TTL_MS } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -1414,6 +1414,32 @@ describe('Cyclotron V2', () => {
                 })
                 expect(row).toMatchObject({ status: 'available', transition_count: 0 })
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+            })
+
+            it('keeps a keyed job claimed for a day past the latest time it was rescheduled to', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([
+                    {
+                        job: { id, teamId: 1, queueName: 'email', functionId: uuidv7(), scheduled: IN_A_WEEK() },
+                        fingerprint: 'a',
+                    },
+                ])
+                const claimExpiry = async (): Promise<Date> =>
+                    new Date(
+                        (
+                            await assertPool.query('SELECT expires_at FROM cyclotron_idempotency_keys WHERE id = $1', [
+                                id,
+                            ])
+                        ).rows[0].expires_at
+                    )
+                const inTwentyDays = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000)
+
+                await manager.rescheduleUnclaimed(1, id, inTwentyDays)
+                const extended = await claimExpiry()
+                await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                expect(extended).toEqual(new Date(inTwentyDays.getTime() + IDEMPOTENCY_KEY_TTL_MS))
+                expect(await claimExpiry()).toEqual(extended)
             })
 
             it('times a reschedule after the stored time of the previous status row, even when that is ahead', async () => {
