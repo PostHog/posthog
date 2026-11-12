@@ -9,7 +9,7 @@ import { UploadedMediaListPurpose } from '~/generated/core/api.schemas'
 import type { UploadedMediaApi } from '~/generated/core/api.schemas'
 
 const UPLOAD_FAILED_MESSAGE = "Couldn't upload this image. Try again."
-const RESIZE_FAILED_MESSAGE =
+export const RESIZE_FAILED_MESSAGE =
     "Couldn't resize this image automatically, and it's over the 4 MB limit. Use a smaller image and try again."
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 // The last size always fits: 800x800 is under 4 MB even with no compression at all.

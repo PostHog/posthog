@@ -42,7 +42,7 @@ function UseOldButton(): JSX.Element {
                 LemonDialog.open({
                     title: 'Use the old editor?',
                     description:
-                        "This email was made in the new editor. The old one opens it as a single HTML block, and saving there replaces the new editor's version. Changes you haven't saved here won't carry over.",
+                        "This email was made in the new editor. The old one opens it with the same blocks, and saving there replaces the new editor's version. Changes you haven't saved here won't carry over.",
                     primaryButton: { children: 'Use the old editor', onClick: switchToOld },
                     secondaryButton: { children: 'Keep the new editor' },
                 })

@@ -27,6 +27,11 @@ describe('cleanPastedHtml', () => {
             input: `<div class="x" style="color:red"><h5>Small</h5><script>alert(1)</script><a href="https://example.com" onclick="x()">Link</a><table><tr><td>A</td><td>B</td></tr></table></div>`,
             expected: '<div><h3>Small</h3><a href="https://example.com">Link</a><p>A</p><p>B</p></div>',
         },
+        {
+            name: "another ProseMirror app's paste is cleaned like any other page",
+            input: `<p data-pm-slice="1 1 []" style="color:red;font-family:Comic Sans MS">Theirs</p>`,
+            expected: '<p>Theirs</p>',
+        },
     ])('$name', ({ input, expected }) => {
         expect(cleanPastedHtml(input).html).toEqual(expected)
     })

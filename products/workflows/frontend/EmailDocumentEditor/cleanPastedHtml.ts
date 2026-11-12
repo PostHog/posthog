@@ -116,8 +116,9 @@ export interface CleanedPaste {
  * email's own styles rather than bringing in fonts, colors and layout that don't belong to it.
  */
 export function cleanPastedHtml(html: string): CleanedPaste {
-    // Copied from this editor, so it's already clean and its block styles should survive.
-    if (html.includes('data-pm-slice')) {
+    // Copied from this editor, so it's already clean and its block styles should survive. Other ProseMirror apps
+    // also mark their copies with data-pm-slice, so the email's own attributes have to be there too.
+    if (html.includes('data-pm-slice') && /data-email-(style|button|spacer|html|columns?|variable)\b/.test(html)) {
         return { html, droppedImages: 0 }
     }
 

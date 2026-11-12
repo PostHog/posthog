@@ -18,6 +18,11 @@ describe('emailDocumentFromValue', () => {
             expected: { document: null, stale: true },
         },
         {
+            name: 'html cleared by writing in the plain text tab keeps the document open',
+            value: { html: '', design: { ...wrap('<p>a</p>'), emailDocument: stored } },
+            expected: { document: stored, stale: false },
+        },
+        {
             name: 'an old-editor design has no document',
             value: { html: '<p>a</p>', design: wrap('<p>a</p>') },
             expected: { document: null, stale: false },

@@ -12,12 +12,20 @@ import { EmailBlockStyle, emailFontUrls, resolvePageStyle } from '../emailDocume
 import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
 
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {
-    const [editing, setEditing] = useState(!node.attrs.html)
+    const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState<string>(node.attrs.html)
     const [height, setHeight] = useState(60)
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const style = (node.attrs.emailStyle ?? {}) as EmailBlockStyle
     const padding = style.padding
+
+    // An empty block asks for its html once someone picks it, not whenever the email loads with one.
+    const isEmptyAndPicked = !node.attrs.html && selected && editor.state.selection instanceof NodeSelection
+    useEffect(() => {
+        if (isEmptyAndPicked) {
+            setEditing(true)
+        }
+    }, [isEmptyAndPicked])
 
     useEffect(() => {
         if (editing) {

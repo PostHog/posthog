@@ -663,6 +663,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             {
                 setEmailConversion: (_, { conversion }) => conversion,
                 setPrefersOldEmailEditor: () => null,
+                clearConvertedEmailDocument: () => null,
             },
         ],
         // pinned: stored in people's browsers, renaming sends everyone who chose the old editor back to the new one
@@ -960,6 +961,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (conversion.document && values.isEmailEditorReady && !cache.pendingDesignEdit) {
                 values.emailEditorRef?.editor?.loadDocument?.(conversion.document.doc)
             }
+        },
+        // Flags can arrive after the editor mounts, and an old-editor email then waits on a conversion.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            actions.runEmailConversion()
         },
         setPrefersOldEmailEditor: ({ prefersOld }) => {
             cache.lastConvertedHtml = undefined

@@ -1,5 +1,5 @@
 import type { Editor, JSONContent } from '@tiptap/core'
-import { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Fragment, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 
 import { EmailBlockStyle, EmailPageStyle } from './emailDocument'
@@ -175,18 +175,20 @@ export function setColumnCount(editor: Editor, pos: number, count: number): void
         editor.view.dispatch(tr)
         return
     }
-    for (let index = node.childCount - 1; index >= count; index--) {
+    let removedFrom = pos + 1
+    for (let index = 0; index < count; index++) {
+        removedFrom += node.child(index).nodeSize
+    }
+    const moved: ProseMirrorNode[] = []
+    for (let index = count; index < node.childCount; index++) {
         const removed = node.child(index)
-        let removedPos = pos + 1
-        for (let before = 0; before < index; before++) {
-            removedPos += node.child(before).nodeSize
+        if (!(removed.childCount === 1 && removed.firstChild?.content.size === 0)) {
+            removed.forEach((block) => moved.push(block))
         }
-        const isEmpty = removed.childCount === 1 && removed.firstChild?.content.size === 0
-        // Steps run last to first, so the positions read from the old node stay valid.
-        tr.delete(removedPos, removedPos + removed.nodeSize)
-        if (!isEmpty) {
-            tr.insert(removedPos - 1, removed.content)
-        }
+    }
+    tr.delete(removedFrom, columnsEnd)
+    if (moved.length) {
+        tr.insert(removedFrom - 1, Fragment.fromArray(moved))
     }
     editor.view.dispatch(tr)
 }
