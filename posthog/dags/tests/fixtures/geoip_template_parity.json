@@ -1515,6 +1515,602 @@
         "$geoip_subdivision_1_code": "WA",
         "$geoip_subdivision_1_name": "Washington"
       }
+    },
+    {
+      "name": "geoip_disable_empty_object",
+      "properties": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": {}
+      },
+      "expected": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": {}
+      }
+    },
+    {
+      "name": "geoip_disable_empty_list",
+      "properties": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": []
+      },
+      "expected": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": []
+      }
+    },
+    {
+      "name": "geoip_disable_nonempty_object",
+      "properties": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": {
+          "a": 1
+        }
+      },
+      "expected": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "geoip_disable_string_zero",
+      "properties": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": "0"
+      },
+      "expected": {
+        "$ip": "216.160.83.56",
+        "$geoip_disable": "0"
+      }
+    },
+    {
+      "name": "hex_ipv4",
+      "properties": {
+        "$ip": "0xd8a05338"
+      },
+      "expected": {
+        "$ip": "0xd8a05338"
+      }
+    },
+    {
+      "name": "decimal_ipv4_string",
+      "properties": {
+        "$ip": "3634386744"
+      },
+      "expected": {
+        "$ip": "3634386744"
+      }
+    },
+    {
+      "name": "short_ipv4",
+      "properties": {
+        "$ip": "216.160.83"
+      },
+      "expected": {
+        "$ip": "216.160.83"
+      }
+    },
+    {
+      "name": "octal_looking_ipv4",
+      "properties": {
+        "$ip": "0216.0160.083.056"
+      },
+      "expected": {
+        "$ip": "0216.0160.083.056"
+      }
+    },
+    {
+      "name": "leading_zero_ipv4",
+      "properties": {
+        "$ip": "216.160.083.056"
+      },
+      "expected": {
+        "$ip": "216.160.083.056"
+      }
+    },
+    {
+      "name": "embedded_nul",
+      "properties": {
+        "$ip": "216.160.83.56\u0000"
+      },
+      "expected": {
+        "$ip": "216.160.83.56\u0000"
+      }
+    },
+    {
+      "name": "scoped_ipv6_numeric",
+      "properties": {
+        "$ip": "2001:218::1%1"
+      },
+      "expected": {
+        "$ip": "2001:218::1%1"
+      }
+    },
+    {
+      "name": "scoped_ipv6_name",
+      "properties": {
+        "$ip": "2001:218::1%eth0"
+      },
+      "expected": {
+        "$ip": "2001:218::1%eth0"
+      }
+    },
+    {
+      "name": "ipv6_uppercase",
+      "properties": {
+        "$ip": "2001:218::ABCD"
+      },
+      "expected": {
+        "$ip": "2001:218::ABCD",
+        "$set": {
+          "$geoip_city_name": null,
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": null,
+          "$geoip_subdivision_1_code": null,
+          "$geoip_country_name": "Japan",
+          "$geoip_country_code": "JP",
+          "$geoip_continent_name": "Asia",
+          "$geoip_continent_code": "AS",
+          "$geoip_postal_code": null,
+          "$geoip_latitude": 35.68536,
+          "$geoip_longitude": 139.75309,
+          "$geoip_accuracy_radius": 100,
+          "$geoip_time_zone": "Asia/Tokyo"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": null,
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": null,
+          "$initial_geoip_subdivision_1_code": null,
+          "$initial_geoip_country_name": "Japan",
+          "$initial_geoip_country_code": "JP",
+          "$initial_geoip_continent_name": "Asia",
+          "$initial_geoip_continent_code": "AS",
+          "$initial_geoip_postal_code": null,
+          "$initial_geoip_latitude": 35.68536,
+          "$initial_geoip_longitude": 139.75309,
+          "$initial_geoip_accuracy_radius": 100,
+          "$initial_geoip_time_zone": "Asia/Tokyo"
+        },
+        "$geoip_country_name": "Japan",
+        "$geoip_country_code": "JP",
+        "$geoip_continent_name": "Asia",
+        "$geoip_continent_code": "AS",
+        "$geoip_latitude": 35.68536,
+        "$geoip_longitude": 139.75309,
+        "$geoip_accuracy_radius": 100,
+        "$geoip_time_zone": "Asia/Tokyo"
+      }
+    },
+    {
+      "name": "ipv6_bracketed",
+      "properties": {
+        "$ip": "[2001:218::1]"
+      },
+      "expected": {
+        "$ip": "[2001:218::1]"
+      }
+    },
+    {
+      "name": "ipv4_with_port",
+      "properties": {
+        "$ip": "216.160.83.56:443"
+      },
+      "expected": {
+        "$ip": "216.160.83.56:443"
+      }
+    },
+    {
+      "name": "ipv4_cidr",
+      "properties": {
+        "$ip": "216.160.83.56/32"
+      },
+      "expected": {
+        "$ip": "216.160.83.56/32"
+      }
+    },
+    {
+      "name": "trailing_newline",
+      "properties": {
+        "$ip": "216.160.83.56\n"
+      },
+      "expected": {
+        "$ip": "216.160.83.56\n"
+      }
+    },
+    {
+      "name": "ipv4_mapped_ipv6_hex",
+      "properties": {
+        "$ip": "::ffff:d8a0:5338"
+      },
+      "expected": {
+        "$ip": "::ffff:d8a0:5338",
+        "$set": {
+          "$geoip_city_name": "Milton",
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": "Washington",
+          "$geoip_subdivision_1_code": "WA",
+          "$geoip_country_name": "United States",
+          "$geoip_country_code": "US",
+          "$geoip_continent_name": "North America",
+          "$geoip_continent_code": "NA",
+          "$geoip_postal_code": "98354",
+          "$geoip_latitude": 47.2513,
+          "$geoip_longitude": -122.3149,
+          "$geoip_accuracy_radius": 22,
+          "$geoip_time_zone": "America/Los_Angeles"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": "Milton",
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": "Washington",
+          "$initial_geoip_subdivision_1_code": "WA",
+          "$initial_geoip_country_name": "United States",
+          "$initial_geoip_country_code": "US",
+          "$initial_geoip_continent_name": "North America",
+          "$initial_geoip_continent_code": "NA",
+          "$initial_geoip_postal_code": "98354",
+          "$initial_geoip_latitude": 47.2513,
+          "$initial_geoip_longitude": -122.3149,
+          "$initial_geoip_accuracy_radius": 22,
+          "$initial_geoip_time_zone": "America/Los_Angeles"
+        },
+        "$geoip_city_name": "Milton",
+        "$geoip_country_name": "United States",
+        "$geoip_country_code": "US",
+        "$geoip_continent_name": "North America",
+        "$geoip_continent_code": "NA",
+        "$geoip_postal_code": "98354",
+        "$geoip_latitude": 47.2513,
+        "$geoip_longitude": -122.3149,
+        "$geoip_accuracy_radius": 22,
+        "$geoip_time_zone": "America/Los_Angeles",
+        "$geoip_subdivision_1_code": "WA",
+        "$geoip_subdivision_1_name": "Washington"
+      }
+    },
+    {
+      "name": "ipv4_mapped_ipv6_long_form",
+      "properties": {
+        "$ip": "0:0:0:0:0:ffff:216.160.83.56"
+      },
+      "expected": {
+        "$ip": "0:0:0:0:0:ffff:216.160.83.56",
+        "$set": {
+          "$geoip_city_name": "Milton",
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": "Washington",
+          "$geoip_subdivision_1_code": "WA",
+          "$geoip_country_name": "United States",
+          "$geoip_country_code": "US",
+          "$geoip_continent_name": "North America",
+          "$geoip_continent_code": "NA",
+          "$geoip_postal_code": "98354",
+          "$geoip_latitude": 47.2513,
+          "$geoip_longitude": -122.3149,
+          "$geoip_accuracy_radius": 22,
+          "$geoip_time_zone": "America/Los_Angeles"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": "Milton",
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": "Washington",
+          "$initial_geoip_subdivision_1_code": "WA",
+          "$initial_geoip_country_name": "United States",
+          "$initial_geoip_country_code": "US",
+          "$initial_geoip_continent_name": "North America",
+          "$initial_geoip_continent_code": "NA",
+          "$initial_geoip_postal_code": "98354",
+          "$initial_geoip_latitude": 47.2513,
+          "$initial_geoip_longitude": -122.3149,
+          "$initial_geoip_accuracy_radius": 22,
+          "$initial_geoip_time_zone": "America/Los_Angeles"
+        },
+        "$geoip_city_name": "Milton",
+        "$geoip_country_name": "United States",
+        "$geoip_country_code": "US",
+        "$geoip_continent_name": "North America",
+        "$geoip_continent_code": "NA",
+        "$geoip_postal_code": "98354",
+        "$geoip_latitude": 47.2513,
+        "$geoip_longitude": -122.3149,
+        "$geoip_accuracy_radius": 22,
+        "$geoip_time_zone": "America/Los_Angeles",
+        "$geoip_subdivision_1_code": "WA",
+        "$geoip_subdivision_1_name": "Washington"
+      }
+    },
+    {
+      "name": "ipv4_compatible_ipv6",
+      "properties": {
+        "$ip": "::216.160.83.56"
+      },
+      "expected": {
+        "$ip": "::216.160.83.56"
+      }
+    },
+    {
+      "name": "ipv6_long_form",
+      "properties": {
+        "$ip": "2001:218:0:0:0:0:0:1"
+      },
+      "expected": {
+        "$ip": "2001:218:0:0:0:0:0:1",
+        "$set": {
+          "$geoip_city_name": null,
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": null,
+          "$geoip_subdivision_1_code": null,
+          "$geoip_country_name": "Japan",
+          "$geoip_country_code": "JP",
+          "$geoip_continent_name": "Asia",
+          "$geoip_continent_code": "AS",
+          "$geoip_postal_code": null,
+          "$geoip_latitude": 35.68536,
+          "$geoip_longitude": 139.75309,
+          "$geoip_accuracy_radius": 100,
+          "$geoip_time_zone": "Asia/Tokyo"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": null,
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": null,
+          "$initial_geoip_subdivision_1_code": null,
+          "$initial_geoip_country_name": "Japan",
+          "$initial_geoip_country_code": "JP",
+          "$initial_geoip_continent_name": "Asia",
+          "$initial_geoip_continent_code": "AS",
+          "$initial_geoip_postal_code": null,
+          "$initial_geoip_latitude": 35.68536,
+          "$initial_geoip_longitude": 139.75309,
+          "$initial_geoip_accuracy_radius": 100,
+          "$initial_geoip_time_zone": "Asia/Tokyo"
+        },
+        "$geoip_country_name": "Japan",
+        "$geoip_country_code": "JP",
+        "$geoip_continent_name": "Asia",
+        "$geoip_continent_code": "AS",
+        "$geoip_latitude": 35.68536,
+        "$geoip_longitude": 139.75309,
+        "$geoip_accuracy_radius": 100,
+        "$geoip_time_zone": "Asia/Tokyo"
+      }
+    },
+    {
+      "name": "ipv6_unspecified",
+      "properties": {
+        "$ip": "::"
+      },
+      "expected": {
+        "$ip": "::"
+      }
+    },
+    {
+      "name": "ipv4_unspecified",
+      "properties": {
+        "$ip": "0.0.0.0"
+      },
+      "expected": {
+        "$ip": "0.0.0.0"
+      }
+    },
+    {
+      "name": "ipv6_six_to_four",
+      "properties": {
+        "$ip": "2002:d8a0:5338::1"
+      },
+      "expected": {
+        "$ip": "2002:d8a0:5338::1",
+        "$set": {
+          "$geoip_city_name": "Milton",
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": "Washington",
+          "$geoip_subdivision_1_code": "WA",
+          "$geoip_country_name": "United States",
+          "$geoip_country_code": "US",
+          "$geoip_continent_name": "North America",
+          "$geoip_continent_code": "NA",
+          "$geoip_postal_code": "98354",
+          "$geoip_latitude": 47.2513,
+          "$geoip_longitude": -122.3149,
+          "$geoip_accuracy_radius": 22,
+          "$geoip_time_zone": "America/Los_Angeles"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": "Milton",
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": "Washington",
+          "$initial_geoip_subdivision_1_code": "WA",
+          "$initial_geoip_country_name": "United States",
+          "$initial_geoip_country_code": "US",
+          "$initial_geoip_continent_name": "North America",
+          "$initial_geoip_continent_code": "NA",
+          "$initial_geoip_postal_code": "98354",
+          "$initial_geoip_latitude": 47.2513,
+          "$initial_geoip_longitude": -122.3149,
+          "$initial_geoip_accuracy_radius": 22,
+          "$initial_geoip_time_zone": "America/Los_Angeles"
+        },
+        "$geoip_city_name": "Milton",
+        "$geoip_country_name": "United States",
+        "$geoip_country_code": "US",
+        "$geoip_continent_name": "North America",
+        "$geoip_continent_code": "NA",
+        "$geoip_postal_code": "98354",
+        "$geoip_latitude": 47.2513,
+        "$geoip_longitude": -122.3149,
+        "$geoip_accuracy_radius": 22,
+        "$geoip_time_zone": "America/Los_Angeles",
+        "$geoip_subdivision_1_code": "WA",
+        "$geoip_subdivision_1_name": "Washington"
+      }
+    },
+    {
+      "name": "ipv4_compatible_ipv6_hex",
+      "properties": {
+        "$ip": "::d8a0:5338"
+      },
+      "expected": {
+        "$ip": "::d8a0:5338",
+        "$set": {
+          "$geoip_city_name": "Milton",
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": "Washington",
+          "$geoip_subdivision_1_code": "WA",
+          "$geoip_country_name": "United States",
+          "$geoip_country_code": "US",
+          "$geoip_continent_name": "North America",
+          "$geoip_continent_code": "NA",
+          "$geoip_postal_code": "98354",
+          "$geoip_latitude": 47.2513,
+          "$geoip_longitude": -122.3149,
+          "$geoip_accuracy_radius": 22,
+          "$geoip_time_zone": "America/Los_Angeles"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": "Milton",
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": "Washington",
+          "$initial_geoip_subdivision_1_code": "WA",
+          "$initial_geoip_country_name": "United States",
+          "$initial_geoip_country_code": "US",
+          "$initial_geoip_continent_name": "North America",
+          "$initial_geoip_continent_code": "NA",
+          "$initial_geoip_postal_code": "98354",
+          "$initial_geoip_latitude": 47.2513,
+          "$initial_geoip_longitude": -122.3149,
+          "$initial_geoip_accuracy_radius": 22,
+          "$initial_geoip_time_zone": "America/Los_Angeles"
+        },
+        "$geoip_city_name": "Milton",
+        "$geoip_country_name": "United States",
+        "$geoip_country_code": "US",
+        "$geoip_continent_name": "North America",
+        "$geoip_continent_code": "NA",
+        "$geoip_postal_code": "98354",
+        "$geoip_latitude": 47.2513,
+        "$geoip_longitude": -122.3149,
+        "$geoip_accuracy_radius": 22,
+        "$geoip_time_zone": "America/Los_Angeles",
+        "$geoip_subdivision_1_code": "WA",
+        "$geoip_subdivision_1_name": "Washington"
+      }
+    },
+    {
+      "name": "ipv4_compatible_ipv6_long_form",
+      "properties": {
+        "$ip": "0:0:0:0:0:0:216.160.83.56"
+      },
+      "expected": {
+        "$ip": "0:0:0:0:0:0:216.160.83.56"
+      }
+    },
+    {
+      "name": "ipv6_with_dotted_quad",
+      "properties": {
+        "$ip": "2001:218::1.2.3.4"
+      },
+      "expected": {
+        "$ip": "2001:218::1.2.3.4"
+      }
+    },
+    {
+      "name": "ipv4_mapped_ipv6_uppercase",
+      "properties": {
+        "$ip": "::FFFF:216.160.83.56"
+      },
+      "expected": {
+        "$ip": "::FFFF:216.160.83.56",
+        "$set": {
+          "$geoip_city_name": "Milton",
+          "$geoip_city_confidence": null,
+          "$geoip_subdivision_2_name": null,
+          "$geoip_subdivision_2_code": null,
+          "$geoip_subdivision_1_name": "Washington",
+          "$geoip_subdivision_1_code": "WA",
+          "$geoip_country_name": "United States",
+          "$geoip_country_code": "US",
+          "$geoip_continent_name": "North America",
+          "$geoip_continent_code": "NA",
+          "$geoip_postal_code": "98354",
+          "$geoip_latitude": 47.2513,
+          "$geoip_longitude": -122.3149,
+          "$geoip_accuracy_radius": 22,
+          "$geoip_time_zone": "America/Los_Angeles"
+        },
+        "$set_once": {
+          "$initial_geoip_city_name": "Milton",
+          "$initial_geoip_city_confidence": null,
+          "$initial_geoip_subdivision_2_name": null,
+          "$initial_geoip_subdivision_2_code": null,
+          "$initial_geoip_subdivision_1_name": "Washington",
+          "$initial_geoip_subdivision_1_code": "WA",
+          "$initial_geoip_country_name": "United States",
+          "$initial_geoip_country_code": "US",
+          "$initial_geoip_continent_name": "North America",
+          "$initial_geoip_continent_code": "NA",
+          "$initial_geoip_postal_code": "98354",
+          "$initial_geoip_latitude": 47.2513,
+          "$initial_geoip_longitude": -122.3149,
+          "$initial_geoip_accuracy_radius": 22,
+          "$initial_geoip_time_zone": "America/Los_Angeles"
+        },
+        "$geoip_city_name": "Milton",
+        "$geoip_country_name": "United States",
+        "$geoip_country_code": "US",
+        "$geoip_continent_name": "North America",
+        "$geoip_continent_code": "NA",
+        "$geoip_postal_code": "98354",
+        "$geoip_latitude": 47.2513,
+        "$geoip_longitude": -122.3149,
+        "$geoip_accuracy_radius": 22,
+        "$geoip_time_zone": "America/Los_Angeles",
+        "$geoip_subdivision_1_code": "WA",
+        "$geoip_subdivision_1_name": "Washington"
+      }
+    },
+    {
+      "name": "ipv4_mapped_ipv6_leading_zero",
+      "properties": {
+        "$ip": "::ffff:0216.160.83.56"
+      },
+      "expected": {
+        "$ip": "::ffff:0216.160.83.56"
+      }
+    },
+    {
+      "name": "ipv4_translated_ipv6",
+      "properties": {
+        "$ip": "::ffff:0:216.160.83.56"
+      },
+      "expected": {
+        "$ip": "::ffff:0:216.160.83.56"
+      }
     }
   ]
 }

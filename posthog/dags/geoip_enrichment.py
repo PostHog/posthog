@@ -8,6 +8,7 @@ test case. A backfill that writes different keys or values than ingestion would 
 disagree with their neighbours.
 """
 
+import ipaddress
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -74,8 +75,19 @@ class MmdbGeoipLookup:
         self._reader = geoip2.database.Reader(str(path))
 
     def __call__(self, ip: str) -> GeoipRecord | None:
+        # The maxminddb reader parses forms that geoip2-node rejects, such as hexadecimal IPv4 and
+        # IPv6 scope IDs, so the address is parsed here and handed over as an object. geoip2-node also
+        # fails on an IPv6 address written with a dotted quad, unless it is IPv4-mapped.
         try:
-            return self._reader.city(ip).raw
+            address = ipaddress.ip_address(ip)
+        except ValueError:
+            return None
+        if isinstance(address, ipaddress.IPv6Address) and (
+            address.scope_id is not None or ("." in ip and address.ipv4_mapped is None)
+        ):
+            return None
+        try:
+            return self._reader.city(address).raw
         except (geoip2.errors.AddressNotFoundError, ValueError):
             return None
 
@@ -90,7 +102,7 @@ class MmdbGeoipLookup:
 def geoip_enrichment(properties: Mapping[str, Any], lookup: GeoipLookup) -> GeoipEnrichment | None:
     """What the template adds to an event with these properties, or None when it returns the event unchanged."""
     ip = properties.get("$ip")
-    if properties.get("$geoip_disable") or not ip or not isinstance(ip, str):
+    if _hog_truthy(properties.get("$geoip_disable")) or not ip or not isinstance(ip, str):
         return None
     if ip == "127.0.0.1" or ip[:8] == "192.168.":
         ip = _LOCAL_DEVELOPMENT_IP
@@ -145,6 +157,11 @@ def _location(record: GeoipRecord) -> dict[str, Any]:
 
 def _english_name(geo_object: Mapping[str, Any]) -> Any:
     return _object_or_empty(geo_object.get("names")).get("en")
+
+
+def _hog_truthy(value: Any) -> bool:
+    # Hog follows JavaScript, where an empty object or list is true.
+    return value is not None and value is not False and value != 0 and value != ""
 
 
 def _is_non_object(value: Any) -> bool:
