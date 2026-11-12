@@ -54,6 +54,8 @@ import {
 } from './recommendations'
 
 const RECOMMENDATION_SOURCE_TYPES = ['GoogleAds', 'GoogleSearchConsole']
+// Long enough to read the toast and reach Undo; Restore stays available after it closes.
+const UNDO_TOAST_MS = 10000
 
 // Only the key, so connecting finds the node the section mounts with its query instead of replacing that query.
 const RECOMMENDATIONS_DATA_NODE = {
@@ -424,6 +426,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 const saved = await marketingAnalyticsRecommendationResolutionsCreate(String(values.currentTeamId), {
                     identity: recommendation.identity,
                     resolution,
+                    name: recommendation.subject,
                 })
                 actions.resolutionSaved(recommendation.key, saved)
                 actions.reportRecommendationResolved(recommendation.rule, recommendation.level, resolution)
@@ -435,6 +438,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                             action: () => actions.undoResolution(recommendation, saved),
                             dataAttr: 'marketing-recommendations-undo',
                         },
+                        autoClose: UNDO_TOAST_MS,
                     }
                 )
                 // The freed slot of the rule fills with its next recommendation.
@@ -468,6 +472,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 }
                 actions.resolutionRequestFailed(recommendation.key)
                 lemonToast.error("Couldn't restore the recommendation. Try again.")
+            }
+        },
+        resolutionRemoved: () => {
+            // With nothing resolved the toggle is hidden, so a later dismiss must hide its row again.
+            if (values.showResolved && values.resolvedCount === 0) {
+                actions.setShowResolved(false)
             }
         },
         undoResolution: ({ recommendation, resolution }) => {

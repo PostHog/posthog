@@ -106,6 +106,7 @@ describe('recommendationsLogic', () => {
                 delete: { [`${RESOLUTIONS_URL}:id/`]: [204] },
             })
             const toast = jest.spyOn(lemonToast, 'success')
+            logic.actions.setShowResolved(true)
 
             await expectLogic(marketingAnalyticsLogic, () =>
                 logic.actions.resolveRecommendation(RECOMMENDATION, resolution)
@@ -117,7 +118,7 @@ describe('recommendationsLogic', () => {
                 ),
             ])
             await expectLogic(logic).toDispatchActions(['loadData'])
-            expect(posted).toEqual({ identity: RECOMMENDATION.identity, resolution })
+            expect(posted).toEqual({ identity: RECOMMENDATION.identity, resolution, name: RECOMMENDATION.subject })
             expect(logic.values.resolutionOverrides[RECOMMENDATION.key]?.resolution).toBe(resolution)
             expect(logic.values.pendingKeys).toEqual([])
 
@@ -137,6 +138,8 @@ describe('recommendationsLogic', () => {
             ])
             expect(logic.values.resolutionOverrides[RECOMMENDATION.key]).toBeNull()
             expect(logic.values.pendingKeys).toEqual([])
+            // The toggle hides with nothing resolved, so the next dismiss must not leave its row on screen.
+            expect(logic.values.showResolved).toBe(false)
         }
     )
 
