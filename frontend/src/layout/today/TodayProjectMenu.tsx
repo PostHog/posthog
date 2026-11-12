@@ -1,18 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { eventsRetentionDeletionWarningLogic } from '~/layout/eventsRetentionDeletionWarningLogic'
-
 import { withoutLeadingEmoji } from './leadingEmoji'
 import { TodayLogo } from './TodayLogo'
 import { ProjectMenuActionKey, todayProjectMenuLogic } from './todayProjectMenuLogic'
-import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { TodaySwitcherMenu, TodaySwitcherRow } from './TodaySwitcherMenu'
 
 const ACTION_ROWS: Record<ProjectMenuActionKey, Pick<TodaySwitcherRow, 'label' | 'leading' | 'dataAttr'>> = {
@@ -20,11 +17,6 @@ const ACTION_ROWS: Record<ProjectMenuActionKey, Pick<TodaySwitcherRow, 'label' |
         label: 'Project settings',
         leading: <IconGear />,
         dataAttr: 'today-top-bar-project-settings',
-    },
-    'events-retention': {
-        label: 'Retention settings',
-        leading: <IconWarning />,
-        dataAttr: 'today-top-bar-events-retention',
     },
     'new-project': { label: 'New project', leading: <IconPlusSmall />, dataAttr: 'today-top-bar-new-project' },
 }
@@ -45,18 +37,11 @@ export function TodayProjectMenu(): JSX.Element {
     const { openProjectSwitcher, closeProjectSwitcher, setProjectSearchValue } = useActions(newAccountMenuLogic)
     const { projectMenuActions } = useValues(todayProjectMenuLogic)
     const { runProjectMenuAction, switchProject } = useActions(todayProjectMenuLogic)
-    const { warning, alertVisible } = useValues(eventsRetentionDeletionWarningLogic)
-    const name = currentTeam ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id) : 'Select project'
 
     return (
         <TodaySwitcherMenu
             trigger={
-                <Button
-                    indicator={alertVisible ? 'warning' : undefined}
-                    aria-label={alertVisible && warning ? `${name}, ${warning.title}` : undefined}
-                    className="min-w-0 gap-1.5 px-1.5 [--quill-button-indicator-ring:var(--chrome)]"
-                    data-attr="today-top-bar-project-menu"
-                >
+                <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
                     {currentTeam && (
                         <TodayLogo
                             name={currentTeam.name}
@@ -65,7 +50,11 @@ export function TodayProjectMenu(): JSX.Element {
                             size="trigger"
                         />
                     )}
-                    <span className="max-w-48 min-w-0 truncate">{name}</span>
+                    <span className="max-w-48 min-w-0 truncate">
+                        {currentTeam
+                            ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id)
+                            : 'Select project'}
+                    </span>
                 </Button>
             }
             open={isProjectSwitcherOpen}
@@ -92,10 +81,6 @@ export function TodayProjectMenu(): JSX.Element {
                 value: key,
                 disabledReason,
                 ...ACTION_ROWS[key],
-                description:
-                    key === 'events-retention' && warning ? (
-                        <span className={SEVERITY_TEXT_CLASS.warning}>{warning.title}</span>
-                    ) : undefined,
                 onSelect: () => runProjectMenuAction(key),
             }))}
             selectedValue={currentTeam ? String(currentTeam.id) : null}

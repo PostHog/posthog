@@ -1,15 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import {
-    IconCopy,
-    IconDatabase,
-    IconOpenSidebar,
-    IconServer,
-    IconShieldLock,
-    IconSparkles,
-    IconWarning,
-} from '@posthog/icons'
+import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
@@ -27,10 +19,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    eventsRetentionDeletionWarningLogic,
-    eventsRetentionSettingsUrl,
-} from '~/layout/eventsRetentionDeletionWarningLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -45,9 +33,7 @@ import { posthogStatusLogic } from './posthogStatusLogic'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus, healthBadgeContent, healthBadgeStatus } =
-        useValues(helpMenuLogic)
-    const { warning } = useValues(eventsRetentionDeletionWarningLogic)
+    const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
@@ -202,35 +188,13 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             {healthSummary && (
                                                 <LemonBadge
                                                     size="small"
-                                                    content={healthBadgeContent}
-                                                    status={healthBadgeStatus}
+                                                    content={triggerBadgeContent}
+                                                    status={triggerBadgeStatus}
                                                 />
                                             )}
                                         </Link>
                                     )}
                                 />
-                                {warning && (
-                                    <Menu.Item
-                                        render={(props) => (
-                                            <Link
-                                                {...props}
-                                                to={eventsRetentionSettingsUrl()}
-                                                buttonProps={{ menuItem: true, autoHeight: true }}
-                                                className="items-start py-1.5"
-                                                data-attr="more-menu-events-retention-button"
-                                            >
-                                                <IconWarning className="mt-0.5 text-warning" />
-                                                <span className="flex max-w-60 flex-col gap-0.5">
-                                                    <span>Retention settings</span>
-                                                    <span className="text-xs text-warning">{warning.title}</span>
-                                                    <span className="text-xs text-secondary">
-                                                        {warning.description}
-                                                    </span>
-                                                </span>
-                                            </Link>
-                                        )}
-                                    />
-                                )}
 
                                 <NavSwitchMoreMenuItem />
 
