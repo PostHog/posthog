@@ -30,6 +30,7 @@ from posthog.models.integration import Integration
 from posthog.redis import get_client
 from posthog.token_bucket import Budget
 
+from products.knowledge_writer.backend.adapters.repo_merge import pull_request_dedupe_id
 from products.knowledge_writer.backend.facade import finished_check_hooks
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest, IntakeOutcome
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource, MergeCheckFailure
@@ -301,7 +302,11 @@ def test_a_docs_command_check_judges_the_merge_its_pull_request_names_and_return
 
     assert (run_merge_check.call_args.args[0] if run_merge_check.called else None) == checked_change
     verdict = submit.call_args.args[0]
-    assert (verdict.source, verdict.failure_reason) == (DocsRequestSource.COMMAND_TAG, failure_reason)
+    assert (verdict.source, verdict.subject_id, verdict.failure_reason) == (
+        DocsRequestSource.COMMAND_TAG,
+        pull_request_dedupe_id("PostHog/posthog", PULL_REQUEST_NUMBER),
+        failure_reason,
+    )
     assert finished == FinishedDocsCheck(status="no_docs", failure_reason=failure_reason, pull_request_url=None)
 
 
@@ -380,7 +385,10 @@ def test_a_team_past_its_check_budget_records_capped_merges_without_reading_gith
         check_merge(inputs, is_final_attempt=True)
 
     assert docs_github.call_count == 2
-    assert [call.args[0].reason for call in submit.call_args_list] == ["merge_check_failed", "check_capped"]
+    assert [(call.args[0].reason, call.args[0].failure_reason) for call in submit.call_args_list] == [
+        ("merge_check_failed", MergeCheckFailure.NO_DOCS_GITHUB),
+        ("check_capped", MergeCheckFailure.CHECK_CAPPED),
+    ]
 
 
 @pytest.mark.django_db

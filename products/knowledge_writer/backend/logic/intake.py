@@ -127,7 +127,7 @@ def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
     capture_writer_event(
         VERDICT_EVENT,
         team_id=team_id,
-        event_key=f"{verdict.source}:{verdict.subject_id}",
+        event_key=f"{verdict.source}:{verdict.subject_id}:{verdict.check_id}",
         failure_log="knowledge_writer_verdict_capture_failed",
         properties={
             "source": verdict.source,

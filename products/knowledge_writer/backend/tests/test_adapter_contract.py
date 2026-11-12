@@ -142,9 +142,12 @@ def test_repo_merge_verdict_event_records_repository_pull_request_and_criteria()
     verdict = RepoMergeAdapter().assess(REPORT, _inputs(DocsRequestSource.REPO_MERGE))
 
     with patch.object(pull_requests, "ph_scoped_capture") as scoped_capture:
-        intake.capture_verdict(verdict, team_id=1)
+        for check_id in ("first-check-run", "second-check-run"):
+            intake.capture_verdict(dataclasses.replace(verdict, check_id=check_id), team_id=1)
 
-    properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+    capture_calls = scoped_capture.return_value.__enter__.return_value.call_args_list
+    assert capture_calls[0].kwargs["uuid"] != capture_calls[1].kwargs["uuid"]
+    properties = capture_calls[-1].kwargs["properties"]
     assert properties["repository"] == "PostHog/posthog"
     assert properties["pull_request_number"] == 7
     assert properties["low_confidence"] is True

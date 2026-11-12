@@ -26,3 +26,4 @@ class MergeCheckFailure(StrEnum):
     JUDGE_CLIENT_UNAVAILABLE = "judge_client_unavailable"
     RETRIES_EXHAUSTED = "retries_exhausted"
     PULL_REQUEST_NOT_MERGED = "pull_request_not_merged"
+    CHECK_CAPPED = "check_capped"

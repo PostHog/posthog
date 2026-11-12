@@ -52,6 +52,7 @@ class AdapterVerdict:
     request: DocsRequest | None
     trace: VerdictTrace | None = None
     failure_reason: MergeCheckFailure | None = None
+    check_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):

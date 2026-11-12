@@ -112,6 +112,7 @@ class TestDocsCheckResult(SimpleTestCase):
             ),
             ("check_failed", "no_docs", MergeCheckFailure.RETRIES_EXHAUSTED, None, "Try `docs` again"),
             ("writer_not_set_up", "no_docs", MergeCheckFailure.NO_DOCS_GITHUB, None, "isn't fully set up"),
+            ("check_capped", "no_docs", MergeCheckFailure.CHECK_CAPPED, None, "hit its docs check limit"),
         ]
     )
     def test_a_docs_check_reports_once_when_it_ends(

@@ -31,7 +31,7 @@ from ...merge_check.sources import (
     landed_change,
     read_pull_request,
 )
-from ..adapters.repo_merge import RepoMergeAdapter, pull_request_key
+from ..adapters.repo_merge import RepoMergeAdapter, pull_request_dedupe_id
 from ..facade.contracts import AdapterVerdict, MergeCheckReport
 from ..facade.enums import DocsRequestSource, MergeCheckFailure
 from ..facade.finished_check_hooks import FinishedDocsCheck, get_finished_docs_check_hooks
@@ -78,6 +78,7 @@ class MergeCheckInputs:
     requested_by: str | None = None
     requested_by_user_id: int | None = None
     note: str = ""
+    check_id: str | None = None
 
 
 class MergeCheckNotAdmitted(Exception):
@@ -116,7 +117,11 @@ def record_unchecked_merge(
     )
     verdict = AdapterVerdict(
         source=inputs.origin,
-        subject_id=inputs.commit_sha or pull_request_key(inputs.repository, inputs.pull_request_number),
+        subject_id=(
+            inputs.commit_sha or ""
+            if inputs.pull_request_number is None
+            else pull_request_dedupe_id(inputs.repository, inputs.pull_request_number)
+        ),
         needs_docs=False,
         reason=reason,
         request=None,
@@ -126,7 +131,7 @@ def record_unchecked_merge(
 
 
 def submit_verdict(inputs: MergeCheckInputs, verdict: AdapterVerdict) -> FinishedDocsCheck:
-    outcome = intake.submit(verdict, team_id=inputs.team_id)
+    outcome = intake.submit(replace(verdict, check_id=inputs.check_id), team_id=inputs.team_id)
     return FinishedDocsCheck(
         status=outcome.status, failure_reason=verdict.failure_reason, pull_request_url=outcome.pull_request_url
     )
@@ -168,7 +173,7 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
     if inputs.pull_request_number is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.NO_PULL_REQUEST_NUMBER)
     if not is_within_check_budget(inputs.team_id):
-        return record_unchecked_merge(inputs, reason=CHECK_CAPPED_REASON, failure_reason=None)
+        return record_unchecked_merge(inputs, reason=CHECK_CAPPED_REASON, failure_reason=MergeCheckFailure.CHECK_CAPPED)
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.NO_DOCS_GITHUB)
@@ -233,7 +238,7 @@ async def run_merge_check_activity(inputs: MergeCheckInputs) -> FinishedDocsChec
     is_final_attempt = activity.info().attempt >= MERGE_CHECK_ATTEMPTS
     async with Heartbeater():
         return await database_sync_to_async(check_merge, thread_sensitive=False)(
-            inputs, is_final_attempt=is_final_attempt
+            replace(inputs, check_id=activity.info().workflow_run_id), is_final_attempt=is_final_attempt
         )
 
 

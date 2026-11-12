@@ -67,6 +67,8 @@ def docs_result(finished: FinishedDocsCheck, follow_up: FollowUp) -> str:
     subject = _subject(follow_up)
     if finished.failure_reason == MergeCheckFailure.PULL_REQUEST_NOT_MERGED:
         return f"The docs check didn't run because {subject} isn't merged."
+    if finished.failure_reason == MergeCheckFailure.CHECK_CAPPED:
+        return f"The docs check didn't run on {subject} because this project hit its docs check limit. Try `docs` again in a few minutes."
     if finished.failure_reason in TRANSIENT_DOCS_CHECK_FAILURES:
         return f"The docs check couldn't finish on {subject}. Try `docs` again in a few minutes."
     if finished.failure_reason is not None:
