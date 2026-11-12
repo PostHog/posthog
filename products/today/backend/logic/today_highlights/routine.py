@@ -284,6 +284,8 @@ def _with_popular(
     if not fill_popular:
         return own, 0
     room = ROW_TILES - len(context.pinned) - _key_metric_places(context)
+    if room <= 0:
+        return own, 0
     return [*own, *_popular_choices(context, excluded, own)], room
 
 

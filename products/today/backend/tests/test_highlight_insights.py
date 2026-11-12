@@ -556,6 +556,20 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([m.key for m in pulse if m.reason == "popular"], [f"insight:{ref}" for ref in expected])
 
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_popular_insights_are_not_looked_up_when_key_metrics_fill_the_row(self) -> None:
+        active = [
+            KeyMetric(key=f"metric{i}", name="Sign-ups", people=False, daily=[], this_week=5.0, last_week=5.0, node={})
+            for i in range(4)
+        ]
+        with (
+            patch.object(routine, "get_key_metrics", return_value=active),
+            patch.object(routine, "_popular_refs", return_value=["team_fav"]) as popular_refs,
+        ):
+            routine.find(Context(self.team, self.user, TODAY))
+
+        popular_refs.assert_not_called()
+
 
 class TestProgressiveInsights(SimpleTestCase):
     def test_ready_numbers_are_published_while_the_first_query_is_still_running(self) -> None:
