@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -145,6 +147,24 @@ describe('providerImportLogic', () => {
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
         expect(logic.values.isImportRunActive).toBe(false)
+    })
+
+    it.each([
+        [true, 0],
+        [false, 1],
+    ])('toasts a refused start only when the window is closed (open: %s)', async (keepOpen, toasts) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        useMocks({ post: { '/api/projects/:team_id/messaging_provider_imports/': () => [400, { detail: 'Bad key' }] } })
+        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+
+        logic.actions.startImport({ apiKey: 'app-key' })
+        if (!keepOpen) {
+            logic.actions.closeImportModal()
+        }
+        await expectLogic(logic).toDispatchActions(['startImportFailure'])
+
+        expect(toastError).toHaveBeenCalledTimes(toasts)
+        toastError.mockRestore()
     })
 
     it('asks which tool to import from only when there is more than one', async () => {

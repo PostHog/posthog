@@ -401,6 +401,10 @@ export const providerImportLogic = kea<providerImportLogicType>([
             if (errorObject?.status === 409) {
                 actions.loadImportRuns()
             }
+            // The window shows the error, so a person who already closed it would never see it.
+            if (!values.isImportModalOpen) {
+                lemonToast.error(values.importError ?? "Couldn't start the import.")
+            }
         },
         loadImportRunsSuccess: ({ importRuns }) => {
             const runs = importRuns ?? []
