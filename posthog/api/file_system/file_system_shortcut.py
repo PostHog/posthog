@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
+    canonical_file_system_ref,
     filter_workflow_files_by_access_level,
     keep_workflow_files_in_scoped_teams,
 )
@@ -32,6 +33,13 @@ def reject_retired_type(value: str) -> str:
     if value in RETIRED_FILE_SYSTEM_TYPES:
         raise serializers.ValidationError(f"Shortcuts of type '{value}' can no longer be created.")
     return value
+
+
+def _with_canonical_workflow_ref(attrs: dict[str, Any], stored_type: str | None = None) -> dict[str, Any]:
+    entry_type = attrs.get("type", stored_type)
+    if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and attrs.get("ref"):
+        attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+    return attrs
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -66,6 +74,9 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
 
     def validate_type(self, value: str) -> str:
         return reject_retired_type(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _with_canonical_workflow_ref(attrs, self.instance.type if self.instance else None)
 
     def update(self, instance: FileSystemShortcut, validated_data: dict[str, Any]) -> FileSystemShortcut:
         instance.team_id = self.context["team_id"]
@@ -144,6 +155,9 @@ class FileSystemShortcutBulkItemSerializer(serializers.Serializer):
 
     def validate_type(self, value: str) -> str:
         return reject_retired_type(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _with_canonical_workflow_ref(attrs)
 
 
 class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):

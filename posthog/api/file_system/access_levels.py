@@ -21,6 +21,7 @@ from posthog.api.file_system.deletion import (
 )
 from posthog.models import Team
 from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+from posthog.models.file_system.refs import uuid_ref_key, uuid_ref_key_expression
 from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import APIScopeObject
 from posthog.settings import EE_AVAILABLE
@@ -149,26 +150,20 @@ def canonical_file_system_ref(entry_type: str, ref: str) -> str:
     return ref
 
 
-def _uuid_ref_alternate_spellings(ref: str) -> set[str]:
-    try:
-        uuid_value = UUID(ref)
-    except ValueError:
-        return set()
-    bodies = {str(uuid_value), uuid_value.hex}
-    bodies |= {body.upper() for body in bodies}
-    wrapped = {
-        f"{prefix}{body}{suffix}" for body in bodies for prefix, suffix in (("", ""), ("{", "}"), ("urn:uuid:", ""))
-    }
-    return wrapped - {ref}
+def is_uuid_keyed_file_type(entry_type: str) -> bool:
+    registration = get_file_system_registration(entry_type)
+    if registration is None:
+        return entry_type in WORKFLOW_FILE_SYSTEM_TYPES
+    field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
+    return isinstance(field, UUIDField)
 
 
 def file_system_ref_alternate_spellings(entry_type: str, ref: str) -> set[str]:
+    """Other spellings of an integer-keyed ref. UUID-keyed refs match by `uuid_ref_key` instead."""
     registration = get_file_system_registration(entry_type)
     if registration is None:
-        return _uuid_ref_alternate_spellings(ref) if entry_type in WORKFLOW_FILE_SYSTEM_TYPES else set()
+        return set()
     field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
-    if isinstance(field, UUIDField):
-        return _uuid_ref_alternate_spellings(ref)
     if isinstance(field, IntegerField):
         try:
             int_value = int(ref)
@@ -445,17 +440,19 @@ def filter_workflow_files_by_access_level(
     def is_allowed(level: Optional[AccessControlLevel]) -> bool:
         return level not in (None, "none")
 
-    granted_refs_by_team: dict[int, set[str]] = {}
+    # Rows match objects by `uuid_ref_key`, so a row stored in any spelling meets the grants on its object.
+    # A row whose ref has no key names no object, so only staff and organization admins see it.
+    queryset = queryset.alias(_ref_key=uuid_ref_key_expression())
+    granted_keys_by_team: dict[int, set[str]] = {}
     allowed = no_rows
     for team_id, team_access_control in access_controls_by_team.items():
         if not team_access_control.has_project_access:
             continue
-        granted_refs: set[str] = set()
-        for object_id in team_access_control.object_ids_matching([resource], lambda _row: True).get(resource, set()):
-            granted_refs.add(object_id)
-            for entry_type in WORKFLOW_FILE_SYSTEM_TYPES:
-                granted_refs |= file_system_ref_alternate_spellings(entry_type, object_id)
-        granted_refs_by_team[team_id] = granted_refs
+        granted_keys_by_team[team_id] = {
+            key
+            for object_id in team_access_control.object_ids_matching([resource], lambda _row: True).get(resource, set())
+            if (key := uuid_ref_key(object_id))
+        }
 
         ungranted_object = str(uuid4())
         levels = team_access_control.bulk_object_access_levels(resource, [(ungranted_object, None)])
@@ -470,24 +467,25 @@ def filter_workflow_files_by_access_level(
         else:
             model = apps.get_model(registration.app_label, registration.model_name)
             manager = getattr(model, registration.manager_name, model._default_manager)
-            owned_refs = (
+            owned_keys = (
                 manager.filter(**{f"{registration.team_field}_id": team_id, "created_by_id": user_id})
-                .annotate(_ref=Cast("pk", CharField()))
-                .values("_ref")
+                .annotate(_key=uuid_ref_key_expression(Cast("pk", CharField())))
+                .values("_key")
             )
-            created_by_user = Q(type="hog_flow", ref__in=owned_refs)
+            created_by_user = Q(type="hog_flow", _ref_key__in=owned_keys)
         if resource_allowed and creator_allowed:
             by_creator = Q()
         elif resource_allowed:
             by_creator = ~created_by_user
         else:
             by_creator = created_by_user
-        allowed |= Q(team_id=team_id) & ~Q(ref__in=granted_refs) & ~Q(ref="") & Q(ref__isnull=False) & by_creator
+        granted_keys = sorted(granted_keys_by_team[team_id])
+        allowed |= Q(team_id=team_id, _ref_key__isnull=False) & ~Q(_ref_key__in=granted_keys) & by_creator
 
     granted = Q()
-    for team_id, granted_refs in granted_refs_by_team.items():
-        if granted_refs:
-            granted |= Q(team_id=team_id, ref__in=granted_refs)
+    for team_id, team_keys in granted_keys_by_team.items():
+        if team_keys:
+            granted |= Q(team_id=team_id, _ref_key__in=sorted(team_keys))
     if granted:
         rows = list(
             queryset.filter(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & granted).values_list(

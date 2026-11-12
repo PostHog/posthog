@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -24,6 +25,42 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
+
+
+def _mixed_case(value: UUID) -> str:
+    letters = iter(range(32))
+    return "".join(char.upper() if char.isalpha() and next(letters) % 2 == 0 else char for char in str(value))
+
+
+REF_SPELLINGS = [
+    ("canonical", str),
+    ("uppercase", lambda value: str(value).upper()),
+    ("mixed_case", _mixed_case),
+    ("no_hyphens", lambda value: value.hex),
+]
+
+REF_ENTRY_POINTS = [
+    "list",
+    "search",
+    "tree",
+    "ref_lookup",
+    "shortcuts",
+    "frequent",
+    "repair",
+    "rename",
+    "move",
+    "link",
+    "delete",
+    "folder_move",
+    "folder_delete",
+    "placement",
+    "save_signal",
+    "unfiled",
+    "delete_keeps_the_object",
+    "restore",
+]
 
 
 class TestWorkflowFolders(APIBaseTest):
@@ -220,6 +257,181 @@ class TestWorkflowFolders(APIBaseTest):
 
         rows = listed["results"] if isinstance(listed, dict) else listed
         self.assertEqual([row["ref"] for row in rows if row["type"] == "hog_flow"], [])
+
+    @parameterized.expand(
+        [
+            (f"{entry_point}_{spelling}", entry_point, spell)
+            for entry_point in REF_ENTRY_POINTS
+            for spelling, spell in REF_SPELLINGS
+        ]
+    )
+    def test_every_entry_point_matches_a_stored_ref_to_its_object_in_any_spelling(
+        self, _name, entry_point, spell
+    ) -> None:
+        actual, expected = getattr(self, f"_through_{entry_point}")(spell)
+
+        self.assertEqual(actual, expected)
+
+    def _deny_a_workflow_filed_under(self, spell, path: str = "Filed/Synthetic denied") -> tuple[FileSystem, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        HogFlow.objects.create(id=DENIED_FLOW_ID, team=self.team, name="Synthetic denied", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="hog_flow").delete()
+        row = FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=len(path.split("/")),
+            type="hog_flow",
+            ref=spell(DENIED_FLOW_ID),
+            shortcut=False,
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(DENIED_FLOW_ID),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+        return row, member
+
+    def _through_list(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_search(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Synthetic"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_tree(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"parent": "Filed"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_ref_lookup(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": str(DENIED_FLOW_ID)}
+        ).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_shortcuts(self, spell):
+        _row, member = self._deny_a_workflow_filed_under(spell)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=member, path="Synthetic denied", type="hog_flow", ref=spell(DENIED_FLOW_ID)
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/").json()
+        rows = listed["results"] if isinstance(listed, dict) else listed
+        return [row["path"] for row in rows if row["type"] == "hog_flow"], []
+
+    def _through_frequent(self, spell):
+        _row, member = self._deny_a_workflow_filed_under(spell)
+        FileSystemViewLog.objects.create(team=self.team, user=member, type="hog_flow", ref=spell(DENIED_FLOW_ID))
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/frequent/").json()
+        return [row["path"] for row in rows], []
+
+    def _through_repair(self, spell):
+        self._deny_a_workflow_filed_under(spell, path="Secret plans/Synthetic denied")
+        self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        return FileSystem.objects.filter(team=self.team, path="Secret plans").exists(), False
+
+    def _refused_write(self, spell, write, *, on_folder: bool = False):
+        row, _member = self._deny_a_workflow_filed_under(spell)
+        target = (
+            FileSystem.objects.create(team=self.team, path="Filed", depth=1, type="folder", ref="Filed")
+            if on_folder
+            else row
+        )
+        response = write(f"/api/projects/{self.team.id}/file_system/{target.id}/")
+        rows = list(FileSystem.objects.filter(team=self.team, type="hog_flow").values_list("path", "ref"))
+        if on_folder:
+            return rows, [(row.path, row.ref)]
+        return (response.status_code in (403, 404), rows), (True, [(row.path, row.ref)])
+
+    def _through_rename(self, spell):
+        return self._refused_write(spell, lambda url: self.client.patch(url, {"path": "Filed/Renamed"}, format="json"))
+
+    def _through_move(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}move/", {"new_path": "Moved/Synthetic denied"}, format="json")
+        )
+
+    def _through_link(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}link/", {"new_path": "Linked/Synthetic denied"}, format="json")
+        )
+
+    def _through_delete(self, spell):
+        return self._refused_write(spell, self.client.delete)
+
+    def _through_folder_move(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}move/", {"new_path": "Elsewhere"}, format="json"), on_folder=True
+        )
+
+    def _through_folder_delete(self, spell):
+        return self._refused_write(spell, self.client.delete, on_folder=True)
+
+    def _template_filed_under(self, spell, path: str = "Campaigns/Welcome") -> str:
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()
+        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=len(path.split("/")),
+            type="message_template",
+            ref=spell(UUID(template["id"])),
+            shortcut=False,
+        )
+        return template["id"]
+
+    def _template_paths(self) -> list[str]:
+        return sorted(FileSystem.objects.filter(team=self.team, type="message_template").values_list("path", flat=True))
+
+    def _through_placement(self, spell):
+        template_id = self._template_filed_under(spell)
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/placement/")
+        return response.json(), {"path": "Campaigns/Welcome"}
+
+    def _through_save_signal(self, spell):
+        template_id = self._template_filed_under(spell)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/", {"name": "Welcome v2"}, format="json"
+        )
+        return self._template_paths(), ["Campaigns/Welcome v2"]
+
+    def _through_unfiled(self, spell):
+        self._template_filed_under(spell)
+        self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/", {"type": "message_template"})
+        return self._template_paths(), ["Campaigns/Welcome"]
+
+    def _through_delete_keeps_the_object(self, spell):
+        template_id = self._template_filed_under(spell, path="Copies/Welcome")
+        canonical = FileSystem.objects.create(
+            team=self.team, path="Campaigns/Welcome", depth=2, type="message_template", ref=template_id, shortcut=False
+        )
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.id}/")
+        template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
+        return (template.status_code, self._template_paths()), (200, ["Copies/Welcome"])
+
+    def _through_restore(self, spell):
+        template_id = self._template_filed_under(spell)
+        row = FileSystem.objects.get(team=self.team, type="message_template")
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{row.id}/")
+        self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "message_template", "ref": spell(UUID(template_id)), "path": "Restored/Welcome"}]},
+            format="json",
+        )
+        return self._template_paths(), ["Restored/Welcome"]
 
     def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
         self.organization.available_product_features = [

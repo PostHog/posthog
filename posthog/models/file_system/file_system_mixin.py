@@ -87,9 +87,14 @@ class FileSystemSyncMixin(Model):
     @staticmethod
     def _has_file_system_row(team: "Team", fs_data: FileSystemRepresentation) -> bool:
         from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import file_refs_q
 
         return FileSystem.objects.filter(
-            surface_q(fs_data.surface), team=team, type=fs_data.type, ref=fs_data.ref, shortcut=False
+            surface_q(fs_data.surface),
+            file_refs_q(fs_data.type, [fs_data.ref]),
+            team=team,
+            type=fs_data.type,
+            shortcut=False,
         ).exists()
 
     @classmethod
@@ -126,11 +131,12 @@ class FileSystemSyncMixin(Model):
         then exclude rows that are already saved to FileSystem for (team, surface, file_type).
         """
         from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import same_file_ref
 
         if type:
             types = [type] if isinstance(type, str) else type
             already_saved = FileSystem.objects.filter(
-                surface_q(surface), team=team, type__in=types, ref=OuterRef("ref_id")
+                surface_q(surface), same_file_ref(types, "ref", OuterRef("ref_id")), team=team, type__in=types
             ).filter(~Q(shortcut=True))
         elif type__startswith:
             already_saved = FileSystem.objects.filter(

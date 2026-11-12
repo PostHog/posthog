@@ -12,6 +12,7 @@ from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, s
 from posthog.models import TaggedItem
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.refs import file_refs_q
 from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
@@ -103,7 +104,10 @@ def team_template_id(team_id: int, template_id: UUID | str) -> UUID:
 def file_path(team_id: int, template_id: UUID) -> str | None:
     return (
         FileSystem.objects.filter(
-            surface_q(DEFAULT_SURFACE), team_id=team_id, type="message_template", ref=str(template_id)
+            surface_q(DEFAULT_SURFACE),
+            file_refs_q("message_template", [str(template_id)]),
+            team_id=team_id,
+            type="message_template",
         )
         .exclude(shortcut=True)
         .values_list("path", flat=True)

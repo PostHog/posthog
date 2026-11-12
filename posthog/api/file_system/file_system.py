@@ -44,6 +44,7 @@ from posthog.api.file_system.access_levels import (
     file_system_ref_alternate_spellings,
     file_system_resource,
     filter_workflow_files_by_access_level,
+    is_uuid_keyed_file_type,
     keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.deletion import (
@@ -92,6 +93,7 @@ from posthog.models.file_system.file_system_view_log import (
     get_recent_file_system_items,
     recent_view_logs,
 )
+from posthog.models.file_system.refs import file_refs_q, same_file_ref, uuid_ref_key, uuid_refs_q
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
@@ -202,22 +204,36 @@ def _any_surface_q(team_id: int) -> Q:
     return Q(surface__isnull=True) | Q(surface__in=surfaces)
 
 
+def _ref_lookup_q(ref: str, entry_type: str | None = None) -> Q:
+    """Rows filed under `ref`. A workflow or template row matches in any spelling of the id."""
+    if (entry_type and entry_type not in WORKFLOW_FILE_SYSTEM_TYPES) or uuid_ref_key(ref) is None:
+        return Q(ref=ref)
+    return Q(ref=ref) | (Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & file_refs_q(WORKFLOW_FILE_SYSTEM_TYPES, [ref]))
+
+
 def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface: Q) -> dict[str, set[str]]:
     spellings = {ref: {ref} for ref in refs}
-    canonical_by_spelling = {
-        spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
-    }
-    if not canonical_by_spelling:
-        return spellings
+    uuid_keyed = is_uuid_keyed_file_type(file_type)
+    if uuid_keyed:
+        canonical_by_key = {key: ref for ref in refs if (key := uuid_ref_key(ref))}
+        matching = uuid_refs_q(refs)
+    else:
+        canonical_by_key = {
+            spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
+        }
+        if not canonical_by_key:
+            return spellings
+        matching = Q(ref__in=canonical_by_key)
     stored_spellings = (
         FileSystem.objects.filter(any_surface, team_id=team_id, type=file_type, shortcut=False)
-        .filter(ref__in=canonical_by_spelling)
+        .filter(matching)
         .values_list("ref", flat=True)
         .distinct()
     )
     for stored in stored_spellings:
-        if stored is not None:
-            spellings[canonical_by_spelling[stored]].add(stored)
+        key = uuid_ref_key(stored) if uuid_keyed else stored
+        if stored is not None and key in canonical_by_key:
+            spellings[canonical_by_key[key]].add(stored)
     return spellings
 
 
@@ -569,7 +585,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _only_viewed_workflow_files(self, queryset: QuerySet) -> QuerySet:
         viewed = recent_view_logs(
             team_id=self.team.id, user_id=cast(User, self.request.user).id, surface=self.file_system_surface
-        ).filter(type=OuterRef("type"), ref=OuterRef("ref"))
+        ).filter(same_file_ref(WORKFLOW_FILE_SYSTEM_TYPES, "ref", OuterRef("ref")), type=OuterRef("type"))
         return queryset.filter(~Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) | Exists(viewed))
 
     def _lock_and_authorize_workflow_files(
@@ -790,7 +806,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     else:
                         q = Q(type=value)
                 elif field == "ref":
-                    q = Q(ref=value)
+                    q = _ref_lookup_q(value)
                 else:  # unknown prefix → search for the full token in path and type
                     q = Q(path__icontains=token) | Q(type__icontains=token)
             elif "/" in token and not basename_only:
@@ -923,7 +939,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
 
         if ref_param:
-            queryset = queryset.filter(ref=ref_param)
+            queryset = queryset.filter(_ref_lookup_q(ref_param, type_param))
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
@@ -1901,7 +1917,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # ref (`+42` against `42`), so both refs match, and a row is created only when neither has one.
         refs = {payload["ref"], fs_data.ref} if fs_data else {payload["ref"]}
         restored = FileSystem.objects.filter(
-            surface_q(self.file_system_surface), team=team, type=payload["type"], ref__in=refs
+            surface_q(self.file_system_surface), file_refs_q(payload["type"], refs), team=team, type=payload["type"]
         ).update(path=restore_path, depth=len(split_path(restore_path)))
         if restored or fs_data is None:
             return
