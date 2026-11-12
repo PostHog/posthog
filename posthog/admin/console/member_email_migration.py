@@ -17,6 +17,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    email_domain,
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
 )
@@ -32,9 +33,7 @@ AMBIGUOUS_MEMBER = "More than one member has this email in a different case. Typ
 
 
 def _domain(email: str) -> str:
-    # The delivery domain is the segment after the last "@". Splitting on the first "@" would let an
-    # address with two of them pass a verified domain check with a domain that mail never reaches.
-    return email.rsplit("@", 1)[-1].lower()
+    return (email_domain(email) or "").lower()
 
 
 @frozen
