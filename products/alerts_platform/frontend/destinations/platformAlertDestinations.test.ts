@@ -1,4 +1,4 @@
-import { describePendingDestination } from './metricsAlertDestinations'
+import { describePendingDestination } from './platformAlertDestinations'
 
 describe('describePendingDestination', () => {
     it('shows only the scheme and host of a webhook URL, whose path carries its secret', () => {

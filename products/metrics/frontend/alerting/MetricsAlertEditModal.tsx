@@ -3,12 +3,15 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 
-import { PlatformAlertConfigurationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
+import { PlatformAlertNotifications } from 'products/alerts_platform/frontend/destinations/PlatformAlertNotifications'
+import {
+    PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationSourceKindEnumApi,
+} from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { confirmDeleteMetricsAlert } from './confirmDeleteMetricsAlert'
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
 import { metricsAlertingLogic } from './metricsAlertingLogic'
-import { MetricsAlertNotifications } from './MetricsAlertNotifications'
 import { MetricsAlertQueryFields } from './MetricsAlertQueryFields'
 import { MetricsAlertTriggerFields } from './MetricsAlertTriggerFields'
 import { MetricsAlertFormErrors } from './metricsAlertUtils'
@@ -61,7 +64,10 @@ function MetricsAlertEditModalContent({
                         <LemonDivider />
                         <div className="space-y-2">
                             <h4 className="m-0">Notifications</h4>
-                            <MetricsAlertNotifications alertId={alert.id} />
+                            <PlatformAlertNotifications
+                                alertId={alert.id}
+                                sourceKind={PlatformAlertConfigurationSourceKindEnumApi.Metrics}
+                            />
                         </div>
                     </div>
                 </LemonModal.Content>

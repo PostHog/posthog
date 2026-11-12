@@ -8,14 +8,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
 import { platformAlertsCreate, platformAlertsPartialUpdate } from 'products/alerts_platform/frontend/generated/api'
 import {
     MetricsPlatformAlertConfigurationCreateApiSourceKind,
     PatchedMetricsPlatformAlertConfigurationEditApiSourceKind,
     PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationSourceKindEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { metricsAlertDestinationsLogic } from './metricsAlertDestinationsLogic'
 import { metricsAlertingLogic } from './metricsAlertingLogic'
 import { MetricsAlertFormType, buildFormDefaults, toWritePayload, validateForm } from './metricsAlertUtils'
 
@@ -96,6 +97,8 @@ export type metricsAlertFormLogicType = MakeLogicType<
     metricsAlertFormLogicMeta
 >
 
+const NEW_ALERT_DESTINATIONS = { sourceKind: PlatformAlertConfigurationSourceKindEnumApi.Metrics }
+
 function saveErrorMessage(error: unknown): string {
     const detail = (error as ApiError | undefined)?.detail
     return detail ? `Could not save the alert: ${detail}` : 'Could not save the alert. Try again.'
@@ -126,7 +129,9 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                 let created: PlatformAlertConfigurationApi | null = null
                 // The create modal owns the destinations logic, and closing the modal mid-save would
                 // unmount it before its pending destinations are sent.
-                const unmountDestinations = props.alert ? null : metricsAlertDestinationsLogic({}).mount()
+                const unmountDestinations = props.alert
+                    ? null
+                    : platformAlertDestinationsLogic(NEW_ALERT_DESTINATIONS).mount()
                 try {
                     try {
                         if (props.alert) {
@@ -154,17 +159,15 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                     let destinationErrors: string[] = []
                     if (created) {
                         // The create modal holds the destinations picked before the alert existed.
-                        const destinationsLogic = metricsAlertDestinationsLogic({})
+                        const destinationsLogic = platformAlertDestinationsLogic(NEW_ALERT_DESTINATIONS)
                         await destinationsLogic.asyncActions.createPendingDestinations(created.id)
                         destinationErrors = destinationsLogic.values.destinationErrors
                     }
                     actions.loadAlerts()
                     props.onSubmitSuccess?.()
                     // The alert exists now, so a retry belongs in its edit modal, not in a second create.
+                    // The destinations logic has already said which ones failed and why.
                     if (created && destinationErrors.length > 0) {
-                        lemonToast.error(
-                            `Alert created, but some destinations could not be added. ${destinationErrors.join(' ')} Add them again here.`
-                        )
                         actions.openEditAlertModal(created)
                     }
                     return form

@@ -6,10 +6,11 @@ import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 import { WizardReview } from 'lib/components/WizardReview'
 
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { PlatformAlertNotifications } from 'products/alerts_platform/frontend/destinations/PlatformAlertNotifications'
+import { PlatformAlertConfigurationSourceKindEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { metricsAlertDestinationsLogic } from './metricsAlertDestinationsLogic'
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
-import { MetricsAlertNotifications } from './MetricsAlertNotifications'
 import { MetricsAlertQueryFields } from './MetricsAlertQueryFields'
 import { MetricsAlertTriggerFields } from './MetricsAlertTriggerFields'
 import { describeMetricsCondition, toWritePayload, validateForm } from './metricsAlertUtils'
@@ -26,7 +27,9 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
     const formLogicProps = { alert: null, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(metricsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(metricsAlertFormLogic(formLogicProps))
-    const { pendingDestinations } = useValues(metricsAlertDestinationsLogic({}))
+    const { pendingDestinations } = useValues(
+        platformAlertDestinationsLogic({ sourceKind: PlatformAlertConfigurationSourceKindEnumApi.Metrics })
+    )
     const {
         name: nameError,
         query: queryError,
@@ -73,7 +76,7 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
             description: 'Choose where to send alert events.',
             content: (
                 <div className="max-w-2xl">
-                    <MetricsAlertNotifications />
+                    <PlatformAlertNotifications sourceKind={PlatformAlertConfigurationSourceKindEnumApi.Metrics} />
                 </div>
             ),
         },
