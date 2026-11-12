@@ -23,6 +23,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     _stuck_key,
 )
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -33,10 +34,11 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_scanner import (
     SETTLE_INTERVAL,
     ReplayScanner,
+    ScannerDisabledReason,
     ScannerModel,
     ScannerType,
 )
-from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.filter_errors import FILTER_ERROR_RECHECK, filter_error_message
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -77,7 +79,12 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
-from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    create_experiment,
+    seed_scanner_spend,
+    snapshot_for,
+    update_experiment,
+)
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -203,17 +210,17 @@ class TestFindScannerCandidatesActivity:
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
         if state == "paused":
-            experiment.feature_flag.active = False
-            experiment.feature_flag.save()
+            flag = FeatureFlag.objects.get(id=experiment.feature_flag_id)
+            flag.active = False
+            flag.save()
         elif state == "ended":
             # Ended before the scanner's watermark, so the run is already swept to its end.
-            experiment.end_date = timezone.now() - dt.timedelta(days=1)
+            update_experiment(experiment, end_date=timezone.now() - dt.timedelta(days=1))
         elif state == "archived":
             # No end date: no known end to sweep up to, so it stops like a pause.
-            experiment.archived = True
+            update_experiment(experiment, archived=True)
         else:
-            experiment.deleted = True
-        experiment.save()
+            update_experiment(experiment, deleted=True)
 
         with (
             _patched_queries() as (fast_query, deep_query),
@@ -245,8 +252,7 @@ class TestFindScannerCandidatesActivity:
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
         if cause == "deleted_experiment":
-            experiment.deleted = True
-            experiment.save()
+            update_experiment(experiment, deleted=True)
         else:
             Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
         inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -267,7 +273,12 @@ class TestFindScannerCandidatesActivity:
 
         assert pause_scouts.called
         scanner.refresh_from_db()
-        assert scanner.enabled is False
+        expected_reason = (
+            ScannerDisabledReason.EXPERIMENT_DELETED
+            if cause == "deleted_experiment"
+            else ScannerDisabledReason.NO_AI_CONSENT
+        )
+        assert (scanner.enabled, scanner.disabled_reason) == (False, expected_reason)
 
     @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
     def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
@@ -281,8 +292,7 @@ class TestFindScannerCandidatesActivity:
         )
         scanner.created_by = User.objects.create_and_join(scanner.team.organization, "sweeper@example.com", None)
         experiment = create_experiment(scanner.team, "ended-flag", launched=True, variants=["control", "test"])
-        experiment.end_date = end
-        experiment.save()
+        update_experiment(experiment, end_date=end)
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
 
@@ -302,8 +312,7 @@ class TestFindScannerCandidatesActivity:
         # flipping them off on deploy would change scanners that exist today.
         scanner = _make_scanner(experiment_targeting=None)
         experiment = create_experiment(scanner.team, "legacy-flag", launched=True, variants=["control", "test"])
-        experiment.end_date = timezone.now()
-        experiment.save()
+        update_experiment(experiment, end_date=timezone.now())
         ReplayScanner.objects.filter(pk=scanner.pk).update(
             experiment_targeting={"experiment_id": experiment.id, "variant": None, "variants": None}
         )
@@ -352,6 +361,11 @@ class TestFindScannerCandidatesActivity:
         assert not fast_query.called and not deep_query.called
         scanner.refresh_from_db()
         assert not scanner.enabled
+        assert scanner.disabled_reason == (
+            ScannerDisabledReason.NO_AI_CONSENT
+            if case == "no_ai_consent"
+            else ScannerDisabledReason.CREATOR_LOST_ACCESS
+        )
 
     def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
         # The exposure filter refuses userless principals, so a deleted creator would otherwise
@@ -1258,9 +1272,7 @@ class TestAdvanceScannerWatermarkActivity:
         # Credits left, but not enough for one more observation.
         (20 * _OBSERVATION_CREDITS - 1, 19, False, True),
         (20 * _OBSERVATION_CREDITS, 20, False, True),
-        # No scanner limit, but free-only: the org's free credits cap it while billing allows more.
         (None, 100, True, False),
-        (None, 200, True, True),
     ],
 )
 @pytest.mark.django_db(transaction=True)
@@ -1292,6 +1304,88 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
         assert scanner.last_swept_at == stale
         assert scanner.last_seen_session_id == "sess-old"
         assert scanner.deep_swept_through == stale
+
+
+@pytest.mark.parametrize(
+    "credit_limit, spent_observations, expect_turned_off",
+    [
+        (None, 200, True),
+        (100 * _OBSERVATION_CREDITS, 120, False),
+        (100 * _OBSERVATION_CREDITS, 200, True),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
+    credit_limit: int | None, spent_observations: int, expect_turned_off: bool
+) -> None:
+    scanner = _make_scanner(credit_limit=credit_limit, free_only=True)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
+    backfills = [
+        ReplayScannerBackfill.objects.for_team(scanner.team_id).create(
+            scanner=scanner,
+            team=scanner.team,
+            status=status,
+            window_start=dt.datetime(2026, 4, 1 + i, tzinfo=dt.UTC),
+            window_end=dt.datetime(2026, 5, 1, tzinfo=dt.UTC),
+            scanner_snapshot=BackfillScannerSnapshot.from_scanner(scanner).model_dump(mode="json"),
+            credits_per_observation=_OBSERVATION_CREDITS,
+            total_count=10,
+        )
+        for i, status in enumerate([BackfillStatus.PAUSED_QUOTA, BackfillStatus.COMPLETED])
+    ]
+    last_edit = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(updated_at=last_edit)
+    inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+    with (
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
+    ):
+        first = check_scanner_budget_activity(inputs)
+        second = check_scanner_budget_activity(inputs)
+
+    assert first.capped is True and second.capped is True
+    scanner.refresh_from_db()
+    assert scanner.enabled is not expect_turned_off
+    assert (scanner.updated_at > last_edit) is expect_turned_off
+    assert scanner.disabled_reason == (ScannerDisabledReason.FREE_CREDITS_USED if expect_turned_off else None)
+    assert [ReplayScannerBackfill.objects.for_team(scanner.team_id).get(pk=b.pk).status for b in backfills] == [
+        BackfillStatus.CANCELLED if expect_turned_off else BackfillStatus.PAUSED_QUOTA,
+        BackfillStatus.COMPLETED,
+    ]
+    mock_notify.assert_called_once()
+    notification = mock_notify.call_args[0][0]
+    assert ("free credits used" in notification.title) is expect_turned_off
+    assert ("backfill was canceled" in notification.body) is expect_turned_off
+
+
+@pytest.mark.django_db(transaction=True)
+def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> None:
+    scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT, free_only=True)
+    experiment = create_experiment(scanner.team, "free-flag", launched=True, variants=["control", "test"])
+    scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+    scanner.save()
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=200)
+    inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+    with (
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch("products.notifications.backend.facade.api.create_notification"),
+        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+    ):
+        check_scanner_budget_activity(inputs)
+    scanner.refresh_from_db()
+    assert scanner.enabled is True
+
+    with (
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch("products.notifications.backend.facade.api.create_notification"),
+        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+    ):
+        check_scanner_budget_activity(inputs)
+    assert pause_scouts.called
+    scanner.refresh_from_db()
+    assert scanner.disabled_reason == ScannerDisabledReason.FREE_CREDITS_USED
 
 
 @pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])

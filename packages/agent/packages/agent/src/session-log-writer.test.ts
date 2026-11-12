@@ -29,6 +29,7 @@ describe("SessionLogWriter", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -45,6 +46,45 @@ describe("SessionLogWriter", () => {
       expect(mockAppendLog).toHaveBeenCalledTimes(1);
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
       expect(entries).toHaveLength(2);
+    });
+
+    it("redacts the resolved GitLab credential from persisted tool output and chunks", async () => {
+      const token = "custom+gitlab/token";
+      vi.stubEnv("GITLAB_TOKEN", token);
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: token.slice(0, 7) },
+        }),
+      );
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: token.slice(7) },
+        }),
+      );
+      for (const text of [token.slice(0, 7), token.slice(7)]) {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_thought_chunk", {
+            content: { type: "text", text },
+          }),
+        );
+      }
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("tool_call", {
+          toolCallId: "tc1",
+          output: `https://oauth2:${encodeURIComponent(token)}@gitlab.com/repo`,
+        }),
+      );
+      await logWriter.flush(sessionId);
+      const entries = JSON.stringify(mockAppendLog.mock.calls[0][2]);
+      expect(entries).not.toContain(token);
+      expect(entries).not.toContain(encodeURIComponent(token));
+      expect(entries.match(/\[REDACTED\]/g)).toHaveLength(3);
     });
 
     it("redacts MCP authorization headers before persistence", async () => {
@@ -602,6 +642,49 @@ describe("SessionLogWriter", () => {
 
       expect(logWriter.getLastAgentMessage(sessionId)).toBe(
         "Pick MIT or Apache",
+      );
+    });
+  });
+
+  describe("thought chunk ownership", () => {
+    it("preserves parent metadata and separates consecutive subagents", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      for (const [parent, text] of [
+        ["a", "first "],
+        ["a", "thought"],
+        ["b", "second"],
+        [undefined, "top"],
+      ] as const) {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_thought_chunk", {
+            content: { type: "text", text },
+            ...(parent
+              ? { _meta: { claudeCode: { parentToolCallId: parent } } }
+              : {}),
+          }),
+        );
+      }
+      await logWriter.flush(sessionId, { coalesce: true });
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries.map((entry) => entry.notification.params?.update)).toEqual(
+        [
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "first thought" },
+            _meta: { claudeCode: { parentToolCallId: "a" } },
+          },
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "second" },
+            _meta: { claudeCode: { parentToolCallId: "b" } },
+          },
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "top" },
+          },
+        ],
       );
     });
   });

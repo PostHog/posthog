@@ -20,7 +20,7 @@ from ..facade.api import (
     MAX_METRIC_RUN_PAGES,
     METRIC_NAME_MAX_LENGTH,
 )
-from ..facade.enums import CreatedSource
+from ..facade.enums import CreatedSource, JudgeRelation, ShapeOutcome, UsageSnapshotStatus
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
 
@@ -159,6 +159,10 @@ class MetricSerializer(serializers.ModelSerializer):
     is_drifted = serializers.SerializerMethodField(
         help_text="True when the definition has drifted from its linked source insight (or the insight is gone).",
     )
+    match_reason = serializers.SerializerMethodField(
+        help_text="Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', "
+        "'all words in the description', 'some words in the description'. Null when the list has no search.",
+    )
     created_source = serializers.ChoiceField(
         choices=[(s.value, s.value) for s in CreatedSource],
         required=False,
@@ -190,6 +194,7 @@ class MetricSerializer(serializers.ModelSerializer):
             "referenced_table_names",
             "status",
             "is_drifted",
+            "match_reason",
             "approved_at",
             "approved_by",
             "source_insight_short_id",
@@ -250,6 +255,10 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_match_reason(self, obj: Metric) -> str | None:
+        return self.context.get("match_reasons", {}).get(obj.id)
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricCreate")
@@ -506,3 +515,120 @@ class RelationshipRejectSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Why the proposal is rejected. Persisted so it is never re-proposed.",
     )
+
+
+class MetricRunCountsSerializer(serializers.Serializer):
+    metric_id = serializers.UUIDField(help_text="ID of the catalog metric.")
+    direct_runs = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, "
+        "slack, posthog_ai, or posthog_code. Scout runs are not included.",
+    )
+    direct_people = serializers.IntegerField(help_text="Distinct people who ran the metric directly, without scouts.")
+    scout_runs = serializers.IntegerField(
+        help_text="Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many "
+        "times a day."
+    )
+
+
+class AdjustedRunSerializer(serializers.Serializer):
+    metric_id = serializers.UUIDField(help_text="ID of the catalog metric the agent query re-derived.")
+    read_metric_first = serializers.BooleanField(
+        help_text="True when the agent read this metric in the catalog before it wrote the query."
+    )
+    relation = serializers.ChoiceField(
+        choices=JudgeRelation.choices,
+        help_text="serves: the query computes the metric. slice: it computes the metric with an extra filter. "
+        "Never different: the scan drops the queries the judge marks different.",
+    )
+    intent = serializers.CharField(help_text="What the agent said it was trying to answer.")
+    sql = serializers.CharField(help_text="The SQL the agent ran.")
+    reasoning = serializers.CharField(help_text="Why the judge matched the query to the metric.")
+    occurred_at = serializers.DateTimeField(help_text="When the agent ran the query.")
+    session_id = serializers.CharField(allow_null=True, help_text="Agent session of the query, when known.")
+    is_scout = serializers.BooleanField(help_text="True when a scout (scheduled agent) ran the query.")
+
+
+class TopicCoverageSerializer(serializers.Serializer):
+    canonical = serializers.IntegerField(help_text="Sessions that ran a catalog metric directly.")
+    adapted = serializers.IntegerField(help_text="Sessions that read a catalog metric, then changed it.")
+    silent = serializers.IntegerField(help_text="Sessions that re-derived a catalog metric without consulting it.")
+    raw_sql_only = serializers.IntegerField(help_text="Sessions that ran SQL that matches no catalog metric.")
+    no_sql = serializers.IntegerField(help_text="Sessions that ran no query.")
+
+
+class TopicClusterSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Short name of the topic, written by a model from sample intents.")
+    session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not clustered.")
+    coverage = TopicCoverageSerializer(help_text="How the topic's sessions got their numbers.")
+    sample_intents = serializers.ListField(
+        child=serializers.CharField(), help_text="A few intents from the topic's sessions."
+    )
+
+
+class UncoveredGroupSerializer(serializers.Serializer):
+    fingerprint_digest = serializers.CharField(help_text="Stable ID of the measure the queries compute.")
+    measure = serializers.CharField(help_text="Readable description of the measure.")
+    outcome = serializers.ChoiceField(
+        choices=ShapeOutcome.choices,
+        help_text="covered: a catalog metric computes it. slice: a catalog metric computes it without the "
+        "extra filters. uncovered: no catalog metric computes it.",
+    )
+    matched_metric_id = serializers.UUIDField(
+        allow_null=True, help_text="The matching catalog metric, for covered and slice."
+    )
+    distinct_people = serializers.IntegerField(help_text="Distinct people who ran the measure, without scouts.")
+    runs = serializers.IntegerField(help_text="Query runs of the measure, without scouts.")
+    sample_sql = serializers.CharField(help_text="One query that computes the measure.")
+    draft_name = serializers.CharField(allow_null=True, help_text="Proposed metric name, when one was drafted.")
+    draft_description = serializers.CharField(
+        allow_null=True, help_text="Proposed metric description, when one was drafted."
+    )
+
+
+class UsageSnapshotPayloadSerializer(serializers.Serializer):
+    metric_runs = MetricRunCountsSerializer(
+        many=True, allow_null=True, help_text="Run counts per metric. Null until the scan counts runs."
+    )
+    adjusted_runs = AdjustedRunSerializer(
+        many=True, allow_null=True, help_text="Agent queries that re-derived a metric. Null until judged."
+    )
+    topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until clustered.")
+    uncovered = UncoveredGroupSerializer(
+        many=True, allow_null=True, help_text="Recurring query shapes and their catalog outcome. Null until grouped."
+    )
+
+
+class UsageSnapshotSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the usage scan.")
+    status = serializers.ChoiceField(
+        choices=UsageSnapshotStatus.choices, help_text="computing while the scan runs, then done or error."
+    )
+    error_message = serializers.CharField(help_text="Why the scan failed, when status is error.")
+    window_start = serializers.DateTimeField(help_text="Start of the scanned window.")
+    window_end = serializers.DateTimeField(help_text="End of the scanned window.")
+    judge_model = serializers.CharField(help_text="Model that judged adjusted runs in this scan.")
+    computed_at = serializers.DateTimeField(allow_null=True, help_text="When the scan finished.")
+    created_at = serializers.DateTimeField(help_text="When the scan started.")
+
+
+class UsageSnapshotSerializer(UsageSnapshotSummarySerializer):
+    payload = UsageSnapshotPayloadSerializer(help_text="The scan result, one key per section.")
+
+
+class MetricUsageSerializer(serializers.Serializer):
+    metric_id = serializers.UUIDField(help_text="ID of the catalog metric.")
+    snapshot_id = serializers.UUIDField(help_text="The usage scan these numbers come from.")
+    window_start = serializers.DateTimeField(help_text="Start of the scanned window.")
+    window_end = serializers.DateTimeField(help_text="End of the scanned window.")
+    computed_at = serializers.DateTimeField(allow_null=True, help_text="When the scan finished.")
+    runs = MetricRunCountsSerializer(allow_null=True, help_text="Run counts. Null when the metric had no runs.")
+    adjusted_runs = AdjustedRunSerializer(
+        many=True, help_text="Agent queries that re-derived the metric. is_scout marks the ones a scout ran."
+    )
+
+
+class PendingReviewCountsSerializer(serializers.Serializer):
+    metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
+    relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
+    certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")

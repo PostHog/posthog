@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconFlag } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Skeleton, Text } from '@posthog/quill'
+import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -17,6 +17,7 @@ import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
 import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
 import { releaseImportLogic } from './releaseImportLogic'
+import { ReleaseListSkeleton } from './ReleaseListSkeleton'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
@@ -145,7 +146,7 @@ function ReleaseListContent(): JSX.Element {
                 ) : showAutoImport ? (
                     <ReleaseAutoImport />
                 ) : dataLoading && !filteredRows.length ? (
-                    <Skeleton className="h-64 w-full" />
+                    <ReleaseListSkeleton />
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable

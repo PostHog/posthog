@@ -6,7 +6,6 @@ from typing import Any
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendation,
-    MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
@@ -33,6 +32,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
+    dedupe_account_agnostic_rules,
     recommend,
 )
 from products.warehouse_sources.backend.facade.api import (
@@ -128,11 +128,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         term_keywords=tuple(self._term_keywords(source)),
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
+                        customer_id=self._customer_id(source),
                     )
                 )
             )
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=_dedupe_organic_only(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
+            results=dedupe_account_agnostic_rules(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
         )
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
@@ -636,16 +637,3 @@ def _parse_reasons(value: str | None) -> tuple[str, ...]:
     except ValueError:
         return tuple(part.strip(" '\"") for part in value.strip("[]").split(",") if part.strip(" '\""))
     return tuple(str(reason) for reason in parsed) if isinstance(parsed, list) else ()
-
-
-def _dedupe_organic_only(results: list[MarketingAnalyticsRecommendation]) -> list[MarketingAnalyticsRecommendation]:
-    # Keyword gap reads only the shared Search Console data, so each ad account would repeat the same query.
-    seen: set[str] = set()
-    deduped = []
-    for recommendation in results:
-        if recommendation.rule == MarketingAnalyticsRecommendationRule.KEYWORD_GAP:
-            if recommendation.subject in seen:
-                continue
-            seen.add(recommendation.subject)
-        deduped.append(recommendation)
-    return deduped

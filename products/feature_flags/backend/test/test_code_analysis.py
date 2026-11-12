@@ -11,9 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.team.extensions import get_or_create_team_extension
-
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade.testing import set_team_experiments_config
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
 from products.feature_flags.backend.task_profiles import CODE
 
@@ -119,9 +117,7 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
         if previous:
             self._analysis(repository=previous)
         if team_default:
-            config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-            config.flag_cleanup_repository = team_default
-            config.save()
+            set_team_experiments_config(team_id=self.team.id, flag_cleanup_repository=team_default)
         github = _github(*repositories) if repositories is not None else None
         query = f"?repository={requested}" if requested else ""
         with patch(GITHUB, return_value=github):
