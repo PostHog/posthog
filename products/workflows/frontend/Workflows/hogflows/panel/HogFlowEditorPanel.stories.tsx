@@ -4,7 +4,9 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { mswDecorator } from '~/mocks/browser'
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
 import { HogFunctionTemplateType } from '~/types'
 
@@ -173,6 +175,7 @@ type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
     viewOnly?: boolean
+    workflow?: HogFlow
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -225,7 +228,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, viewOnly = false }: PanelStoryProps): JSX.Element {
+function PanelStory({
+    mode,
+    selectedNodeId,
+    viewOnly = false,
+    workflow = PANEL_WORKFLOW,
+}: PanelStoryProps): JSX.Element {
     const logicProps = viewOnly ? VIEW_ONLY_LOGIC_PROPS : LOGIC_PROPS
     const { originalWorkflow } = useValues(workflowLogic(logicProps))
     const { nodes } = useValues(hogFlowEditorLogic(logicProps))
@@ -234,10 +242,10 @@ function PanelStory({ mode, selectedNodeId, viewOnly = false }: PanelStoryProps)
 
     useEffect(() => {
         if (originalWorkflow) {
-            setWorkflowValues(PANEL_WORKFLOW)
+            setWorkflowValues(workflow)
             setMode(mode)
         }
-    }, [mode, originalWorkflow, setMode, setWorkflowValues])
+    }, [mode, originalWorkflow, setMode, setWorkflowValues, workflow])
 
     useEffect(() => {
         if (selectedNodeId === null || nodes.some((node) => node.id === selectedNodeId)) {
@@ -298,6 +306,60 @@ EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLEl
     await userEvent.click(editButton)
     const heading = await within(document.body).findByText('Editing email template')
     await waitFor(() => expect(heading).toBeVisible())
+}
+
+// A workflow email sends from a connected sender, so the header shows the sender picker.
+const SENDER_WORKFLOW: HogFlow = {
+    ...PANEL_WORKFLOW,
+    actions: PANEL_WORKFLOW.actions.map((action) =>
+        action.id === 'email'
+            ? ({
+                  ...action,
+                  config: {
+                      template_id: 'template-email',
+                      inputs: {
+                          email: {
+                              templating: 'liquid',
+                              value: {
+                                  to: { email: '{{ person.properties.email }}', name: '' },
+                                  from: { integrationId: 1 },
+                                  replyTo: 'support@example.com',
+                                  subject: 'Welcome aboard',
+                                  preheader: 'Your account is ready to go',
+                                  text: 'Your account is ready to go.',
+                                  html: EMAIL_PREVIEW_HTML,
+                              },
+                          },
+                      },
+                  },
+              } as HogFlowAction)
+            : action
+    ),
+}
+
+export const EmailHeader: StoryFn<PanelStoryProps> = (args) => {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/integrations': {
+                results: [
+                    {
+                        id: 1,
+                        kind: 'email',
+                        display_name: 'hello@example.com',
+                        icon_url: '',
+                        config: { email: 'hello@example.com', name: 'Example', domain: 'example.com', verified: true },
+                        created_at: '2026-01-01T00:00:00Z',
+                        errors: '',
+                    },
+                ],
+            },
+        },
+    })
+    return <PanelStory {...args} />
+}
+EmailHeader.args = { mode: 'build', selectedNodeId: 'email', workflow: SENDER_WORKFLOW }
+EmailHeader.parameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER],
 }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
