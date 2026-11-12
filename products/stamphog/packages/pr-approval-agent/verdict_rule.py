@@ -114,7 +114,7 @@ class RejectedConcern:
         if self.category in STRICT_CONCERN_CATEGORIES:
             return f"a {self.category.replace('_', ' ')} finding needs a code fix or a person's sign-off"
         if not self.rejection_holds:
-            return f"the author's rejection does not hold: {self.evidence}"
+            return f"the author's rejection does not hold: {self.evidence.rstrip('.')}"
         return None
 
 

@@ -558,6 +558,7 @@ def test_author_rejected_bot_finding_resolves_only_when_the_judge_upholds_it(
     assert result["final_verdict"] == expected
     named_in_body = f"after checking the author's rejection: @{rejected['bot']}: {_FINDING}" in result["review_body"]
     assert named_in_body is (expected == "APPROVED")
+    assert ".." not in result["review_body"]
 
 
 @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
