@@ -18,7 +18,7 @@ import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
+import { hogFlowsList, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesBroadcastSearchRetrieve, releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
@@ -43,6 +43,7 @@ import {
     indexSchedules,
     nameTokens,
     rankLinkSuggestions,
+    releaseSourceRecord,
 } from './releaseUtils'
 
 interface ReleaseLogicValues {
@@ -163,6 +164,7 @@ interface ReleaseLogicActions {
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
+    autoLinkBroadcasts: (id: string) => { id: string }
     unlinkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
@@ -185,6 +187,8 @@ const RELOAD_WINDOW_MS = 2000
 const FLAG_SEARCH_LIMIT = 50
 const FLAG_FETCH_CONCURRENCY = 8
 const ID_CHUNK = 100
+const MAX_LINKED_BROADCASTS = 100
+const BROADCAST_LOOKUP_PAGE = 50
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
 
@@ -312,6 +316,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
         linkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
+        autoLinkBroadcasts: (id: string) => ({ id }),
         addLink: (id: string, candidate: LinkCandidate) => ({ id, candidate }),
         unlinkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
     }),
@@ -914,6 +919,49 @@ export const releaseLogic = kea<releaseLogicType>([
                     id,
                     { broadcast_ids: [...release.broadcast_ids, broadcastId] },
                     'Broadcast linked to the release'
+                )
+            }
+        },
+        autoLinkBroadcasts: async ({ id }) => {
+            const viewer = values.user
+            if (!viewer) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            const started: string[] = []
+            try {
+                for (let offset = 0; offset < MAX_LINKED_BROADCASTS; offset += BROADCAST_LOOKUP_PAGE) {
+                    const page = await hogFlowsList(projectId, {
+                        source_record: releaseSourceRecord(id),
+                        created_by: viewer.uuid,
+                        limit: BROADCAST_LOOKUP_PAGE,
+                        offset,
+                    })
+                    started.push(
+                        ...(page.results ?? [])
+                            .filter((flow) => flow.created_by?.id === viewer.id)
+                            .map((flow) => flow.id)
+                    )
+                    if (!page.next) {
+                        break
+                    }
+                }
+            } catch {
+                return
+            }
+            const release = values.releases.find((item) => item.id === id)
+            if (!release) {
+                return
+            }
+            const room = Math.max(MAX_LINKED_BROADCASTS - release.broadcast_ids.length, 0)
+            const missing = started.filter((flowId) => !release.broadcast_ids.includes(flowId)).slice(0, room)
+            if (missing.length) {
+                actions.updateRelease(
+                    id,
+                    { broadcast_ids: [...release.broadcast_ids, ...missing] },
+                    missing.length === 1
+                        ? 'Linked the broadcast you started here'
+                        : 'Linked the broadcasts you started here'
                 )
             }
         },

@@ -2505,7 +2505,7 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
     create `asyncio.Semaphore(N)` **fresh inside `@run`**, `async with` it around each `execute_activity`,
     `gather(*tasks, return_exceptions=True)`, then inspect with `isinstance(r, BaseException)`.
     `posthog/temporal/session_replay/session_summary/workflow.py:431-469`;
-    `posthog/temporal/experiments/workflows.py:60-88`; `posthog/temporal/data_modeling/workflows/execute_dag.py:272-377`.
+    `products/experiments/backend/temporal/timeseries/workflows.py:60-88`; `posthog/temporal/data_modeling/workflows/execute_dag.py:272-377`.
     Width = `MAX_CONCURRENT_SANDBOXES`, repurposed as the per-child fan-out width; the true global ceiling stays the
     `tasks-task-queue` worker's own concurrency (where the sandbox `ProcessTaskWorkflow`s execute).
   - **Child workflows:** the parent `await`s its three children (they return results it persists — **NOT**
