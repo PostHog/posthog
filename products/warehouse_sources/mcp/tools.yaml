@@ -203,7 +203,13 @@ tools:
             should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is
             refused once data has synced, because rows already merged under the old key would repeat; delete the synced
             data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
-            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
+            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.
+            sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are
+            mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is
+            no 'never' value: to stop a table syncing, set should_sync to false."
+        param_overrides:
+            sync_frequency:
+                cast: sync-frequency
         exclude_params:
             - drop_history_table
     external-data-schemas-reload:
@@ -268,7 +274,10 @@ tools:
             'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source,
             such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
             anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
-            Changes take effect on the next sync, not retroactively.
+            Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour,
+            6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily
+            or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set
+            should_sync to false.
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: true
