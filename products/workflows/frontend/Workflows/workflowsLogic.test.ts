@@ -514,7 +514,6 @@ describe('workflowsLogic', () => {
             if (confirmFirst) {
                 await confirm()
             }
-            // The list reloads from the same team once the change lands.
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
 
             expect(requests.filter((r) => !r.startsWith('GET'))).toEqual([request])

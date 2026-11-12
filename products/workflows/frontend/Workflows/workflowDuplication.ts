@@ -1,6 +1,5 @@
 type ServerOwnedField = 'id' | 'team_id' | 'created_at' | 'updated_at' | 'origin_product'
 
-/** Works on the hand-written `HogFlow` and on the generated `HogFlowApi` alike. */
 export function prepareWorkflowDuplicate<T extends { name?: string | null; status?: unknown }>(
     workflow: T
 ): Omit<T, ServerOwnedField | 'name' | 'status'> & { name: string; status: 'draft' } {
