@@ -112,6 +112,7 @@ describe('rolloutSteps', () => {
                     end_date: '2026-11-10T00:00:00Z',
                 },
                 schedule('2026-11-16T00:00:00Z', { operation: 'add_release_condition', value: { groups: {} } }),
+                schedule('2026-11-10T00:00:00Z', { operation: 'update_status', value: false }),
             ],
             expected: [['2026-11-01', '50%', false]],
         },

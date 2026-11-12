@@ -142,6 +142,7 @@ export function rolloutSteps(
             (change) =>
                 change.record_id === String(flag.id) &&
                 !change.executed_at &&
+                dayjs(change.scheduled_at).isAfter(today) &&
                 !change.is_recurring &&
                 !isSchedulePaused(change as never) &&
                 !hasDeniedApprovalRequest(change as never) &&
