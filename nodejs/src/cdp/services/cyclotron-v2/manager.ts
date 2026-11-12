@@ -1061,6 +1061,11 @@ export class CyclotronV2Manager {
     }
 
     private isFull(db: Pool | PoolClient): Promise<boolean> {
+        // A transaction's own check stays out of the shared cache: a pool-backed check cached there may be waiting
+        // for the very connection the transaction holds.
+        if (db !== this.pool) {
+            return this.queryDepth(db)
+        }
         if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
             return this.depthCheckPromise
         }

@@ -1629,6 +1629,43 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             }, 5000)
 
+            it("still refuses that key while a plain insert waits on the claim's only connection", async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                // Caching on, so a plain insert's pool-backed depth check, waiting for the connection the claim
+                // holds, would be shared with the claim's own check.
+                const fullManager = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    depthLimit: 1,
+                    depthCheckIntervalMs: 60_000,
+                })
+                await fullManager.connect()
+                jest.spyOn(fullManager as any, 'liveIdempotencyKeyIds').mockResolvedValue(new Set([id]))
+                const pool = (fullManager as any).pool as Pool
+                const connect = pool.connect.bind(pool)
+                let plainInsert: Promise<unknown> | undefined
+                jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+                    const client = await connect()
+                    // Starts once the claim holds the only connection, so its depth check has to wait for it.
+                    plainInsert = fullManager.createJob({ teamId: 1, queueName: QUEUE }).catch((err) => err)
+                    await new Promise((resolve) => setImmediate(resolve))
+                    return client
+                })
+                try {
+                    await expect(fullManager.createJobsIdempotently([keyed(id, 'b')])).rejects.toThrow(/queue is full/i)
+                    await expect(plainInsert).resolves.toBeInstanceOf(Error)
+                } finally {
+                    await fullManager.disconnect()
+                }
+                expect(await totalJobCount()).toBe(1)
+            }, 5000)
+
             it('takes an email dequeue slot only for a job it queues', async () => {
                 const teamId = 4242
                 const emailCounter = async (): Promise<string | undefined> =>
