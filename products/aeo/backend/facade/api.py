@@ -1251,8 +1251,8 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
             engine_changes = _setup_engine_changes(team_id, set(request.engines))
     # The lock comes first, so a request that loses it to a 409 leaves the running job's engines alone.
     job = auto_setup.create_job(team_id)
-    _apply_setup_engines(team_id, engine_changes)
     try:
+        _apply_setup_engines(team_id, engine_changes)
         # A task still queued when it could no longer finish in time is dropped by the broker instead of run.
         set_up_aeo_task.apply_async(
             args=(
