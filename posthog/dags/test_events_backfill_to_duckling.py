@@ -33,6 +33,7 @@ from posthog.dags.events_backfill_to_duckling import (
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     HOGLAKE_ADD_FILES_MAX_FILES,
+    HOGLAKE_FLAG_DEFERRED_REASON,
     HOGLAKE_FULL_EXPORT_MAX_WRITERS,
     HOGLAKE_FULL_EXPORT_SLACK_DAYS,
     HOGLAKE_NOT_ENABLED_REASON,
@@ -3616,16 +3617,22 @@ class TestSchedulableBackfillTeamMemberships:
             assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": skip_reason}
         assert flag_lookup.call_count <= 1
 
-    def test_stops_asking_the_control_plane_once_the_tick_budget_is_spent(self):
-        memberships = [self._membership(1, "org-cached"), self._membership(2, "org-new")]
+    def test_stops_asking_remote_services_once_the_tick_budget_is_spent(self):
+        memberships = [
+            self._membership(1, "org-cached"),
+            self._membership(2, "org-new"),
+            self._membership(3, "org-hoglake"),
+        ]
+        cached = {"org-cached": "ducklake", "org-hoglake": "hoglake"}
 
         with (
             patch("posthog.dags.events_backfill_to_duckling.SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS", 0.0),
             patch(
                 "posthog.dags.events_backfill_to_duckling.get_cached_trino_backend",
-                side_effect=lambda org: "ducklake" if org == "org-cached" else None,
+                side_effect=lambda org: cached.get(org),
             ),
             patch("posthog.dags.events_backfill_to_duckling.get_trino_backend") as get_backend,
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake") as flag_lookup,
             patch(
                 "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
                 return_value=SimpleNamespace(bucket="shared-warehouses"),
@@ -3636,7 +3643,11 @@ class TestSchedulableBackfillTeamMemberships:
 
         assert kept == [memberships[0]]
         get_backend.assert_not_called()
-        assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": BACKEND_UNKNOWN_REASON}
+        flag_lookup.assert_not_called()
+        assert [call.kwargs["reason"] for call in skipped.call_args_list] == [
+            BACKEND_UNKNOWN_REASON,
+            HOGLAKE_FLAG_DEFERRED_REASON,
+        ]
 
     def test_the_events_daily_sensor_creates_no_partitions_for_a_hoglake_team_without_the_flag(self):
         from dagster import DagsterInstance, build_sensor_context

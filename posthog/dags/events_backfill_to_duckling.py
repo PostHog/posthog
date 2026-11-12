@@ -1218,8 +1218,10 @@ class HoglakeBackfillNotEnabled(Exception):
 
 HOGLAKE_NOT_ENABLED_REASON = "hoglake_not_enabled"
 BACKEND_UNKNOWN_REASON = "backend_unknown"
-# How long a sensor tick may spend asking the control plane for backends. A slow or failing control plane would
-# otherwise hold the tick past Dagster's sensor deadline, and no team would get its partitions.
+HOGLAKE_FLAG_DEFERRED_REASON = "hoglake_flag_deferred"
+# How long a sensor tick may spend asking the control plane for backends and the flags service for the hoglake flag.
+# A slow or failing service would otherwise hold the tick past Dagster's sensor deadline, and no team would get its
+# partitions.
 SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS = 20.0
 
 
@@ -3914,9 +3916,12 @@ def _sensor_skip_reason(organization_id: str, deadline: float) -> str | None:
     backend = _sensor_backend(organization_id, deadline)
     if backend is None:
         return BACKEND_UNKNOWN_REASON
-    if backend == "hoglake" and not backfills_through_hoglake(organization_id):
-        return HOGLAKE_NOT_ENABLED_REASON
-    return None
+    if backend != "hoglake":
+        return None
+    # The flag is evaluated remotely, so it shares the tick's budget with the backend lookups.
+    if time.monotonic() >= deadline:
+        return HOGLAKE_FLAG_DEFERRED_REASON
+    return None if backfills_through_hoglake(organization_id) else HOGLAKE_NOT_ENABLED_REASON
 
 
 def schedulable_backfill_team_memberships(

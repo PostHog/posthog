@@ -84,7 +84,8 @@ Routing for a hoglake warehouse:
   The run fails instead of finishing, because a finished run would mark its days as backfilled.
 - The sensors create no partitions for such a team, so its days appear once the flag turns on.
 - The sensors also create no partitions for a team whose backend they cannot tell, and record the skip reason `backend_unknown`. A later tick creates them.
-  A tick reuses a reported backend for six hours, because the backend is fixed when the warehouse is created, and stops asking the control plane after 20 seconds.
+  A tick reuses a reported backend for six hours, because the backend is fixed when the warehouse is created.
+  After 20 seconds it stops asking the control plane for backends and the flags service for the hoglake flag, and records `backend_unknown` or `hoglake_flag_deferred`.
   Without an answer, a `posthog-duckling-*` bucket still counts as DuckLake, as it does for a run.
 - A DuckLake warehouse keeps the paths above. If the control plane reports a `bucket_prefix` for it, the run refuses with an error, because ClickHouse can neither list nor reach files under a prefix of a shared bucket.
   The sensors still create partitions for such a team, so its runs keep failing with that error.
