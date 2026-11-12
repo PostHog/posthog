@@ -224,6 +224,14 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             })
             const judged = withEvidenceError(base, evidenceError)
             const event = scorecardOf(judged, loaded, provenanceOf())
+            const writeScorecards = (scorecard: RunResult): Promise<string | undefined> =>
+                evidenceError === undefined
+                    ? errorOf(() => {
+                          writeJson(evidenceDir, 'scorecard-event.json', event)
+                          writeJson(evidenceDir, 'scorecard.json', scorecard)
+                      })
+                    : Promise.resolve(undefined)
+            await writeScorecards(judged)
             const written = await publish(event, env, signal)
             const result: RunResult = {
                 ...judged,
@@ -231,13 +239,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 captured: written.captured,
                 scorecardError: written.problem,
             }
-            const filesError =
-                evidenceError === undefined
-                    ? await errorOf(() => {
-                          writeJson(evidenceDir, 'scorecard-event.json', event)
-                          writeJson(evidenceDir, 'scorecard.json', result)
-                      })
-                    : undefined
+            const filesError = await writeScorecards(result)
             if (filesError === undefined) {
                 return result
             }

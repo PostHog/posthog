@@ -115,8 +115,11 @@ describe('runner', () => {
         [
             'keeps the published verdict when the scorecard files cannot be written',
             () => {
-                api.onCapture = ({ properties }) =>
-                    mkdirSync(path.join(String(properties.evidence_dir), 'scorecard-event.json'))
+                api.onCapture = ({ properties }) => {
+                    const scorecard = path.join(String(properties.evidence_dir), 'scorecard.json')
+                    rmSync(scorecard, { force: true })
+                    mkdirSync(scorecard)
+                }
             },
             /^the run stopped: [^;]*$/,
             expect.stringMatching(/^the scorecard files could not be written: EISDIR/),
@@ -134,6 +137,29 @@ describe('runner', () => {
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
+    })
+
+    it('keeps the verdict and its event on disk while the scorecard is still being published', async () => {
+        let onDisk: unknown
+        api.onCapture = ({ properties }) => {
+            const evidenceDir = String(properties.evidence_dir)
+            onDisk = ['scorecard-event.json', 'scorecard.json'].map((file) =>
+                existsSync(path.join(evidenceDir, file))
+                    ? parseJSON(readFileSync(path.join(evidenceDir, file), 'utf8'))
+                    : `${file} is missing`
+            )
+        }
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(onDisk).toEqual([
+            api.captured[0].properties,
+            expect.objectContaining({ runId: result.runId, statusReason: result.statusReason, recorded: false }),
+        ])
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual({
+            ...result,
+            recorded: true,
+        })
     })
 
     it('produces with the Kafka settings the card profile names', async () => {
