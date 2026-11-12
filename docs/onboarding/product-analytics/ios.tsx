@@ -2,13 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getIOSInstallSteps = (
-    ctx: OnboardingComponentsContext,
-    options?: {
-        includeExperimentalSpi?: boolean
-        experimentalDescription?: string
-    }
-): StepDefinition[] => {
+export const getIOSInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
@@ -17,11 +11,6 @@ export const getIOSInstallSteps = (
             badge: 'required',
             content: (
                 <>
-                    {options?.experimentalDescription && (
-                        <CalloutBox type="fyi" title="Experimental API">
-                            <Markdown>{options.experimentalDescription}</Markdown>
-                        </CalloutBox>
-                    )}
                     <Markdown>
                         Install via Swift Package Manager. PostHog requires Xcode 26 or later, and iOS 15, macOS 11,
                         tvOS 15, watchOS 10, or visionOS 1 or later.
@@ -42,7 +31,7 @@ export const getIOSInstallSteps = (
                     <CalloutBox type="fyi" title="Using CocoaPods?">
                         <Markdown>
                             {
-                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`), but [CocoaPods trunk becomes read-only on December 2, 2026](https://blog.cocoapods.org/CocoaPods-Specs-Repo/). After that, existing 3.x versions stay installable, but new releases only ship through Swift Package Manager. To switch, see [upgrading from version 3 to version 4](https://posthog.com/docs/libraries/ios#upgrading-from-version-3-to-version-4).'
+                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`), but [CocoaPods trunk becomes read-only on December 2, 2026](https://blog.cocoapods.org/CocoaPods-Specs-Repo/). After that, existing 3.x versions stay installable, but new releases only ship through Swift Package Manager. To switch, see the [iOS migration guide](https://posthog.com/docs/libraries/ios/migration).'
                             }
                         </Markdown>
                     </CalloutBox>
@@ -62,7 +51,7 @@ export const getIOSInstallSteps = (
                                 file: 'AppDelegate.swift',
                                 code: dedent`
                                     import Foundation
-                                    ${options?.includeExperimentalSpi ? '@_spi(Experimental) ' : ''}import PostHog
+                                    import PostHog
                                     import UIKit
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {
@@ -114,12 +103,9 @@ export const getIOSEventStep = (ctx: OnboardingComponentsContext): StepDefinitio
     }
 }
 
-export const getIOSSteps = (
-    ctx: OnboardingComponentsContext,
-    options?: {
-        includeExperimentalSpi?: boolean
-        experimentalDescription?: string
-    }
-): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getIOSInstallSteps(ctx),
+    getIOSEventStep(ctx),
+]
 
 export const IOSInstallation = createInstallation(getIOSSteps)

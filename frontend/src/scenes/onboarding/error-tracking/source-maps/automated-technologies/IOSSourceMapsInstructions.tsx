@@ -12,7 +12,7 @@ export function IOSSourceMapsInstructions(): JSX.Element {
             <h3>1. Install and authenticate the PostHog CLI</h3>
             <p>
                 The PostHog CLI handles dSYM upload for iOS apps. iOS dSYM support requires{' '}
-                <strong>CLI version 0.7.0 or later</strong>. Install it using one of these methods:
+                <strong>CLI version 0.7.7 or later</strong>. Install it using one of these methods:
             </p>
             <h4 className="text-sm font-semibold mt-4 mb-2">npm:</h4>
             <CodeSnippet language={Language.Bash}>npm install -g @posthog/cli</CodeSnippet>
