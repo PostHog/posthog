@@ -1,3 +1,4 @@
+import type { Result } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import {
     ExperimentNotStartedError,
@@ -38,14 +39,19 @@ async function configHealthEnabled(context: Context): Promise<boolean> {
     }
 }
 
-function whenAborted(signal: AbortSignal): Promise<void> {
-    return new Promise((resolve) => {
+/** Not every API client cancels its request on the signal (connection forwarding does not), so the wait stops here. */
+function beforeDeadline<T, F>(work: Promise<T>, signal: AbortSignal | undefined, fallback: F): Promise<T | F> {
+    if (!signal) {
+        return work
+    }
+    const deadline = new Promise<F>((resolve) => {
         if (signal.aborted) {
-            resolve()
+            resolve(fallback)
             return
         }
-        signal.addEventListener('abort', () => resolve(), { once: true })
+        signal.addEventListener('abort', () => resolve(fallback), { once: true })
     })
+    return Promise.race([work, deadline])
 }
 
 export async function readConfigHealth(
@@ -55,15 +61,14 @@ export async function readConfigHealth(
     timeoutMs?: number
 ): Promise<ConfigHealthRead> {
     const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
-    const gate = configHealthEnabled(context)
-    const enabled = await (signal ? Promise.race([gate, whenAborted(signal).then(() => false)]) : gate)
-    if (!enabled) {
+    if (!(await beforeDeadline(configHealthEnabled(context), signal, false))) {
         return { health: null, outcome: 'flag_off' }
     }
-    const health = await context.api
+    const read: Promise<Result<Schemas.ExperimentHealth> | null> = context.api
         .experiments({ projectId })
         .getHealth({ experimentId, signal })
         .catch(() => null)
+    const health = await beforeDeadline(read, signal, null)
     if (health?.success) {
         return { health: health.data, outcome: 'read' }
     }

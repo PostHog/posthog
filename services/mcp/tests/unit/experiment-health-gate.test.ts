@@ -200,14 +200,31 @@ describe('experiment health gate', () => {
         )
     })
 
-    it('counts a flag check that outlasts the deadline as off', async () => {
-        vi.mocked(isFeatureFlagEnabled).mockReturnValue(new Promise(() => {}))
-        const getHealth = vi.fn()
+    const never = (): Promise<never> => new Promise(() => {})
+
+    it.each([
+        {
+            name: 'counts a flag check that outlasts the deadline as off',
+            flag: never,
+            healthRead: never,
+            outcome: 'flag_off',
+            readsHealth: false,
+        },
+        {
+            name: 'stops waiting for a health read that ignores the deadline',
+            flag: (): Promise<boolean> => Promise.resolve(true),
+            healthRead: never,
+            outcome: 'timed_out',
+            readsHealth: true,
+        },
+    ])('$name', async ({ flag, healthRead, outcome, readsHealth }) => {
+        vi.mocked(isFeatureFlagEnabled).mockImplementation(flag)
+        const getHealth = vi.fn().mockImplementation(healthRead)
 
         const read = await readConfigHealth(buildContext(getHealth, exposureOk, vi.fn()), '42', 7, 10)
 
-        expect(read).toEqual({ health: null, outcome: 'flag_off' })
-        expect(getHealth).not.toHaveBeenCalled()
+        expect(read).toEqual({ health: null, outcome })
+        expect(getHealth).toHaveBeenCalledTimes(readsHealth ? 1 : 0)
     })
 
     it('experiment-health-get returns the exposure counts without their health fields', async () => {
