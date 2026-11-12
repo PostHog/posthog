@@ -48,6 +48,31 @@ describe('IdempotencyKeys', () => {
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
+    it.each([
+        { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
+        { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
+    ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
+        const scope = `scope-${new UUIDT().toString()}`
+        const scopedKeys = new IdempotencyKeys(valkey, scope)
+        await scopedKeys.reserve(1, key, 'request-a', 'run-1')
+        const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
+
+        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', undefined, scheduledAt)
+
+        expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            scheduledAt,
+        })
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, async (client) => {
+            const stored = await client.keys(`*${scope}*`)
+            expect(stored).toHaveLength(1)
+            return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
+        })
+        expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
+        expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
     it('replays the fields recorded with the run', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
         await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })
@@ -129,6 +154,83 @@ describe('IdempotencyKeys', () => {
             clock.mockRestore()
         }
     })
+
+    it.each([
+        { completion: 'waits for the store', writesBeforeFailing: false, storeRecovers: true, holdExpires: false },
+        {
+            completion: 'is written but its answer is lost',
+            writesBeforeFailing: true,
+            storeRecovers: true,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process and its hold expires',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: true,
+        },
+    ])(
+        'replays a moved run past 24 hours when its completion $completion',
+        async ({ writesBeforeFailing, storeRecovers, holdExpires }) => {
+            const scope = `scope-${new UUIDT().toString()}`
+            const scopedKeys = new IdempotencyKeys(valkey, scope)
+            const replayFields = { attachment_count: 1, attachment_bytes: 512 }
+            await scopedKeys.reserve(1, key, 'request-a', 'run-1')
+            const useClient = valkey.useClient
+            let storeAnswers = false
+            const store = jest.spyOn(valkey, 'useClient').mockImplementation(async (...args) => {
+                if (args[0].name !== 'idempotency-mark-queued' || storeAnswers) {
+                    return useClient(...args)
+                }
+                if (writesBeforeFailing) {
+                    await useClient(...args)
+                }
+                throw new Error('connection lost')
+            })
+            const redisKey = scopedKeys['redisKey'](1, key)
+            try {
+                await scopedKeys.markQueued(1, key, 'request-a', 'run-1', replayFields)
+                if (holdExpires) {
+                    await valkey.useClient({ name: 'test-expire' }, (client) => client.del(redisKey))
+                }
+                await scopedKeys.replayUntilDayAfter(
+                    1,
+                    'run-1',
+                    { hash: IdempotencyKeys.hash(key), fingerprint: 'request-a', replayFields },
+                    new Date(Date.now() + 30 * 24 * HOUR_MS)
+                )
+                const completionLands = async () => {
+                    storeAnswers = true
+                    await waitForExpect(async () =>
+                        expect(await operations(scope, 'mark_queued', 'written')).toEqual(1)
+                    )
+                }
+                if (storeRecovers) {
+                    await completionLands()
+                }
+
+                await valkey.useClient({ name: 'test-age' }, async (client) => {
+                    const ttlMs = await client.pttl(redisKey)
+                    await (ttlMs > 25 * HOUR_MS ? client.pexpire(redisKey, ttlMs - 25 * HOUR_MS) : client.del(redisKey))
+                })
+
+                expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                    replayFields,
+                })
+                await completionLands()
+            } finally {
+                store.mockRestore()
+            }
+        }
+    )
 
     it('records a retry whose completion fails while the earlier completion of its key is still writing', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')

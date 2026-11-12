@@ -32,7 +32,8 @@
         background-color: color-mix(in oklab, var(--input) 30%, transparent);
     }
 
-    .quill-input-group:has([data-slot='input-group-control']:focus-visible) {
+    .quill-input-group:has([data-slot='input-group-control']:focus-visible),
+    .quill-input-group:has([contenteditable='true']:focus-visible) {
         border-color: color-mix(in oklab, var(--ring) 50%, transparent);
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }

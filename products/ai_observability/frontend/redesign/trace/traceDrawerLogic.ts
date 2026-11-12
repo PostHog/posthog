@@ -23,9 +23,9 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { toFullPageListParams } from './adapter/toBackLink'
 import { rawSearchParam } from './rawSearchParam'
 import { shouldCloseOnEscape } from './shouldCloseOnEscape'
+import { toFullPageListParams } from './traceBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListConfig, TraceDrawerListId } from './traceDrawerLists'
 import { TRACE_DRAWER_PARAMS, withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow, uniqueTraces } from './traceListRows'

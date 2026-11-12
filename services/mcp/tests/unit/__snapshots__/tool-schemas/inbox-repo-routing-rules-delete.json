@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the routing rule to delete, from inbox-repo-routing-rules-list.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -1,6 +1,6 @@
-import { AttachmentImage } from '../adapter/AttachmentImage'
 import { AttachmentMediaType } from '../types'
 import { AttachmentChip } from './AttachmentChip'
+import { AttachmentImage } from './AttachmentImage'
 import { classifyAttachmentUrl } from './attachmentUrl'
 
 export interface AttachmentPartProps {

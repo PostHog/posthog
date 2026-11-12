@@ -35,7 +35,10 @@ class TaskAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product", "internal")}),
         ("Team & User", {"fields": ("team", "created_by")}),
-        ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
+        (
+            "Repository",
+            {"fields": ("github_integration", "github_user_integration", "repository_integration_id", "repository")},
+        ),
         ("Schema", {"fields": ("json_schema",)}),
         ("Status", {"fields": ("deleted", "deleted_at")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),

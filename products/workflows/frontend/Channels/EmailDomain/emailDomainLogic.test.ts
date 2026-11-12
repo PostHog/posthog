@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -118,6 +119,21 @@ describe('emailDomainLogic', () => {
         expect(logic.values.phase).toBe('settings')
         expect(backend.requestsTo('integration_get')).toHaveLength(2)
         expect(backend.requestsTo('email_status')).toHaveLength(statusChecks)
+    })
+
+    it('says the sender is gone, without an error toast, and drops it from the sender list when it was deleted', async () => {
+        const error = jest.spyOn(lemonToast, 'error')
+        integrationsLogic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        backend.removeSender(42)
+
+        await mountAndLoad('42')
+
+        expect(logic.values.phase).toBe('unavailable')
+        expect(logic.values.senderMissing).toBe(true)
+        expect(integrationsLogic.values.integrations?.map((integration) => integration.id)).not.toContain(42)
+        expect(error).not.toHaveBeenCalled()
+        error.mockRestore()
     })
     it.each<[HogflowTestResult['emailSendResult'], boolean]>([
         [{ status: 'accepted' }, true],

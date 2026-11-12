@@ -247,7 +247,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
+        case (
+            NodeKind.ACCOUNTS_TABLE_QUERY
+            | NodeKind.ACCOUNT_USERS_QUERY
+            | NodeKind.ACCOUNT_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_MATRIX_QUERY
+            | NodeKind.BOOK_ACTIVITY_PEOPLE_QUERY
+            | NodeKind.BOOK_ACTIVITY_FIRSTS_QUERY
+        ):
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -410,6 +417,10 @@ _PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(
 
 def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
+
+
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
+FlagCallsRead = Literal["flag_evaluations", "union"]
 
 
 class QueryTags(BaseModel):
@@ -577,6 +588,8 @@ class QueryTags(BaseModel):
     warehouse_table_ids: Optional[list[str]] = None
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
+
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None
 

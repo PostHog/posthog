@@ -2,11 +2,9 @@ from datetime import UTC, datetime
 
 from django.core.management.base import BaseCommand
 
-import structlog
-
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
-
-logger = structlog.get_logger(__name__)
+from products.warehouse_sources.backend.facade.contracts import SchemaReenableTarget
+from products.warehouse_sources.backend.facade.staff import reenable_schemas_for_staff
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 class Command(BaseCommand):
@@ -92,21 +90,20 @@ class Command(BaseCommand):
             )
             return
 
-        succeeded = 0
-        failed = 0
-
-        for schema in schema_list:
-            try:
-                update_should_sync(schema_id=str(schema.id), team_id=schema.team_id, should_sync=True)
-                succeeded += 1
-                logger.info(
-                    "Re-enabled schema",
-                    schema_id=str(schema.id),
-                    team_id=schema.team_id,
-                    source_type=schema.source.source_type,
+        result = reenable_schemas_for_staff(
+            [
+                SchemaReenableTarget(
+                    schema_id=schema.id, team_id=schema.team_id, auto_disabled_at=schema.auto_disabled_at
                 )
-            except Exception:
-                failed += 1
-                logger.exception("Failed to re-enable schema", schema_id=str(schema.id), team_id=schema.team_id)
+                for schema in schema_list
+            ]
+        )
 
-        self.stdout.write(self.style.SUCCESS(f"\nDone. Re-enabled: {succeeded}, Failed: {failed}"))
+        for schema_id in result.failed:
+            self.stdout.write(self.style.ERROR(f"  failed: schema={schema_id}"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nDone. Re-enabled: {len(result.reenabled)}, Failed: {len(result.failed)}, "
+                f"Skipped (changed since listed): {len(result.skipped)}"
+            )
+        )

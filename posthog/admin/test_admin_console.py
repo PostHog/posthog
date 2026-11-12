@@ -12,7 +12,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django import forms
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
@@ -20,6 +20,7 @@ from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -30,6 +31,7 @@ from django.utils import timezone
 from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from kombu.exceptions import OperationalError
 from loginas import settings as la_settings
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -41,7 +43,7 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.results import (
@@ -54,12 +56,18 @@ from posthog.admin.console.tools import (
     Cell,
     ConsoleTool,
     Download,
+    FieldGroup,
+    Filters,
+    Link,
+    Links,
     Live,
     Notice,
     Page,
     Paging,
     Row,
     Secret,
+    Stat,
+    Stats,
     Table,
     ToolOperation,
 )
@@ -155,6 +163,57 @@ class _Tool(ConsoleTool):
     group = "Data"
 
 
+class _ToolActionForm(forms.Form):
+    reason = forms.CharField()
+    confirm = forms.CharField(required=False)
+
+
+class _ToolFiltersForm(forms.Form):
+    since = forms.CharField()
+    step = forms.CharField(widget=forms.HiddenInput, required=False)
+
+
+class _ActingTool(_Tool):
+    key = "acting-tool"
+    title = "Acting tool"
+    runs: list[str] = []
+
+    def _act(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+        assert form is not None
+        if form.cleaned_data["confirm"] != "yes":
+            messages.error(request, "Type yes to confirm.")
+            return HttpResponse(status=400)
+        self.runs.append(form.cleaned_data["reason"])
+        return None
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        if request.GET.get("state") == "stale":
+            return []
+        return [
+            ToolOperation(
+                key="act", label="Act", handler=self._act, form_class=_ToolActionForm, pending_label="Acting..."
+            )
+        ]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(
+            blocks=(
+                Notice(text="Check the window first.", tone=Tone.WARNING),
+                Stats(items=(Stat(label="Runs to replay", value="1,234"),)),
+                Links(
+                    items=(
+                        Link(label="Show details", href="/admin/console/", primary=True, pending_label="Loading..."),
+                    )
+                ),
+                Filters(
+                    form=_ToolFiltersForm(request.GET),
+                    groups=(FieldGroup(title="Window", field_names=("since",)),),
+                    submit_label="Preview",
+                ),
+            )
+        )
+
+
 class _SecretTool(_Tool):
     key = "issue-password"
     runs = 0
@@ -177,7 +236,13 @@ class _SecretTool(_Tool):
     @classmethod
     def issue(cls, request: HttpRequest, form: object) -> Page:
         cls.runs += 1
-        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
+        return Page(
+            blocks=(
+                Stats(items=(Stat(label="Passwords issued", value="1"),)),
+                Secret(label="Root password", value="example-secret-value"),
+                Links(items=(Link(label="Back to the cluster", href="/admin/console/"),)),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -317,6 +382,32 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             (
+                "danger_tool_operation_without_reason",
+                lambda: ToolOperation(
+                    key="wipe",
+                    label="Wipe",
+                    handler=lambda request, form: None,
+                    form_class=forms.Form,
+                    danger=True,
+                    undo_hint="It cannot be undone.",
+                ),
+                "reason",
+            ),
+            (
+                "link_off_site",
+                lambda: Link(label="Docs", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "filters_that_would_hide_a_field",
+                lambda: Filters(
+                    form=_ToolActionForm(),
+                    groups=(FieldGroup(title="Only one", field_names=("reason",)),),
+                    submit_label="Go",
+                ),
+                "must name each form field",
+            ),
+            (
                 "owner_gate_for_an_owner_without_a_staff_group",
                 lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
                 "has no staff_group",
@@ -325,6 +416,21 @@ class TestAdminConsoleAssets(SimpleTestCase):
             (
                 "fact_linking_off_site",
                 lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "notice_linking_off_site_with_a_backslash",
+                lambda: Notice(text="Moved", link_text="Open", href="/\\example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "link_off_site_with_a_tab_the_browser_drops",
+                lambda: Link(label="Docs", href="/\t/example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_newline_the_browser_drops",
+                lambda: Fact(label="Docs", value="Read", href="/\n/example.com/phish"),
                 "starts with /",
             ),
             (
@@ -350,7 +456,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
                         ),
                     )
                 ),
-                "not a table, notice or output",
+                "not a table, notice, output or stats",
+            ),
+            (
+                "live_block_holding_a_secret",
+                lambda: Live(key="password", block=Secret(label="Root password", value="example")),  # type: ignore[arg-type]
+                "not a table, notice, output or stats",
             ),
             (
                 "secret_on_a_page_that_renders_again",
@@ -659,6 +770,7 @@ class TestAdminConsoleViews(BaseTest):
         assert first.cookies[KEY_COOKIE]["max-age"] == 0
         assert first.status_code == 200
         assert "example-secret-value" in first.content.decode()
+        assert "Passwords issued" in first.content.decode() and "Back to the cluster" in first.content.decode()
         assert reload.status_code == 410
         assert "example-secret-value" not in reload.content.decode()
         assert _SecretTool.runs == 1
@@ -762,6 +874,9 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("team_uuid", "team_uuid", None),
+            ("team_api_token_in_uuid_form", "team_token", None),
+            ("organization_id", "organization", None),
             ("user_email_in_another_case", "user", None),
             ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
         ]
@@ -769,6 +884,13 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_uuid":
+            query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_token":
+            query, expected = "3f2b8c1e-5d47-4a90-b6e2-9c0d1f7a8e35", f"/admin/console/teams/{self.team.pk}/"
+            Team.objects.filter(pk=self.team.pk).update(api_token=query)
+        elif record == "organization":
+            query, expected = str(self.organization.pk), f"/admin/console/organizations/{self.organization.pk}/"
         else:
             query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
         params = {"q": query, **({"ticket": ticket} if ticket else {})}
@@ -807,6 +929,57 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         self.team.refresh_from_db()
         assert self.team.api_token == expected_token
+
+    @parameterized.expand(
+        [
+            ("runs_and_keeps_the_query", "?window=1", {"reason": "outage", "confirm": "yes"}, 302, ["outage"]),
+            ("handler_refusal_keeps_what_staff_typed", "", {"reason": "kept text", "confirm": "no"}, 400, []),
+            ("invalid_form_runs_nothing", "", {"reason": "", "confirm": "yes"}, 400, []),
+            ("operation_the_tool_no_longer_offers", "?state=stale", {"reason": "late", "confirm": "yes"}, 404, []),
+        ]
+    )
+    def test_a_tool_operation_runs_only_when_offered_and_valid(
+        self, _name: str, query: str, data: dict[str, str], status: int, runs: list[str]
+    ) -> None:
+        _ActingTool.runs = []
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.post(f"/admin/console/tools/acting-tool/act/{query}", data)
+
+        assert response.status_code == status
+        assert _ActingTool.runs == runs
+        if status == 302:
+            assert response["Location"] == f"/admin/console/tools/acting-tool/{query}"
+        if data["reason"] == "kept text":
+            content = response.content.decode()
+            assert "Type yes to confirm." in content
+            assert 'value="kept text"' in content
+            assert 'data-pending-label="Acting..."' in content
+
+    def test_a_tool_page_renders_every_block_it_holds(self) -> None:
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.get("/admin/console/tools/acting-tool/?since=2026-10-22&step=details")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-tone="warning"' in content and "Check the window first." in content
+        assert "Runs to replay" in content and "1,234" in content
+        assert 'data-pending-label="Loading..."' in content and "Show details" in content
+        assert 'value="2026-10-22"' in content and "Preview" in content
+        assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        _ActingTool.runs = []
+
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = client.post(
+                "/admin/console/tools/acting-tool/act/?personal_api_key=phx_example",
+                {"reason": "forged", "confirm": "yes"},
+            )
+
+        assert response.status_code == 403
+        assert _ActingTool.runs == []
 
     @parameterized.expand(
         [
@@ -1685,15 +1858,16 @@ class TestAdminConsoleApiKeys(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _personal_key(self) -> PersonalAPIKey:
+    def _personal_key(self, **fields: object) -> PersonalAPIKey:
         token = generate_random_token_personal()
-        return PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Leaked key",
-            secure_value=hash_key_value(token),
-            mask_value=mask_key_value(token),
-            scopes=["*"],
-        )
+        defaults: dict[str, object] = {
+            "user": self.user,
+            "label": "Leaked key",
+            "secure_value": hash_key_value(token),
+            "mask_value": mask_key_value(token),
+            "scopes": ["*"],
+        }
+        return PersonalAPIKey.objects.create(**{**defaults, **fields})
 
     @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
     def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
@@ -1712,6 +1886,100 @@ class TestAdminConsoleApiKeys(BaseTest):
         exposed.assert_called_once_with(
             self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
         )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_an_organization_operation_changes_only_the_keys_that_reach_the_organization(
+        self, operation: str, exposed: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Another organization")
+        self.user.join(organization=other)
+        outsider = User.objects.create_and_join(other, "outsider@example.com", None)
+        unscoped = self._personal_key(label="Unscoped key")
+        scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
+        untouched = [
+            self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
+            self._personal_key(label="Outsider key", user=outsider),
+        ]
+        # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
+        narrowed = self._personal_key(label="Narrowed during the run key", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
+            if instance.pk != narrowed.pk:
+                PersonalAPIKey.objects.filter(pk=narrowed.pk).update(scoped_organizations=[str(other.pk)])
+
+        tool = self.client.get(
+            f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
+        )
+        preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
+        assert preview.status_code == 200
+        untouched.append(self._personal_key(label="Created after the preview key"))
+        post_save.connect(narrow, sender=PersonalAPIKey)
+        post_delete.connect(narrow, sender=PersonalAPIKey)
+        try:
+            confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        finally:
+            post_save.disconnect(narrow, sender=PersonalAPIKey)
+            post_delete.disconnect(narrow, sender=PersonalAPIKey)
+        replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302 and replayed.status_code == 302
+        assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
+            ("Unscoped key", "Other organizations too"),
+            ("Scoped here key", "This organization only"),
+            ("Narrowed during the run key", "Other organizations too"),
+        }
+        assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
+        untouched.append(narrowed)
+        assert [PersonalAPIKey.objects.get(pk=key.pk).secure_value for key in untouched] == [
+            key.secure_value for key in untouched
+        ]
+        in_reach = PersonalAPIKey.objects.filter(user=self.user, pk__in=[unscoped.pk, scoped_here.pk])
+        if operation == "revoke-all":
+            assert not in_reach.exists()
+            exposed.delay.assert_not_called()
+        else:
+            old_values = {unscoped.secure_value, scoped_here.secure_value}
+            assert len(set(in_reach.values_list("secure_value", flat=True)) - old_values) == 2
+            assert exposed.delay.call_count == 2
+            exposed.delay.assert_any_call(
+                self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
+            )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    def test_an_organization_operation_refuses_more_keys_than_the_preview_lists(self, operation: str) -> None:
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        with patch("posthog.admin.console.api_key_panels.KEYS_LIST_LIMIT", 1):
+            preview = self.client.post(url, {"reason": "Keys leaked"})
+
+        assert preview.status_code == 400
+        assert "confirm_token" not in preview.context
+        assert "too many to change at once" in preview.content.decode()
+        assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_all_keys_continues_when_an_email_cannot_be_queued(self, exposed: MagicMock) -> None:
+        exposed.delay.side_effect = [OperationalError("broker unavailable"), None]
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/roll-all/"
+
+        preview = self.client.post(url, {"reason": "Keys leaked"})
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert not PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).exists()
+        assert (
+            LogEntry.objects.filter(object_id__in=[key.pk for key in keys], change_message="Rolled key.").count() == 2
+        )
+        assert [str(message) for message in messages.get_messages(confirmed.wsgi_request)] == [
+            "Rolled 2 personal API keys.",
+            f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
+        ]
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-11 10:03:44 UTC
+// Generated at: 2026-11-12 20:06:00 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -136,8 +136,6 @@ export type CanonicalProvider =
     | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
-    | 'makora-bf16'
-    | 'makora-fp16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'
@@ -192,7 +190,6 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
-    | 'pareto-alpha-us'
     | 'particle-ai-nvfp4'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
@@ -214,6 +211,7 @@ export type CanonicalProvider =
     | 'relace-fp4'
     | 'relace-fp8'
     | 'respan'
+    | 'river'
     | 'sail-research-fp4'
     | 'sail-research-fp4-us'
     | 'sail-research-fp8'
@@ -244,6 +242,7 @@ export type CanonicalProvider =
     | 'venice-fp8'
     | 'venice-int4'
     | 'venice-turbo'
+    | 'venice-ultrafast'
     | 'voyageai'
     | 'wafer'
     | 'wafer-fast'

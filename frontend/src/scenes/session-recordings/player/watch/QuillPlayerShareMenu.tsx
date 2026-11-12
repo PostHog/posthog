@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -14,10 +15,11 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-export function QuillPlayerShareMenu(): JSX.Element {
+export function QuillPlayerShareMenu({ filled = false }: { filled?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const floatingContainer = useFloatingContainer()
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -56,11 +58,20 @@ export function QuillPlayerShareMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="sm" data-attr="session-recording-share-button" />}>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        size={filled ? 'icon' : 'icon-sm'}
+                        variant={filled ? 'secondary' : 'default'}
+                        tooltip="Share"
+                        aria-label="Share"
+                        data-attr="session-recording-share-button"
+                    />
+                }
+            >
                 <IconShare />
-                Share
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" container={floatingContainer}>
                 <QuillMenuItems
                     items={[
                         {

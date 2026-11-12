@@ -919,6 +919,38 @@ def capture_task_run_state_metrics() -> None:
         capture_exception(err)
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_status_shadow_metrics() -> None:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    try:
+        with pushed_metrics_registry("tasks_status_shadow") as registry:
+            mismatches_gauge = Gauge(
+                "posthog_tasks_status_shadow_mismatches",
+                "Tasks whose stored status differs from the status derived from their latest run.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.collect_task_status_mismatches():
+                mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
+                    row.count
+                )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+    except OperationalError as err:
+        logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
+    except Exception as err:
+        logger.exception("capture_task_status_shadow_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:

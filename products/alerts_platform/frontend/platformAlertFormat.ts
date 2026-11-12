@@ -40,7 +40,7 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
         label: 'Metrics',
-        alertUrl: () => urls.metrics(),
+        alertUrl: () => urls.metrics('alerts'),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
         label: 'Traces',

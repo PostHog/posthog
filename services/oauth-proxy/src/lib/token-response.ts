@@ -68,7 +68,7 @@ function regionOfIssuer(idToken: string): Region | null {
     }
 }
 
-function rebuildResponse(response: Response, body: string): Response {
+export function rebuildResponse(response: Response, body: string): Response {
     const headers = new Headers(response.headers)
     // The body was re-serialized, so any upstream length no longer describes it.
     headers.delete('content-length')

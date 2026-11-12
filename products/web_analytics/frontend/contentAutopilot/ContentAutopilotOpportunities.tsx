@@ -15,15 +15,15 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
-import { faviconUrl } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
 import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
-import { engineLabel } from './utils'
+import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
@@ -210,8 +210,9 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 <div className="whitespace-nowrap">
                                     {visibilityTag(gap)}
                                     {gap.engines_not_citing.length > 0 ? (
-                                        <div className="text-xs text-muted mt-1">
-                                            Not cited by {gap.engines_not_citing.map(engineLabel).join(', ')}
+                                        <div className="flex items-center gap-1.5 text-xs text-secondary mt-1">
+                                            <span>Not cited by</span>
+                                            <ContentAutopilotEngineMarks engines={gap.engines_not_citing} />
                                         </div>
                                     ) : null}
                                 </div>
@@ -224,17 +225,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 gap.competitor_domains.length > 0 ? (
                                     <div className="flex flex-col gap-1">
                                         {gap.competitor_domains.slice(0, 3).map((domain) => (
-                                            <span key={domain} className="flex items-center gap-1 text-sm">
-                                                <img
-                                                    src={faviconUrl(domain)}
-                                                    width={16}
-                                                    height={16}
-                                                    alt=""
-                                                    className="shrink-0"
-                                                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                                                />
-                                                <span className="truncate">{domain}</span>
-                                            </span>
+                                            <ContentAutopilotSiteLabel key={domain} domain={domain} isTarget={false} />
                                         ))}
                                     </div>
                                 ) : (

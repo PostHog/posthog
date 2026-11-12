@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -531,6 +531,11 @@
     },
     "customerAnalyticsNotes": {
         "template": "/customer_analytics/notes",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
         "params": [],
         "scope": "project"
     },
@@ -1867,6 +1872,11 @@
     "transactional": {
         "template": "/transactional",
         "params": [],
+        "scope": "project"
+    },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transactionalEmailLogEntry": {

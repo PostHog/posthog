@@ -44,6 +44,23 @@ class VerdictTrace:
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
+class CriterionResult:
+    criterion: str
+    value: str
+    source: str
+    evidence: str
+    effect: CriterionEffect
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class VerdictTrace:
+    repository: str
+    pull_request_number: int | None
+    low_confidence: bool
+    criteria: tuple[CriterionResult, ...]
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
 class AdapterVerdict:
     source: DocsRequestSource
     subject_id: str
