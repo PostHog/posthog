@@ -114,7 +114,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     dashboard: {
         icon: <IconDashboard />,
-        iconColor: ['var(--color-product-dashboards-light)'],
+        iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
     },
     canvas: {
         icon: <IconPalette />,
@@ -122,11 +122,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     llm_analytics: {
         icon: <IconLlmAnalytics />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-llm-analytics-light)', 'var(--color-product-llm-analytics-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
-        iconColor: ['var(--color-product-product-analytics-light)'],
+        iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
     },
     revenue_analytics: {
         icon: <IconPiggyBank />,
@@ -138,6 +138,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_settings: {
         icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
     marketing_analytics: {
         icon: <IconMegaphone />,
@@ -168,7 +169,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     sql_editor: {
         icon: <IconServer />,
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
     data_modeling: {
         icon: <IconStack />,
@@ -184,6 +185,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     session_profile: {
         icon: <IconReceipt />,
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     session_replay: {
         icon: <IconRewindPlay />,
@@ -195,7 +197,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
-        iconColor: ['var(--color-product-surveys-light)'],
+        iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
     },
     product_tour: {
         icon: <IconSpotlight />,
@@ -229,11 +231,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     experiment: {
         icon: <IconFlask />,
-        iconColor: ['var(--color-product-experiments-light)'],
+        iconColor: ['var(--color-product-experiments-light)', 'var(--color-product-experiments-dark)'],
     },
     feature_flag: {
         icon: <IconToggle className="mt-[2px]" />,
-        iconColor: ['var(--color-product-feature-flags-light)'],
+        iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
     },
     feature_flag_off: {
         icon: <IconToggleOff className="mt-[2px]" />,
@@ -245,6 +247,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     data_pipeline_metadata: {
         icon: <IconPlug />,
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
     data_warehouse: {
         icon: <IconDatabase />,
@@ -271,9 +274,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     activity: {
         icon: <IconClock />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
     comment: {
         icon: <IconNotification />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
     annotation: {
         icon: <IconPencil />,
@@ -281,6 +286,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     event: {
         icon: <IconApps />,
+        iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
     },
     event_definition: {
         icon: <IconApps />,
@@ -295,9 +301,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     ingestion_warning: {
         icon: <IconWarning />,
+        iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
     },
     persons: {
         icon: <IconPerson />,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'],
     },
     user: {
         icon: <IconUser />,
@@ -307,6 +315,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     group: {
         icon: <IconPeople />,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'],
     },
     // The IconInsight* glyphs carry their own multi-color palette (--insight-icon-*);
     // structural parts follow currentColor, so no iconColor override here.
@@ -366,15 +375,22 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     health: {
         icon: <IconStethoscope />,
+        iconColor: [
+            'var(--color-product-engineering-analytics-light)',
+            'var(--color-product-engineering-analytics-dark)',
+        ],
     },
     inbox: {
         icon: <IconSelfDriving />,
+        iconColor: ['var(--color-product-self-driving-light)', 'var(--color-product-self-driving-dark)'],
     },
     sdk_health: {
         icon: <IconCode />,
+        iconColor: ['var(--color-product-sdk-health-light)', 'var(--color-product-sdk-health-dark)'],
     },
     pipeline_status: {
         icon: <IconDatabase />,
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
     llm_evaluations: {
         icon: <IconListCheck />,
@@ -414,12 +430,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     stamphog: {
         icon: <IconStamphog />,
+        iconColor: ['var(--color-product-stamphog-light)', 'var(--color-product-stamphog-dark)'],
     },
     uptime_monitoring: {
         icon: <IconSignal />,
+        iconColor: ['var(--color-product-uptime-monitoring-light)', 'var(--color-product-uptime-monitoring-dark)'],
     },
     exports: {
         icon: <IconDownload />,
+        iconColor: ['var(--color-product-exports-light)', 'var(--color-product-exports-dark)'],
     },
     pulse: {
         icon: <IconPulse />,
@@ -503,12 +522,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
 
 export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
-    const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
-        type as keyof typeof fileSystemTypes
-    ]?.iconColor
+    const fileSystemType = (
+        fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor; iconType?: string }>
+    )[type as keyof typeof fileSystemTypes]
+    const fileSystemColor = fileSystemType?.iconColor
 
-    // Fallback to iconTypes if no manifest color is provided
-    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
+    // Fallback to iconTypes if no manifest color is provided, also via the manifest's iconType (e.g. insight/bi)
+    const iconTypeColor =
+        (type && iconTypes[type as keyof typeof iconTypes]?.iconColor) ||
+        (fileSystemType?.iconType && iconTypes[fileSystemType.iconType as keyof typeof iconTypes]?.iconColor)
 
     // If we have a color override, use it
     // Otherwise, use the above colors in order of precedence

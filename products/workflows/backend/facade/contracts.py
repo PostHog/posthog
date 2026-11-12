@@ -197,6 +197,20 @@ class ProcessedSchedules:
     failed: list[str]
 
 
+@frozen
+class WorkflowReplayTarget:
+    """What staff tooling needs to decide whether a workflow's failed runs can be replayed."""
+
+    id: str
+    team_id: int
+    name: str
+    status: str
+    # Templates of the workflow's function steps, so template filters can match a workflow.
+    template_ids: tuple[str, ...]
+    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    sends_sensitive_email: bool
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str
@@ -739,6 +753,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class SandboxSenderUnavailable(Exception):
+    pass
+
+
 class TransactionalEmailSenderRequired(Exception):
     """The project has several verified email senders and no default, so the send has to name one."""
 
@@ -1111,6 +1129,16 @@ class ImportSegment:
     name: str
     # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
     type: str
+    # The segment's rules, from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members.
+    conditions: dict[str, Any] | None = None
+
+
+@frozen
+class SegmentCohortFilters:
+    """A Customer.io segment's rules as cohort filters, or the rules no cohort filter matches exactly."""
+
+    filters: dict[str, Any] | None
+    untranslated: tuple[str, ...] = ()
 
 
 @frozen
@@ -1129,6 +1157,8 @@ class ImportOptions:
     topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
     # Customer.io segment id to its name and type.
     segments: dict[str, ImportSegment] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
 
 
 @frozen

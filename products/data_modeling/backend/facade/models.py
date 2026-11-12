@@ -8,15 +8,19 @@ methods). The models' heavy dependencies (HogQL, temporal) are deferred inside t
 methods, so importing this adds nothing beyond the models Django loads at ``setup()``.
 """
 
-from products.data_modeling.backend.graph import Graph
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
-from products.data_modeling.backend.models.data_modeling_job import (
-    TERMINAL_JOB_STATUSES,
-    DataModelingJob,
+from products.data_modeling.backend.facade.contracts import CONNECTION_SAVE_REASON, ViewCapability, ViewEngine
+from products.data_modeling.backend.facade.enums import (
     DataModelingJobEngine,
     DataModelingJobRunMode,
     DataModelingJobStatus,
+    LineageIssueKind,
+    NodeType,
+    ViewColumnSource,
+    ViewEngineDialect,
+    ViewEngineTarget,
 )
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import TERMINAL_JOB_STATUSES, DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery,
@@ -30,15 +34,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
-from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
-from products.data_modeling.backend.models.view_engine import (
-    CONNECTION_SAVE_REASON,
-    ViewCapability,
-    ViewColumnSource,
-    ViewEngine,
-    ViewEngineDialect,
-    ViewEngineTarget,
-)
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node
 
 __all__ = [
     "CONNECTION_SAVE_REASON",
@@ -56,7 +52,6 @@ __all__ = [
     "DataWarehouseSavedQueryColumnAnnotation",
     "DataWarehouseSavedQueryDraft",
     "Edge",
-    "Graph",
     "LineageIssueKind",
     "Node",
     "NodeType",

@@ -7,9 +7,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BusinessKnowledgeSetupCard } from '../components/BusinessKnowledgeSetupCard/BusinessKnowledgeSetupCard'
 import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { BusinessKnowledgePreview } from './BusinessKnowledgePreview'
-import { BusinessKnowledgePrimaryAction } from './BusinessKnowledgePrimaryAction'
 import { businessKnowledgeSetupLogic } from './businessKnowledgeSetupLogic'
 
 const HedgehogReading = pngHoggie(readingIsMagicPng)
@@ -32,13 +32,13 @@ export const businessKnowledgeEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogReading,
         text: {
             'needs-setup': {
-                headline: 'Teach PostHog AI how your business works',
-                lead: 'Add pricing pages, policies, product docs, or any text, and PostHog AI uses them to answer questions with your context in mind. Sources refresh on a schedule you choose, so answers stay current as your docs change.',
+                headline: 'Give your agents the context your team already has',
+                lead: 'PostHog AI, the support agent, and agents connected through the PostHog MCP server search this knowledge before they answer. Add your pricing, policies, and product docs so their answers follow how your business works.',
             },
         },
-        PrimaryAction: BusinessKnowledgePrimaryAction,
+        SetupCard: BusinessKnowledgeSetupCard,
         skippable: false,
-        previewLabel: 'PostHog AI, once it knows your business',
+        previewLabel: 'Your agents, once they know your business',
         Preview: BusinessKnowledgePreview,
     },
 }

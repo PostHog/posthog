@@ -2,12 +2,16 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, IntegrationType } from '~/types'
 
+import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
-import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { CreateActionType, computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -291,6 +295,82 @@ describe('hogFlowEditorLogic', () => {
         ])
     })
 
+    describe('sender of an inserted email step', () => {
+        const emailNode = {
+            type: 'function_email',
+            name: 'Email',
+            description: 'Send an email to the user.',
+            config: { template_id: 'template-email', inputs: {} },
+        } as CreateActionType
+        const status = {
+            integration_id: 11,
+            from_address: 'sandbox@example.com',
+            display_name: 'Acme via PostHog',
+            organization_blocked: false,
+            adoption_enabled: true,
+        }
+        const ownSender = { id: 7, kind: 'email', config: { verified: true } } as unknown as IntegrationType
+
+        function insertEmail(): HogFlowAction | undefined {
+            logic.actions.setNodeToBeAdded(emailNode)
+            logic.actions.onDrop(undefined, edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue'))
+            return logic.values.workflow.actions.find((action) => action.name === 'Email')
+        }
+
+        it.each<[string, IntegrationType[] | null, typeof status, Partial<HogFlow>, string]>([
+            ['an own verified sender exists', [ownSender], status, {}, 'function_email'],
+            [
+                'several own senders exist and none is the default',
+                [ownSender, { ...ownSender, id: 8 }],
+                status,
+                {},
+                'function_email',
+            ],
+            ['the own senders are still loading', null, status, {}, 'function_email'],
+            ['adoption is off', [], { ...status, adoption_enabled: false }, {}, 'function_email'],
+            ['the organization is blocked', [], { ...status, organization_blocked: true }, {}, 'function_email'],
+            ['another product owns the workflow', [], status, { origin_product: 'broadcasts' }, 'function_email'],
+            ['the project has no own sender', [], status, {}, 'email_sandbox'],
+        ])('picks the step kind when %s', (_, integrations, sandboxStatus, workflowInfo, expectedType) => {
+            if (integrations) {
+                integrationsLogic.actions.loadIntegrationsSuccess(integrations)
+            } else {
+                integrationsLogic.actions.clearIntegrations()
+            }
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess(sandboxStatus)
+            workflowLogic().actions.setWorkflowInfo(workflowInfo)
+
+            expect(insertEmail()?.type).toEqual(expectedType)
+        })
+
+        it('uses the sandbox sender for a new email step when the team turns UTM tags on by default', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                workflows_config: { email_utm_tags_enabled: true },
+            } as any)
+            integrationsLogic.actions.loadIntegrationsSuccess([])
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess(status)
+
+            expect(insertEmail()?.type).toEqual('email_sandbox')
+        })
+
+        it('keeps the sandbox step and shows a retry when setting up the sender fails', async () => {
+            useMocks({
+                post: { '/api/projects/:team_id/workflow_email_sandbox/provision/': () => [500, {}] },
+            })
+            integrationsLogic.actions.loadIntegrationsSuccess([])
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess({ ...status, integration_id: null })
+
+            await expectLogic(sandboxSenderLogic, () => {
+                expect(insertEmail()?.type).toEqual('email_sandbox')
+            }).toDispatchActions(['provisionSandboxSender', 'provisionSandboxSenderFailed'])
+
+            expect(sandboxSenderLogic.values.provisionError).toEqual(
+                "Couldn't set up the sandbox sender. Try again, or choose your own sender."
+            )
+        })
+    })
+
     describe('graph identity across rebuilds', () => {
         // Auto-save round-trips rebuild the graph from the workflow; without id-based
         // reconciliation every node and edge object is recreated each time and every ReactFlow
@@ -381,6 +461,59 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('exit')).toBe(initialNodes.find((node) => node.id === 'exit'))
             expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
             expect(byId('branch')?.data.name).toBe('Renamed branch')
+        })
+    })
+
+    describe('access level', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        const flowWithDelay = (userAccessLevel: AccessControlLevel): HogFlow => ({
+            ...NEW_WORKFLOW,
+            id: 'access-flow',
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+            user_access_level: userAccessLevel,
+        })
+
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
+        })
+
+        it.each([
+            [AccessControlLevel.Editor, true],
+            [AccessControlLevel.Viewer, false],
+        ])('lets a user with %s access delete steps: %s', async (userAccessLevel, canDelete) => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.loadWorkflowSuccess(flowWithDelay(userAccessLevel))
+            ).toDispatchActions(['setNodesRaw'])
+
+            expect(logic.values.nodes.find((node) => node.id === delay.id)?.deletable).toBe(canDelete)
+            logic.actions.setSelectedNodeId(delay.id)
+            expect(logic.values.selectedNode?.deletable).toBe(canDelete)
+        })
+
+        it.each([
+            ['deleting a step', (): void => logic.actions.onNodesDelete([logic.values.nodesById[delay.id]])],
+            [
+                "changing a step's settings",
+                (): void => workflowLogic().actions.partialSetWorkflowActionConfig(delay.id, { delay_duration: '2d' }),
+            ],
+        ])('leaves the workflow unchanged when a viewer tries %s', async (_label, edit) => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.loadWorkflowSuccess(flowWithDelay(AccessControlLevel.Viewer))
+            ).toDispatchActions(['setNodesRaw'])
+            const loaded = workflowLogic().values.workflow
+
+            edit()
+
+            expect(workflowLogic().values.workflow).toEqual(loaded)
         })
     })
 

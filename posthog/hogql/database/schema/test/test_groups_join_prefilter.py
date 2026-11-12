@@ -58,7 +58,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         # The `$group_0` field reference can be wrapped by the resolver (timestamp clamping
         # against the GroupTypeMapping created_at, etc.), so we only assert the column ref
         # appears in the printed SQL — not the exact SELECT prefix.
-        self.assertIn("globalIn(key,", sql)
+        self.assertIn("globalIn(key, (SELECT DISTINCT", sql)
         self.assertIn(self._group_0_column(), sql)
         self.assertIn("FROM events", sql)
 
