@@ -520,6 +520,8 @@ It keeps the frozen filtered install and live upstream test.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
+Ownership lint omits new-path metadata when it checks tracked-file coverage, so files excluded by sparse checkout do not cause another ownership lookup.
+
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
