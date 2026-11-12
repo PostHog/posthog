@@ -419,6 +419,9 @@ const cdpFunctionsPublish = (): ToolBase<
         if (params.confirm_token !== undefined) {
             body['confirm_token'] = params.confirm_token
         }
+        if (params.inputs !== undefined) {
+            body['inputs'] = params.inputs
+        }
         const result = await context.api.request<Schemas.HogFunctionPublishResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/publish/`,
