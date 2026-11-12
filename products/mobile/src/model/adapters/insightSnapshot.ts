@@ -12,7 +12,7 @@ import type {
     SavedRange,
     SqlTableView,
 } from '../views'
-import { displaySeriesLabel, rankingView } from './breakdown'
+import { rankingView, trendSeriesLabel } from './breakdown'
 import { funnelView } from './funnel'
 import { insightValueFormat } from './insightFormatting'
 import { asTrendsInsight, hasBreakdown, isSummableMath, timeSeriesChartKind, trendsInterval } from './metric'
@@ -285,7 +285,7 @@ function seriesViews(entries: JsonRecord[]): InsightSeriesView[] {
         const compare = compareOf(entry)
         return {
             key: seriesIdentity(seriesIndex, breakdownValue, compare),
-            label: typeof entry.label === 'string' ? displaySeriesLabel(entry.label) : `Series ${seriesIndex + 1}`,
+            label: trendSeriesLabel(entry, seriesIndex),
             points: pointsOf(entry),
             compare,
             seriesIndex,

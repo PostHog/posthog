@@ -30,6 +30,30 @@ export function displaySeriesLabel(label: string): string {
     return label.split(BREAKDOWN_OTHER).join('Other').split(BREAKDOWN_NULL).join('None')
 }
 
+function nonBlank(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
+/** The web reads a renamed series from action.custom_name; the result label still contains the raw event name. */
+export function trendSeriesLabel(entry: JsonRecord, index: number): string {
+    const action = asRecord(entry.action)
+    const customName = nonBlank(action?.custom_name)
+    const resultLabel = nonBlank(entry.label)
+    const breakdown = breakdownLabel(entry.breakdown_value)
+    if (!customName && resultLabel) {
+        return displaySeriesLabel(resultLabel)
+    }
+    const name =
+        customName ??
+        nonBlank(action?.name) ??
+        nonBlank(action?.id) ??
+        (typeof action?.id === 'number' ? String(action.id) : null)
+    if (!name) {
+        return breakdown || `Series ${index + 1}`
+    }
+    return breakdown ? `${name} · ${breakdown}` : name
+}
+
 // Trends displays that total the window per series and breakdown value. The phone ranks the totals as bars.
 const RANKING_DISPLAYS: ReadonlySet<string> = new Set([
     'ActionsBarValue',
@@ -62,11 +86,7 @@ function rankedValue(entry: JsonRecord, index: number): RankedValueView | null {
         return null
     }
     const order = finite(asRecord(entry.action)?.order) ?? index
-    const breakdown = breakdownLabel(entry.breakdown_value)
-    const label =
-        typeof entry.label === 'string' && entry.label !== ''
-            ? displaySeriesLabel(entry.label)
-            : (breakdown ?? `Series ${order + 1}`)
+    const label = trendSeriesLabel(entry, order)
     return { key: `${order}:${JSON.stringify(entry.breakdown_value ?? null)}`, label, value }
 }
 
