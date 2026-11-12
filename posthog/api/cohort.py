@@ -1277,9 +1277,10 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=CohortRealtimeUnavailableReason.choices,
         allow_null=True,
-        help_text="A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back "
-        "further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every "
-        "other state, and for a `daily` cohort that breaks no limit.",
+        help_text="Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria "
+        "look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events "
+        "in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, "
+        "including a `daily` cohort that other criteria keep off realtime.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,

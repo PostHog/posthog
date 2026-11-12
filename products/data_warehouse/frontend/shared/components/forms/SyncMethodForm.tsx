@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -112,6 +112,10 @@ interface SyncMethodFormProps {
     hideFooter?: boolean
     /** Called whenever the form's save validity changes. Useful when rendering an external Save button. */
     onSaveDisabledReasonChange?: (disabledReason: string | undefined) => void
+    /** The source can run CDC, so the option is shown even when this table can't pick it yet. */
+    sourceSupportsCdc?: boolean
+    /** Where CDC is turned on for the source. */
+    sourceConfigurationUrl?: string
 }
 
 type SyncMethodValue = 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
@@ -126,14 +130,26 @@ export interface SyncMethodFormHandle {
     triggerSave: () => void
 }
 
+// The API sends null when CDC is off for the source, and false when it's on but the table has no primary key.
+export const getCdcAvailability = (
+    schema: ExternalDataSourceSyncSchema
+): { isCdcOnForSource: boolean; tableHasPrimaryKeyForCdc: boolean; canPickCdc: boolean } => {
+    const isCdcOnForSource = schema.cdc_available != null
+    const tableHasPrimaryKeyForCdc = schema.cdc_available === true
+    return { isCdcOnForSource, tableHasPrimaryKeyForCdc, canPickCdc: tableHasPrimaryKeyForCdc }
+}
+
+const CDC_OFF_FOR_SOURCE_REASON = 'Turn on CDC for this source first'
+
 const getCdcSyncSupported = (
     schema: ExternalDataSourceSyncSchema
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
-    if (!schema.cdc_available) {
-        return {
-            disabled: true,
-            disabledReason: 'This table has no primary key, which is required for CDC',
-        }
+    const { isCdcOnForSource, tableHasPrimaryKeyForCdc } = getCdcAvailability(schema)
+    if (!isCdcOnForSource) {
+        return { disabled: true, disabledReason: CDC_OFF_FOR_SOURCE_REASON }
+    }
+    if (!tableHasPrimaryKeyForCdc) {
+        return { disabled: true, disabledReason: 'This table needs a primary key on the source to use CDC' }
     }
 
     return {
@@ -193,7 +209,7 @@ export const getInitialRadioState = (
     if (schema.supports_webhooks) {
         return 'webhook'
     }
-    if (schema.cdc_available) {
+    if (getCdcAvailability(schema).canPickCdc) {
         return 'cdc'
     }
     // Offering incremental to a table with no key only leads to a sync that fails on its second
@@ -220,12 +236,15 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         isNewSource,
         hideFooter,
         onSaveDisabledReasonChange,
+        sourceSupportsCdc,
+        sourceConfigurationUrl,
     },
     ref
 ): JSX.Element {
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
+    const { isCdcOnForSource, canPickCdc } = getCdcAvailability(schema)
 
     // An empty discovered list means "not discovered", not "this relation has no columns": a
     // Redshift materialized view under a restricted role is listed from the stored metadata alone.
@@ -399,7 +418,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     // These methods merge changes into the synced table on its primary key, so they share the key and
     // output table settings below the options.
     const keyedOptions: SyncMethodOption[] = []
-    if (!hideNonWebhookOptions && schema.cdc_available) {
+    if (!hideNonWebhookOptions && (canPickCdc || sourceSupportsCdc)) {
         keyedOptions.push({
             value: 'cdc',
             disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,
@@ -407,13 +426,25 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">CDC (change data capture)</h4>
-                        {!schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
+                        {canPickCdc && !schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
                     </div>
                     <p className="mb-2">
-                        Capture inserts, updates, and deletes in real-time via logical replication. Keeps PostHog in
-                        sync with the source continuously and handles row deletes — unlike incremental or append.
-                        Requires a primary key on the source table.
+                        Streams inserts, updates, and deletes through logical replication. Changes are captured all the
+                        time and loaded into this table on its sync schedule, every 5 minutes by default. Requires a
+                        primary key on the source table.
                     </p>
+                    {cdcSyncSupported.disabled && (
+                        <p className="mb-2 font-semibold">
+                            {!isCdcOnForSource && sourceConfigurationUrl ? (
+                                <>
+                                    {CDC_OFF_FOR_SOURCE_REASON}, on its{' '}
+                                    <Link to={sourceConfigurationUrl}>Configuration tab</Link>.
+                                </>
+                            ) : (
+                                <>{cdcSyncSupported.disabledReason}.</>
+                            )}
+                        </p>
+                    )}
                 </div>
             ),
         })
@@ -433,7 +464,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                     </p>
                     <p className="mb-2">
                         Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
-                        column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
+                        column is unindexed). {isCdcOnForSource ? 'Choose CDC' : 'Turn on CDC for this source'} if you
+                        need deletes or have a very large, high-churn table.
                     </p>
                 </div>
             ),
@@ -447,7 +479,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
-                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && !schema.cdc_available && (
+                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && !canPickCdc && (
                             <LemonTag type="success">Recommended</LemonTag>
                         )}
                     </div>

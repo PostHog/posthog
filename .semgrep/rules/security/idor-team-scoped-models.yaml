@@ -126,8 +126,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -324,6 +326,7 @@ rules:
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPCustomHarness
@@ -670,8 +673,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -859,6 +864,7 @@ rules:
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
