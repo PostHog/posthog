@@ -28,7 +28,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate, alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
+import {
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+    alertsTakeOwnershipCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -958,9 +962,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
                 const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
                 try {
-                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                        snoozed_until: resolvedSnoozeUntil,
-                    })
+                    const updatedAlert = (await alertsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        values.alertForm.id,
+                        { snoozed_until: resolvedSnoozeUntil }
+                    )) as unknown as AlertType
                     hydrateAlertLogicFromSaveResponse(updatedAlert)
                     const parent = getParentLogic()
                     if (parent) {

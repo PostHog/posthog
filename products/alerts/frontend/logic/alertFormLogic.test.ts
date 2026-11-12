@@ -408,7 +408,7 @@ describe('alertFormLogic', () => {
     ])('keeps the editor open and tells the user when a snooze $outcome', async ({ response, toasts }) => {
         const onEditSuccess = jest.fn()
         const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
-        updateSpy.mockImplementationOnce(response)
+        jest.spyOn(generatedApi, 'alertsPartialUpdate').mockImplementationOnce(response as any)
         const logic = alertFormLogic({
             alert: existingAlert,
             insightId: 42,
