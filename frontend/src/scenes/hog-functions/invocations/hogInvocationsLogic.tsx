@@ -618,7 +618,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     return { dates, series }
 }
 
-export async function fetchRunsPage(
+async function fetchRunsPage(
     props: HogInvocationsLogicProps,
     filters: HogInvocationsFilters,
     offset: number

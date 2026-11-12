@@ -69,7 +69,7 @@ function RunRecipients({
                 <BroadcastRunAudience runId={runId} runStartedAt={runCreatedAt} channel={channel} />
             ) : null}
             <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
-                <BroadcastRunNotSent />
+                <BroadcastRunNotSent runFinished={runFinished && !audience?.stillSending} />
                 <RunRecipientsTable
                     workflowId={workflowId}
                     runFinished={runFinished && !audience?.stillSending}
