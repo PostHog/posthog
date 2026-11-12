@@ -145,6 +145,27 @@ class TestQuotaLimiting(BaseTest):
 
     @parameterized.expand(
         [
+            ("ended_before_the_run", "2026-11-01T00:00:00Z", True),
+            ("ended_without_a_time_zone", "2026-11-01T00:00:00", True),
+            ("ends_after_the_run", "2026-12-01T00:00:00Z", False),
+        ]
+    )
+    @time_machine.travel("2026-11-01T00:05:00Z", tick=False)
+    def test_run_returns_organizations_whose_stored_period_ended(
+        self, _name: str, period_end: str, ended: bool
+    ) -> None:
+        self.organization.usage = {
+            "period": ["2026-10-01T00:00:00Z", period_end],
+            "events": {"usage": 0, "todays_usage": 0, "limit": 100},
+        }
+        self.organization.save(update_fields=["usage"])
+
+        result = self._run_quota_limiting()
+
+        assert (str(self.organization.id) in result.ended_period_org_ids) is ended
+
+    @parameterized.expand(
+        [
             ("billing_total_lacks_yesterday", 0, "2026-10-30", "2026-10-01T00:00:00Z", True, False),
             ("no_report_yet_this_period", 0, None, "2026-10-01T00:00:00Z", True, False),
             ("billing_total_has_yesterday", 0, "2026-10-31", "2026-10-01T00:00:00Z", False, False),

@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
 from itertools import batched, groupby
@@ -472,6 +472,17 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
 @lru_cache(maxsize=8192)
 def _period_timestamp(value: str) -> int:
     return round(dateutil.parser.isoparse(value).timestamp())
+
+
+def _period_has_ended(period_end: str, now: datetime) -> bool:
+    # The run checks every organization, and `fromisoformat` is much cheaper than `dateutil`.
+    try:
+        end = datetime.fromisoformat(period_end)
+    except ValueError:
+        return False
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    return end <= now
 
 
 def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[str, Any]) -> int:
@@ -1395,6 +1406,8 @@ class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
     stats: dict[str, float | int]
+    # The run cannot stop these organizations again until billing sends their new period.
+    ended_period_org_ids: list[str]
 
 
 @frozen
@@ -1655,6 +1668,7 @@ def update_all_orgs_billing_quotas(
 ) -> QuotaLimitingRunResult:
     """Refresh organization quotas every 15 minutes, including today's usage."""
     total_start = time()
+    run_started_at = datetime.fromtimestamp(total_start, tz=UTC)
     period = get_current_day()
     service = UsageCounterService()
 
@@ -1723,6 +1737,7 @@ def update_all_orgs_billing_quotas(
     org_loop_start = time()
     orgs_processed = orgs_limited_count = orgs_suspended_count = refresh_count = candidate_count = orgs_skipped = 0
     refresh_total_seconds = candidates_total_seconds = 0.0
+    ended_period_org_ids: list[str] = []
 
     def discard_decision(org_id: str, team_tokens: list[str]) -> None:
         failed_org_ids.add(org_id)
@@ -1813,6 +1828,8 @@ def update_all_orgs_billing_quotas(
                         ),
                         batch=usage_batch,
                     )
+                    if _period_has_ended(org.usage["period"][1], run_started_at):
+                        ended_period_org_ids.append(org_id)
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:
                         field = resource.value
@@ -1953,6 +1970,7 @@ def update_all_orgs_billing_quotas(
         refresh_total_ms=round(refresh_total_seconds * 1000, 1),
         orgs_failed=len(failed_org_ids),
         orgs_skipped=orgs_skipped,
+        ended_periods=len(ended_period_org_ids),
     )
     if progress_callback:
         progress_callback(
@@ -2027,6 +2045,7 @@ def update_all_orgs_billing_quotas(
             "orgs_limited": orgs_limited_count,
             "orgs_suspended": orgs_suspended_count,
         },
+        ended_period_org_ids=ended_period_org_ids,
     )
 
 

@@ -22,9 +22,8 @@ def sync_members_to_billing(organization_id: str) -> None:
     first_owner.update_billing_organization_users(organization)
 
 
-@shared_task(ignore_result=True, rate_limit="5/s")
-@skip_team_scope_audit
-def sync_from_billing(organization_id: str) -> None:
+def sync_organization_from_billing(organization_id: str, *, timeout: tuple[float, float] | None = None) -> None:
+    """Save billing's current status for the organization, which checks its quotas again when its usage changed."""
     from posthog.cloud_utils import get_cached_instance_license
     from posthog.models import Organization
 
@@ -34,4 +33,11 @@ def sync_from_billing(organization_id: str) -> None:
     billing_manager = BillingManager(license, None)
 
     organization = Organization.objects.get(id=organization_id)
-    billing_manager.get_billing(organization, {})
+    # Saving the status reads no forecast field, so the forecast is wasted work for billing.
+    billing_manager.get_billing(organization, {"include_forecasting": "false"}, timeout=timeout)
+
+
+@shared_task(ignore_result=True, rate_limit="5/s")
+@skip_team_scope_audit
+def sync_from_billing(organization_id: str) -> None:
+    sync_organization_from_billing(organization_id)
