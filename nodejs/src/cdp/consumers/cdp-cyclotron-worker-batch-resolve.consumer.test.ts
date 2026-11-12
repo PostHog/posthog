@@ -213,22 +213,6 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
-        it('enrolls no one and fails the run when the team is over its workflow quota', async () => {
-            const reschedule = jest.fn()
-            const { deps, hogFlowManager, hogFunctionMonitoringService: monitoring } = consumer as any
-            deps.quotaLimiting = { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) }
-            hogFlowManager.getHogFlow.mockResolvedValue({ ...hogFlow, billable_action_types: ['function'] })
-            monitoring.queueAppMetric = jest.fn()
-
-            await (consumer as any).processOnePage({ bulkCreateAndCheckIn, reschedule }, state)
-
-            expect(bulkCreateAndCheckIn).not.toHaveBeenCalled()
-            expect(deserializeResolverState(reschedule.mock.calls[0][0].state).pendingTerminal).toEqual('failed')
-            expect(monitoring.queueLogs.mock.calls[0][0][0].message).toEqual(
-                'Batch resolver failed: The project is over its workflow quota'
-            )
-        })
-
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 

@@ -313,7 +313,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        if (await this.isHogFlowQuotaLimited(hogFlow)) {
+        if (state.pagesProcessed === 0 && (await this.isHogFlowQuotaLimited(hogFlow))) {
             await this.transitionToFailedTerminal(job, state, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
             return
         }
