@@ -24,21 +24,24 @@ export function BroadcastRunNotSent(): JSX.Element | null {
     if (notSentLoading && notSent === null) {
         return <LemonSkeleton className="h-8" />
     }
+    const failedLoad = (
+        <span className="flex flex-wrap items-center gap-2 text-muted">
+            {notSent
+                ? "Couldn't refresh this list, so it may be out of date."
+                : "Couldn't load who this run didn't send to."}
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                onClick={loadNotSent}
+                loading={notSentLoading}
+                data-attr="broadcast-run-not-sent-retry"
+            >
+                Try again
+            </LemonButton>
+        </span>
+    )
     if (notSentFailed && notSent === null) {
-        return (
-            <span className="flex flex-wrap items-center gap-2 text-muted">
-                Couldn't load who this run didn't send to.
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={loadNotSent}
-                    loading={notSentLoading}
-                    data-attr="broadcast-run-not-sent-retry"
-                >
-                    Try again
-                </LemonButton>
-            </span>
-        )
+        return failedLoad
     }
     const total = notSent ? notSentTotal(notSent.counts) : 0
     if (!notSent || total === 0) {
@@ -52,6 +55,7 @@ export function BroadcastRunNotSent(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-2" data-attr="broadcast-run-not-sent">
+            {notSentFailed ? failedLoad : null}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <LemonInput
                     type="search"

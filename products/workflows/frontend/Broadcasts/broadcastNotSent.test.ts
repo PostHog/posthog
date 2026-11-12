@@ -72,7 +72,11 @@ describe('broadcastNotSent', () => {
                 personId: 'person-b',
             },
         ])
-        expect(queries.every((query) => query.includes("'run-1'") || query.includes('FROM log_entries'))).toBe(true)
+        expect(queries.every((query) => query.includes("'run-1'"))).toBe(true)
+        // A batch run's logs are written under the run's id, so a log lookup by the workflow id finds nothing.
+        const logQueries = queries.filter((query) => query.includes('log_entries'))
+        expect(logQueries.length).toBeGreaterThan(0)
+        expect(logQueries.every((query) => query.includes("log_source_id = 'run-1'"))).toBe(true)
     })
 
     it('narrows the listed people to a search but keeps counting the whole run', async () => {
@@ -113,6 +117,29 @@ describe('broadcastNotSent', () => {
         }
 
         expect(logic.values.runView).toBe(view)
+        logic.unmount()
+    })
+
+    it('keeps the first view when a refresh changes the counts', async () => {
+        const logic = broadcastSentLogic({ id: 'flow-1', parentRunId: 'run-1', runCreatedAt: '2026-11-12T15:49:00Z' })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadNotSent()).toDispatchActions(['loadNotSentSuccess'])
+        expect(logic.values.runView).toBe('notSent')
+
+        statusCounts = []
+        await expectLogic(logic, () => logic.actions.loadNotSent()).toDispatchActions(['loadNotSentSuccess'])
+
+        expect(logic.values.runView).toBe('notSent')
+        logic.unmount()
+    })
+
+    it('opens a run past retention on the sent view without querying', () => {
+        const logic = broadcastSentLogic({ id: 'flow-1', parentRunId: 'run-1', runCreatedAt: '2026-01-01T00:00:00Z' })
+        logic.mount()
+        logic.actions.watchNotSent(true)
+
+        expect(logic.values.runView).toBe('sent')
+        expect(queries).toEqual([])
         logic.unmount()
     })
 })

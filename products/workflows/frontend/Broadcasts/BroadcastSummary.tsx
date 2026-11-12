@@ -99,7 +99,7 @@ function RunRecipientsViews({
     runFinished: boolean
     sent: number | null
 }): JSX.Element {
-    const { runView, notSentCount } = useValues(broadcastSentLogic)
+    const { runView, notSentCount, runPastRetention } = useValues(broadcastSentLogic)
     const { setRunView, watchNotSent } = useActions(broadcastSentLogic)
 
     useEffect(() => {
@@ -124,12 +124,13 @@ function RunRecipientsViews({
                     {
                         value: 'notSent',
                         label: notSentCount === null ? 'Not sent' : `Not sent (${humanFriendlyNumber(notSentCount)})`,
-                        disabledReason:
-                            notSentCount === 0
-                                ? runFinished
-                                    ? 'Everyone in this run was sent to'
-                                    : 'No one in this run has been missed so far'
-                                : undefined,
+                        disabledReason: runPastRetention
+                            ? "Delivery details are kept for 30 days, so this run's list is no longer available"
+                            : notSentCount === 0
+                              ? runFinished
+                                  ? 'Everyone in this run was sent to'
+                                  : 'No one in this run has been missed so far'
+                              : undefined,
                         'data-attr': 'broadcast-run-view-not-sent',
                     },
                 ]}

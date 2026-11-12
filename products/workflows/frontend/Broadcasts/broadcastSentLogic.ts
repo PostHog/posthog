@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { MessageAsset, getMessageAssets } from '../Workflows/messageAssetsApi'
 import { BroadcastNotSent, loadBroadcastNotSent, notSentTotal } from './broadcastNotSent'
+import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { BroadcastWizardLogicProps } from './broadcastWizardLogic'
 
 /** How many recipients a page holds. A run can reach far more, so further pages load on request. */
@@ -268,7 +269,7 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values, props }) => ({
         setNotSentSearch: async ({ search }, breakpoint) => {
             if (search) {
                 await breakpoint(300)
@@ -277,15 +278,32 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
         },
         // Failures add up while a run sends, so the list re-reads until the run finishes.
         watchNotSent: ({ runFinished }) => {
+            // Invocation results expire with the sends, so an old run has nothing left to count.
+            if (values.runPastRetention) {
+                return
+            }
             actions.loadNotSent()
             if (runFinished) {
                 cache.disposables.dispose('notSentRefresh')
                 return
             }
             cache.disposables.add(() => {
-                const id = window.setInterval(() => actions.loadNotSent(), NOT_SENT_REFRESH_INTERVAL_MS)
+                const id = window.setInterval(() => {
+                    actions.loadNotSent()
+                    // The run's own finished state loads once, so the broadcast's queue count, which the summary
+                    // keeps current, says when nothing more can fail. One last load then picks up the final state.
+                    if (broadcastSendingLogic.findMounted({ id: props.id })?.values.stillToSend === 0) {
+                        cache.disposables.dispose('notSentRefresh')
+                    }
+                }, NOT_SENT_REFRESH_INTERVAL_MS)
                 return () => clearInterval(id)
             }, 'notSentRefresh')
+        },
+        loadNotSentSuccess: () => {
+            // The first resolved view sticks, so a later refresh never swaps the list someone is reading.
+            if (values.chosenRunView === null && values.runView !== null) {
+                actions.setRunView(values.runView)
+            }
         },
         setRecipientSearch: async ({ search }, breakpoint) => {
             // A cleared search loads at once. During a delay the old search's empty results would show
@@ -305,14 +323,21 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
         // Opens on the people a run missed, so failures show without a click. Null until that is known,
         // so the row does not switch views under the reader.
         runView: [
-            (s) => [s.chosenRunView, s.notSentCount, s.notSentFailed],
+            (s) => [s.chosenRunView, s.notSentCount, s.notSentFailed, s.runPastRetention],
             (
                 chosenRunView: RunRecipientsView | null,
                 notSentCount: number | null,
-                notSentFailed: boolean
+                notSentFailed: boolean,
+                runPastRetention: boolean
             ): RunRecipientsView | null =>
                 chosenRunView ??
-                (notSentCount === null ? (notSentFailed ? 'sent' : null) : notSentCount > 0 ? 'notSent' : 'sent'),
+                (runPastRetention || notSentFailed
+                    ? 'sent'
+                    : notSentCount === null
+                      ? null
+                      : notSentCount > 0
+                        ? 'notSent'
+                        : 'sent'),
         ],
         selectedSend: [
             (s) => [s.sends, s.selectedInvocationId],

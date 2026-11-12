@@ -6,8 +6,8 @@ import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 export const NOT_SENT_ROW_LIMIT = 100
 
 /**
- * Why a person in a run got no message. A paused or skipped email does not fail the run: the run
- * succeeds with an error in its log, so `skipped` is a succeeded run that logged an error.
+ * Why a person in a run got no message. A skipped email (paused, opted out, suppressed, no address)
+ * does not fail the run: the run succeeds and only its log records the skip.
  */
 export type NotSentKind = 'failed' | 'skipped' | 'canceled'
 
@@ -34,14 +34,36 @@ export function notSentTotal(counts: NotSentCounts): number {
     return counts.failed + counts.skipped + counts.canceled
 }
 
-/** One row per person in the run who got no message: a failed or canceled run, or a run that logged an error. */
+/**
+ * Run log lines that mean a person got no message. The worker records a skip in the log only, at
+ * any level (an opt-out or suppression logs info, a missing address warn, a paused send error), so
+ * skips are matched on the wording the email step uses. Logs are keyed by the run, not the workflow.
+ */
+function notSentLogFilter(runId: string, from: string): string {
+    return `log_source = 'hog_flow'
+        AND log_source_id = ${escapeHogQLString(runId)}
+        AND timestamp >= toDateTime(${from})
+        AND (
+            lower(level) = 'error'
+            OR message ILIKE 'Skipping send%'
+            OR message ILIKE '%skipping message delivery%'
+        )`
+}
+
+/** A run can be older than a day, so the window opens a day before it started. */
+function windowStart(runCreatedAt: string): string {
+    return escapeHogQLString(dayjs.utc(runCreatedAt).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'))
+}
+
+/** One row per person in the run who got no message: a failed or canceled run, or a run that logged a skip. */
 function notSentInvocations(
     flowId: string,
     runId: string,
     runCreatedAt: string,
     search = ''
 ): ReturnType<typeof hogql.raw> {
-    const flow = escapeHogQLString(flowId)
+    const from = windowStart(runCreatedAt)
+    const logFilter = notSentLogFilter(runId, from)
     // ILIKE treats % and _ as wildcards, so they are escaped to match a search term literally.
     const like = escapeHogQLString(`%${search.replace(/[\\%_]/g, '\\$&')}%`)
     // A skipped person's reason is only in the run log, so the search reads the log too.
@@ -49,15 +71,9 @@ function notSentInvocations(
         ? `AND (
                distinct_id ILIKE ${like}
                OR error_message ILIKE ${like}
-               OR invocation_id IN (
-                   SELECT DISTINCT instance_id FROM log_entries
-                   WHERE log_source = 'hog_flow' AND log_source_id = ${flow}
-                     AND lower(level) = 'error' AND message ILIKE ${like}
-               )
+               OR invocation_id IN (SELECT DISTINCT instance_id FROM log_entries WHERE ${logFilter} AND message ILIKE ${like})
            )`
         : ''
-    // A run can be older than a day, so the window opens a day before it started.
-    const from = escapeHogQLString(dayjs.utc(runCreatedAt).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'))
     return hogql.raw(`
         SELECT
             invocation_id,
@@ -68,20 +84,14 @@ function notSentInvocations(
             max(scheduled_at) AS latest_scheduled_at
         FROM posthog.hog_invocation_results
         WHERE function_kind = 'hog_flow'
-          AND function_id = ${flow}
+          AND function_id = ${escapeHogQLString(flowId)}
           AND parent_run_id = ${escapeHogQLString(runId)}
           AND scheduled_at >= toDateTime(${from})
         GROUP BY invocation_id
         HAVING argMax(is_deleted, version) = 0
            AND (
                status IN ('failed', 'canceled')
-               OR (
-                   status = 'succeeded'
-                   AND invocation_id IN (
-                       SELECT DISTINCT instance_id FROM log_entries
-                       WHERE log_source = 'hog_flow' AND log_source_id = ${flow} AND lower(level) = 'error'
-                   )
-               )
+               OR (status = 'succeeded' AND invocation_id IN (SELECT DISTINCT instance_id FROM log_entries WHERE ${logFilter}))
            )
            ${searchClause}
     `)
@@ -120,16 +130,14 @@ export async function loadBroadcastNotSent(
         counts[notSentKind(String(status))] += Number(count)
     }
 
-    // A skip, and some failures, put the reason only in the run's log, so the latest error line stands in.
+    // A skip, and some failures, put the reason only in the run's log, so the latest such line stands in.
     const withoutReason = rows.filter((row) => !row.reason).map((row) => escapeHogQLString(row.invocationId))
     if (withoutReason.length) {
         const logs = await api.queryHogQL(
             hogql`
                 SELECT instance_id, argMax(message, timestamp)
                 FROM log_entries
-                WHERE log_source = 'hog_flow'
-                  AND log_source_id = ${flowId}
-                  AND lower(level) = 'error'
+                WHERE ${hogql.raw(notSentLogFilter(runId, windowStart(runCreatedAt)))}
                   AND instance_id IN (${hogql.raw(withoutReason.join(', '))})
                 GROUP BY instance_id
             `,
