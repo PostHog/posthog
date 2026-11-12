@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind, type InsightVizNode, type TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
-import { RankingOutcomeEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { RankingOutcomeEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { userEvent } from 'storybook/test'
 
@@ -267,6 +267,249 @@ export const ReportCardWithImpact: Story = {
     ),
 }
 
+function withInterval(metric: ReportMetricApi, interval: string): ReportMetricApi {
+    return Object.assign({}, metric, { interval })
+}
+
+function lineQuery(event: string): InsightVizNode<TrendsQuery> {
+    return metricQuery(event, event)
+}
+
+// One row per Monitoring state the panel draws: a count off its pace with its trend, a rate on track,
+// a metric awaiting its first reading, agent checks only, and a window that has ended.
+const monitoringReports: SignalReport[] = [
+    makeReport({
+        title: 'fix(billing): Stop sending duplicate invoice emails after a plan change',
+        summary: 'Customers who change plans mid-cycle get the same invoice email two or three times.',
+        priority: 'P2',
+        status: SignalReportStatus.MONITORING,
+        implementation_pr_url: 'https://github.com/example/repo/pull/4182',
+        implementation_pr_merged: true,
+        source_products: ['zendesk'],
+        monitoring_started_at: '2026-06-08T09:00:00Z',
+        metrics: [
+            withInterval(
+                {
+                    metric_id: 'duplicate-invoices',
+                    title: 'Duplicate invoice emails',
+                    kind: 'occurrences',
+                    role: 'primary',
+                    value: 14,
+                    value_at: '2026-06-10T22:00:00Z',
+                    series: [31, 28, 33, 30, 29, 34, 27, 31, 30, 32, 33, 4, 9, 2],
+                    series_buckets: [
+                        '2026-05-28',
+                        '2026-05-29',
+                        '2026-05-30',
+                        '2026-05-31',
+                        '2026-06-01',
+                        '2026-06-02',
+                        '2026-06-03',
+                        '2026-06-04',
+                        '2026-06-05',
+                        '2026-06-06',
+                        '2026-06-07',
+                        '2026-06-08',
+                        '2026-06-09',
+                        '2026-06-10',
+                    ],
+                    value_format: 'count',
+                    unit: 'emails',
+                    query: lineQuery('invoice_email_sent'),
+                    caption: null,
+                },
+                'day'
+            ),
+        ],
+        monitoring_summary: {
+            state: 'not_on_track',
+            started_at: '2026-06-08T09:00:00Z',
+            ends_at: '2026-06-15T09:00:00Z',
+            lead_check: {
+                check_id: 'duplicate-invoices-check',
+                title: 'Duplicate invoice emails stay at or below 30 in a week',
+                metric_id: 'duplicate-invoices',
+                metric_kind: 'occurrences',
+                value_format: 'count',
+                unit: 'emails',
+                comparison: { operator: 'lte', value: 30 },
+                monitoring: {
+                    reference_period_minutes: 10080,
+                    threshold_scaling: 'linear',
+                    baseline_period_minutes: 10080,
+                },
+                baseline_value: 210,
+                ends_at: '2026-06-15T09:00:00Z',
+                next_measurement_at: '2026-06-11T09:00:00Z',
+                readings: [
+                    { measured_at: '2026-06-09T09:00:00Z', matches: true, observed_value: 3, threshold: 4.3 },
+                    { measured_at: '2026-06-10T09:00:00Z', matches: false, observed_value: 14, threshold: 8.6 },
+                ],
+            },
+        },
+    }),
+    makeReport({
+        title: 'fix(checkout): Retry card authorization after a gateway timeout',
+        summary: 'About one checkout in five fails when the payment gateway is slow to answer.',
+        priority: 'P0',
+        status: SignalReportStatus.MONITORING,
+        implementation_pr_url: 'https://github.com/example/repo/pull/4176',
+        implementation_pr_merged: true,
+        source_products: ['error_tracking', 'session_replay'],
+        monitoring_started_at: '2026-06-10T10:00:00Z',
+        metrics: [
+            withInterval(
+                {
+                    metric_id: 'checkout-failure-rate',
+                    title: 'Checkout failure rate',
+                    kind: 'error_rate',
+                    role: 'primary',
+                    value: 0.016,
+                    value_at: '2026-06-10T23:30:00Z',
+                    series: [0.021, 0.019, 0.02, 0.022, 0.2, 0.21, 0.19, 0.22, 0.2, 0.18, 0.21, 0.2, 0.22, 0.07],
+                    series_buckets: [
+                        '2026-05-28',
+                        '2026-05-29',
+                        '2026-05-30',
+                        '2026-05-31',
+                        '2026-06-01',
+                        '2026-06-02',
+                        '2026-06-03',
+                        '2026-06-04',
+                        '2026-06-05',
+                        '2026-06-06',
+                        '2026-06-07',
+                        '2026-06-08',
+                        '2026-06-09',
+                        '2026-06-10',
+                    ],
+                    value_format: 'percentage_scaled',
+                    unit: null,
+                    query: lineQuery('checkout_failed'),
+                    caption: null,
+                },
+                'day'
+            ),
+        ],
+        monitoring_summary: {
+            state: 'on_track',
+            started_at: '2026-06-10T10:00:00Z',
+            ends_at: '2026-06-11T10:00:00Z',
+            lead_check: {
+                check_id: 'checkout-failure-check',
+                title: 'Checkout failure rate stays at or below 2%',
+                metric_id: 'checkout-failure-rate',
+                metric_kind: 'error_rate',
+                value_format: 'percentage_scaled',
+                unit: null,
+                comparison: { operator: 'lte', value: 0.02 },
+                monitoring: {
+                    reference_period_minutes: 1440,
+                    threshold_scaling: 'fixed',
+                    baseline_period_minutes: 1440,
+                },
+                baseline_value: 0.2,
+                ends_at: '2026-06-11T10:00:00Z',
+                next_measurement_at: '2026-06-11T04:00:00Z',
+                readings: [
+                    { measured_at: '2026-06-10T16:00:00Z', matches: true, observed_value: 0.019, threshold: 0.02 },
+                    { measured_at: '2026-06-10T22:00:00Z', matches: true, observed_value: 0.016, threshold: 0.02 },
+                ],
+            },
+        },
+    }),
+    makeReport({
+        title: 'fix(search): Keep the query when switching result tabs',
+        summary: 'Switching between result tabs clears the search box, so people retype their query.',
+        priority: 'P3',
+        status: SignalReportStatus.MONITORING,
+        implementation_pr_url: 'https://github.com/example/repo/pull/4190',
+        implementation_pr_merged: true,
+        source_products: ['session_replay'],
+        monitoring_started_at: '2026-06-10T20:00:00Z',
+        monitoring_summary: {
+            state: 'awaiting_reading',
+            started_at: '2026-06-10T20:00:00Z',
+            ends_at: '2026-06-13T20:00:00Z',
+            lead_check: {
+                check_id: 'search-retype-check',
+                title: 'At most 40 people retype a cleared search in three days',
+                metric_id: null,
+                metric_kind: 'affected_users',
+                value_format: 'count',
+                unit: 'people',
+                comparison: { operator: 'lte', value: 40 },
+                monitoring: {
+                    reference_period_minutes: 4320,
+                    threshold_scaling: 'fixed',
+                    baseline_period_minutes: 4320,
+                },
+                baseline_value: 180,
+                ends_at: '2026-06-13T20:00:00Z',
+                next_measurement_at: '2026-06-11T02:00:00Z',
+                readings: [],
+            },
+        },
+    }),
+    makeReport({
+        title: 'fix(exports): Stop retrying CSV exports that already finished',
+        summary: 'Finished exports are queued again after a worker restart, so some people get two files.',
+        priority: 'P2',
+        status: SignalReportStatus.MONITORING,
+        implementation_pr_url: 'https://github.com/example/repo/pull/4164',
+        implementation_pr_merged: true,
+        source_products: ['signals_scout'],
+        monitoring_started_at: '2026-06-09T15:00:00Z',
+        monitoring_summary: {
+            state: 'final_check_only',
+            started_at: '2026-06-09T15:00:00Z',
+            ends_at: '2026-06-16T15:00:00Z',
+            lead_check: null,
+        },
+    }),
+    makeReport({
+        title: 'fix(alerts): Send one alert per threshold breach, not one per check run',
+        summary: 'A breached alert sends a new notification every check run until someone acknowledges it.',
+        priority: 'P1',
+        status: SignalReportStatus.MONITORING,
+        implementation_pr_url: 'https://github.com/example/repo/pull/4151',
+        implementation_pr_merged: true,
+        source_products: ['github'],
+        monitoring_started_at: '2026-06-03T12:00:00Z',
+        monitoring_summary: {
+            state: 'window_ended',
+            started_at: '2026-06-03T12:00:00Z',
+            ends_at: '2026-06-10T12:00:00Z',
+            lead_check: null,
+        },
+    }),
+]
+
+export const ReportCardMonitoring: Story = {
+    parameters: { mockDate: '2026-06-11T00:00:00Z', testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <CardList>
+            {monitoringReports.map((report) => (
+                <ReportCard key={report.id} report={report} />
+            ))}
+        </CardList>
+    ),
+}
+
+/** The band wraps and the panel drops under the title at phone width. */
+export const ReportCardMonitoringNarrow: Story = {
+    parameters: { mockDate: '2026-06-11T00:00:00Z', testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <div className="bg-primary min-h-screen p-4">
+            <div className="@container mx-auto flex w-[390px] flex-col gap-1.5">
+                {monitoringReports.slice(0, 2).map((report) => (
+                    <ReportCard key={report.id} report={report} />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
 function ranking(
     scores: Partial<Record<RankingOutcomeEnumApi, number>>,
     lifts: Partial<Record<RankingOutcomeEnumApi, number>>,
@@ -379,6 +622,72 @@ export const ReportCardRankingPillsNarrow: Story = {
     ),
 }
 
+// The Personalized sort: three tiers with reasons, a long reason that truncates, and a report after the
+// list with no tier or reason.
+const personalReports: SignalReport[] = [
+    makeReport({
+        title: 'Payment webhook retries stop after one rate limit response',
+        priority: 'P1',
+        source_products: ['logs'],
+        ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+        inbox_merge_key: 0,
+        personal_tier: 'top',
+        personal_reason: 'You changed the webhook retry code this week, so this is close to your current work.',
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: ranking({ open: 0.5, action: 0.2, fix: 0.04 }, { open: 1.4, action: 0.9, fix: 0.6 }),
+        inbox_merge_key: 1,
+        personal_tier: 'worth_a_look',
+        personal_reason:
+            'You looked at funnel insights a few times recently. The fix looks small, and the report has a clear repro in the linked recordings, so it could be a quick win between larger pieces of work.',
+    }),
+    makeReport({
+        title: 'Typo in the billing settings page',
+        priority: 'P4',
+        ranking: ranking({ open: 0.1, action: 0.02, fix: 0.004 }, { open: 0.5, action: 0.3, fix: 0.05 }),
+        inbox_merge_key: 2,
+        personal_tier: 'later',
+        personal_reason: 'Billing is outside the areas you have worked on lately.',
+    }),
+    makeReport({
+        title: 'Slow dashboard load for large projects',
+        priority: 'P2',
+        ranking: ranking({ open: 0.4, action: 0.3, fix: 0.2 }, { open: 1.1, action: 1.0, fix: 0.9 }),
+        inbox_merge_key: 3.4,
+        personal_tier: null,
+        personal_reason: null,
+    }),
+]
+
+export const ReportCardPersonalized: Story = {
+    render: () => (
+        <CardList>
+            {personalReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingPill personalSort />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.9x'))
+    },
+}
+
+/** The narrowest scene the inbox holds, where the reason wraps to its two-line limit. */
+export const ReportCardPersonalizedNarrow: Story = {
+    render: () => (
+        <div className="bg-primary min-h-screen w-[390px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                {personalReports.map((report) => (
+                    <ReportCard key={report.id} report={report} rankingPill personalSort />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
 // Under the Action sort, so the ranking pill sits in the meta row: the user's claim, their agent's
 // claim, a teammate's claim, and no claim.
 const claimedRankedReports: SignalReport[] = [
@@ -468,6 +777,17 @@ export const ReportCardStates: Story = {
                     summary:
                         'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review.',
                     source_products: ['signals_scout'],
+                })}
+            />
+            <ReportCard
+                report={makeReport({
+                    title: 'Monitoring the outcome after implementation',
+                    priority: 'P2',
+                    status: SignalReportStatus.MONITORING,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/42',
+                    implementation_pr_merged: true,
+                    source_products: ['error_tracking'],
+                    summary: 'Implementation is complete. Follow-up checks are verifying the outcome.',
                 })}
             />
             <ReportCard

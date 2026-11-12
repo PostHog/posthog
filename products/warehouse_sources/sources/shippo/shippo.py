@@ -1,16 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
+    ClientConfig,
+    JSONLinkPaginator,
+    RESTClient,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     reach_safe_point,
     retry_with_deadline,
@@ -62,6 +68,8 @@ class ShippoResumeConfig:
     # ISO timestamp of the creation-date window currently being walked (incremental shipments
     # syncs only). `None` for unfiltered full-catalog pagination.
     window_start: str | None = None
+    fanout_state: dict[str, Any] | None = None
+    transaction_index: int = 0
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -245,26 +253,173 @@ def get_rows(
         yield from _paginate(session, first_url, None, endpoint, logger, resumable_source_manager)
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": SHIPPO_BASE_URL,
+        "auth": APIKeyAuth(api_key=f"ShippoToken {api_key}"),
+        "headers": {"Accept": "application/json"},
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
+def _rates_resource(
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[ShippoResumeConfig],
+) -> Iterable[Any]:
+    resume = manager.load_state() if manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state is not None:
+            manager.save_state(ShippoResumeConfig(fanout_state=state))
+
+    fanout = SHIPPO_ENDPOINTS["rates"].fanout
+    assert fanout is not None
+    return build_dependent_resource(
+        endpoint_configs=SHIPPO_ENDPOINTS,
+        child_endpoint="rates",
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="results",
+        parent_endpoint_extra={
+            "path": "/shipments/",
+            "paginator": JSONLinkPaginator(),
+            "data_selector": "results",
+            "data_selector_required": True,
+        },
+        child_endpoint_extra={
+            "paginator": JSONLinkPaginator(),
+            "data_selector": "results",
+            "data_selector_required": True,
+        },
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume else None,
+        resume_parent_pagination=True,
+    )
+
+
+def _get_object(client: RESTClient, path: str, manager: ResumableSourceManager[ShippoResumeConfig]) -> dict[str, Any]:
+    manager.safe_point()
+    pages = client.paginate(path, paginator=SinglePagePaginator(), data_selector="$")
+    rows = next(pages)
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError(f"Shippo returned an unexpected object for {path}")
+    return rows[0]
+
+
+def _transaction_tracking(
+    client: RESTClient,
+    transaction: dict[str, Any],
+    carriers: dict[str, str],
+    manager: ResumableSourceManager[ShippoResumeConfig],
+    logger: FilteringBoundLogger,
+) -> dict[str, Any] | None:
+    tracking_number = transaction.get("tracking_number")
+    rate = transaction.get("rate")
+    if not tracking_number or not rate:
+        return None
+    if isinstance(rate, str):
+        try:
+            rate = _get_object(client, f"/rates/{quote(rate, safe='')}", manager)
+        except requests.HTTPError as error:
+            if error.response is None or error.response.status_code != 404:
+                raise
+            # Shippo retains transactions after their rates expire, so those labels cannot resolve a carrier.
+            logger.warning("Shippo no longer returns this transaction's rate. Its tracking record cannot be imported.")
+            return None
+    account_id = rate["carrier_account"]
+    if account_id not in carriers:
+        account = _get_object(client, f"/carrier_accounts/{quote(account_id, safe='')}", manager)
+        carriers[account_id] = account["carrier"]
+    carrier = carriers[account_id]
+    tracking = _get_object(client, f"/tracks/{quote(carrier, safe='')}/{quote(tracking_number, safe='')}", manager)
+    return {**tracking, "transaction": transaction["object_id"]}
+
+
+def _tracking_rows(
+    api_key: str, manager: ResumableSourceManager[ShippoResumeConfig], logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    client = RESTClient(
+        base_url=SHIPPO_BASE_URL,
+        auth=APIKeyAuth(api_key=f"ShippoToken {api_key}"),
+        headers={"Accept": "application/json"},
+        allowed_hosts=[],
+        allow_redirects=False,
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    resume = manager.load_state() if manager.can_resume() else None
+    page_url = resume.next_url if resume and resume.next_url else _build_url("/transactions", {"results": PAGE_SIZE})
+    transaction_index = resume.transaction_index if resume else 0
+    next_page_url: str | None = None
+    carriers: dict[str, str] = {}
+
+    def page_checkpoint(state: dict[str, Any] | None, has_next: bool) -> None:
+        nonlocal next_page_url
+        next_page_url = state["next_url"] if state and has_next else None
+
+    for transactions in client.paginate(
+        page_url,
+        paginator=JSONLinkPaginator(),
+        data_selector="results",
+        data_selector_required=True,
+        page_state_hook=page_checkpoint,
+    ):
+        if transaction_index >= len(transactions):
+            manager.save_state(
+                ShippoResumeConfig(
+                    next_url=next_page_url or page_url,
+                    transaction_index=0 if next_page_url else transaction_index,
+                )
+            )
+        for index in range(transaction_index, len(transactions)):
+            tracking = _transaction_tracking(client, transactions[index], carriers, manager, logger)
+            manager.save_state(ShippoResumeConfig(next_url=page_url, transaction_index=index + 1))
+            if tracking is not None:
+                yield [tracking]
+            manager.safe_point()
+
+        transaction_index = 0
+        if next_page_url is not None:
+            page_url = next_page_url
+        manager.safe_point()
+
+
 def shippo_source(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShippoResumeConfig],
+    team_id: int,
+    job_id: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SHIPPO_ENDPOINTS[endpoint]
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
+    if endpoint == "rates":
+        items = lambda: _rates_resource(api_key, team_id, job_id, resumable_source_manager)
+    elif endpoint == "tracks":
+        items = lambda: _tracking_rows(api_key, resumable_source_manager, logger)
+    else:
+        items = lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
         primary_keys=config.primary_keys,
         # Shippo does not document (or accept a param controlling) list ordering, so we
         # conservatively treat responses as unordered: "desc" defers the incremental watermark

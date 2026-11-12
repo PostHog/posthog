@@ -339,6 +339,17 @@ function releaseReceipt(id) {
     return { release, receipt: attached ? downloadReceipt(id) : JSON.parse(release.body) }
 }
 
+function isAbandonedNativeClaim({ release, receipt }, request) {
+    return (
+        release.draft === true &&
+        !release.assets?.length &&
+        request.kind === 'native' &&
+        receipt.state === 'abandoned' &&
+        isDeepStrictEqual(receipt.request, request) &&
+        !('staged' in receipt || 'stagingDeployment' in receipt || 'result' in receipt)
+    )
+}
+
 function productionState() {
     const ref = optionalApi(`git/ref/${pointerRef}`)
     if (!ref) {
@@ -424,11 +435,11 @@ async function publish() {
     const previous = productionState()
     for (const name of requestFiles()) {
         const sibling = readRequest(join(requestRoot, name))
-        if (
-            sibling.id !== request.id &&
-            sibling.previousRelease === request.previousRelease &&
-            releaseReceipt(sibling.id)
-        ) {
+        if (sibling.id === request.id || sibling.previousRelease !== request.previousRelease) {
+            continue
+        }
+        const claimed = releaseReceipt(sibling.id)
+        if (claimed && !isAbandonedNativeClaim(claimed, sibling)) {
             throw new Error(
                 'Another request sharing this predecessor already has a release receipt. Reconcile its EAS results or repair the production pointer before creating a successor'
             )

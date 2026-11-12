@@ -14,7 +14,10 @@ Consumers that only read fields should use ``facade.api`` (contracts) instead.
 
 from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
@@ -33,6 +36,7 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
@@ -125,6 +129,7 @@ __all__ = [
     "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
     "get_or_create_warehouse_destination",
+    "clear_masked_column_bounds",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",
@@ -149,6 +154,7 @@ __all__ = [
     "resolve_sync_type",
     "self_managed_table_ref",
     "CDC_SNAPSHOT_LANE_KEY",
+    "INCREMENTAL_HISTORY_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

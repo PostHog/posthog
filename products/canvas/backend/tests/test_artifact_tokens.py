@@ -169,7 +169,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         CANVAS_ARTIFACT_SIGNING_KEYS=["dedicated-signing-key-at-least-32-bytes-long"],
     )
     def test_production_check_rejects_a_signing_key_without_an_origin(self) -> None:
-        self.assertIn("canvas.E001", [error.id for error in check_artifact_delivery_settings(None)])
+        self.assertIn("posthog.canvas.E001", [error.id for error in check_artifact_delivery_settings(None)])
 
     @override_settings(
         DEBUG=False,

@@ -1,7 +1,7 @@
 import json
 import base64
 from datetime import UTC, datetime, timedelta
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -18,6 +18,11 @@ from rest_framework import status
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.device import DEVICE_CODE_GRANT_TYPE
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PendingOAuthConnection,
+    PendingOAuthFlow,
+)
 from posthog.models import Organization, Team
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -187,6 +192,26 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], expected)
+
+    def test_revoking_a_refresh_token_rotation_replaced_ends_the_login(self) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            started = self._start()
+            self._approve(started["user_code"])
+            clock.shift(timedelta(seconds=6))
+            first = self._poll(started["device_code"]).json()
+            refresh_body = {
+                "grant_type": "refresh_token",
+                "refresh_token": first["refresh_token"],
+                "client_id": "hog-device-client",
+            }
+            refreshed = self.client.post("/oauth/token/", urlencode(refresh_body), content_type=FORM).json()
+
+            revoke_body = {"token": first["refresh_token"], "client_id": "hog-device-client"}
+            revoked = self.client.post("/oauth/revoke/", urlencode(revoke_body), content_type=FORM)
+
+        self.assertEqual(revoked.status_code, status.HTTP_200_OK, revoked.content)
+        self.assertFalse(OAuthAccessToken.objects.filter(token=refreshed["access_token"]).exists())
+        self.assertFalse(OAuthRefreshToken.objects.filter(token=refreshed["refresh_token"], revoked=None).exists())
 
     def test_only_the_client_that_started_the_grant_can_redeem_it(self) -> None:
         OAuthApplication.objects.create(
@@ -458,6 +483,56 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
         self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
 
+    def test_a_signed_out_visitor_can_type_the_code_before_logging_in(self) -> None:
+        self.client.logout()
+
+        response = self.client.get("/device")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("a live code", None, True, 0, True),
+            ("a wrong code", "BCDF-GHJK", True, 0, False),
+            ("the code of an unverified app", None, False, 0, False),
+            ("a live code after too many guesses", None, True, 10, False),
+        ]
+    )
+    def test_a_signed_out_visitor_with_a_code_logs_in_first(
+        self, _name: str, wrong_code: str | None, app_verified: bool, prior_guesses: int, names_the_app: bool
+    ) -> None:
+        started = self._start()
+        OAuthApplication.objects.filter(pk=self.device_app.pk).update(is_verified=app_verified)
+        self.client.logout()
+        for _ in range(prior_guesses):
+            self.client.get("/device?code=BCDF-GHJK")
+        path = f"/device?{urlencode({'code': wrong_code or started['user_code'].lower()})}"
+
+        response = self.client.get(path)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        login = urlparse(response["Location"])
+        self.assertEqual((login.path, parse_qs(login.query)["next"]), ("/login", [path]))
+        cookie = response.cookies.get(PENDING_OAUTH_CONNECTION_COOKIE)
+        self.assertEqual(
+            cookie and PendingOAuthConnection.from_cookie_value(cookie.value),
+            PendingOAuthConnection(client_name="hog", client_id="hog-device-client", flow=PendingOAuthFlow.DEVICE)
+            if names_the_app
+            else None,
+        )
+
+    @parameterized.expand([("approve", "authorized"), ("deny", "denied")])
+    def test_a_decision_ends_the_pending_connection(self, decision: str, expected_status: str) -> None:
+        started = self._start()
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
+
+        response = self.client.post(
+            f"/api/oauth_device/{decision}/", {"user_code": started["user_code"], "project_id": self.team.id}
+        )
+
+        self.assertEqual(response.json(), {"status": expected_status})
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
     def test_entering_codes_is_throttled(self) -> None:
         responses = [
             self.client.post("/api/oauth_device/lookup/", {"user_code": "BCDF-GHJK"}).status_code for _ in range(11)
@@ -493,13 +568,109 @@ class TestOAuthDeviceGrant(APIBaseTest):
             redirect_uris="",
             algorithm="RS256",
             scopes=["insight:read"],
-            optional_scopes=["dashboard:write"],
+            optional_scopes=["dashboard:write", "cohort:read"],
         )
-        started = self._start(client_id="required-scopes-client", scope="dashboard:write")
+        started = self._start(
+            client_id="required-scopes-client", scope="dashboard:write cohort:read", required_scopes="cohort:read"
+        )
 
         lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
 
-        self.assertEqual(lookup.json()["scopes"], ["dashboard:write", "insight:read"])
+        self.assertEqual(lookup.json()["scopes"], ["cohort:read", "dashboard:write", "insight:read"])
+        self.assertEqual(lookup.json()["required_scopes"], ["cohort:read", "insight:read"])
+
+    @parameterized.expand(
+        [
+            ("a scope missing from scope", "insight:read dashboard:write", "dashboard:write"),
+            ("a scope outside the client's ceiling", "insight:read llm_gateway:read", "llm_gateway:read"),
+        ]
+    )
+    def test_a_client_cannot_mark_as_required(self, _name: str, required_scopes: str, refused: str) -> None:
+        response = self.client.post(
+            "/oauth/device-authorization/",
+            urlencode(
+                {
+                    "client_id": "hog-device-client",
+                    "scope": "insight:read llm_gateway:read",
+                    "required_scopes": required_scopes,
+                }
+            ),
+            content_type=FORM,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertTrue(response.json()["error_description"].endswith(f": {refused}"))
+        self.assertFalse(OAuthDeviceGrant.objects.exists())
+
+    @patch("posthog.api.oauth.device.posthoganalytics.capture")
+    def test_the_token_carries_only_the_scopes_the_person_kept(self, capture) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            started = self._start()
+            approved = self.client.post(
+                "/api/oauth_device/approve/",
+                {"user_code": started["user_code"], "project_id": self.team.id, "scopes": ["feature_flag:read"]},
+                format="json",
+            )
+            clock.shift(timedelta(seconds=6))
+
+            token = self._poll(started["device_code"])
+
+        self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.content)
+        # The client asked for `feature_flag:write`, and the person lowered it to read.
+        self.assertEqual(token.json()["scope"], "feature_flag:read")
+        approval = next(c for c in capture.call_args_list if c.kwargs["event"] == "oauth_device_authorization_approved")
+        self.assertEqual(
+            {
+                key: approval.kwargs["properties"][key]
+                for key in ("scopes_requested", "scopes_granted", "scopes_chosen")
+            },
+            {"scopes_requested": 2, "scopes_granted": 1, "scopes_chosen": True},
+        )
+
+    @parameterized.expand(
+        [
+            ("a scope the client never asked for", "", ["insight:read", "feature_flag:read"], "only keep scopes"),
+            ("without a scope the client requires", "", ["dashboard:write"], "needs some of the scopes"),
+            ("without a scope the grant marks required", "dashboard:write", ["insight:read"], "needs some of the"),
+            (
+                "with read for a write the grant marks required",
+                "dashboard:write",
+                ["insight:read", "dashboard:read"],
+                "needs some of the",
+            ),
+        ]
+    )
+    def test_approval_refuses_a_scope_list(
+        self, _name: str, required_scopes: str, kept: list[str], description: str
+    ) -> None:
+        OAuthApplication.objects.create(
+            name="required",
+            client_id="required-scopes-client",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
+            redirect_uris="",
+            algorithm="RS256",
+            scopes=["insight:read"],
+            optional_scopes=["dashboard:write"],
+        )
+        started = self._start(
+            client_id="required-scopes-client", scope="dashboard:write", required_scopes=required_scopes
+        )
+
+        response = self.client.post(
+            "/api/oauth_device/approve/",
+            {"user_code": started["user_code"], "project_id": self.team.id, "scopes": kept},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertIn(description, response.json()["error_description"])
+        self.assertEqual(
+            OAuthDeviceGrant.objects.get(user_code=started["user_code"]).status, OAuthDeviceGrant.AUTHORIZATION_PENDING
+        )
 
     def test_disconnecting_the_app_drops_an_approved_device_grant_the_client_has_not_redeemed(self) -> None:
         with time_machine.travel(START, tick=False) as clock:

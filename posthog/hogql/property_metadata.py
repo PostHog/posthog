@@ -79,11 +79,13 @@ def load_property_metadata(
         DMAT_STRING_COLUMN_NAME_PREFIX,
         get_enabled_materialized_columns_by_table,
     )
-    from posthog.models import PropertyDefinition, Team  # noqa: PLC0415
+    from posthog.models import Team
     from posthog.models.materialized_column_slots import (  # noqa: PLC0415
         MaterializedColumnSlot,
         MaterializedColumnSlotState,
     )
+
+    from products.event_definitions.backend.models import PropertyDefinition
 
     team_id = context.team_id
     if team_id is None:

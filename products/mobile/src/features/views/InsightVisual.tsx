@@ -71,7 +71,7 @@ export function InsightNoData({ snapshot, minHeight, testID }: InsightNoDataProp
 function screenCaption(snapshot: InsightSnapshot, display: InsightDisplay): string | null {
     switch (display) {
         case 'chart':
-            return intervalLabel(snapshot.interval)
+            return snapshot.allSeries[0]?.points[0]?.label === undefined ? intervalLabel(snapshot.interval) : null
         case 'funnel':
             return snapshot.funnel ? funnelSummary(snapshot.funnel) : null
         case 'retention':
@@ -225,10 +225,10 @@ export function InsightVisual({
             case 'web':
                 return place === 'screen' ? (
                     <View style={styles.card}>
-                        <OpensOnWeb shortId={snapshot.shortId} />
+                        <OpensOnWeb shortId={snapshot.shortId} reason={snapshot.capabilities.chartReason} />
                     </View>
                 ) : (
-                    <OpensOnWeb shortId={snapshot.shortId} />
+                    <OpensOnWeb shortId={snapshot.shortId} reason={snapshot.capabilities.chartReason} />
                 )
             default:
                 return null

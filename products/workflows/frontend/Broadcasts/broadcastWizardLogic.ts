@@ -10,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
+import { withEmailEditorOpen } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -187,6 +188,8 @@ export interface BroadcastEmailSettings {
     messageCategoryType: string | null
     trackingEnabled: boolean
     utmTagsEnabled: boolean
+    /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
+    skipFrequencyCap: boolean
     utmParams: UtmTagValues
     /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
     utmParamsFromDefault?: UtmTagKey[]
@@ -197,6 +200,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryType: null,
     trackingEnabled: true,
     utmTagsEnabled: false,
+    skipFrequencyCap: false,
     utmParams: {},
 }
 
@@ -321,6 +325,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
+        skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
         utmParamsFromDefault: config.utm_params_from_default,
     }
@@ -335,6 +340,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
+        skip_frequency_cap: settings.skipFrequencyCap,
         utm_params: settings.utmParams,
         utm_params_from_default: settings.utmParamsFromDefault,
     }
@@ -435,6 +441,7 @@ export interface broadcastWizardLogicValues {
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
+    savingForEmailEditor: boolean
     scheduleMode: BroadcastScheduleMode
     scheduleState: ScheduleState
     scheduleSummary: string
@@ -492,6 +499,9 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     duplicateBroadcastFinished: () => {
+        value: true
+    }
+    editEmailContent: () => {
         value: true
     }
     ensureDraft: () => {
@@ -723,6 +733,9 @@ export interface broadcastWizardLogicActions {
     setRecurringStartsAtFromPicker: (pickerDate: string | null) => {
         pickerDate: string | null
     }
+    setSavingForEmailEditor: (saving: boolean) => {
+        saving: boolean
+    }
     setScheduleMode: (mode: BroadcastScheduleMode) => {
         mode: BroadcastScheduleMode
     }
@@ -884,6 +897,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     actions({
         setStep: (step: BroadcastWizardStep) => ({ step }),
+        editEmailContent: true,
         landOnStep: (step: BroadcastWizardStep) => ({ step }),
         landOnPrefilledStep: true,
         nextStep: true,
@@ -907,6 +921,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setChannel: (channel: BroadcastChannel) => ({ channel }),
         requestChannel: (channel: BroadcastChannel) => ({ channel }),
+        setSavingForEmailEditor: (saving: boolean) => ({ saving }),
         setPush: (push: BroadcastPushValue) => ({ push }),
         brandApplied: (content: Pick<BroadcastEmailValue, 'html' | 'design'>) => ({ content }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
@@ -1356,6 +1371,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 launchBroadcast: () => true,
                 launchBroadcastFinished: () => false,
+            },
+        ],
+        savingForEmailEditor: [
+            false,
+            {
+                setSavingForEmailEditor: (_, { saving }) => saving,
             },
         ],
         hasLoadedBatchJobs: [
@@ -1875,7 +1896,44 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             await breakpoint(500)
             actions.loadBlastRadius()
         },
+        editEmailContent: async () => {
+            if (props.id !== 'new') {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
+                actions.setStep('content')
+                return
+            }
+            if (values.launching || values.savingForEmailEditor || !values.currentProjectId) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            cache.openEmailEditorOnDraftUrl = true
+            actions.setSavingForEmailEditor(true)
+            try {
+                const savedEditGeneration = cache.emailEditGeneration
+                actions.draftAutosaved(
+                    await getSaveQueue(cache, values).run(() => saveDraftAndSchedule(projectId, values, actions))
+                )
+                if (cache.emailEditGeneration === savedEditGeneration) {
+                    cache.emailEditPending = false
+                }
+                actions.showSavedDraftUrl()
+            } catch (error: any) {
+                cache.openEmailEditorOnDraftUrl = false
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
+                } else {
+                    lemonToast.error(
+                        `Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`
+                    )
+                }
+            } finally {
+                actions.setSavingForEmailEditor(false)
+            }
+        },
         setStep: ({ step }) => {
+            cache.openEmailEditorOnDraftUrl = false
             if (step === 'review') {
                 // A fresh preview mints the confirm token launch needs and shows an up-to-date count.
                 actions.loadBlastRadius()
@@ -1886,6 +1944,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         nextStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             // Listeners run after reducers, so this sees the step just navigated to.
             if (values.currentStep === 'review') {
                 actions.loadBlastRadius()
@@ -1896,6 +1955,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         prevStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             actions.reportReviewVisit()
         },
         reportReviewVisit: async (_, breakpoint) => {
@@ -1980,7 +2040,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (values.entrySource) {
                     saveEntrySource(values.broadcastId, values.entrySource)
                 }
-                router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
+                const draftUrl = urls.broadcast(values.broadcastId)
+                if (cache.openEmailEditorOnDraftUrl) {
+                    cache.openEmailEditorOnDraftUrl = false
+                    router.actions.replace(draftUrl, { step: 'content' })
+                    router.actions.push(draftUrl, withEmailEditorOpen({ step: 'content' }))
+                } else {
+                    router.actions.replace(draftUrl, { step: values.currentStep })
+                }
             }
         },
         setEmailSettings: () => {
@@ -2216,14 +2283,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             try {
                 const saved = await saves.run(async () => {
                     savedEditGeneration = cache.emailEditGeneration
-                    const draft = values.broadcastId
-                        ? await saveWithoutClobbering(projectId, values.broadcastId, values)
-                        : await createDraft(projectId, values)
-                    // Store the draft before its schedule, so a failed schedule save can't make the next Continue
-                    // create a second draft. The draft URL reloads the wizard from the server, which forgets
-                    // a send time that only the page held.
-                    actions.draftAutosaved(draft)
-                    return await saveDraftSchedule(projectId, draft, values)
+                    return await saveDraftAndSchedule(projectId, values, actions)
                 })
                 actions.saveBroadcastFinished(saved)
                 // This save carried the email edits made before it started. A later one keeps its own autosave.
@@ -2311,7 +2371,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         lemonToast.error(
                             `This project can send a broadcast to up to ${humanFriendlyNumber(
                                 blastRadius.limit
-                            )} people right now. Add filters to narrow the audience, then launch again.`,
+                            )} people right now.${
+                                values.channel === 'email' ? ' A slower sending rate does not raise this limit.' : ''
+                            } Add filters to narrow the audience, then launch again.`,
                             {
                                 button: {
                                     label: 'See sending limits',
@@ -2405,10 +2467,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // pinned: analytics event name
                 posthog.capture('broadcast launched', {
                     broadcast_id: broadcastId,
+                    channel: values.channel,
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
                     has_goal: values.goalEnabled,
+                    skip_frequency_cap: values.emailSettings.skipFrequencyCap,
                     entry_source: values.entrySource ?? loadEntrySource(broadcastId),
                     ...(cache.prefilledEmail
                         ? {
@@ -2730,6 +2794,18 @@ function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<Hog
         // The wizard has no variables step, so keep any overrides the old schedule carried.
         ...(values.broadcast?.schedules?.[0]?.variables ? { variables: values.broadcast.schedules[0].variables } : {}),
     }
+}
+
+async function saveDraftAndSchedule(
+    projectId: string,
+    values: broadcastWizardLogicType['values'],
+    actions: broadcastWizardLogicType['actions']
+): Promise<HogFlowApi> {
+    const draft = values.broadcastId
+        ? await saveWithoutClobbering(projectId, values.broadcastId, values)
+        : await createDraft(projectId, values)
+    actions.draftAutosaved(draft)
+    return await saveDraftSchedule(projectId, draft, values)
 }
 
 /**

@@ -7,7 +7,13 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+)
 from products.warehouse_sources.sources.shippo import shippo
 from products.warehouse_sources.sources.shippo._config import ShippoSourceConfig
 from products.warehouse_sources.sources.shippo.settings import ENDPOINTS, SHIPPO_ENDPOINTS
@@ -34,6 +40,19 @@ def _page(results: list[dict[str, Any]], next_url: str | None = None) -> Scripte
 
 
 class TestGetRows:
+    @parameterized.expand([("manifests", "/manifests/"), ("shippo_accounts", "/shippo-accounts/")])
+    def test_added_list_endpoints_follow_next_links(self, endpoint: str, path: str) -> None:
+        next_url = f"{SHIPPO_BASE_URL}{path}?page=2&results=100"
+        result = _driver().run(
+            endpoint,
+            [_page([{"object_id": "first"}], next_url), _page([{"object_id": "second"}])],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"object_id": "first"}, {"object_id": "second"}]
+        assert result.paths == [path, path]
+        assert result.urls[-1] == next_url
+
     @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
     def test_incremental_walks_creation_windows_under_90_days(self) -> None:
         # Watermark ~188 days before the frozen clock: needs 3 windows to reach "now".
@@ -190,8 +209,181 @@ class TestFetchPage:
         assert _fetch_page_unwrapped(session, f"{SHIPPO_BASE_URL}/shipments/", MagicMock()) == body
 
 
+class TestDependentRows:
+    def test_rates_paginate_children_and_shipments(self) -> None:
+        rate_page = f"{SHIPPO_BASE_URL}/shipments/s1/rates/?page=2&results=100"
+        shipment_page = f"{SHIPPO_BASE_URL}/shipments/?page=2&results=100"
+        result = _driver().run(
+            "rates",
+            route(
+                {
+                    "/shipments/": [
+                        _page([{"object_id": "s1"}, {"object_id": "empty"}], shipment_page),
+                        _page([{"object_id": "s2"}]),
+                    ],
+                    "/shipments/s1/rates/": [
+                        _page([{"object_id": "r1", "shipment": "s1"}], rate_page),
+                        _page([{"object_id": "r2", "shipment": "s1"}]),
+                    ],
+                    "/shipments/empty/rates/": [_page([])],
+                    "/shipments/s2/rates/": [_page([{"object_id": "r3", "shipment": "s2"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"object_id": "r1", "shipment": "s1"},
+            {"object_id": "r2", "shipment": "s1"},
+            {"object_id": "r3", "shipment": "s2"},
+        ]
+        assert rate_page in result.urls
+        assert shipment_page in result.urls
+        assert all(request.method == "GET" for request in result.requests)
+        assert all(request.headers["authorization"] == "ShippoToken shippo_test_key" for request in result.requests)
+
+    def test_rates_resume_current_child_and_skip_finished_shipments(self) -> None:
+        child_path = "/shipments/s2/rates/"
+        child_url = f"{SHIPPO_BASE_URL}{child_path}?page=2&results=100"
+        result = _driver().run(
+            "rates",
+            [_page([{"object_id": "s1"}, {"object_id": "s2"}]), _page([{"object_id": "r2"}])],
+            resume_state=ShippoResumeConfig(
+                fanout_state={
+                    "completed": ["/shipments/s1/rates/"],
+                    "current": child_path,
+                    "child_state": {"next_url": child_url},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"object_id": "r2"}]
+        assert result.urls[-1] == child_url
+        assert len(result.requests) == 2
+
+    @parameterized.expand([("rate_id", "r1"), ("embedded_rate", {"carrier_account": "ca1"})])
+    def test_tracking_resolves_carrier_and_preserves_history(self, _name: str, rate: Any) -> None:
+        history = [{"object_id": "event1", "status": "TRANSIT"}, {"object_id": "event2", "status": "DELIVERED"}]
+        tracking = {
+            "carrier": "usps",
+            "tracking_number": "fake-tracking-1",
+            "tracking_history": history,
+            "tracking_status": history[-1],
+        }
+        script = [
+            _page(
+                [
+                    {"object_id": "untracked", "tracking_number": None, "rate": "unused"},
+                    {"object_id": "tx1", "tracking_number": "fake-tracking-1", "rate": rate},
+                    {"object_id": "tx2", "tracking_number": "fake-tracking-1", "rate": {"carrier_account": "ca1"}},
+                ]
+            ),
+        ]
+        if isinstance(rate, str):
+            script.append(ScriptedResponse(json={"carrier_account": "ca1", "provider": "US Postal Service"}))
+        script.extend(
+            [
+                ScriptedResponse(json={"carrier": "usps"}),
+                ScriptedResponse(json=tracking),
+                ScriptedResponse(json={**tracking, "transaction": "tx1"}),
+            ]
+        )
+        result = _driver().run("tracks", script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {**tracking, "transaction": "tx1"},
+            {**tracking, "transaction": "tx2"},
+        ]
+        assert result.paths[-2:] == ["/tracks/usps/fake-tracking-1", "/tracks/usps/fake-tracking-1"]
+        assert result.paths.count("/carrier_accounts/ca1") == 1
+        assert result.response is not None
+        assert result.response.primary_keys == ["transaction"]
+        assert result.committed_states[-1].transaction_index == 3
+
+    def test_tracking_resumes_within_transaction_page_then_advances(self) -> None:
+        next_url = f"{SHIPPO_BASE_URL}/transactions/?page=3&results=100"
+        final_url = f"{SHIPPO_BASE_URL}/transactions/?page=4&results=100"
+        current_url = f"{SHIPPO_BASE_URL}/transactions/?page=2&results=100"
+        result = _driver().run(
+            "tracks",
+            [
+                _page(
+                    [
+                        {"object_id": "finished", "tracking_number": "already-read", "rate": "unused"},
+                        {"object_id": "tx2", "tracking_number": "fake-2", "rate": {"carrier_account": "ca1"}},
+                    ],
+                    next_url,
+                ),
+                ScriptedResponse(json={"carrier": "usps"}),
+                ScriptedResponse(json={"carrier": "usps", "tracking_number": "fake-2", "tracking_history": []}),
+                _page([], final_url),
+                _page([{"object_id": "untracked", "tracking_number": None, "rate": None}]),
+            ],
+            resume_state=ShippoResumeConfig(next_url=current_url, transaction_index=1),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"carrier": "usps", "tracking_number": "fake-2", "tracking_history": [], "transaction": "tx2"}
+        ]
+        assert result.urls[0] == current_url
+        assert result.urls[-2:] == [next_url, final_url]
+        assert result.final_state == ShippoResumeConfig(next_url=final_url, transaction_index=1)
+
+    @parameterized.expand([("rate", 1), ("carrier_account", 2), ("tracking", 3)])
+    def test_tracking_child_errors_fail_without_skipping_transaction(self, _name: str, fail_at: int) -> None:
+        tracking = {"carrier": "usps", "tracking_number": "fake-1", "tracking_history": []}
+        script = [
+            _page(
+                [
+                    {"object_id": "tx1", "tracking_number": "fake-1", "rate": "r1"},
+                    {"object_id": "tx2", "tracking_number": "fake-2", "rate": "r2"},
+                ]
+            ),
+            ScriptedResponse(json={"carrier_account": "ca1"}),
+            ScriptedResponse(json={"carrier": "usps"}),
+            ScriptedResponse(json=tracking),
+        ]
+        script.extend(
+            [ScriptedResponse(json={"carrier_account": "ca2"}), ScriptedResponse(json={"carrier": "ups"})][
+                : fail_at - 1
+            ]
+        )
+        script.append(ScriptedResponse(status=403))
+        result = _driver().run("tracks", script)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == [{**tracking, "transaction": "tx1"}]
+        assert result.final_state == ShippoResumeConfig(
+            next_url=f"{SHIPPO_BASE_URL}/transactions/?results=100", transaction_index=1
+        )
+
+    def test_tracking_skips_expired_rates_and_keeps_other_transactions(self) -> None:
+        tracking = {"carrier": "usps", "tracking_number": "fake-2", "tracking_history": []}
+        result = _driver().run(
+            "tracks",
+            [
+                _page(
+                    [
+                        {"object_id": "expired", "tracking_number": "fake-1", "rate": "expired-rate"},
+                        {"object_id": "tx2", "tracking_number": "fake-2", "rate": {"carrier_account": "ca1"}},
+                    ]
+                ),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"carrier": "usps"}),
+                ScriptedResponse(json=tracking),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**tracking, "transaction": "tx2"}]
+        assert result.final_state.transaction_index == 2
+
+
 class TestShippoSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in ENDPOINTS if e != "tracks"])
     def test_source_response_shape(self, endpoint: str) -> None:
         result = _driver().run(endpoint, always(_page([])))
         response = result.response

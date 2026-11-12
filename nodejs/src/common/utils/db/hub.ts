@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
@@ -95,7 +96,10 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const integrationManager = new IntegrationManagerService(
+        pubSub,
+        new PostgresIntegrationSource(postgres, encryptedFields)
+    )
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
 
     const hub: Hub = {

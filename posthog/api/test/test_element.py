@@ -230,18 +230,82 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response["results"][0]["elements"][0]["href"] == "https://posthog.com/event-2"
             assert response["results"][0]["count"] == 1
 
-    def test_element_stats_can_filter_by_hogql(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "flat_list",
+                [{"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"}],
+            ),
+            (
+                "mixed_with_allowed_types",
+                [
+                    {"key": "$current_url", "value": "http://example.com/another_page"},
+                    {"type": "hogql", "key": "(SELECT count() FROM persons) > 0"},
+                ],
+            ),
+            (
+                "nested_property_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [{"type": "hogql", "key": "(SELECT count() FROM persons) > 0"}],
+                        }
+                    ],
+                },
+            ),
+            (
+                "behavioral",
+                [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "day",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_element_stats_rejects_unsupported_property_filter_types(self, _name: str, properties: object) -> None:
+        response = self.client.get("/api/element/stats/", {"properties": json.dumps(properties)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("Unsupported property filter type", response.json()["detail"])
+
+    def test_element_stats_accepts_supported_property_filter_types(self) -> None:
         self._setup_events()
+
         properties_filter = json.dumps(
             [
-                {
-                    "type": "hogql",
-                    "key": "like(properties.$current_url, '%another_page%')",
-                },
+                {"key": "$current_url", "value": "http://example.com/another_page", "type": "event"},
+                {"key": "tag_name", "value": ["a"], "operator": "exact", "type": "element"},
             ]
         )
-        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
-        self.assertEqual(len(response["results"]), 1)
+        response = self.client.get(
+            "/api/element/stats/", {"paginate_response": "true", "properties": properties_filter}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=30")
+        vary = {value.strip().lower() for value in response.headers["Vary"].split(",")}
+        self.assertTrue({"authorization", "cookie"} <= vary, response.headers["Vary"])
+
+    def test_element_stats_still_applies_hogql_test_account_filters(self) -> None:
+        self._setup_events()
+        self.team.test_account_filters = [
+            {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
+        ]
+        self.team.save()
+
+        response = self.client.get("/api/element/stats/", {"paginate_response": "true", "filter_test_accounts": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(len(response.json()["results"]), 1)
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"

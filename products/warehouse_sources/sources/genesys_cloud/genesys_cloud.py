@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.genesys_cloud.settings import (
     GenesysCloudEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
     OAuth2Auth,
     OAuth2AuthRequestError,
     ResumableSourceManager,
@@ -26,6 +27,12 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 60
 VALIDATION_TIMEOUT_SECONDS = 10
+
+# The analytics and user-analytics endpoints are queried via POST, but the body only carries the
+# interval/paging to read, not a mutation. DEFAULT_RETRY excludes POST from `allowed_methods`, so a
+# transient 429/5xx on these calls would otherwise fail the sync outright instead of retrying like
+# the listing/scan endpoints' GETs do in the same session.
+_GENESYS_CLOUD_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
 
 # History read on the first sync and on every full refresh.
 INITIAL_HISTORY = timedelta(days=365)
@@ -70,7 +77,7 @@ def _make_auth(region: str, client_id: str, client_secret: str) -> OAuth2Auth:
 
 
 def _make_session(region: str, client_id: str, client_secret: str) -> requests.Session:
-    session = make_tracked_session(redact_values=(client_secret,))
+    session = make_tracked_session(retry=_GENESYS_CLOUD_RETRY, redact_values=(client_secret,))
     session.auth = _make_auth(region, client_id, client_secret)
     return session
 

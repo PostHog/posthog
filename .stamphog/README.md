@@ -17,11 +17,13 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `deny_exceptions` lifts `auth` and `billing` for `products/warehouse_sources/backend/temporal/data_imports/sources/` and `products/warehouse_sources/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing. It lifts `workflows_delivery` for the CDP and Messaging API test directories.
 - `allow` extends its path patterns with `.github/CODEOWNERS`.
+- `attestations` names the `Migration risk` check, pinned to the `tests-posthog` App, as the one that may lift `migrations` for the Django migration files it classified as Safe and their `max_migration.txt`.
 
 The repository uses the shipped default `review-guidance.md`.
 
 `steering.md` tells the reviewer to refuse a diff that adds a suppression or an exemption for one of those guards.
 A path rule cannot see these, because the marker sits in product code or in a busy file.
+That covers the isolation exemptions inside `tach.toml` and the product `turbo.json` files, which stay off the deny list because most of their edits are routine `depends_on` and input additions.
 
 `ownership` comes from the shipped default, which declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 

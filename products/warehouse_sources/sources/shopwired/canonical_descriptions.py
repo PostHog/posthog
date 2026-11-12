@@ -3,6 +3,53 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 # Descriptions sourced from the ShopWired API docs (https://help.shopwired.co.uk/api).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "transactions": {
+        "description": "A successful payment transaction processed through ShopWired Payments.",
+        "docs_url": "https://shopwired.readme.io/reference/listtransactions",
+        "columns": {
+            "id": "The unique ID of the transaction.",
+            "createdAt": "When the transaction was created.",
+            "amount": "The transaction amount in minor currency units, such as pence.",
+            "currency": "The three-letter ISO currency code.",
+            "orderId": "The associated order ID, when available.",
+        },
+    },
+    "product_variations": {
+        "description": "A product variation with its SKU, prices, stock, and option values.",
+        "docs_url": "https://shopwired.readme.io/reference/listproductvariations",
+        "columns": {
+            "id": "The ID of the product variation.",
+            "product_id": "The parent product ID.",
+            "sku": "The SKU of the product variation.",
+            "price": "The price of the product variation.",
+            "stock": "The stock quantity of the product variation.",
+            "values": "The option values assigned to the variation.",
+        },
+    },
+    "incomplete_orders": {
+        "description": "An incomplete order with its line items, totals, and abandoned basket information.",
+        "docs_url": "https://shopwired.readme.io/reference/listincompleteorders",
+        "columns": {
+            "id": "The unique ID of the incomplete order.",
+            "created": "When the incomplete order was created.",
+            "total": "The total value of the incomplete order.",
+            "products": "The line items in the incomplete order.",
+            "customer": "The customer who created the incomplete order.",
+            "abandonedBasket": "The recovery URL and email status for the abandoned basket, when available.",
+        },
+    },
+    "payouts": {
+        "description": "A payout through ShopWired Payments with its status and destination.",
+        "docs_url": "https://shopwired.readme.io/reference/listpayouts",
+        "columns": {
+            "id": "The unique ID of the payout.",
+            "createdAt": "When the payout was created.",
+            "status": "The current payout status.",
+            "automatic": "Whether the payout was initiated automatically.",
+            "expectedBy": "When the payout is expected to arrive.",
+            "destination": "The payout destination.",
+        },
+    },
     "products": {
         "description": "A product in your ShopWired store, including pricing, stock, and SEO fields.",
         "docs_url": "https://help.shopwired.co.uk/api/products/api-products",

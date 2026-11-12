@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.similarweb._config import SimilarwebSour
 from products.warehouse_sources.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
+    CONVERSION_ANALYSIS,
     ENDPOINTS,
     MAX_DOMAINS,
     SIMILARWEB_ENDPOINTS,
@@ -28,23 +29,25 @@ class TestSimilarwebSource:
 
     @parameterized.expand(
         [
-            ("no_domains", {"domains": " "}, "Add at least one domain"),
+            ("no_domains", {"domains": " "}, "Add at least one domain", None),
             (
                 "too_many_domains",
                 {"domains": ",".join(f"d{i}.com" for i in range(MAX_DOMAINS + 1))},
                 "Too many domains",
+                None,
             ),
-            ("bad_country", {"country": "usa"}, "two-letter code"),
-            ("bad_start_month", {"start_date": "01-2024"}, "YYYY-MM format"),
+            ("bad_country", {"country": "usa"}, "two-letter code", None),
+            ("bad_start_month", {"start_date": "01-2024"}, "YYYY-MM format", None),
+            ("conversion_worldwide", {"country": "world"}, "two-letter country code", CONVERSION_ANALYSIS),
         ]
     )
     def test_validate_credentials_rejects_bad_settings_without_calling_the_api(
-        self, _name: str, overrides: dict[str, Any], expected: str
+        self, _name: str, overrides: dict[str, Any], expected: str, schema_name: str | None
     ) -> None:
         config = SimilarwebSourceConfig(**{"api_key": "key-123", "domains": "posthog.com", **overrides})
 
         with mock.patch(f"{MODULE}.validate_similarweb_credentials") as probe:
-            is_valid, message = self.source.validate_credentials(config, self.team_id)
+            is_valid, message = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
 
         assert is_valid is False
         assert message is not None and expected in message
@@ -92,3 +95,14 @@ class TestSimilarwebSource:
         else:
             assert result.paths != [V5_ENGAGEMENT_PATH]
             assert result.params("api_key") == ["key-123"]
+
+    @parameterized.expand(
+        [
+            "Similarweb API returned status 400 for https://api.similarweb.com/v1/website/example.com/global-rank/global-rank",
+            "Similarweb API returned status 400 for https://api.similarweb.com/v5/website-analysis/websites/traffic-and-engagement",
+            "Similarweb API returned status 403 for https://api.similarweb.com/v1/website/example.com/total-traffic-and-engagement/visits",
+        ]
+    )
+    def test_non_retryable_errors_match_client_errors(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)

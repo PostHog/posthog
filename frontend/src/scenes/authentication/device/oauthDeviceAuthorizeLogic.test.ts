@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import type { DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
 import { oauthDeviceAuthorizeLogic } from './oauthDeviceAuthorizeLogic'
 
@@ -16,6 +17,7 @@ const GRANT: DeviceGrantDetailsApi = {
     logo_uri: null,
     is_verified: false,
     scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+    required_scopes: ['openid'],
     granted_scopes: [],
     expires_at: '2026-03-02T10:30:00Z',
 }
@@ -45,12 +47,10 @@ describe('oauthDeviceAuthorizeLogic', () => {
         initKeaTests()
     })
 
-    const ALL = ['View your User ID', 'Write access to insights', 'Write access to dashboards']
-
     it.each([
-        ['a first login lists every requested scope', [], ALL, false],
+        ['a first login', [], false],
         [
-            'a login that adds nothing in the project lists every scope',
+            'a login that adds nothing in the project',
             [
                 {
                     project_id: 42,
@@ -58,28 +58,20 @@ describe('oauthDeviceAuthorizeLogic', () => {
                     scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
                 },
             ],
-            ALL,
             false,
         ],
+        ['a step-up', [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }], true],
         [
-            'a step-up lists only the scopes it adds in the project',
-            [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            ['Write access to insights', 'Write access to dashboards'],
-            true,
-        ],
-        [
-            'scopes granted in another organization count for nothing here',
+            'a login after a grant in another organization',
             [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
-            ALL,
             false,
         ],
         [
-            'scopes granted in another project count for nothing here',
+            'a login after a grant in another project',
             [{ project_id: 7, organization_id: null, scopes: ['openid', 'insight:read'] }],
-            ALL,
             false,
         ],
-    ])('%s', async (_name, grantedScopes, expectedDescriptions, isStepUp) => {
+    ])('%s lets the person lower every scope the client does not require', async (_name, grantedScopes, isStepUp) => {
         useGrantMocks({ ...GRANT, granted_scopes: grantedScopes })
         const logic = oauthDeviceAuthorizeLogic()
         logic.mount()
@@ -89,8 +81,41 @@ describe('oauthDeviceAuthorizeLogic', () => {
         logic.actions.setProjectId(42)
 
         expect(lookups).toEqual(['BCDF-GHJK'])
-        await expectLogic(logic).toMatchValues({ isStepUp, scopeDescriptions: expectedDescriptions })
+        expect(logic.values.scopeRows.map((row) => [row.key, row.minLevel])).toEqual([
+            ['dashboard', 'none'],
+            ['insight', 'none'],
+        ])
+        await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'hog can view and change data in 2 areas.' })
     })
+
+    it.each([
+        ['nothing but identity', ['openid'], ['openid', 'insight:read'], 'hog can view data in 1 area.', null],
+        [
+            'a scope a step-up adds',
+            ['openid', 'dashboard:write'],
+            ['openid', 'dashboard:write', 'insight:read'],
+            'hog can view and change data in 1 area, and view data in 1 more.',
+            "hog needs the permissions marked Required, so you can't remove them. To refuse them, deny the login.",
+        ],
+    ])(
+        'with %s required, approves only the scopes the person kept, at the level they picked',
+        async (_name, requiredScopes, approvedScopes, scopeSummary, requiredScopesNote) => {
+            useGrantMocks({ ...GRANT, required_scopes: requiredScopes })
+            const logic = oauthDeviceAuthorizeLogic()
+            logic.mount()
+            router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setProjectId(42)
+            logic.actions.setScopeAccess('dashboard', 'none')
+            logic.actions.setScopeAccess('insight', 'read')
+            logic.actions.approve()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42, scopes: approvedScopes }])
+            await expectLogic(logic).toMatchValues({ scopeSummary, requiredScopesNote })
+        }
+    )
 
     it("drops the previous organization's projects when the next ones fail to load", async () => {
         useMocks({
@@ -123,8 +148,40 @@ describe('oauthDeviceAuthorizeLogic', () => {
         logic.actions.approve()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42 }])
+        expect(approvals).toEqual([
+            {
+                user_code: 'BCDF-GHJK',
+                project_id: 42,
+                scopes: ['openid', 'dashboard:write', 'insight:read', 'insight:write'],
+            },
+        ])
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
+    })
+
+    it('without a session, sends the code through login instead of looking it up', async () => {
+        useGrantMocks(GRANT)
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        const priorLocation = window.location
+        const assign = jest.fn()
+        try {
+            window.POSTHOG_APP_CONTEXT = { ...priorAppContext, current_user: null } as AppContext
+            initKeaTests()
+            Object.defineProperty(window, 'location', { value: { ...priorLocation, assign }, configurable: true })
+            const logic = oauthDeviceAuthorizeLogic()
+            logic.mount()
+
+            router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.submitCode()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lookups).toEqual([])
+            expect(assign).toHaveBeenCalledWith('/device?code=BCDF-GHJK')
+            await expectLogic(logic).toMatchValues({ goingToLogin: true })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+            Object.defineProperty(window, 'location', { value: priorLocation, configurable: true })
+        }
     })
 
     it('goes back to code entry when the code expired during review', async () => {

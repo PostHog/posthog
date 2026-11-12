@@ -8,13 +8,14 @@ from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition
+from posthog.models import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.message_assets_sql import INSERT_MESSAGE_ASSET_SQL
 

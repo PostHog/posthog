@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.integrations import IntegrationManager, register_source_kinds, register_usage_provider, usages
 from posthog.integrations.accessors import AuthAccessor, IntegrationReader, OAuthAccessor, SourceRows
 from posthog.integrations.contracts import (
+    CrossTeamFilter,
     IntegrationConflict,
     IntegrationInUse,
     IntegrationNotFound,
@@ -226,6 +227,24 @@ class TestIntegrationAccessors(BaseTest):
         assert {"github_oauth": len(rows)} == expected
         assert all(row.integration_id == "github_oauth" for row in rows)
 
+    def test_change_external_id(self) -> None:
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, self.rows["github_oauth"].id, "moved")
+
+        assert row.integration_id == "moved"
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).integration_id == "moved"
+
+    def test_change_external_id_refuses_an_id_the_team_already_has(self) -> None:
+        newer = IntegrationManager.github.oauth.create(self.team.id, external_id="newer", config={})
+
+        with self.assertRaises(IntegrationConflict):
+            IntegrationManager.github.oauth.change_external_id(self.team.id, newer.id, "github_oauth")
+
+        assert IntegrationManager.github.oauth.get(self.team.id, newer.id).integration_id == "newer"
+
+    def test_change_external_id_does_not_reach_other_teams(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.rows["github_oauth"].id, "x")
+
     @parameterized.expand(
         [
             ("both_teams", ["own", "other"], "github_oauth"),
@@ -299,6 +318,7 @@ class TestIntegrationAccessors(BaseTest):
             ("list", lambda self, a: a.list(self.team.id)),
             ("list_by_external_id", lambda self, a: a.list_by_external_id("github_oauth")),
             ("get_by_external_id", lambda self, a: [a.get_by_external_id("github_oauth", self.other_row.id)]),
+            ("list_across_teams", lambda self, a: a.list_across_teams(CrossTeamFilter())),
             ("update", lambda self, a: [a.update(self.team.id, self.rows["github_oauth"].id, errors="")]),
             ("upsert_of_an_existing_row", lambda self, a: [a.upsert(self.team.id, "github_oauth", config={})[0]]),
         ]
@@ -326,6 +346,7 @@ class TestIntegrationAccessors(BaseTest):
             ("get_by_external_id", lambda: IntegrationManager.any.get_by_external_id("github_oauth", 1)),
             ("count_by_external_id", lambda: IntegrationManager.any.count_by_external_id("github_oauth")),
             ("exists_by_external_id", lambda: IntegrationManager.any.exists_by_external_id("github_oauth")),
+            ("list_across_teams", lambda: IntegrationManager.any.list_across_teams(CrossTeamFilter())),
         ]
     )
     def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:
@@ -334,6 +355,33 @@ class TestIntegrationAccessors(BaseTest):
 
         assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
         assert len(IntegrationManager.kinds("github").list_by_external_id("github_oauth")) == 2
+
+    @parameterized.expand(
+        [
+            ("where_lookup", lambda: CrossTeamFilter(where={"a__b": 1})),
+            ("where_reserved_key", lambda: CrossTeamFilter(where={"auth_type": "oauth"})),
+            ("where_nested_value", lambda: CrossTeamFilter(where={"account": {"name": "a"}})),  # type: ignore[dict-item]
+            ("where_in_lookup", lambda: CrossTeamFilter(where_in={"a__b": ("x",)})),
+            ("where_in_reserved_key", lambda: CrossTeamFilter(where_in={MARKER: ("Stripe",)})),
+            ("where_in_none", lambda: CrossTeamFilter(where_in={"domain": (None,)})),  # type: ignore[dict-item]
+            ("where_in_nested_value", lambda: CrossTeamFilter(where_in={"domain": ({"a": 1},)})),  # type: ignore[dict-item]
+            ("where_iexact_too_deep", lambda: CrossTeamFilter(where_iexact={"a.b.c": "x"})),
+            ("where_iexact_empty_segment", lambda: CrossTeamFilter(where_iexact={"account.": "x"})),
+            ("where_iexact_lookup", lambda: CrossTeamFilter(where_iexact={"account.name__regex": "x"})),
+            ("where_iexact_reserved_key", lambda: CrossTeamFilter(where_iexact={"auth_type": "oauth"})),
+            ("where_iexact_not_a_string", lambda: CrossTeamFilter(where_iexact={"name": 1})),  # type: ignore[dict-item]
+            ("has_config_key_lookup", lambda: CrossTeamFilter(has_config_key="a__b")),
+            ("has_config_key_reserved", lambda: CrossTeamFilter(has_config_key=MARKER)),
+        ]
+    )
+    def test_list_across_teams_refuses_unsafe_filters(self, _name: str, cross_team_filter: Callable[[], Any]) -> None:
+        with self.assertRaises(UnsupportedIntegrationFilter):
+            IntegrationManager.github.any.list_across_teams(cross_team_filter())
+
+    @parameterized.expand([("zero", 0), ("negative", -1)])
+    def test_cross_team_filter_refuses_a_limit_below_one(self, _name: str, limit: int) -> None:
+        with self.assertRaises(ValueError):
+            CrossTeamFilter(limit=limit)
 
     @parameterized.expand(
         [
@@ -592,12 +640,10 @@ class TestIntegrationAccessors(BaseTest):
     ) -> None:
         row = self._resend_row(refreshed_ago=refreshed_ago)
 
-        def rotate(oauth: OauthIntegration) -> None:
-            oauth.integration.sensitive_config = {"access_token": "new", "refresh_token": "r2"}
-            oauth.integration.save()
+        rotated = IntegrationPatch(sensitive_config_patch={"access_token": "new", "refresh_token": "r2"})
 
         with (
-            patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=rotate) as refresh,
+            patch.object(OauthIntegration, "token_refresh_patch", autospec=True, return_value=rotated) as refresh,
             CaptureQueriesContext(connection) as queries,
         ):
             result = IntegrationManager.resend.oauth.refresh_access_token(
@@ -625,7 +671,7 @@ class TestIntegrationAccessors(BaseTest):
     def test_refresh_access_token_raises(
         self, _name: str, accessor: Callable[[], Any], row_name: str, error: type[Exception]
     ) -> None:
-        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
+        with patch.object(OauthIntegration, "token_refresh_patch") as refresh:
             with self.assertRaises(error):
                 accessor().refresh_access_token(self.team.id, self.rows[row_name].id)
 
@@ -698,6 +744,13 @@ class TestIntegrationAccessors(BaseTest):
         assert IntegrationManager.github.oauth.delete_by_external_id("github_oauth") == 2
         assert not Integration._base_manager.filter(integration_id="github_oauth").exists()
         assert Integration._base_manager.filter(id=self.rows["github_token"].id).exists()
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_delete_by_external_id_refuses_a_missing_external_id(self, _name: str, external_id: Any) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationManager.github.oauth.delete_by_external_id(external_id)
+
+        assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
 
     def test_delete_by_external_id_rolls_back_every_row_when_one_delete_fails(self) -> None:
         original_delete = Integration.delete

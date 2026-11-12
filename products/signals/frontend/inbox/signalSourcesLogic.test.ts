@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,7 +26,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import * as signalsApi from '../generated/api'
 import type { InboxOnboardingDraftApi, InboxOnboardingStateApi, SignalSourceConfigApi } from '../generated/api.schemas'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalSourceProduct, SignalSourceType } from './types'
+import { SignalAlertScope, SignalSourceProduct, SignalSourceType } from './types'
 
 const githubSchema = (id: string, name: string): ExternalDataSourceSchema => ({
     id,
@@ -648,6 +648,53 @@ describe('signalSourcesLogic', () => {
         toastError.mockRestore()
     })
 
+    it.each([
+        {
+            outcome: 'saves all firing alerts as',
+            scope: SignalAlertScope.AllFiringAlerts,
+            fails: false,
+            expectedScope: SignalAlertScope.AllFiringAlerts,
+        },
+        { outcome: 'saves off as', scope: SignalAlertScope.Off, fails: false, expectedScope: SignalAlertScope.Off },
+        {
+            outcome: 'reverts',
+            scope: SignalAlertScope.AllFiringAlerts,
+            fails: true,
+            expectedScope: SignalAlertScope.InvestigatedOnly,
+        },
+    ])('$outcome the product analytics alert scope', async ({ scope, fails, expectedScope }) => {
+        const analyticsConfig = {
+            ...githubIssuesConfig,
+            id: 'config-analytics',
+            source_product: SignalSourceProduct.Analytics,
+            source_type: SignalSourceType.AnomalyInvestigation,
+            config: { steering: 'Skip weekend dips' },
+        }
+        const updateSourceConfig = jest
+            .spyOn(signalsApi, 'signalsSourceConfigsPartialUpdate')
+            .mockImplementation(async () => {
+                if (fails) {
+                    throw { detail: 'Request failed.' }
+                }
+                return {
+                    ...analyticsConfig,
+                    config: { ...analyticsConfig.config, alert_scope: scope },
+                } as SignalSourceConfigApi
+            })
+        logic.actions.loadSourceConfigsSuccess([analyticsConfig])
+
+        logic.actions.setAnalyticsAlertScope(scope)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(updateSourceConfig).toHaveBeenCalledWith(expect.any(String), 'config-analytics', {
+            config_set: { alert_scope: scope },
+        })
+        expect(logic.values.analyticsAlertScope).toBe(expectedScope)
+        expect(logic.values.savingAnalyticsAlertScope).toBeNull()
+        expect(logic.values.anomalyInvestigationConfig?.config.steering).toBe('Skip weekend dips')
+        updateSourceConfig.mockRestore()
+    })
+
     it('uses only eval reports for the AI observability signal source', async () => {
         const createSourceConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate').mockResolvedValue({
             id: 'config-evaluation-reports',
@@ -733,6 +780,19 @@ describe('signalSourcesLogic', () => {
         arrange(logic)
 
         expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it.each([
+        { level: OrganizationMembershipLevel.Member, enableDisabledReason: 'Ask a project admin to turn on Support' },
+        { level: OrganizationMembershipLevel.Admin, enableDisabledReason: undefined },
+    ])('blocks turning on Support below project admin (level $level)', ({ level, enableDisabledReason }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            conversations_enabled: false,
+            effective_membership_level: level,
+        })
+
+        expect(logic.values.productStatusBySource.conversations?.enableDisabledReason).toBe(enableDisabledReason)
     })
 
     it('keeps loaded product statuses visible until a background refresh completes', async () => {

@@ -72,7 +72,6 @@ class TestEmailReputationAPI(APIBaseTest):
         allowance = data.pop("sending_allowance")
         assert allowance["tier"] == 0
         assert allowance["enforced"] is False
-        assert allowance["emails_sent_last_hour"] == 0
         assert allowance["emails_sent_last_day"] == 0
         assert data == {
             "aws": None,

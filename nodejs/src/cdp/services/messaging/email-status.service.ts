@@ -21,7 +21,20 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailDeliveryStatus =
+    | 'scheduled'
+    | 'queued'
+    | 'canceled'
+    | 'failed'
+    | 'sent'
+    | 'delivered'
+    | 'bounced'
+    | 'complained'
+
+// Only email_status_events keeps these, so they never replace a delivery status.
+export type EmailEngagementStatus = 'opened' | 'clicked'
+
+export type EmailStatus = EmailDeliveryStatus | EmailEngagementStatus
 
 export type EmailStatusReason =
     // A bounce type, in the words the `$bounce_type` event property uses.
@@ -57,12 +70,16 @@ export type EmailSkipReason =
 // successful rerun of the same invocation replaces the failed attempt. The gaps let a failure take the
 // rank between two statuses. Never renumber a rank, because rows already written keep their versions.
 const STATUS_RANK: Record<EmailStatus, bigint> = {
+    scheduled: 0n,
     queued: 0n,
+    canceled: 1n,
     failed: 2n,
     sent: 3n,
     delivered: 5n,
     bounced: 6n,
     complained: 7n,
+    opened: 8n,
+    clicked: 9n,
 }
 
 // A run that fails on its email step fails after the step recorded why, for example
@@ -90,6 +107,10 @@ export interface EmailStatusRow {
     created_at: string
     status_at: string
     reason: string
+    recipient: string
+    function_id: string
+    sending_domain: string
+    scheduled_at?: string
 }
 
 export interface EmailStatusUpdate {
@@ -102,6 +123,10 @@ export interface EmailStatusUpdate {
     statusAt?: Date
     // A failure of the whole run rather than of the email step.
     runOutcome?: boolean
+    recipient?: string
+    functionId?: string
+    sendingDomain?: string
+    scheduledAt?: Date
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -110,7 +135,7 @@ const isoMicroseconds = (date: Date): string => {
 }
 
 // A UUIDT starts with its creation time as 48 bits of Unix milliseconds.
-const uuidtCreatedAt = (messageId: string): Date => {
+export const uuidtCreatedAt = (messageId: string): Date => {
     if (!UUID_REGEX.test(messageId)) {
         throw new Error('message id is not a UUID')
     }
@@ -138,6 +163,10 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         created_at: isoMicroseconds(uuidtCreatedAt(update.messageId)),
         status_at: isoMicroseconds(statusAt),
         reason: update.reason ?? '',
+        recipient: update.recipient ?? '',
+        function_id: update.functionId ?? '',
+        sending_domain: update.sendingDomain ?? '',
+        ...(update.scheduledAt && { scheduled_at: isoMicroseconds(update.scheduledAt) }),
     }
 }
 
@@ -210,6 +239,13 @@ export class EmailStatusService {
                 runOutcome: true,
             })
         }
+    }
+
+    queueFailedJob(job: CyclotronJobInvocation, reason: EmailStatusReason): void {
+        if (!isTransactionalEmailJob(job)) {
+            return
+        }
+        this.queue({ teamId: job.teamId, messageId: job.id, status: 'failed', reason })
     }
 
     // A job whose workflow or team is gone is dropped without a result, so nothing else records it.

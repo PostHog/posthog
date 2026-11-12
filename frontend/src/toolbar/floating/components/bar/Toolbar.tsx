@@ -34,7 +34,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { retryImport } from 'lib/utils/retryImport'
 
 import { AnimatedLogomark } from '~/toolbar/floating/components/bar/AnimatedLogomark'
@@ -382,10 +382,10 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const { isAuthenticated } = useValues(toolbarConfigLogic)
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
-    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+    const showProductTours = inStorybook() || productToursFlag
 
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
-    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+    const showFieldNotes = inStorybook() || fieldNotesFlag
 
     const heatmapGate = useToolbarFeatureGateStatus(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
 
@@ -495,10 +495,10 @@ export function Toolbar(): JSX.Element | null {
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
-    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+    const showProductTours = inStorybook() || productToursFlag
 
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
-    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+    const showFieldNotes = inStorybook() || fieldNotesFlag
     const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
 
     const heatmapGate = useToolbarFeatureGateStatus(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')

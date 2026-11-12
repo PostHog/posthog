@@ -2,7 +2,7 @@ import './PulsePreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored daily series behind each opportunity: a metric sliding down, and one climbing.
 const LINE_DROPOFF = 'M 0 10 L 14 12 L 28 11 L 42 16 L 56 19 L 70 24 L 84 27 L 100 31'
@@ -20,7 +20,7 @@ function areaPath(line: string): string {
  * cell and crossfade, so switching never moves the card.
  */
 export function PulsePreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('PulsePreview', isStatic && 'PulsePreview--static')}>

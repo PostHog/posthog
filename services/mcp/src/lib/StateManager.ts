@@ -7,6 +7,7 @@ import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
+    findTransportError,
     hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -356,6 +357,7 @@ export class StateManager {
                 tag: 'mcp',
                 team: 'posthog_ai',
                 context,
+                transport_failure: findTransportError(error)?.failure,
                 ...extra,
                 suppress_analytics: apiKey?.suppress_analytics === true,
             })
@@ -739,6 +741,10 @@ export class StateManager {
     }
 
     async getAiConsentGiven(): Promise<boolean | undefined> {
+        const project = await this.getCachedOrFetchProject().catch(() => undefined)
+        if (project?.is_ai_data_processing_approved !== undefined) {
+            return !!project.is_ai_data_processing_approved
+        }
         return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
     }
 

@@ -16,6 +16,8 @@ from prometheus_client import Counter
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, register_saved_hook, sdk_runs_hooks
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
@@ -94,6 +96,10 @@ class RemoteConfig(UUIDTModel):
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
+
+    @classmethod
+    def rebuild_cache_for_team(cls, team: Team) -> None:
+        cls.get_hypercache().update_cache(team.api_token)
 
     @classmethod
     def get_hypercache(cls):
@@ -701,16 +707,34 @@ def organization_subscription_saved(sender, instance, created, **kwargs):
 @receiver(post_save, sender="posthog.Integration")
 @receiver(post_delete, sender="posthog.Integration")
 def push_integration_changed(sender, instance, **kwargs):
+    # The SDK calls the hooks below itself. This receiver is for the writers that do not use the SDK yet.
+    if sdk_runs_hooks():
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    _push_integration_config_changed(instance, config_changed=update_fields is None or "config" in update_fields)
+
+
+def _push_integration_config_changed(row: IntegrationRecord, *, config_changed: bool) -> None:
     from products.messaging.backend.facade.api import is_push_integration_kind
 
     # Integrations cover every kind we support, and most of them have nothing to do with the SDK
     # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
     # integration doesn't enqueue a rebuild for every team that has one.
-    if not is_push_integration_kind(instance.kind):
+    if not config_changed or not is_push_integration_kind(row.kind):
         return
-    # The app_ids live in config, and integration code saves errors and created_by on their own —
-    # apns_integration alone does three saves per creation. Only config can change the payload.
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "config" not in update_fields:
-        return
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+    team_id = row.team_id
+    transaction.on_commit(lambda: _update_team_remote_config(team_id))
+
+
+def push_integration_saved(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None:
+    _push_integration_config_changed(row, config_changed=config_changed)
+
+
+def push_integration_deleted(row: IntegrationRecord) -> None:
+    _push_integration_config_changed(row, config_changed=True)
+
+
+register_saved_hook(push_integration_saved)
+register_delete_hook(push_integration_deleted)

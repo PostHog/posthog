@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
 )
@@ -346,6 +349,9 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A destination the customer configured refuses the connection.
             (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
+            # A batch aged out of its claim window (IncompleteRunError) — self-healing, and
+            # already tracked by its own metric, so it must not also hit error tracking.
+            (INCOMPLETE_RUN_ERROR, False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -2318,6 +2324,9 @@ class TestUpdateJobStatusToFailed:
         # DoesNotExist raised on top of the batch's original failure.
         with (
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.close_old_connections"
+            ),
+            patch(
                 "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
             ) as mock_filter,
             patch(
@@ -3950,7 +3959,9 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        # Not a self-healing shape like a dropped connection or a connection refusal, so
+        # the retry exhaustion below must still reach error tracking.
+        retry_error = psycopg.OperationalError("password authentication failed for user")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )
@@ -4179,7 +4190,8 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        # nosemgrep: no-fixed-sleeps-in-tests -- blocks the event loop past the stall-dump deadline
+        time.sleep(1.0)
         assert "most recent call first" in capfd.readouterr().err
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again

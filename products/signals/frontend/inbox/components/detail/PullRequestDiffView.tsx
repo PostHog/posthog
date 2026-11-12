@@ -150,7 +150,10 @@ function DiffFileCard({ file, children }: { file: FileDiffMetadata; children: Re
 }
 
 /** Aggregate file/line counts from a unified diff patch — shared by the diff toolbar and file headers. */
-export function summarizeDiff(diff: string, cacheKey?: string): DiffSummary | null {
+export function summarizeDiff(diff: unknown, cacheKey?: string): DiffSummary | null {
+    if (typeof diff !== 'string') {
+        return null
+    }
     if (!diff.trim()) {
         return { fileCount: 0, additions: 0, deletions: 0 }
     }

@@ -9,6 +9,7 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import experimentGetByFlagKey from './experiments/getByFlagKey'
+import getExperimentHealth from './experiments/getHealth'
 import getExperimentResults from './experiments/getResults'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
@@ -17,6 +18,7 @@ import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 import explainChart from './insights/explainChart'
+import explainChartSave from './insights/explainChartSave'
 // Insights
 import queryInsight from './insights/query'
 import insightTrustCheck from './insights/trustCheck'
@@ -96,14 +98,16 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Experiments (results and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
+    // Experiments (results, health and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    'experiment-health-get': getExperimentHealth,
     'experiment-get-by-flag-key': experimentGetByFlagKey,
 
     // Insights
     'insight-query': queryInsight,
     'insight-trust-check': insightTrustCheck,
     'explain-chart': explainChart,
+    'explain-chart-save': explainChartSave,
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,

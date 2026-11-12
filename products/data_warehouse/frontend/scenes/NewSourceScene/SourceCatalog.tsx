@@ -71,11 +71,6 @@ const SourceTile = memo(function SourceTile({
                                 <LemonTag type="completion">Already connected</LemonTag>
                             </Tooltip>
                         )}
-                        {item.selfManaged && (
-                            <Tooltip title="Self-managed: your files stay in your own bucket and PostHog queries them there. The managed version copies the data into PostHog on a schedule.">
-                                <LemonTag type="muted">Self-managed</LemonTag>
-                            </Tooltip>
-                        )}
                         <SourceReleaseTag releaseStatus={item.releaseStatus} />
                     </div>
                 )}

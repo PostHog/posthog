@@ -84,8 +84,8 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - Stored results may not exist yet for a fresh experiment.
   A read of the stored results that returns nothing in the first hours is expected.
   The scheduled calculation skips an experiment younger than 12 hours or with fewer than 50 exposures in total, so an empty experiment has stored results only when a calculation was started another way, for example from the experiment page.
-- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
-  The total is 0 because of that only when every exposure is younger than 15 minutes.
+- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 30 minutes.
+  The total is 0 because of that only when every exposure is younger than 30 minutes.
 
 <!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
 products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in
@@ -428,7 +428,9 @@ status from Step 1:
 - `stopped` — the results end at the end date.
 
 Then check where the project keeps its flag calls: `project-get` returns `flag_evaluations_mode`.
-At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers, and an experiment that counts that event gains no exposures, without a warning.
+At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers.
+The default exposure keeps counting from the `$experiment_exposure` copies ("Which event, which property" in `diagnostic-snapshot.md`).
+An exposure or activation config that is an action with a `$feature_flag_called` step can stop gaining exposures, without a warning.
 That is no fault of the SDK or of the application: say so, and point the user to PostHog support.
 
 Then read the flag's change history, before any conclusion about the application:

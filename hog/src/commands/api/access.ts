@@ -1,10 +1,12 @@
+import { z } from 'zod'
+
 import type { ApiKeyAccess, ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-import { apiConnection, groupSlug, unwrap } from '@/posthog/api-tools'
+import { apiConnection, credentialAccess, groupSlug, unwrap } from '@/posthog/api-tools'
 
 const TOP_SCOPES = 10
 
@@ -24,7 +26,7 @@ async function reachesProject(
     }
     try {
         const api = await ctx.posthog()
-        const project = await api.get<{ organization: string }>(`/api/projects/${projectId}/`)
+        const project = await api.get(`/api/projects/${projectId}/`, z.looseObject({ organization: z.string() }))
         return access.scopedOrganizations.includes(project.organization)
     } catch (error) {
         // Without project:read the lookup fails for any project, so a 403 says nothing about the limit.
@@ -39,14 +41,14 @@ async function reachesProject(
 }
 
 export default defineCommand({
-    description: 'Show what the personal API key can reach, and the scopes that would unlock more tools',
+    description: 'Show what your credentials can reach, and the scopes that would unlock more tools',
     notes: 'Each missing scope counts the tools it blocks. A tool can need more than one scope.',
     examples: ['hog api access', 'hog api access -o json'],
 
     async run({ ctx }) {
         const library = await ctx.apiTools()
         const connection = await apiConnection(ctx)
-        const access = unwrap(await library.keyAccess(connection))
+        const access = unwrap(await credentialAccess(ctx, library, connection))
         const projectId = connection.projectId ?? ''
         const blocked = new Map<string, { tools: number; groups: Set<string> }>()
         let usable = 0
@@ -76,13 +78,6 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        if (result.projectAllowed === false) {
-            const reach =
-                result.scopedProjects.length > 0
-                    ? `projects ${result.scopedProjects.join(', ')}`
-                    : `organizations ${result.scopedOrganizations.join(', ')}`
-            out.line(out.style(`The key can't reach project ${result.projectId}. It only reaches ${reach}.`, 'yellow'))
-        }
         out.line(`Scopes: ${result.scopes.join(', ') || 'none'}`)
         out.line(`Usable tools: ${result.usable} of ${result.tools}`)
         if (result.missingScopes.length > 0) {
@@ -93,10 +88,23 @@ export default defineCommand({
                     .slice(0, TOP_SCOPES)
                     .map((entry) => [entry.scope, entry.tools, entry.groups.join(', ')])
             )
-            const more = result.missingScopes.length - TOP_SCOPES
-            if (more > 0) {
-                out.line(out.style(`${plural(more, 'more missing scope')}. \`-o json\` lists them all.`, 'dim'))
-            }
         }
+
+        const warnings: string[] = []
+        if (result.projectAllowed === false) {
+            const reach =
+                result.scopedProjects.length > 0
+                    ? `projects ${result.scopedProjects.join(', ')}`
+                    : `organizations ${result.scopedOrganizations.join(', ')}`
+            warnings.push(`The key can't reach project ${result.projectId}. It only reaches ${reach}.`)
+        }
+        const more = result.missingScopes.length - TOP_SCOPES
+        out.notes({
+            warnings,
+            notes:
+                more > 0
+                    ? [out.style(`${plural(more, 'more missing scope')}. \`-o json\` lists them all.`, 'dim')]
+                    : [],
+        })
     },
 })

@@ -75,3 +75,19 @@ class WizardScanResultSerializer(serializers.Serializer):
     created = serializers.BooleanField(
         help_text="False when this session had already reported its scan, so nothing changed."
     )
+
+
+class ListDetectedWarehouseSourcesQuerySerializer(serializers.Serializer):
+    seen_since = serializers.DateTimeField(
+        required=False,
+        help_text="Only return sources a scan found at or after this time, such as the start of a wizard run.",
+    )
+
+
+class WizardDetectedWarehouseSourceSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="The tool's kind in the wizard tool catalog, such as `Stripe`.")
+    warehouse_source_type = serializers.CharField(
+        help_text="The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`."
+    )
+    first_seen_at = serializers.DateTimeField(help_text="When a wizard scan first found the tool.")
+    last_seen_at = serializers.DateTimeField(help_text="When a wizard scan last found the tool.")

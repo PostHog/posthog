@@ -10,11 +10,10 @@ class FlagEvaluationsMode(LabeledIntEnum):
     allowlist includes.
     """
 
-    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays hidden.
+    # Every reader of $feature_flag_called reads the events table.
     EVENTS = 0, "Events"
     # The Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only
     # $feature_flag_called read flag_evaluations. Other readers, such as experiment exposures, still read events.
-    # The HogQL table is visible.
     # Ingestion still writes every flag call to events, so FLAG_EVALUATIONS_READS_FORCE_EVENTS can move these
     # readers back to events.
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
@@ -26,3 +25,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
 
 # The activity log trigger `job_type` of a flag save that a scheduled change applies.
 SCHEDULED_CHANGE_JOB_TYPE = "scheduled_change"
+
+# The activity log trigger `job_type` of a flag save that restores a past version. Its `payload` carries
+# `restored_from_version`, the version the flag was set back to.
+VERSION_RESTORE_JOB_TYPE = "version_restore"

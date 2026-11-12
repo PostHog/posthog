@@ -18,7 +18,7 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import run_metric
+from ..logic.execution import MAX_METRIC_RUN_PAGES, run_metric
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -26,6 +26,7 @@ from ..logic.metric_reads import (
     metric_names_for_ids,
     metric_reads_for_ids,
 )
+from ..logic.metric_search import SEARCH_DEFAULT_LIMIT, MetricSearchHit, MetricSearchResult, search_catalog
 from ..logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
@@ -46,18 +47,24 @@ from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview,
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
-from .contracts import HogQLMetricDefinition, MetricRead, MetricSummary
+from .contracts import HogQLMetricDefinition, MetricListFilters, MetricRead, MetricSummary
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
     "BULK_SKIP_NOT_FOUND",
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
+    "MAX_METRIC_RUN_PAGES",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
+    "MetricSearchHit",
+    "MetricSearchResult",
+    "SEARCH_DEFAULT_LIMIT",
+    "search_catalog",
     "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",
+    "MetricListFilters",
     "MetricSummary",
     "MetricRead",
     "metric_reads_for_ids",

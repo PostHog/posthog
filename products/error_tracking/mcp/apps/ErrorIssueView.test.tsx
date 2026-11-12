@@ -87,7 +87,6 @@ describe('ErrorIssueView', () => {
                         likely_cause: 'The cart total reads an undefined line item.',
                         who_is_affected: 'Users with an empty cart.',
                         suggested_next_step: 'Guard the line item lookup.',
-                        category: 'own_code',
                         generated_at: '2026-04-24T11:00:00Z',
                     },
                 }}
@@ -95,6 +94,5 @@ describe('ErrorIssueView', () => {
         )
 
         expect(screen.getByText('Likely cause (hypothesis): The cart total reads an undefined line item.')).toBeTruthy()
-        expect(screen.getByText('Own code')).toBeTruthy()
     })
 })
