@@ -953,13 +953,23 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
-        it('brings every role up healthy', async () => {
+        it('brings every role up healthy, and keeps a role that stops answering out of the dependency health', async () => {
+            const hung: Role = 'cdp-cyclotron-worker-hogflow'
             environment = environmentOf()
 
             await environment.up()
 
             const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
-            expect(Object.fromEntries(health)).toEqual(Object.fromEntries(CdpRole.options.map((role) => [role, 200])))
+            const pid = Number(await (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[hung]}/_health`)).text())
+            process.kill(pid, 'SIGSTOP')
+            const { down } = await environment.dependencyHealth().finally(() => process.kill(pid, 'SIGCONT'))
+            expect({
+                health: Object.fromEntries(health),
+                rolesDown: down.filter((name) => name in ROLE_PORTS),
+            }).toEqual({
+                health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
+                rolesDown: [],
+            })
         }, 30_000)
 
         it.each<[string, Role, () => void]>([

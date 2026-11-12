@@ -26,7 +26,7 @@ import {
 export interface Environment {
     up(): Promise<void>
     role(name: Role): RoleHandle
-    health(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     down(): Promise<void>
 }
@@ -131,7 +131,7 @@ export function createEnvironment({
 
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
-        async health() {
+        async dependencyHealth() {
             const down = await downServices(edge?.url, postgresUrl)
             return { healthy: down.length === 0, down }
         },
