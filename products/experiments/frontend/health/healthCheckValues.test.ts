@@ -89,8 +89,36 @@ describe('healthCheckValues', () => {
             values: { only_count_matured_users: false },
             expected: [{ label: 'Require completed conversion or retention window', text: 'Off' }],
         },
+        {
+            name: 'the sample so far reads against the planned sample',
+            values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
+            expected: [
+                { label: 'Metric', text: 'Checkout completed' },
+                { label: 'Users so far', text: '9,602 of 14,800 planned' },
+            ],
+        },
     ])('healthCheckReadings: $name', ({ values, expected }) => {
         expect(healthCheckReadings(values, 'users')).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'before its end the daily calculation still runs', now: '2026-11-12T12:00:00Z', label: 'runs until' },
+        { name: 'after its end the daily calculation has stopped', now: '2026-12-19T12:00:00Z', label: 'stopped on' },
+    ])('healthCheckReadings: $name', ({ now, label }) => {
+        jest.useFakeTimers().setSystemTime(new Date(now))
+        try {
+            expect(
+                healthCheckReadings(
+                    { since_start_hours: 552, daily_calculation_ends_at: '2026-12-18T09:00:00+00:00' },
+                    'users'
+                )
+            ).toEqual([
+                { label: 'Running for', text: '23 days' },
+                { label: `Daily calculation ${label}`, time: '2026-12-18T09:00:00+00:00', asDate: true },
+            ])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it.each([
@@ -129,6 +157,20 @@ describe('healthCheckValues', () => {
         expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'groups')).toEqual([
             { label: 'Warns when', text: 'No groups are exposed' },
             { label: 'Warns from', text: '24 hours after launch' },
+        ])
+    })
+
+    it('healthRuleReadings: the running time reads in days', () => {
+        const rule: HealthCheckRule = {
+            value: 'since_start_hours',
+            threshold: 1440,
+            warns: 'above',
+            test: null,
+            minimum: null,
+        }
+
+        expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'users')).toEqual([
+            { label: 'Warns when', text: 'The experiment runs for more than 60 days' },
         ])
     })
 

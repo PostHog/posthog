@@ -312,6 +312,12 @@ class TestHighlightFacts(BaseTest):
         self._experiment(
             "Not yours", start_date=now - timedelta(days=80), created_by=self._create_user("other@example.com")
         )
+        self._experiment(
+            "On a flag rule",
+            start_date=now - timedelta(days=62),
+            feature_flag_rule_id=uuid.uuid4(),
+            feature_flag_rule_snapshot={"flag": {}, "rule": {}},
+        )
 
         found = api.list_running_experiments(
             team_id=self.team.pk,

@@ -34,7 +34,7 @@ export interface Environment {
     edgeUrl(): string
     role(name: Role): RoleHandle
     actuate(action: Action): Promise<Actuation>
-    health(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     down(): Promise<void>
 }
@@ -75,6 +75,7 @@ export type EnvironmentOptions = {
     docker: string
     postgresUrl: string
     sesRateLimiterValkey: { host: string; port: number }
+    roleHealthyWithinMs: number
 }
 
 export function createEnvironment({
@@ -82,6 +83,7 @@ export function createEnvironment({
     docker = 'docker',
     postgresUrl = STACK.postgresUrl,
     sesRateLimiterValkey = STACK.sesRateLimiterValkey,
+    roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -133,7 +135,7 @@ export function createEnvironment({
             metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics`,
         }),
 
-        async health() {
+        async dependencyHealth() {
             const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
             return { healthy: down.length === 0, down }
         },
@@ -185,7 +187,7 @@ export function createEnvironment({
     }
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
-        const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        const deadline = Date.now() + roleHealthyWithinMs
         const roles = specs.map((spec) => spec.role)
         for (;;) {
             const notReady = await rolesNotReady(specs)
@@ -204,7 +206,7 @@ export function createEnvironment({
             }
             if (Date.now() > deadline) {
                 throw new Error(
-                    `${notReady.join(', ')} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${notReady.map(logOf).join(', ')}`
+                    `${notReady.join(', ')} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${notReady.map(logOf).join(', ')}`
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
@@ -282,10 +284,13 @@ export function createEnvironment({
     }
 
     async function stop(): Promise<void> {
-        await supervisor.stop()
-        await edge?.close()
-        edge = undefined
-        await releaseLock?.()
-        releaseLock = undefined
+        try {
+            await supervisor.stop()
+        } finally {
+            await edge?.close()
+            edge = undefined
+            await releaseLock?.()
+            releaseLock = undefined
+        }
     }
 }

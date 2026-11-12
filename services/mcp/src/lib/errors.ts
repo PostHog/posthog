@@ -199,6 +199,13 @@ export class ToolInputValidationError extends Error {
     }
 }
 
+export class ExperimentNotStartedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ExperimentNotStartedError'
+    }
+}
+
 export type ExecCommandErrorReason =
     | 'unknown_command'
     | 'tool_as_command'
@@ -349,6 +356,11 @@ export class PostHogTransportError extends Error {
     public readonly attempts: number
     /** True when the request hit the client's deadline instead of failing to connect. */
     public readonly timedOut: boolean
+    /**
+     * Names and codes from the cause chain, such as `TypeError > Error(ECONNREFUSED)`, for our
+     * logs and error tracking. It is not in `message`, and it never holds the cause's own text.
+     */
+    public readonly failure: string
 
     constructor(options: PostHogTransportErrorOptions) {
         const advice = options.retryable
@@ -364,7 +376,47 @@ export class PostHogTransportError extends Error {
         this.attempts = options.attempts
         // A forwarded request nests the local transport error, so look through the cause chain.
         this.timedOut = hasTimeoutCause(options.cause)
+        this.failure = describeTransportCause(options.cause)
     }
+}
+
+const SAFE_ERROR_LABEL = /^[A-Za-z][\w.-]{0,63}$/
+
+/** Summarizes a transport cause by error names and codes only. Messages can hold headers or URL secrets. */
+export function describeTransportCause(cause: unknown): string {
+    const parts: string[] = []
+    let current: unknown = cause
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current) && parts.length < 5) {
+        seen.add(current)
+        if (!(current instanceof Error)) {
+            parts.push(typeof current)
+            break
+        }
+        // The client wraps each attempt's failure, and that error keeps no `cause` to walk.
+        if (current instanceof PostHogTransportError) {
+            parts.push(current.failure)
+            break
+        }
+        const name = SAFE_ERROR_LABEL.test(current.name) ? current.name : 'Error'
+        const code = (current as Error & { code?: unknown }).code
+        parts.push(typeof code === 'string' && SAFE_ERROR_LABEL.test(code) ? `${name}(${code})` : name)
+        current = (current as Error & { cause?: unknown }).cause
+    }
+    return parts.join(' > ') || 'unknown'
+}
+
+export function findTransportError(error: unknown): PostHogTransportError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogTransportError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
 }
 
 /**
@@ -721,6 +773,7 @@ export function handleToolError(
         is_mcp_tool_error: error instanceof MCPToolError,
         suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
+        transport_failure: findTransportError(error)?.failure,
     }
 
     if (sessionUuid) {
