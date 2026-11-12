@@ -159,9 +159,13 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
             for i in range(1, 5)
         ]
         flush_persons_and_events()
-        if cohort_kind == "static":
+        if cohort_kind.startswith("static"):
             cohort = Cohort.objects.create(team=self.team, name="Already contacted", is_static=True)
             cohort.insert_users_by_list(["user-1", "user-2"], team_id=self.team.id)
+            if cohort_kind == "static_importing":
+                Cohort.objects.filter(pk=cohort.pk).update(is_calculating=True)
+            elif cohort_kind == "static_import_failed":
+                Cohort.objects.filter(pk=cohort.pk).update(errors_calculating=1)
         else:
             cohort = Cohort.objects.create(
                 team=self.team,
@@ -206,17 +210,19 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("preview", "preview", "cohort"),
-            ("dedupe_preview", "dedupe_preview", "cohort"),
-            ("send", "send", "cohort"),
-            ("snapshot_send", "snapshot_send", "cohort"),
+            ("preview", "preview", "cohort", "dynamic_uncalculated"),
+            ("dedupe_preview", "dedupe_preview", "cohort", "dynamic_uncalculated"),
+            ("send", "send", "cohort", "dynamic_uncalculated"),
+            ("snapshot_send", "snapshot_send", "cohort", "dynamic_uncalculated"),
             # The query compiler resolves these declared types to the same cohort, so they must not slip past.
-            ("send_declared_static", "send", "static-cohort"),
-            ("send_declared_precalculated", "send", "precalculated-cohort"),
+            ("send_declared_static", "send", "static-cohort", "dynamic_uncalculated"),
+            ("send_declared_precalculated", "send", "precalculated-cohort", "dynamic_uncalculated"),
+            ("send_static_importing", "send", "cohort", "static_importing"),
+            ("send_static_import_failed", "send", "cohort", "static_import_failed"),
         ]
     )
-    def test_excluding_a_dynamic_cohort_before_its_first_calculation_is_refused(self, _name, path, declared_type):
-        _, filters = self._audience_excluding_contacted("dynamic_uncalculated")
+    def test_excluding_a_cohort_without_complete_members_is_refused(self, _name, path, declared_type, cohort_kind):
+        _, filters = self._audience_excluding_contacted(cohort_kind)
         excluded = filters["properties"][-1]
         excluded["type"] = declared_type
         run = {

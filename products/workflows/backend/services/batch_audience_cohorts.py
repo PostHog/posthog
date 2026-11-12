@@ -58,11 +58,12 @@ def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]
 
 
 def reject_excluded_cohort_without_members(project_id: int, prop_group: PropertyGroup) -> None:
-    """Refuse an audience that excludes a dynamic cohort before its first calculation finishes.
+    """Refuse an audience that excludes a cohort whose members are not complete yet.
 
     Cohort expansion turns an included person-property cohort into its own conditions, so it matches
-    before any calculation. An excluded one stays a NOT IN over the calculated members, and before the
-    first calculation there are none, so the send would reach the people it must leave out.
+    before any calculation. An excluded one stays a NOT IN over the stored members: none before a dynamic
+    cohort's first calculation, and a partial list while an upload matches or after it fails, so the send
+    would reach the people it must leave out.
     """
     for prop in prop_group.flat:
         excluded = prop.negation or prop.operator == PropertyOperator.NOT_IN.value
@@ -73,7 +74,16 @@ def reject_excluded_cohort_without_members(project_id: int, prop_group: Property
         ):
             continue
         cohort = Cohort.objects.filter(pk=prop.value, team__project_id=project_id, deleted=False).first()
-        if cohort is not None and not cohort.is_static and cohort.last_calculation is None:
+        if cohort is None:
+            continue
+        if cohort.is_static and (cohort.is_calculating or cohort.errors_calculating > 0):
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Can't exclude cohort {cohort.pk} until its uploaded list has matched everyone. "
+                    "Wait for the upload to finish, or upload the list again if it failed."
+                }
+            )
+        if not cohort.is_static and cohort.last_calculation is None:
             raise exceptions.ValidationError(
                 {
                     "filters": f"Can't exclude cohort {cohort.pk} until it has calculated who's in it. "
