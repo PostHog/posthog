@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
     delete_cdc_extraction_schedule,
@@ -243,7 +244,7 @@ def parse_cdc_tuning(
     tuning: dict[str, Any] = {}
 
     if "cdc_auto_drop_slot" in data:
-        tuning["cdc_auto_drop_slot"] = bool(data["cdc_auto_drop_slot"])
+        tuning["cdc_auto_drop_slot"] = str_to_bool(data["cdc_auto_drop_slot"])
 
     for field in ("cdc_lag_warning_threshold_mb", "cdc_lag_critical_threshold_mb"):
         if field in data:
@@ -565,7 +566,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         )
         if tuning_error is not None:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": tuning_error})
-        payload = {**request.data, **tuning}
+        payload = {**dict(request.data.items()), **tuning}
 
         # Validate prerequisites server-side — never trust a client-only check.
         schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
