@@ -7,6 +7,7 @@ import { IconImage } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EmailBlockStyle } from '../emailDocument'
+import { AUTOMATIC_CHANGE_META } from '../emailEditorAdapter'
 import { useEmailEditorContext } from '../emailEditorContext'
 
 export function EmailImageBlockView({ node, selected, updateAttributes, editor, getPos }: NodeViewProps): JSX.Element {
@@ -96,11 +97,19 @@ export function EmailImageBlockView({ node, selected, updateAttributes, editor, 
                         onError={() => setFailed(src)}
                         onLoad={(event) => {
                             // Links and older uploads don't record a size, and the email needs one for Outlook.
-                            if (!naturalWidth) {
-                                updateAttributes({
-                                    naturalWidth: event.currentTarget.naturalWidth,
-                                    naturalHeight: event.currentTarget.naturalHeight,
-                                })
+                            // Recording it isn't an edit, so an email nobody touched isn't saved because of it.
+                            const pos = typeof getPos === 'function' ? getPos() : undefined
+                            if (!naturalWidth && typeof pos === 'number') {
+                                editor.view.dispatch(
+                                    editor.state.tr
+                                        .setNodeMarkup(pos, undefined, {
+                                            ...node.attrs,
+                                            naturalWidth: event.currentTarget.naturalWidth,
+                                            naturalHeight: event.currentTarget.naturalHeight,
+                                        })
+                                        .setMeta(AUTOMATIC_CHANGE_META, true)
+                                        .setMeta('addToHistory', false)
+                                )
                             }
                         }}
                         style={{

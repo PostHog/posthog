@@ -30,8 +30,11 @@ export function designForDocument(doc: Record<string, any>, html: string): Recor
  * paragraph, and that fires `update`. A click isn't an edit: treating it as one would let a save replace a converted
  * email that nobody changed.
  */
+/** Set on a change the editor makes by itself, such as recording an image's size once it loads. */
+export const AUTOMATIC_CHANGE_META = 'emailAutomaticChange'
+
 export function isDocumentEdit({ transaction }: EditorEvents['update']): boolean {
-    return transaction.docChanged
+    return transaction.docChanged && !transaction.getMeta(AUTOMATIC_CHANGE_META)
 }
 
 /**

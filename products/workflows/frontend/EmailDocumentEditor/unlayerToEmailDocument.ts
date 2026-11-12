@@ -308,9 +308,11 @@ function canKeepTree(block: Element): boolean {
                 item.tagName === 'LI' &&
                 Object.keys(cssOf(item)).every((name) => IGNORED_CSS.test(name) || name.startsWith('margin')) &&
                 Array.from(item.children).every((child) =>
-                    INLINE_TAGS.has(child.tagName)
-                        ? canKeepCss(cssOf(child), INLINE_CSS) && canKeepInline(child)
-                        : child.tagName === 'P' && canKeepCss(cssOf(child), BLOCK_CSS) && canKeepInline(child)
+                    isUntrackedLink(child)
+                        ? false
+                        : INLINE_TAGS.has(child.tagName)
+                          ? canKeepCss(cssOf(child), INLINE_CSS) && canKeepInline(child)
+                          : child.tagName === 'P' && canKeepCss(cssOf(child), BLOCK_CSS) && canKeepInline(child)
                 )
         )
     }
