@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    frozen,
     make_tracked_session,
     reach_safe_point,
     rest_api_resource,
@@ -96,12 +97,22 @@ def _list_rows(client: RESTClient, endpoint: str) -> Iterator[dict[str, Any]]:
         yield from page
 
 
+class TinyemailPaginationError(Exception):
+    pass
+
+
+@frozen
+class EngagementWindow:
+    start: str
+    end: str
+
+
 def _campaign_domain_stats_rows(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
     config = TINYEMAIL_ENDPOINTS["campaign_domain_stats"]
     for campaign in _list_rows(client, "campaigns"):
         campaign_id = campaign["id"]
         # The docs return a paged body but list no page params for this POST. If the API ignores
-        # `page`, every page repeats the first, so stop at the first page with no new domain.
+        # `page`, every page repeats the first, and the later domains can never be read.
         seen_domains: set[Any] = set()
         for page in client.paginate(
             path=config.path,
@@ -113,7 +124,10 @@ def _campaign_domain_stats_rows(client: RESTClient) -> Iterator[list[dict[str, A
         ):
             rows = [{**row, "campaign_id": campaign_id} for row in page if row.get("domainName") not in seen_domains]
             if page and not rows:
-                break
+                raise TinyemailPaginationError(
+                    f"tinyEmail returned the same domain statistics page again for campaign {campaign_id}, "
+                    "so the remaining pages cannot be read."
+                )
             seen_domains.update(row.get("domainName") for row in rows)
             if rows:
                 yield rows
@@ -129,7 +143,7 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def engagement_windows(should_use_incremental_field: bool, last_value: Any, now: datetime) -> list[tuple[str, str]]:
+def engagement_windows(should_use_incremental_field: bool, last_value: Any, now: datetime) -> list[EngagementWindow]:
     if should_use_incremental_field and last_value:
         start = _as_date(last_value)
     else:
@@ -141,24 +155,27 @@ def engagement_windows(should_use_incremental_field: bool, last_value: Any, now:
         # The range may not exceed 7 days, so each window ends one second before the next starts.
         window_end = min(window_start + timedelta(days=NEW_SUBSCRIBER_ENGAGEMENT_WINDOW_DAYS, seconds=-1), now)
         windows.append(
-            (window_start.strftime(ENGAGEMENT_DATETIME_FORMAT), window_end.strftime(ENGAGEMENT_DATETIME_FORMAT))
+            EngagementWindow(
+                start=window_start.strftime(ENGAGEMENT_DATETIME_FORMAT),
+                end=window_end.strftime(ENGAGEMENT_DATETIME_FORMAT),
+            )
         )
         window_start += timedelta(days=NEW_SUBSCRIBER_ENGAGEMENT_WINDOW_DAYS)
     return windows
 
 
 def _new_subscriber_engagement_rows(
-    client: RESTClient, windows: list[tuple[str, str]]
+    client: RESTClient, windows: list[EngagementWindow]
 ) -> Iterator[list[dict[str, Any]]]:
     config = TINYEMAIL_ENDPOINTS["new_subscriber_engagement"]
     for audience in _list_rows(client, "contacts"):
         audience_id = audience["id"]
-        for window_from, window_to in windows:
+        for window in windows:
             # Rows name the audience but carry no id, so each request asks for one audience.
             for page in client.paginate(
                 path=config.path,
                 method=config.method,
-                json={"from": window_from, "to": window_to, "audienceIds": [audience_id]},
+                json={"from": window.start, "to": window.end, "audienceIds": [audience_id]},
                 paginator=SinglePagePaginator(),
                 data_selector=config.data_selector,
             ):

@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk.testing import (
 from products.warehouse_sources.sources.tinyemail._config import TinyemailSourceConfig
 from products.warehouse_sources.sources.tinyemail.source import TinyemailSource
 from products.warehouse_sources.sources.tinyemail.tinyemail import (
+    TinyemailPaginationError,
     engagement_windows,
     get_resource,
     validate_credentials,
@@ -125,31 +126,27 @@ class TestTinyemailTransport:
         assert result.response is not None
         assert result.response.primary_keys == ["audience_id", "id"]
 
-    @parameterized.expand(
-        [
-            ("api_honors_page", True, 3, 3),
-            # Without page support every page repeats the first, so the walk stops at the first repeat.
-            ("api_ignores_page", False, 2, 1),
-        ]
-    )
-    def test_campaign_domain_stats_walk(
-        self, _name: str, honors_page: bool, requests_per_campaign: int, domains_per_campaign: int
-    ) -> None:
+    def test_campaign_domain_stats_walk(self) -> None:
         driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
-        result = driver.run("campaign_domain_stats", _domain_stats_walk(honors_page))
+        result = driver.run("campaign_domain_stats", _domain_stats_walk(honors_page=True))
 
         assert result.raised is None
         stats_requests = [r for r in result.requests if r.path.endswith("/campaign/domain-stats")]
         assert all(r.method == "POST" for r in stats_requests)
-        assert [r.json() for r in stats_requests] == [{"campaignId": "c1"}] * requests_per_campaign + [
-            {"campaignId": "c2"}
-        ] * requests_per_campaign
-        domains = DOMAINS[:domains_per_campaign]
+        assert [r.json() for r in stats_requests] == [{"campaignId": "c1"}] * 3 + [{"campaignId": "c2"}] * 3
         assert result.rows == [
             {"domainName": f"{campaign}.{domain}", "send": 1, "campaign_id": campaign}
             for campaign in ("c1", "c2")
-            for domain in domains
+            for domain in DOMAINS
         ]
+
+    def test_campaign_domain_stats_fails_when_the_api_ignores_page(self) -> None:
+        driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
+        result = driver.run("campaign_domain_stats", _domain_stats_walk(honors_page=False))
+
+        # Pages after the first can never be read, so a successful sync would hide the missing domains.
+        assert isinstance(result.raised, TinyemailPaginationError)
+        assert result.rows == [{"domainName": "c1.gmail.com", "send": 1, "campaign_id": "c1"}]
 
     @parameterized.expand(
         [
@@ -192,10 +189,10 @@ class TestTinyemailTransport:
         windows = engagement_windows(incremental, last_value, now)
 
         assert len(windows) == count
-        assert windows[0] == first
-        assert windows[-1] == last
-        for window_from, window_to in windows:
-            span = datetime.fromisoformat(window_to) - datetime.fromisoformat(window_from)
+        assert (windows[0].start, windows[0].end) == first
+        assert (windows[-1].start, windows[-1].end) == last
+        for window in windows:
+            span = datetime.fromisoformat(window.end) - datetime.fromisoformat(window.start)
             assert span.days < 7
 
     def test_new_subscriber_engagement_asks_for_one_audience_per_request(self) -> None:
