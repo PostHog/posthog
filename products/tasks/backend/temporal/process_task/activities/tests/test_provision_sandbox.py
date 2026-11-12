@@ -23,6 +23,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.tasks.backend.exceptions import (
     ActiveSessionCapError,
     ComputeBillingLimitError,
+    CredentialUnavailableError,
     OrganizationExecutionError,
     RepositoryAccessError,
     RepositoryCloneError,
@@ -118,6 +119,24 @@ def test_environment_variables_name_the_git_provider(mocker, github_token, gitla
     )
 
     assert {key: environment.get(key) for key in expected} == expected
+
+
+@pytest.mark.parametrize("token_bound", [True, False], ids=["project_token", "broader_token"])
+def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, token_bound: bool) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.repository_integration_id = 5
+    mocker.patch.object(provision_sandbox_module.IntegrationManager.gitlab.token, "get", return_value=mocker.Mock())
+    gitlab = mocker.Mock()
+    gitlab.token_reaches_only_connected_project.return_value = token_bound
+    gitlab.credentials.access_token.return_value.token = "glpat-synthetic"
+    mocker.patch.object(provision_sandbox_module, "GitLabIntegration", return_value=gitlab)
+
+    if token_bound:
+        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == "glpat-synthetic"
+    else:
+        with pytest.raises(CredentialUnavailableError):
+            provision_sandbox_module._resolve_sandbox_gitlab_token(context)
+        gitlab.credentials.access_token.assert_not_called()
 
 
 class _ShellSandbox:
