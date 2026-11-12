@@ -205,6 +205,7 @@ class _Converter:
         self.go_variables: dict[str, str] = {}
         # Whether the text so far ends inside an HTML tag, where an unquoted attribute can end at a space or `=`.
         self.in_tag = False
+        self.tag_quote = ""
         self.go_value_in_tag = False
 
     def convert(self) -> ConvertedText:
@@ -253,9 +254,18 @@ class _Converter:
         )
 
     def _track_tag(self, text: str) -> None:
-        opened, closed = text.rfind("<"), text.rfind(">")
-        if opened != closed:
-            self.in_tag = opened > closed
+        # A `>` inside a quoted attribute value doesn't close the tag.
+        for character in text:
+            if not self.in_tag:
+                if character == "<":
+                    self.in_tag, self.tag_quote = True, ""
+            elif self.tag_quote:
+                if character == self.tag_quote:
+                    self.tag_quote = ""
+            elif character in "\"'":
+                self.tag_quote = character
+            elif character == ">":
+                self.in_tag = False
 
     def _strip_whitespace(self, pieces: list[str], matches: list[re.Match[str]], kept: list[tuple[str, bool]]) -> None:
         previous_ended_its_line = False
