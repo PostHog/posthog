@@ -225,6 +225,12 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
                 {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
             ),
             (
+                "mail_from_status_missing_from_ses",
+                lambda world: setattr(world.ses.identities[DOMAIN], "reports_mail_from_status", False),
+                "records_found",
+                {"mail_from_mx": ["found"], "mail_from_spf": ["found"]},
+            ),
+            (
                 "mail_from_set_for_another_senders_subdomain",
                 lambda world: setattr(world.ses.identities[DOMAIN], "mail_from_domain", f"bounce.{DOMAIN}"),
                 "records_found",
@@ -281,6 +287,13 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
         )
         if expected_status != "verified":
             assert (body["verified"], self.is_verified(sender), self.verified_events()) == (False, False, [])
+
+    def test_adding_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
+        self.world.ses.add_identity(DOMAIN, reports_mail_from_status=False)
+
+        sender = self.create_sender(f"hello@{DOMAIN}")
+
+        assert not self.is_verified(sender)
 
 
 class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
