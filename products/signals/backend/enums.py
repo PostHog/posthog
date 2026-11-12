@@ -150,10 +150,6 @@ class SignalSourceProduct(StrEnum):
     ENGINEERING_ANALYTICS = "engineering_analytics"
     # Search analytics (record kind: search_opportunity)
     GOOGLE_SEARCH_CONSOLE = "google_search_console"
-    # SEO site audits (record kind: search_opportunity)
-    BING_WEBMASTER_TOOLS = "bing_webmaster_tools"
-    AHREFS = "ahrefs"
-    SEMRUSH = "semrush"
     # Incident management / on-call (record kind: incident)
     PAGERDUTY = "pagerduty"
     OPSGENIE = "opsgenie"
@@ -211,6 +207,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -325,9 +323,6 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
-    SignalSourceProduct.BING_WEBMASTER_TOOLS: "Bing Webmaster Tools",
-    SignalSourceProduct.AHREFS: "Ahrefs",
-    SignalSourceProduct.SEMRUSH: "Semrush",
     SignalSourceProduct.PAGERDUTY: "PagerDuty",
     SignalSourceProduct.OPSGENIE: "Opsgenie",
     SignalSourceProduct.INCIDENT_IO: "incident.io",
@@ -375,6 +370,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",

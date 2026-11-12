@@ -1073,9 +1073,6 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
- * * `bing_webmaster_tools` - Bing Webmaster Tools
- * * `ahrefs` - Ahrefs
- * * `semrush` - Semrush
  * * `pagerduty` - PagerDuty
  * * `opsgenie` - Opsgenie
  * * `incident_io` - incident.io
@@ -1123,6 +1120,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1196,9 +1195,6 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
-    BingWebmasterTools: 'bing_webmaster_tools',
-    Ahrefs: 'ahrefs',
-    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -1246,6 +1242,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1370,9 +1368,6 @@ export interface InboxOnboardingSourceApi {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
-     * * `bing_webmaster_tools` - Bing Webmaster Tools
-     * * `ahrefs` - Ahrefs
-     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -1420,6 +1415,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -4277,9 +4274,6 @@ export interface SignalReportLeaveReviewersApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
- * * `bing_webmaster_tools` - bing_webmaster_tools
- * * `ahrefs` - ahrefs
- * * `semrush` - semrush
  * * `pagerduty` - pagerduty
  * * `opsgenie` - opsgenie
  * * `incident_io` - incident_io
@@ -4327,6 +4321,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4400,9 +4396,6 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
-    BingWebmasterTools: 'bing_webmaster_tools',
-    Ahrefs: 'ahrefs',
-    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -4450,6 +4443,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -5273,31 +5268,6 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
-export interface BingWebmasterToolsSearchOpportunitySignalExtraApi {
-    site_url: string | null
-    issue_flag: string | null
-    issue: string | null
-    affected_urls: string | null
-    example_url: string | null
-    inbound_links: string | null
-}
-
-export interface AhrefsSearchOpportunitySignalExtraApi {
-    project_id: string | null
-    issue_id: string | null
-    issue_category: string | null
-    issue_importance: string | null
-    affected_urls: string | null
-}
-
-export interface SemrushSearchOpportunitySignalExtraApi {
-    project_id: string | null
-    issue_id: string | null
-    affected_pages: string | null
-    example_url: string | null
-    audit_snapshot_id: string | null
-}
-
 export interface HelpscoutConversationSignalExtraApi {
     number: string | null
     status: string | null
@@ -5314,6 +5284,22 @@ export interface DecagonConversationSignalExtraApi {
 
 export interface VitallyConversationSignalExtraApi {
     external_url: string | null
+    created_at: string | null
+}
+
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
     created_at: string | null
 }
 
@@ -5763,12 +5749,11 @@ export type SignalExtraApi =
     | Dynamics365TicketSignalExtraApi
     | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
-    | BingWebmasterToolsSearchOpportunitySignalExtraApi
-    | AhrefsSearchOpportunitySignalExtraApi
-    | SemrushSearchOpportunitySignalExtraApi
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5913,9 +5898,6 @@ export interface SignalNodeApi {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
-     * * `bing_webmaster_tools` - bing_webmaster_tools
-     * * `ahrefs` - ahrefs
-     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -5963,6 +5945,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics

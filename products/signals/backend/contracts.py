@@ -1370,52 +1370,6 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
 
 
-# ── SEO site audits ──────────────────────────────────────────────────────────────
-
-
-class BingWebmasterToolsSearchOpportunitySignalExtra(SignalExtraBase):
-    site_url: str | None
-    issue_flag: str | None
-    issue: str | None
-    affected_urls: str | None
-    example_url: str | None
-    inbound_links: str | None
-
-
-class BingWebmasterToolsSearchOpportunitySignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
-    source_product: Literal[SignalSourceProduct.BING_WEBMASTER_TOOLS]
-    extra: BingWebmasterToolsSearchOpportunitySignalExtra
-
-
-class AhrefsSearchOpportunitySignalExtra(SignalExtraBase):
-    project_id: str | None
-    issue_id: str | None
-    issue_category: str | None
-    issue_importance: str | None
-    affected_urls: str | None
-
-
-class AhrefsSearchOpportunitySignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
-    source_product: Literal[SignalSourceProduct.AHREFS]
-    extra: AhrefsSearchOpportunitySignalExtra
-
-
-class SemrushSearchOpportunitySignalExtra(SignalExtraBase):
-    project_id: str | None
-    issue_id: str | None
-    affected_pages: str | None
-    example_url: str | None
-    audit_snapshot_id: str | None
-
-
-class SemrushSearchOpportunitySignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
-    source_product: Literal[SignalSourceProduct.SEMRUSH]
-    extra: SemrushSearchOpportunitySignalExtra
-
-
 class HelpscoutConversationSignalExtra(SignalExtraBase):
     number: str | None
     status: str | None
@@ -1451,6 +1405,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.TICKET]
     source_product: Literal[SignalSourceProduct.VITALLY]
     extra: VitallyConversationSignalExtra
+
+
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
 
 
 # ── Incident management / on-call ─────────────────────────────────────────────────
@@ -2198,12 +2180,11 @@ SignalInput = Annotated[
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
     | GoogleSearchConsoleSearchOpportunitySignalInput
-    | BingWebmasterToolsSearchOpportunitySignalInput
-    | AhrefsSearchOpportunitySignalInput
-    | SemrushSearchOpportunitySignalInput
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2321,12 +2302,11 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
-    BingWebmasterToolsSearchOpportunitySignalInput,
-    AhrefsSearchOpportunitySignalInput,
-    SemrushSearchOpportunitySignalInput,
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,

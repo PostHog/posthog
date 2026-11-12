@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -126,10 +128,6 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
-    # SEO site audits
-    (ExternalDataSourceType.BINGWEBMASTERTOOLS, "crawl_issues", "bing_webmaster_tools", "search_opportunity"),
-    (ExternalDataSourceType.AHREFS, "site_audit_issues", "ahrefs", "search_opportunity"),
-    (ExternalDataSourceType.SEMRUSH, "site_audit_issue_details", "semrush", "search_opportunity"),
     # GitHub security alerts
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
@@ -174,10 +172,6 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"severity": "high", "resolution_status": "unresolved"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
-        elif name == "issue_flag":
-            record[name] = 4
-        elif name in ("affected_urls", "affected_pages", "inbound_links"):
-            record[name] = 3
         else:
             record[name] = f"value-{name}"
     return record
