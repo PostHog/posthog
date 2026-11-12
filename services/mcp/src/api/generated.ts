@@ -78703,7 +78703,7 @@ export namespace Schemas {
       readonly scope: RoutingScopeEnum | null;
       /** The head commit the record is for. It can be older than the pull request head. */
       readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       readonly trigger: string;
       /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
       readonly claim_expired: boolean;
@@ -78963,7 +78963,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -113996,7 +113996,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
