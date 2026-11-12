@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -115,9 +117,11 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
 
     def test_deleting_the_row_soft_deletes_the_canvas_for_someone_who_may_see_it(self) -> None:
         entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["deleted"][0]["mode"], "soft")
+        self.assertEqual([query["sql"] for query in queries.captured_queries if "REGEXP_REPLACE" in query["sql"]], [])
         self.public_canvas.refresh_from_db()
         self.assertTrue(self.public_canvas.deleted)
         self.assertFalse(FileSystem.objects.filter(id=entry.id).exists())
