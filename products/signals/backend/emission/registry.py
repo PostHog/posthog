@@ -161,6 +161,7 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
+    from products.signals.backend.emission.app_store_connect_customer_reviews import APP_STORE_CONNECT_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
@@ -250,6 +251,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
+    from products.signals.backend.emission.sentry_user_feedback import SENTRY_FEEDBACK_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
     from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
@@ -417,6 +419,10 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
     register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
     register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
+    # App reviews and error-report feedback. Sentry feedback is its own product so the Sentry
+    # issues toggle stays independent.
+    register_signal_source(ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", APP_STORE_CONNECT_CONFIG)
+    register_signal_source(ExternalDataSourceType.SENTRY, "project_user_feedback", SENTRY_FEEDBACK_CONFIG)
 
 
 _register_all_emitters()

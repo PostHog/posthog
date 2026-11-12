@@ -230,6 +230,10 @@ class SignalSourceProduct(StrEnum):
     GITHUB_DEPENDABOT = "github_dependabot"
     GITHUB_CODE_SCANNING = "github_code_scanning"
     GITHUB_SECRET_SCANNING = "github_secret_scanning"
+    # App reviews and error-report feedback
+    APP_STORE_CONNECT = "app_store_connect"
+    # Sentry user feedback has its own product so it can be toggled apart from Sentry issues.
+    SENTRY_FEEDBACK = "sentry_feedback"
 
 
 class SignalSourceType(StrEnum):
@@ -389,6 +393,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
     SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
     SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
+    SignalSourceProduct.APP_STORE_CONNECT: "App Store Connect",
+    SignalSourceProduct.SENTRY_FEEDBACK: "Sentry user feedback",
 }
 
 

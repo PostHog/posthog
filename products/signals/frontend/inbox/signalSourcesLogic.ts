@@ -645,6 +645,7 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -723,6 +724,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -765,6 +767,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -843,6 +846,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -875,6 +879,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -953,6 +958,7 @@ export interface signalSourcesLogicMeta {
                 | 'rollbar'
                 | 'semgrep'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
