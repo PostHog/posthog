@@ -764,6 +764,8 @@ export namespace Schemas {
       previous: AEOPromptSetCounts;
       /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
       engines: AEOPromptSetEngineCounts[];
+      /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+      daily: AEOPromptDailyEngineStats[];
       /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
@@ -70562,6 +70564,101 @@ export namespace Schemas {
       next_measurement_at: string | null;
     }
 
+    export interface MonitoringReading {
+      /** When this interim reading was measured. */
+      measured_at: string;
+      /**
+         * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      matches: boolean | null;
+      /**
+         * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      observed_value: number | null;
+      /**
+         * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+         * @nullable
+         */
+      threshold: number | null;
+    }
+
+    export interface MonitoringLeadCheck {
+      /** The follow-up check this summary is drawn from. */
+      check_id: string;
+      /** The check's short label. */
+      title: string;
+      /**
+         * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+         * @nullable
+         */
+      metric_id: string | null;
+      /** What the measured value means, when the check names it.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      metric_kind: ReportMetricKindEnum | null;
+      /** How to format measured values, matching a report metric's `value_format`.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format: ValueFormatEnum | null;
+      /**
+         * Optional value suffix, such as `users`.
+         * @nullable
+         */
+      unit: string | null;
+      /** What the measured value must satisfy over the reference period. */
+      readonly comparison: CheckComparison;
+      /** The target's reference period and whether it scales with elapsed time. */
+      readonly monitoring: MonitoringMetricConfig;
+      /**
+         * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /** End of this check's observation window. */
+      ends_at: string;
+      /**
+         * When the next interim reading is scheduled, if one falls inside the window.
+         * @nullable
+         */
+      next_measurement_at: string | null;
+      /** Interim readings in this Monitoring period, oldest first. */
+      readings: MonitoringReading[];
+    }
+
+    /**
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended
+     */
+    export type MonitoringSummaryStateEnum = typeof MonitoringSummaryStateEnum[keyof typeof MonitoringSummaryStateEnum];
+
+
+    export const MonitoringSummaryStateEnum = {
+      NotOnTrack: 'not_on_track',
+      OnTrack: 'on_track',
+      AwaitingReading: 'awaiting_reading',
+      ReadingsHidden: 'readings_hidden',
+      FinalCheckOnly: 'final_check_only',
+      WindowEnded: 'window_ended',
+    } as const;
+
     export interface MonitoringUnresolvedSignalExtra {
       /** Original Closed report whose implementation remains unverified. */
       report_id: string;
@@ -77817,6 +77914,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -77867,6 +77971,11 @@ export namespace Schemas {
          * @nullable
          */
       minimum_data_points?: number | null;
+      /**
+         * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+         * @nullable
+         */
+      readonly interval: string | null;
     }
 
     /**
@@ -78301,6 +78410,24 @@ export namespace Schemas {
       readonly steps: readonly ReportPlanStep[];
     }
 
+    export interface ReportMonitoringSummary {
+      /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+       *
+       * * `not_on_track` - Not on track
+       * * `on_track` - On track
+       * * `awaiting_reading` - Awaiting first reading
+       * * `readings_hidden` - Readings hidden
+       * * `final_check_only` - Final check only
+       * * `window_ended` - Window ended */
+      state: MonitoringSummaryStateEnum;
+      /** When this Monitoring period started. */
+      started_at: string;
+      /** When the last open check's observation window ends. */
+      ends_at: string;
+      /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+      lead_check: MonitoringLeadCheck | null;
+    }
+
     export interface SignalReportList {
       readonly id: string;
       /** @nullable */
@@ -78455,6 +78582,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly personal_reason: string | null;
+      /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+      readonly monitoring_summary: ReportMonitoringSummary | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -78703,7 +78832,7 @@ export namespace Schemas {
       readonly scope: RoutingScopeEnum | null;
       /** The head commit the record is for. It can be older than the pull request head. */
       readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       readonly trigger: string;
       /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
       readonly claim_expired: boolean;
@@ -78963,7 +79092,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -103734,6 +103863,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -111239,6 +111375,7 @@ export namespace Schemas {
      * * `potential` - potential
      * * `resolved` - resolved
      * * `monitoring` - monitoring
+     * * `ready` - ready
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -111248,15 +111385,17 @@ export namespace Schemas {
       Potential: 'potential',
       Resolved: 'resolved',
       Monitoring: 'monitoring',
+      Ready: 'ready',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved
-       * * `monitoring` - monitoring */
+       * * `monitoring` - monitoring
+       * * `ready` - ready */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -111717,12 +111856,13 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved
-       * * `monitoring` - monitoring */
+       * * `monitoring` - monitoring
+       * * `ready` - ready */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -113996,7 +114136,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -124700,6 +124840,18 @@ export namespace Schemas {
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
+      /**
+         * Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.
+         * @nullable
+         */
+      dropEmptySeries?: boolean | null;
+      /**
+         * Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.
+         * @minimum 1
+         * @maximum 100
+         * @nullable
+         */
+      limit?: number | null;
     }
 
     export interface _MetricQueryCount {
@@ -124726,6 +124878,10 @@ export namespace Schemas {
       results: _MetricSeries[];
       /** Set only when the query returned no points: what to check before querying again. */
       hint?: string;
+      /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
+      omitted_empty_series?: number;
+      /** Number of series left out by 'limit'. Set only when it left some out. */
+      omitted_by_limit?: number;
     }
 
     export interface _MetricSamplesBody {

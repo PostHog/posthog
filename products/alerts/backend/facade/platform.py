@@ -16,6 +16,7 @@ from products.alerts.backend.platform_alert_reads import (
 from products.alerts.backend.platform_insight_alert import (
     delete_native_insight_alert,
     enable_native_insight_alert,
+    native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
@@ -59,6 +60,7 @@ __all__ = [
     "moved_alert_fired_checks",
     "moved_alert_statuses",
     "native_insight_alert_matches",
+    "native_insight_alert_ids_by_insight",
     "native_insight_alert_view",
     "native_insight_alert_views",
     "platform_takes_new_alert_with",

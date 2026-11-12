@@ -289,6 +289,34 @@ def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[s
     return counts
 
 
+def _daily_engine_counts(
+    checks: QuerySet[AEOCitationCheck], tz: ZoneInfo, target_domains: list[str]
+) -> tuple[PromptDailyEngineStats, ...]:
+    return tuple(
+        PromptDailyEngineStats(
+            date=row["date"],
+            engine=row["engine"],
+            checks=row["checks"],
+            cited=row["cited"],
+            mentioned=row["mentioned"],
+            failed=row["failed"],
+            avg_position=row["avg_position"],
+        )
+        for row in checks.annotate(date=TruncDate("created_at", tzinfo=tz))
+        .values("date", "engine")
+        # Spelled out rather than `**_check_counts(...)` so the row keys stay typed. `mentioned` filters on the
+        # `cited` column, so it has to come before the annotation named `cited`.
+        .annotate(
+            checks=Count("id"),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            cited=Count("id", filter=Q(cited=True)),
+            failed=Count("id", filter=Q(check_failed=True)),
+            avg_position=Avg("target_best_position"),
+        )
+        .order_by("date", "engine")
+    )
+
+
 def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: int) -> PromptStats:
     """Totals per engine over the prompt's whole history, plus per-day counts, engine consensus on
     the cited domains, brand sentiment and the words of the web searches over the last `days` days
@@ -329,27 +357,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     daily_from = daily_to - dt.timedelta(days=days - 1)
     window_start = dt.datetime.combine(daily_from, dt.time.min, tzinfo=tz)
     in_window = checks.filter(created_at__gte=window_start)
-    daily = tuple(
-        PromptDailyEngineStats(
-            date=row["date"],
-            engine=row["engine"],
-            checks=row["checks"],
-            cited=row["cited"],
-            mentioned=row["mentioned"],
-            failed=row["failed"],
-            avg_position=row["avg_position"],
-        )
-        for row in in_window.annotate(date=TruncDate("created_at", tzinfo=tz))
-        .values("date", "engine")
-        .annotate(
-            checks=Count("id"),
-            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
-            cited=Count("id", filter=Q(cited=True)),
-            failed=Count("id", filter=Q(check_failed=True)),
-            avg_position=Avg("target_best_position"),
-        )
-        .order_by("date", "engine")
-    )
+    daily = _daily_engine_counts(in_window, tz, target_domains)
     answered = in_window.filter(check_failed=False)
     sentiment = tuple(
         PromptEngineSentiment(
@@ -560,6 +568,7 @@ def get_prompt_set_overview(
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
+        daily=_daily_engine_counts(current, tz, target_domains),
         days=days,
         window_from=window_from,
         window_to=window_to,

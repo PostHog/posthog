@@ -1,5 +1,3 @@
-import { type ModelLab } from './aiLabs'
-
 export interface BrandMarkShape {
     paths: string[]
     evenOdd?: boolean
@@ -34,6 +32,16 @@ export const BRAND_MARKS = {
             'M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815',
         ],
         evenOdd: true,
+    },
+    Gemini: {
+        paths: [
+            'M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81',
+        ],
+    },
+    Perplexity: {
+        paths: [
+            'M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z',
+        ],
     },
     Google: {
         paths: [
@@ -139,17 +147,3 @@ export const BRAND_MARKS = {
 export type IconMarkName = 'PostHog' | 'Unbranded model' | 'Other harnesses' | 'Unidentified client'
 
 export type BrandMarkName = keyof typeof BRAND_MARKS | IconMarkName
-
-const LAB_MARKS: Record<ModelLab, BrandMarkName> = {
-    Anthropic: 'Anthropic',
-    OpenAI: 'OpenAI',
-    Google: 'Google',
-    xAI: 'xAI',
-    Cursor: 'Cursor',
-    'Open weights': 'Unbranded model',
-    Other: 'Unbranded model',
-}
-
-export function labMark(lab: ModelLab): BrandMarkName {
-    return LAB_MARKS[lab]
-}

@@ -1307,6 +1307,18 @@ class NativeAlertLifecycle:
 
 
 @frozen
+class ActivitySource:
+    """What an alert watches in its source's product, named on its activity log entries so the entry
+    can link there after the alert is gone."""
+
+    id: str
+    name: str
+
+
+ActivitySourceLookup = Callable[[int, Mapping[str, Any]], ActivitySource | None]
+
+
+@frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
@@ -1349,6 +1361,8 @@ class SourceConfigSpec:
     # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
     # without one predates it, so an edit that fills it in does not end the alert's firings.
     kept_source_config_keys: frozenset[str] = frozenset()
+    # What an alert watches, by team and `source_config`, for its activity log entries.
+    activity_source: ActivitySourceLookup | None = None
 
     @property
     def creatable(self) -> bool:
