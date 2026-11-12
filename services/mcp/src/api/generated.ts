@@ -14693,13 +14693,110 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    /**
+     * * `discord` - discord
+     * * `teams` - teams
+     * * `webhook` - webhook
+     */
+    export type AlertCreateUrlDestinationTypeEnum = typeof AlertCreateUrlDestinationTypeEnum[keyof typeof AlertCreateUrlDestinationTypeEnum];
+
+
+    export const AlertCreateUrlDestinationTypeEnum = {
+      Discord: 'discord',
+      Teams: 'teams',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface AlertCreateUrlDestination {
+      /** Destination type: a Discord or Microsoft Teams channel, or any webhook.
+       *
+       * * `discord` - discord
+       * * `teams` - teams
+       * * `webhook` - webhook */
+      type: AlertCreateUrlDestinationTypeEnum;
+      /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
+      webhook_url: string;
+    }
+
     export interface AlertDeleteDestination {
       /**
-         * Destination IDs to delete, as returned when the destination was created.
-         * @minItems 1
+         * HogFunction IDs of the destination, as returned when it was created.
          * @maxItems 100
          */
+      hog_function_ids?: string[];
+      /**
+         * Destination IDs from the destinations list, to delete with their HogFunctions.
+         * @maxItems 100
+         */
+      destination_ids?: string[];
+    }
+
+    /**
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification
+     */
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+
+
+    export const DestinationTypeEnum = {
+      Slack: 'slack',
+      Discord: 'discord',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+      Email: 'email',
+      InApp: 'in_app',
+    } as const;
+
+    export interface AlertDestinationListItem {
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead.
+         * @nullable
+         */
+      id: string | null;
+      /** The HogFunctions that send for the destination. Empty once they are gone. */
       hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `discord` - Discord
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `pagerduty` - PagerDuty
+       * * `email` - Email
+       * * `in_app` - In-app notification */
+      type: DestinationTypeEnum;
+      /** Whether the destination sends. */
+      enabled: boolean;
+      /** Whether someone edited the destination's message, so it no longer sends the standard one. */
+      message_customized: boolean;
+      /** Slack workspace integration ID. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. */
+      slack_channel_id?: string;
+      /** Slack channel name, when it was saved. */
+      slack_channel_name?: string;
+      /** Webhook URL reduced to scheme and host. The path and query carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the incidents it opens.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** Region of the PagerDuty account.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface AlertDestinationResponse {
@@ -37397,28 +37494,6 @@ export namespace Schemas {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
     }
-
-    /**
-     * * `slack` - Slack
-     * * `discord` - Discord
-     * * `webhook` - Webhook
-     * * `teams` - Microsoft Teams
-     * * `pagerduty` - PagerDuty
-     * * `email` - Email
-     * * `in_app` - In-app notification
-     */
-    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
-
-
-    export const DestinationTypeEnum = {
-      Slack: 'slack',
-      Discord: 'discord',
-      Webhook: 'webhook',
-      Teams: 'teams',
-      Pagerduty: 'pagerduty',
-      Email: 'email',
-      InApp: 'in_app',
-    } as const;
 
     export interface DetectableEffectCheckpoint {
       /** The week mark, in whole weeks since launch. */
@@ -75174,6 +75249,15 @@ export namespace Schemas {
       previous?: string | null;
       results: ActivityLog[];
       count?: number;
+    }
+
+    export interface PaginatedAlertDestinationListItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AlertDestinationListItem[];
     }
 
     export interface PaginatedAlertList {
@@ -130282,6 +130366,17 @@ export namespace Schemas {
      * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
      */
     checks_offset?: number;
+    };
+
+    export type AlertsDestinationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AlertsPagerdutyAvailabilityRetrieveParams = {

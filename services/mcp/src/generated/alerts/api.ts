@@ -2786,12 +2786,19 @@ export const AlertsDestinationsDeleteCreateParams = () => zod.object({
 
 export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
 
+export const alertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
+
 export const AlertsDestinationsDeleteCreateBody = () => zod.object({
     hog_function_ids: zod
         .array(zod.string())
-        .min(1)
         .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
-        .describe('Destination IDs to delete, as returned when the destination was created.'),
+        .optional()
+        .describe('HogFunction IDs of the destination, as returned when it was created.'),
+    destination_ids: zod
+        .array(zod.string())
+        .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
 })
 
 /**

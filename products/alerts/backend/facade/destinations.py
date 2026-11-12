@@ -110,6 +110,14 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_url_config(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> AlertDestinationConfig:
+    return insight_alert_destinations.build_insight_alert_url_config(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
 def build_insight_alert_pagerduty_configs(
     *, alert_id: str, alert_name: str | None, data: AlertDestinationData
 ) -> list[AlertDestinationConfig]:

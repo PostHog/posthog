@@ -19,6 +19,7 @@ from products.alerts.backend.logic.destination_configs import (
     build_alert_destination_config,
     clip_hog_function_name,
     destination_filter,
+    url_hostname,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
@@ -228,6 +229,52 @@ def build_insight_alert_slack_config(
                 "slack_workspace": {"value": data["slack_workspace_id"]},
                 "channel": {"value": data["slack_channel_id"]},
             },
+        },
+    )
+
+
+# The messages the alert UI's `insight-alert-firing` sub-templates send, so a destination added through
+# the API posts what one added in the UI did.
+_DISCORD_CONTENT: Final = (
+    "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n"
+    "{event.properties.breaches}\n"
+    "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+)
+_TEAMS_TEXT: Final = (
+    "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n\n"
+    "{event.properties.breaches}\n\n"
+    "[View alert]({project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id})"
+)
+_WEBHOOK_BODY: Final = {
+    "alert_name": "{event.properties.alert_name}",
+    "insight_name": "{event.properties.insight_name}",
+    "breaches": "{event.properties.breaches}",
+    "insight_url": "{project.url}/insights/{event.properties.insight_id}",
+    "alert_url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+}
+
+
+def build_insight_alert_url_config(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> AlertDestinationConfig:
+    """A Discord, Microsoft Teams or webhook destination that hears the alert's firings."""
+    destination_type = data["type"]
+    url = data["webhook_url"]
+    if destination_type == DestinationType.DISCORD:
+        label, inputs = "Discord", {"content": {"value": _DISCORD_CONTENT}, "webhookUrl": {"value": url}}
+    elif destination_type == DestinationType.TEAMS:
+        label, inputs = "Microsoft Teams", {"text": {"value": _TEAMS_TEXT}, "webhookUrl": {"value": url}}
+    else:
+        label = f"Webhook {url_hostname(url)}"
+        inputs = {"url": {"value": url}, "body": {"value": _WEBHOOK_BODY}}
+    return AlertDestinationConfig(
+        payload={
+            "type": "internal_destination",
+            "enabled": True,
+            "filters": destination_filter(alert_id, LEGACY_INSIGHT_ALERT_EVENT),
+            "name": clip_hog_function_name(f"{alert_name or 'Alert'}: {label}"),
+            "template_id": DESTINATION_SPECS[destination_type].template_id,
+            "inputs": inputs,
         },
     )
 

@@ -12,16 +12,19 @@ import type {
     AlertApi,
     AlertCreateDestinationApi,
     AlertCreatePagerDutyDestinationApi,
+    AlertCreateUrlDestinationApi,
     AlertDeleteDestinationApi,
     AlertDestinationResponseApi,
     AlertPagerDutyAvailabilityApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
+    AlertsDestinationsListParams,
     AlertsListParams,
     AlertsPagerdutyAvailabilityRetrieveParams,
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
+    PaginatedAlertDestinationListItemListApi,
     PaginatedAlertListApi,
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
@@ -164,6 +167,37 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
+export const getAlertsDestinationsListUrl = (projectId: string, id: string, params?: AlertsDestinationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/alerts/${id}/destinations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/${id}/destinations/`
+}
+
+/**
+ * This alert's notification destinations, one entry per destination, with credential-bearing URL components removed. Subscribers are listed on the alert instead.
+ */
+export const alertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    params?: AlertsDestinationsListParams,
+    options?: RequestInit
+): Promise<PaginatedAlertDestinationListItemListApi> => {
+    return apiMutator<PaginatedAlertDestinationListItemListApi>(getAlertsDestinationsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/destinations/`
 }
@@ -195,7 +229,7 @@ export const getAlertsDestinationsDeleteCreateUrl = (projectId: string, id: stri
 export const alertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    alertDeleteDestinationApi: AlertDeleteDestinationApi,
+    alertDeleteDestinationApi?: AlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getAlertsDestinationsDeleteCreateUrl(projectId, id), {
@@ -224,6 +258,27 @@ export const alertsDestinationsPagerdutyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertCreatePagerDutyDestinationApi),
+    })
+}
+
+export const getAlertsDestinationsWebhookCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/webhook/`
+}
+
+/**
+ * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned IDs identify the destination.
+ */
+export const alertsDestinationsWebhookCreate = async (
+    projectId: string,
+    id: string,
+    alertCreateUrlDestinationApi: AlertCreateUrlDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCreateUrlDestinationApi),
     })
 }
 

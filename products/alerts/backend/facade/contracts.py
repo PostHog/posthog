@@ -44,6 +44,12 @@ INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+# The types whose address is a URL the caller supplies, so their route also asks for `hog_function:write`.
+INSIGHT_ALERT_URL_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (
+    DestinationType.DISCORD,
+    DestinationType.TEAMS,
+    DestinationType.WEBHOOK,
+)
 
 
 class DestinationHoldBack(StrEnum):

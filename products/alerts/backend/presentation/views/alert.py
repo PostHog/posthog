@@ -113,6 +113,7 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+    INSIGHT_ALERT_URL_DESTINATION_TYPES,
     MovedAlertCheck,
     PlatformCannotOwn,
 )
@@ -121,8 +122,12 @@ from products.alerts.backend.facade.destinations import (
     MAX_DESTINATIONS_PER_ALERT,
     build_insight_alert_pagerduty_configs,
     build_insight_alert_slack_config,
+    build_insight_alert_url_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    customized_alert_destination_ids,
+    owned_alert_destination_ids,
+    redact_destination_data,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -165,6 +170,11 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
+from products.alerts_platform.backend.facade.api import (
+    delete_source_destination_rows,
+    list_source_destinations,
+    record_source_destination,
+)
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
     DEFAULT_PAGERDUTY_SEVERITY,
@@ -172,6 +182,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertEventKind,
     DestinationType,
     InvalidPlatformAlertEdit,
     NativeConfigurationMatch,
@@ -1676,6 +1687,13 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+# An incident manager's row hears firings and resolves, which delivery turns into its trigger and resolve.
+# Every other destination hears what its HogFunction hears: the firing.
+_ROW_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
+    DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+}
+
+
 class AlertCreateDestinationSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=INSIGHT_ALERT_DESTINATION_TYPES,
@@ -1773,9 +1791,76 @@ class AlertDestinationResponseSerializer(serializers.Serializer):
 class AlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        min_length=1,
+        required=False,
+        default=list,
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-        help_text="Destination IDs to delete, as returned when the destination was created.",
+        help_text="HogFunction IDs of the destination, as returned when it was created.",
+    )
+    destination_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="Destination IDs from the destinations list, to delete with their HogFunctions.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs["hog_function_ids"] and not attrs["destination_ids"]:
+            raise ValidationError("Name the destination by `hog_function_ids` or `destination_ids`.")
+        return attrs
+
+
+class AlertCreateUrlDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=INSIGHT_ALERT_URL_DESTINATION_TYPES,
+        help_text="Destination type: a Discord or Microsoft Teams channel, or any webhook.",
+    )
+    webhook_url = serializers.CharField(
+        write_only=True,
+        help_text="The https URL to send to. Its path and query are a credential, so reads show only the host.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data, allowed_destination_types=INSIGHT_ALERT_URL_DESTINATION_TYPES)
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+        return attrs
+
+
+class AlertDestinationListItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The destination's ID on the alerts platform. Null for a destination added before the platform kept "
+            "one, which `hog_function_ids` identifies instead."
+        ),
+    )
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The HogFunctions that send for the destination. Empty once they are gone.",
+    )
+    type = serializers.ChoiceField(choices=DestinationType.choices, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(help_text="Whether the destination sends.")
+    message_customized = serializers.BooleanField(
+        help_text="Whether someone edited the destination's message, so it no longer sends the standard one."
+    )
+    slack_workspace_id = serializers.IntegerField(required=False, help_text="Slack workspace integration ID.")
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID.")
+    slack_channel_name = serializers.CharField(required=False, help_text="Slack channel name, when it was saved.")
+    webhook_url = serializers.CharField(
+        required=False, help_text="Webhook URL reduced to scheme and host. The path and query carry the secret."
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False, help_text="PagerDuty integration key reduced to its last four characters."
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices, required=False, help_text="Severity of the incidents it opens."
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices, required=False, help_text="Region of the PagerDuty account."
     )
 
 
@@ -1926,6 +2011,9 @@ def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertC
 )
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
+    # The destinations route reads with GET and adds with POST, so its scope follows the method.
+    scope_object_read_actions = ["list", "retrieve", "list_destinations"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "create_destination"]
     queryset = (
         AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
         .prefetch_related(
@@ -2480,7 +2568,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "connected to the project. The returned IDs identify the destination."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["alert:write"])
+    @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request, *args, **kwargs):
         alert = self._alert_or_native()
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
@@ -2491,6 +2579,65 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert,
             data,
             [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+        )
+
+    @extend_schema(
+        responses={200: AlertDestinationListItemSerializer(many=True)},
+        description=(
+            "This alert's notification destinations, one entry per destination, with credential-bearing URL "
+            "components removed. Subscribers are listed on the alert instead."
+        ),
+    )
+    @create_destination.mapping.get
+    def list_destinations(self, request, *args, **kwargs):
+        alert = self._alert_or_native()
+        destinations = list_source_destinations(
+            team_id=self.team_id, public_id=alert.id, hog_function_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+        )
+        customized = customized_alert_destination_ids(
+            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+        )
+        return Response(
+            AlertDestinationListItemSerializer(
+                [
+                    {
+                        "id": destination.destination_id,
+                        "hog_function_ids": list(destination.hog_function_ids),
+                        "enabled": destination.enabled,
+                        "message_customized": not customized.isdisjoint(destination.hog_function_ids),
+                        **redact_destination_data(destination.data),
+                    }
+                    for destination in destinations
+                ],
+                many=True,
+            ).data
+        )
+
+    @extend_schema(
+        request=AlertCreateUrlDestinationSerializer,
+        responses={201: AlertDestinationResponseSerializer},
+        description=(
+            "Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. "
+            "The returned IDs identify the destination."
+        ),
+    )
+    # The URL is a target the caller supplies, so an alert-only token cannot add one, as for PagerDuty.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations/webhook",
+        required_scopes=["alert:write", "hog_function:write"],
+    )
+    def create_url_destination(self, request, *args, **kwargs):
+        alert = self._alert_or_native()
+        serializer = AlertCreateUrlDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = cast(AlertDestinationData, serializer.validated_data)
+        return self._create_destination(
+            request,
+            alert,
+            data,
+            [build_insight_alert_url_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
         )
 
     @extend_schema(
@@ -2561,13 +2708,23 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            hog_function_ids = create_alert_destination_hog_functions(
-                list(configs),
-                team_id=alert.team_id,
-                created_by_id=user.id,
-                alert_id=str(alert.id),
-                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-            )
+            with transaction.atomic():
+                hog_function_ids = create_alert_destination_hog_functions(
+                    list(configs),
+                    team_id=alert.team_id,
+                    created_by_id=user.id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                )
+                # The HogFunctions send while they exist. Rollback to the insight stack reads only them.
+                record_source_destination(
+                    team_id=alert.team_id,
+                    public_id=alert.id,
+                    data=data,
+                    event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
+                    hog_function_ids=hog_function_ids,
+                    hog_function_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
@@ -2595,14 +2752,36 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
+        destination_ids = serializer.validated_data["destination_ids"]
 
         try:
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
+            with transaction.atomic():
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
+                copied = delete_source_destination_rows(
+                    team_id=self.team_id,
+                    public_id=alert.id,
+                    destination_ids=destination_ids,
+                    hog_function_ids=hog_function_ids,
+                )
+                # A row named by its id takes its HogFunctions with it. One deleted elsewhere is no longer the alert's.
+                remaining = owned_alert_destination_ids(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                    hog_function_ids=copied.difference(hog_function_ids),
+                )
+                if remaining:
+                    soft_delete_alert_destinations(
+                        team_id=self.team_id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                        hog_function_ids=sorted(remaining, key=str),
+                    )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
@@ -2612,7 +2791,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             properties={
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
-                "count": len(hog_function_ids),
+                "count": len(hog_function_ids) + len(remaining),
                 "team_id": alert.team_id,
             },
         )
