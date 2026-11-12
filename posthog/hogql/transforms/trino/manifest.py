@@ -153,6 +153,10 @@ class _UnsupportedSemanticFeatureFinder(TraversingVisitor):
         super().visit_compare_operation(node)
 
 
+def is_manifest_column_type(column_type: DatabaseSerializedFieldType) -> bool:
+    return column_type in _FIELD_TYPES
+
+
 def _manifest_field(column: TrinoManifestColumn) -> DatabaseField:
     field_class = _FIELD_TYPES.get(column.type)
     if field_class is None:
@@ -234,29 +238,35 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
             database.tables.get_child(chain).case_insensitive = True
             continue
 
-        columns = {column.name: _manifest_field(column) for column in table.columns}
-        if not columns or len(columns) != len(table.columns):
-            raise TrinoLoweringError(
-                "TRINO_PURE_INVALID_MANIFEST",
-                "manifest columns",
-                detail=f"Manifest table `{table.logical_name}` must declare unique columns.",
-            )
-        columns.update(deepcopy(dict(table.field_overrides)))
-        direct_table = DirectTrinoTable(
-            name=chain[-1],
-            fields=columns,
-            has_complete_columns=True,
-            external_data_source_id="",
-            trino_catalog=table.locator[0],
-            trino_schema=table.locator[1],
-            trino_table_name=table.locator[2],
-        )
-        database.tables.add_child(
-            TableNode.create_nested_for_chain(chain, direct_table, case_insensitive=True),
-            table_conflict_mode="override",
-        )
+        add_trino_manifest_table(database, table)
 
     return database, locators
+
+
+def add_trino_manifest_table(database: Database, table: TrinoManifestTable) -> None:
+    """Add a physical Trino table with declared columns to the database, at its logical name."""
+    columns = {column.name: _manifest_field(column) for column in table.columns}
+    if not columns or len(columns) != len(table.columns):
+        raise TrinoLoweringError(
+            "TRINO_PURE_INVALID_MANIFEST",
+            "manifest columns",
+            detail=f"Manifest table `{table.logical_name}` must declare unique columns.",
+        )
+    columns.update(deepcopy(dict(table.field_overrides)))
+    chain = table.logical_name.split(".")
+    direct_table = DirectTrinoTable(
+        name=chain[-1],
+        fields=columns,
+        has_complete_columns=True,
+        external_data_source_id="",
+        trino_catalog=table.locator[0],
+        trino_schema=table.locator[1],
+        trino_table_name=table.locator[2],
+    )
+    database.tables.add_child(
+        TableNode.create_nested_for_chain(chain, direct_table, case_insensitive=True),
+        table_conflict_mode="override",
+    )
 
 
 def find_unsupported_pure_trino_features(node: ast.AST) -> None:

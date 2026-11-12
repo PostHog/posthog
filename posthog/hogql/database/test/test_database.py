@@ -5186,19 +5186,22 @@ class TestSourcesCacheConcurrency(TestCase):
         clear_sources_cache()
 
     @staticmethod
-    def _stub_sources(row_count: int = 0) -> Any:
-        return SimpleNamespace(
+    def _stub_sources(row_count: int = 0, rows_field: str = "warehouse_tables") -> Any:
+        sources = SimpleNamespace(
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
             revenue_source_handles=[],
-            warehouse_tables=[object()] * row_count,
+            warehouse_tables=[],
             data_warehouse_joins=[],
             data_warehouse_expressions=[],
             event_modifier_saved_queries={},
             virtual_schemas=[],
+            raw_trino_saved_queries=[],
         )
+        setattr(sources, rows_field, [object()] * row_count)
+        return sources
 
     def test_concurrent_misses_for_one_key_fetch_once(self):
         key = SourcesCacheKey(
@@ -5258,7 +5261,8 @@ class TestSourcesCacheConcurrency(TestCase):
         assert not waiter_thread.is_alive()
         assert results == [stub]
 
-    def test_oversized_sources_are_returned_but_not_cached(self):
+    @parameterized.expand([("warehouse_tables",), ("raw_trino_saved_queries",)])
+    def test_oversized_sources_are_returned_but_not_cached(self, rows_field: str):
         key = SourcesCacheKey(
             team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
         )
@@ -5267,7 +5271,7 @@ class TestSourcesCacheConcurrency(TestCase):
         def fetch() -> Any:
             nonlocal fetch_count
             fetch_count += 1
-            return self._stub_sources(row_count=SOURCES_CACHE_MAX_ENTRY_WEIGHT + 1)
+            return self._stub_sources(row_count=SOURCES_CACHE_MAX_ENTRY_WEIGHT + 1, rows_field=rows_field)
 
         first = get_or_fetch_sources(key, fetch)
         second = get_or_fetch_sources(key, fetch)

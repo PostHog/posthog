@@ -420,6 +420,8 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    # Server-set only: the session cookie authenticated the request, so a person in a browser started this query.
+    browser_session: Optional[bool] = None
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None

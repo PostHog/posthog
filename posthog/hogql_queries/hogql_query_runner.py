@@ -51,6 +51,7 @@ from posthog.models.activity_logging.retention import get_activity_log_lookback_
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
+    has_raw_trino_view_access,
     use_trino_canary,
     validate_managed_trino_query,
 )
@@ -80,6 +81,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         self._trino_canary = False
+        self._managed_trino_raw_access = False
         super().__init__(*args, **kwargs)
 
     def _reads_events_route(self) -> bool:
@@ -158,6 +160,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
             validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
+            # A HogQL query can read raw Trino views, which run on the organization's warehouse credential.
+            # validate_managed_trino_query already checked raw access for a raw query.
+            self._managed_trino_raw_access = bool(self.query.sendRawQuery) or has_raw_trino_view_access(
+                self.team, user if user is not None else self.user
+            )
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:
@@ -196,6 +203,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def get_cache_payload(self) -> dict:
         self._validate_direct_connection()
         payload = super().get_cache_payload()
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            # A caller without raw access must not read a result that expanded raw Trino views.
+            payload["managed_trino_raw_access"] = self._managed_trino_raw_access
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
             if self._direct_engine == "trino":
@@ -232,7 +242,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def query_status_labels(self) -> list[str] | None:
         self._validate_direct_connection()
-        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self.query.sendRawQuery:
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self._managed_trino_raw_access:
             return [managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             return [
@@ -384,6 +394,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 timings=self.timings,
                 limit_context=self.limit_context,
                 canary=self._trino_canary,
+                raw_trino_view_access=self._managed_trino_raw_access,
             )
 
         if self.query.sendRawQuery and self.query.connectionId:

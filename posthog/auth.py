@@ -267,6 +267,7 @@ class SessionAuthentication(
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
             refuse_blocked_account(request, user, call_site="session", impersonated=is_impersonated_session(request))
+            tag_queries(browser_session=True)
 
             return (user, auth)
 

@@ -32,7 +32,7 @@ def _tokenizer_class(dialect: str, alternate_escapes: bool = False) -> type["Tok
     return tokenizer
 
 
-def _lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
+def lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
     from sqlglot.errors import TokenError  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
     try:
@@ -88,7 +88,7 @@ def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
 
     statement: list[DialectToken] = []
     terminated = False
-    for token in _lex_direct_sql(sql, dialect):
+    for token in lex_direct_sql(sql, dialect):
         if token.token_type == TokenType.SEMICOLON:
             terminated = bool(statement)
         elif terminated:

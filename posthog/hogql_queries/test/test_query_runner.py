@@ -2309,6 +2309,30 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert other_runner.get_cache_payload()["restricted_resources"] == ["notebook"]
         assert creator_runner.get_cache_key() != other_runner.get_cache_key()
 
+    def test_raw_trino_view_deny_partitions_cache(self):
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        raw_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="raw_view",
+            query={"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True, "query": "SELECT 1"},
+        )
+        self._ac(
+            resource="warehouse_view",
+            resource_id=str(raw_view.id),
+            access_level="none",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from raw_view"}
+        allowed = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        denied = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert denied.get_cache_payload()["restricted_objects"] == {"warehouse_view": [str(raw_view.id)]}
+        assert denied.get_cache_key() != allowed.get_cache_key()
+
     def test_run_recomputes_fingerprint_when_user_changes(self):
         # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.
         other_user = self._create_user("other@posthog.com")

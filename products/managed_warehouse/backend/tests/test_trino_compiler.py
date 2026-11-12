@@ -1,8 +1,12 @@
 import logging
+from collections.abc import Sequence
 from uuid import UUID
 
 import pytest
 from unittest import mock
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 import structlog
 from rest_framework.response import Response
@@ -11,25 +15,29 @@ from structlog.testing import capture_logs
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import QueryError
+from posthog.hogql.database.trino_locator import TrinoTableLocator
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
     TrinoManifestTable,
     build_trino_manifest_database,
 )
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.schema_enums import DatabaseSerializedFieldType
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    TrinoCompiledQuery,
     TrinoExpansionMode,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 from products.managed_warehouse.backend.trino_compiler import (
+    ExternalCatalogTableLookup,
     TrinoTargetUnavailable,
     compile_hogql_to_trino_sql,
     get_ready_trino_catalog_name,
@@ -488,6 +496,144 @@ class TestCompileHogQLToTrinoSQL:
         assert '"org_catalog"."posthog"."events_production"' in compiled.sql
         assert "signup" in compiled.values.values()
         assert "translation_source" in compiled.hogql
+
+    @staticmethod
+    def _compile_with_raw_views(
+        query: HogQLQuery,
+        *,
+        raw_trino_view_access: bool = True,
+        views: int = 0,
+        external_catalog_tables: ExternalCatalogTableLookup | None = None,
+    ) -> tuple[TrinoCompiledQuery, int]:
+        organization = Organization.objects.create(name="trino-raw-views")
+        team = Team.objects.create(organization=organization)
+        user = User.objects.create_and_join(organization, f"reader-{team.pk}@example.com", "password")
+        raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
+        columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+        bodies = [
+            # A quote inside a comment would otherwise start a string for the parameter binder.
+            ("orders_daily", "SELECT id -- don't count tests\nFROM example_orders;"),
+            *((f"extra_{i}", f"SELECT {i} AS id") for i in range(views)),
+        ]
+        for name, sql in bodies:
+            DataWarehouseSavedQuery.objects.create(team=team, name=name, query={**raw, "query": sql}, columns=columns)
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=_membership(team_id=team.pk, organization_id=str(organization.pk)),
+            ),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                query,
+                team=team,
+                user=user,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                raw_trino_view_access=raw_trino_view_access,
+                external_catalog_tables=external_catalog_tables,
+            )
+        return compiled, len(queries)
+
+    @staticmethod
+    def _external_catalog(locators: Sequence[TrinoTableLocator]) -> list[TrinoManifestTable]:
+        known = {
+            ("ext_catalog", "production", "hub_occupancy"): ("hub_id", "hub_name"),
+            ("ext_catalog", "production", "orders"): ("order_id", "amount"),
+            ("org_catalog", "posthog", "events_production"): ("uuid",),
+        }
+        return [
+            TrinoManifestTable(
+                logical_name=".".join(locator),
+                locator=locator,
+                columns=tuple(
+                    TrinoManifestColumn(name=name, type=DatabaseSerializedFieldType.INTEGER) for name in known[locator]
+                ),
+            )
+            for locator in locators
+            if locator in known
+        ]
+
+    @pytest.mark.parametrize(
+        ("query", "expected_sql"),
+        [
+            pytest.param(
+                'SELECT hub_name FROM "ext_catalog".production.hub_occupancy',
+                'SELECT "ext_catalog__production__hub_occupancy"."hub_name" '
+                'FROM "ext_catalog"."production"."hub_occupancy" AS "ext_catalog__production__hub_occupancy"',
+                id="external_table",
+            ),
+            pytest.param(
+                "SELECT o.id, x.amount FROM orders_daily AS o JOIN ext_catalog.production.orders AS x ON x.order_id = o.id",
+                "WITH __ph_rv_0 AS (\nSELECT id FROM example_orders\n)\n"
+                'SELECT "o"."id", "x"."amount" FROM __ph_rv_0 AS "o" '
+                'JOIN "ext_catalog"."production"."orders" AS "x" ON ("x"."order_id" = "o"."id")',
+                id="raw_view_joined_with_external_table",
+            ),
+        ],
+    )
+    @pytest.mark.django_db
+    def test_django_reads_tables_from_another_trino_catalog(self, query: str, expected_sql: str) -> None:
+        compiled, _ = self._compile_with_raw_views(
+            HogQLQuery(query=query), external_catalog_tables=self._external_catalog
+        )
+
+        assert compiled.sql == expected_sql
+
+    @pytest.mark.parametrize(
+        ("query", "raw_access", "error"),
+        [
+            pytest.param(
+                "SELECT hub_id FROM ext_catalog.production.hub_occupancy", False, "signed-in", id="no_raw_access"
+            ),
+            pytest.param("SELECT 1 FROM ext_catalog.production.missing", True, "Unknown table", id="unknown_table"),
+            pytest.param("SELECT 1 FROM nowhere.production.orders", True, "Unknown table", id="unknown_catalog"),
+            # The organization's own catalog holds every project's tables; HogQL reads it only through mapped names.
+            pytest.param(
+                "SELECT 1 FROM org_catalog.posthog.events_production", True, "Unknown table", id="organization_catalog"
+            ),
+        ],
+    )
+    @pytest.mark.django_db
+    def test_django_refuses_tables_from_another_trino_catalog(self, query: str, raw_access: bool, error: str) -> None:
+        with pytest.raises(ExposedHogQLError, match=error):
+            self._compile_with_raw_views(
+                HogQLQuery(query=query),
+                raw_trino_view_access=raw_access,
+                external_catalog_tables=self._external_catalog if raw_access else None,
+            )
+
+    @pytest.mark.django_db
+    def test_django_hoists_raw_trino_views_for_a_caller_with_raw_access(self) -> None:
+        compiled, _ = self._compile_with_raw_views(
+            HogQLQuery(query="SELECT id FROM orders_daily WHERE toString(id) = {v}", values={"v": "1"})
+        )
+
+        assert convert_pyformat_placeholders(compiled.sql, compiled.values) == (
+            "WITH __ph_rv_0 AS (\nSELECT id FROM example_orders\n)\n"
+            'SELECT "orders_daily"."id" FROM __ph_rv_0 AS "orders_daily" '
+            'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
+            ["1"],
+        )
+
+    @pytest.mark.django_db
+    def test_django_refuses_raw_trino_views_without_raw_access(self) -> None:
+        with pytest.raises(ExposedHogQLError, match="Open it from the SQL editor while signed in"):
+            self._compile_with_raw_views(HogQLQuery(query="SELECT id FROM orders_daily"), raw_trino_view_access=False)
+
+    @pytest.mark.django_db
+    def test_django_raw_trino_view_count_adds_no_queries(self) -> None:
+        query = HogQLQuery(query="SELECT id FROM orders_daily")
+        _, few = self._compile_with_raw_views(query)
+        _, many = self._compile_with_raw_views(query, views=20)
+
+        assert many == few
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()

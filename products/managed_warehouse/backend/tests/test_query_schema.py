@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
+from trino.exceptions import TrinoUserError
+
 from posthog.schema import DatabaseSchemaQuery
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -14,6 +16,9 @@ from posthog.api.services.query import process_database_schema_query
 from posthog.clickhouse.query_tagging import AccessMethod, QueryTags, tags_context
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.models import Team, User
+from posthog.schema_enums import DatabaseSerializedFieldType
+
+from products.managed_warehouse.backend.external_catalog import discover_external_catalog_tables
 
 
 @pytest.mark.parametrize(
@@ -103,3 +108,30 @@ def test_native_schema_rejects_unavailable_access_without_loading_default_catalo
         )
     default_catalog.assert_not_called()
     assert connect.call_count == (1 if failure == "discovery" else 0)
+
+
+def test_external_catalog_discovery_types_columns_and_skips_unreadable_catalogs() -> None:
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        [
+            ("production", "orders", "order_id", "integer", "NO"),
+            ("production", "orders", "amount", "decimal(10,2)", "YES"),
+            ("production", "orders", "tags", "map(varchar, varchar)", "YES"),
+        ],
+    ]
+    cursor.execute.side_effect = [None, TrinoUserError({"message": "Catalog 'private' not found"}, query_id="q")]
+
+    tables = discover_external_catalog_tables(
+        cursor, [("ext_catalog", "production", "orders"), ("private", "production", "orders")]
+    )
+
+    assert [(table.locator, [(c.name, c.type) for c in table.columns]) for table in tables] == [
+        (
+            ("ext_catalog", "production", "orders"),
+            [
+                ("order_id", DatabaseSerializedFieldType.INTEGER),
+                ("amount", DatabaseSerializedFieldType.DECIMAL),
+                ("tags", DatabaseSerializedFieldType.STRING),
+            ],
+        )
+    ]

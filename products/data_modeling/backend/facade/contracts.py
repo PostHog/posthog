@@ -479,7 +479,7 @@ class EligibilityResult:
 
 RAW_TRINO_MATERIALIZE_REASON = "Views that run raw Trino SQL cannot be materialized yet."
 RAW_TRINO_LINEAGE_REASON = "Views that run raw Trino SQL have no lineage, because only hosted Trino can parse them."
-RAW_TRINO_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs raw Trino SQL."
+RAW_TRINO_CLICKHOUSE_REFERENCE_REASON = "Only queries on hosted Trino can read a view that runs raw Trino SQL."
 CONNECTION_SAVE_REASON = (
     "Views can't be saved on a direct connection. Create the view in your own database, "
     "or save this query as an insight."
