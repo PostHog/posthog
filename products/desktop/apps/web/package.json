@@ -14,7 +14,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
     "@inversifyjs/strongly-typed": "2.2.0",
-    "@pierre/diffs": "^1.2.10",
+    "@pierre/diffs": "^1.2.11",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/api-client": "workspace:*",
     "@posthog/core": "workspace:*",
@@ -26,10 +26,10 @@
     "@posthog/shared": "workspace:*",
     "@posthog/ui": "workspace:*",
     "@posthog/workspace-client": "workspace:*",
-    "@tanstack/react-query": "^5.100.14",
-    "@trpc/client": "^11.17.0",
-    "@trpc/server": "^11.17.0",
-    "@trpc/tanstack-react-query": "^11.17.0",
+    "@tanstack/react-query": "^5.105.2",
+    "@trpc/client": "^11.22.1",
+    "@trpc/server": "^11.22.1",
+    "@trpc/tanstack-react-query": "^11.22.1",
     "inversify": "^7.10.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
@@ -39,13 +39,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "@tailwindcss/vite": "^4.2.2",
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@tanstack/router-plugin": "catalog:",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.2.1",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^6.0.7"
   }

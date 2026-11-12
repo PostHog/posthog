@@ -54,10 +54,10 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
     "@posthog/shared": "workspace:*",
-    "fflate": "^0.8.2",
-    "knip": "^5.66.3",
+    "fflate": "^0.8.3",
+    "knip": "^5.88.1",
     "mprocs": "^0.9.6",
-    "turbo": "^2.9.16"
+    "turbo": "^2.11.10"
   },
   "lint-staged": {
     "*.{mjs,json,jsonc,css}": "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",

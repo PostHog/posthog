@@ -23,7 +23,7 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/trpc-server": "catalog:",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@parcel/watcher": "catalog:",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/di": "workspace:*",
@@ -33,15 +33,15 @@
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@trpc/server": "catalog:",
-    "better-sqlite3": "^12.10.1",
-    "drizzle-orm": "^0.45.1",
-    "fflate": "^0.8.2",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.4",
+    "fflate": "^0.8.3",
     "hono": "catalog:",
-    "ignore": "^7.0.5",
+    "ignore": "^7.0.14",
     "inversify": "catalog:",
     "node-pty": "1.1.0",
     "reflect-metadata": "catalog:",
-    "smol-toml": "^1.6.0",
+    "smol-toml": "^1.9.1",
     "superjson": "catalog:",
     "zod": "^4.1.12"
   },
@@ -50,10 +50,10 @@
     "@posthog/tsconfig": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",
-    "drizzle-kit": "^0.31.9",
-    "memfs": "^4.57.3",
+    "drizzle-kit": "^0.31.11",
+    "memfs": "^4.80.0",
     "tsup": "catalog:",
     "typescript": "catalog:",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

@@ -32,6 +32,6 @@
     "@types/react": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

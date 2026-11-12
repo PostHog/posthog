@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.2.10",
+    "@pierre/diffs": "^1.2.11",
     "@posthog/brand": "catalog:",
     "@posthog/shared": "workspace:*",
     "posthog-js": "1.447.12",

@@ -97,6 +97,7 @@ export async function handleIPCMessage<TRouter extends AnyTRPCRouter>({
       getRawInput: async () => input,
       type,
       signal: abortController.signal,
+      batchIndex: 0,
     });
 
     const isIterableResult = isAsyncIterable(result) || isObservable(result);
