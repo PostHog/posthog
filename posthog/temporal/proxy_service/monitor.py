@@ -512,6 +512,10 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
             json={},
             timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
         )
+    # A timeout, a dropped connection or a 5xx can come from a capture deploy rather than a missing
+    # route, and the banner stays up until the next daily run, so those don't claim a missing route.
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        return _unverified_capture_v1_route(path, e.__class__.__name__)
     except (requests.exceptions.RequestException, SSRFBlockedError) as e:
         return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
     try:
@@ -521,7 +525,13 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
         body = None
     if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS:
         return None
+    if response.status_code >= 500:
+        return _unverified_capture_v1_route(path, f"got {response.status_code}")
     return f"Proxy does not forward {path} (got {response.status_code}); {consequence}"
+
+
+def _unverified_capture_v1_route(path: str, detail: str) -> str:
+    return f"Couldn't check whether the proxy forwards {path} ({detail}). The next daily check tries again."
 
 
 @dataclass

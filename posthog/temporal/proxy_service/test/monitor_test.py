@@ -151,23 +151,56 @@ class TestCheckProxyIsLive(TestCase):
 
     @parameterized.expand(
         [
-            ("not_routed", _non_capture_response(404), "got 404"),
-            ("upstream_error", _non_capture_response(502), "got 502"),
-            ("redirect", _non_capture_response(301), "got 301"),
-            ("blocked_in_front_of_capture", _non_capture_response(403), "got 403"),
+            (
+                "not_routed",
+                _non_capture_response(404),
+                "Proxy does not forward /i/v1/analytics/events (got 404); v1 SDKs send events there",
+            ),
+            (
+                "redirect",
+                _non_capture_response(301),
+                "Proxy does not forward /i/v1/analytics/events (got 301); v1 SDKs send events there",
+            ),
+            (
+                "blocked_in_front_of_capture",
+                _non_capture_response(403),
+                "Proxy does not forward /i/v1/analytics/events (got 403); v1 SDKs send events there",
+            ),
             (
                 "deeply_nested_body",
                 Mock(status_code=200, json=Mock(side_effect=RecursionError("too deep"))),
-                "got 200",
+                "Proxy does not forward /i/v1/analytics/events (got 200); v1 SDKs send events there",
             ),
-            ("other_json_error", Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})), "got 401"),
+            (
+                "other_json_error",
+                Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})),
+                "Proxy does not forward /i/v1/analytics/events (got 401); v1 SDKs send events there",
+            ),
             (
                 "authorization_dropped",
                 Mock(status_code=401, json=Mock(return_value={"error": "missing_authorization"})),
-                "got 401",
+                "Proxy does not forward /i/v1/analytics/events (got 401); v1 SDKs send events there",
             ),
-            ("connection_error", requests.exceptions.ConnectionError("refused"), "ConnectionError"),
-            ("ssrf_blocked", SSRFBlockedError("private address"), "SSRFBlockedError"),
+            (
+                "ssrf_blocked",
+                SSRFBlockedError("private address"),
+                "Proxy does not forward /i/v1/analytics/events (SSRFBlockedError); v1 SDKs send events there",
+            ),
+            (
+                "upstream_error",
+                _non_capture_response(502),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (got 502). The next daily check tries again.",
+            ),
+            (
+                "connection_error",
+                requests.exceptions.ConnectionError("refused"),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (ConnectionError). The next daily check tries again.",
+            ),
+            (
+                "read_timeout",
+                requests.exceptions.ReadTimeout("timed out"),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (ReadTimeout). The next daily check tries again.",
+            ),
         ]
     )
     @pytest.mark.asyncio
@@ -177,7 +210,7 @@ class TestCheckProxyIsLive(TestCase):
     @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_reports_unrouted_v1_capture_and_still_checks_cert(
-        self, _name, v1_response, reason, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
+        self, _name, v1_response, expected_warning, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
     ):
         mock_get_record.return_value = self.proxy_record
         mock_post.side_effect = _respond_by_path(
@@ -189,10 +222,7 @@ class TestCheckProxyIsLive(TestCase):
         result = await check_proxy_is_live(self.input)
 
         self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
-        self.assertEqual(
-            result.warnings,
-            [f"Proxy does not forward /i/v1/analytics/events ({reason}); v1 SDKs send events there"],
-        )
+        self.assertEqual(result.warnings, [expected_warning])
 
     @pytest.mark.asyncio
     @time_machine.travel("2024-01-16 10:00:00", tick=False)
