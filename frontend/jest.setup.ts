@@ -195,7 +195,7 @@ jest.mock('posthog-js', () => {
         get_session_replay_url: jest.fn(),
         get_distinct_id: jest.fn(),
         get_property: jest.fn(),
-        getGroups: jest.fn(() => ({})),
+        getGroups: () => ({}),
         register: jest.fn(),
         unregister: jest.fn(),
         reset: jest.fn(),
