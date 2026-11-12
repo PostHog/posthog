@@ -101,13 +101,9 @@ export interface CdpDeadLetterServiceOptions {
     outputs: CdpOutputs
     output: CdpDlqOutput
     consumerGroup: string
-    /** Needed only by a consumer that records failures against event globals. */
     resolveMessage?: (globals: HogFunctionInvocationGlobals) => Message | undefined
-    /**
-     * Counts `parse` failures toward the breaker. For a consumer whose only failure is a message it
-     * cannot parse, such as the intake consumer, a parse failure across much of a batch is the one sign
-     * of a bad producer or consumer deploy, and stalling keeps the good messages out of the dead letters.
-     */
+    // For a consumer like intake, whose only failure is an unparseable message: a wide parse failure means a bad
+    // deploy, and stalling keeps the good messages out of the dead letters.
     parseFailuresStallBatch?: boolean
 }
 
