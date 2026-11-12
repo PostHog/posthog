@@ -1,5 +1,5 @@
 # This layer defines the legacy metrics1 and metrics2 storage. Only the local logs
-# stack composes it: migration 0380 dropped these tables from the cloud logs nodes.
+# stack composes it: migration 0381 dropped these tables from the cloud logs nodes.
 # The local codec deltas for value and count sit in roles/logs/local.
 database "posthog" {
   table "metric_attributes" {
