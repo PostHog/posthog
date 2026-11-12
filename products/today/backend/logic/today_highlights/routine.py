@@ -135,7 +135,7 @@ def progressive_metrics(
                     PulseCandidate(viewed=item, short_id=tile.insight_short_id, dashboard=dashboard, tile=tile)
                     for tile in dashboard.tiles
                 )
-    choices, popular_limit = _with_popular(
+    choices, popular_room = _with_popular(
         context, excluded, _eligible_choices(context, excluded, candidates), fill_popular
     )
     selected: dict[str, PulseChoice] = {}
@@ -145,8 +145,7 @@ def progressive_metrics(
 
     def fill() -> None:
         while len(selected) < budget:
-            popular_shown = sum(_is_popular(choice) for choice in selected.values())
-            choice = _next_choice(choices, tried, selected.values(), allow_popular=popular_shown < popular_limit)
+            choice = _next_choice(choices, tried, selected.values(), allow_popular=len(selected) < popular_room)
             if choice is None:
                 return
             tried.add(choice.key)
@@ -275,19 +274,13 @@ def _is_popular(choice: PulseChoice) -> bool:
     return choice.candidate.viewed.reason == HighlightMetricReason.POPULAR
 
 
-def _popular_places(context: Context, own: Sequence[PulseChoice]) -> int:
-    insights = {choice.key for choice in own if choice.candidate.dashboard is None}
-    dashboards = {choice.candidate.dashboard.dashboard_id for choice in own if choice.candidate.dashboard is not None}
-    return max(0, ROW_TILES - len(context.pinned) - len(insights) - len(dashboards) - _key_metric_places(context))
-
-
 def _with_popular(
     context: Context, excluded: Collection[str], own: list[PulseChoice], fill_popular: bool
 ) -> tuple[list[PulseChoice], int]:
-    limit = _popular_places(context, own) if fill_popular else 0
-    if limit <= 0:
+    if not fill_popular:
         return own, 0
-    return [*own, *_popular_choices(context, excluded, own)], limit
+    room = ROW_TILES - len(context.pinned) - _key_metric_places(context)
+    return [*own, *_popular_choices(context, excluded, own)], room
 
 
 def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[PulseChoice]) -> list[PulseChoice]:

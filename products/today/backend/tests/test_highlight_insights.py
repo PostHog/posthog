@@ -477,6 +477,7 @@ class TestRoutineInsights(BaseTest):
             ("habits and a key metric leave one place", ["h1", "h2"], {"signup_event": "Sign-ups"}, ["team_fav"]),
             ("habits that fill the row", ["h1", "h2", "h3", "h4"], {}, []),
             ("a dashboard habit takes one place", ["dashboard:7"], {}, ["team_fav", "runner_up", "third"]),
+            ("a habit without data frees its place", ["h1", "h2", "broken"], {}, ["team_fav", "runner_up"]),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
