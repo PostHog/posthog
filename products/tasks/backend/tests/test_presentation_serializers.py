@@ -24,6 +24,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.model_catalogue import GatewayModel
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
+    ChannelUpdateSerializer,
     SandboxEnvironmentWriteSerializer,
     TaskCreateSerializer,
     TaskRunArtifactUploadSerializer,
@@ -34,6 +35,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
+    WarmTaskRequestSerializer,
 )
 
 
@@ -73,6 +75,13 @@ class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
 
         with self.assertRaisesRegex(ValueError, "You can allow up to 100 domains"):
             tasks_facade.normalize_sandbox_allowed_domains(domains)
+
+
+class TestRepositoryValidationWithoutTaskData(SimpleTestCase):
+    @parameterized.expand([(ChannelUpdateSerializer,), (WarmTaskRequestSerializer,)])
+    def test_normalizes_repositories(self, serializer_class: type[Serializer]) -> None:
+        serializer = serializer_class()
+        assert serializer.validate_repositories(["PostHog/PostHog"]) == ["posthog/posthog"]
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
