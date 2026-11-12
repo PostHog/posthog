@@ -97,11 +97,12 @@ CLOUDFLARE_IPS_TIMEOUT_S = 3.0
 # Each check must outlast the network calls it makes, or Temporal kills it first and the run
 # reports an opaque timeout instead of the problem the check found. Worst cases:
 #   check_dns                 two lookups plus the Cloudflare address list = 13s
-#   check_proxy_is_live       the /i/v0 POST (5s connect + 5s read), the two v1 POSTs in parallel
-#                             (3s connect + 5s read), then the socket connect and TLS handshake
-#                             (5s each) = 28s
+#   check_proxy_is_live       three phases in sequence, each starting with a 2s pinning lookup
+#                             (DNS_RESOLUTION_LIFETIME_SECONDS): the /i/v0 POST (5s connect + 5s
+#                             read), the two v1 POSTs in parallel (3s connect + 5s read), then the
+#                             socket connect and TLS handshake (5s each) = 34s
 #   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
-CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
+CHECK_START_TO_CLOSE = dt.timedelta(seconds=40)
 
 # Two attempts at the budget above, plus the retry interval between them.
 CHECK_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=90)
