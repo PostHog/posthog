@@ -206,6 +206,10 @@ describe('SourceWebhooksConsumer', () => {
             const res = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
             return res.map((x) => x.value) as any[]
         }
+        const getQueuedHogFlowIds = (): string[] =>
+            mockQueueHogflowInvocationsSpy.mock.calls.flatMap(([invocations]) =>
+                invocations.map((invocation) => invocation.functionId)
+            )
 
         describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
@@ -620,7 +624,7 @@ describe('SourceWebhooksConsumer', () => {
 
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
-                expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                expect(getQueuedHogFlowIds()).toEqual([])
                 await waitForBackgroundTasks()
                 expect(getMetrics()).toContainEqual(
                     expect.objectContaining({
@@ -682,7 +686,7 @@ describe('SourceWebhooksConsumer', () => {
                     expect(first.status).toEqual(201)
                     expect(second.status).toEqual(200)
                     expect(second.body.status).toEqual('duplicate')
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                    expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
                 })
 
                 it('releases a key refused over quota so a retry queues the run once under quota', async () => {
@@ -699,7 +703,7 @@ describe('SourceWebhooksConsumer', () => {
 
                     expect(refused.status).toEqual(429)
                     expect(retried.status).toEqual(201)
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                    expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
                 })
 
                 it('queues a run on each workflow that receives the same key', async () => {
@@ -1006,7 +1010,7 @@ describe('SourceWebhooksConsumer', () => {
 
                     expect(res.status).toEqual(422)
                     expect(res.body.error).toContain('The project is over its workflow quota')
-                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                    expect(getQueuedHogFlowIds()).toEqual([])
                 })
 
                 type RefusalCase = {
