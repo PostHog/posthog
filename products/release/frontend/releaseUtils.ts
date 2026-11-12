@@ -151,6 +151,18 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     ended: 'default',
 }
 
+export const STAGE_COLOR_VARS =
+    '[--release-flag:#1d4aff] [--release-experiment:#c0339a] [--release-early-access:#a87400] [--release-released:#1f7a4a] dark:[--release-flag:#6b8bff] dark:[--release-experiment:#e45bb8] dark:[--release-early-access:#e8ac10] dark:[--release-released:#3fb878]'
+
+export const STAGE_COLOR: Record<ReleaseStage, string> = {
+    planned: 'var(--muted-foreground)',
+    flag: 'var(--release-flag)',
+    experiment: 'var(--release-experiment)',
+    early_access: 'var(--release-early-access)',
+    released: 'var(--release-released)',
+    ended: 'var(--muted-foreground)',
+}
+
 export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
     switch (type) {
         case 'success':
