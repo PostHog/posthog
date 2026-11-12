@@ -563,6 +563,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 '<a title="5 > 3" href={{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}>',
             ),
             (
+                "either_branch_leaving_a_tag_open_keeps_the_value_escaped",
+                "{{#if a}}<a title={{else}}<a>{{/if}}{{url}}",
+                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}<a title={% else %}<a>{% endif %}"
+                '{{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+            ),
+            (
                 "unclosed_block_is_closed",
                 "{{#if a}}x",
                 "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}x{% endif %}",
