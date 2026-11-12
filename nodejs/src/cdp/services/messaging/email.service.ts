@@ -46,7 +46,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { clickableHrefs, textLinksTo } from './helpers/clickable-links'
+import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -1664,7 +1664,10 @@ export class EmailService {
                   const path = page ? `${page.origin}${page.pathname}` : ''
                   return path.startsWith(preferencesPage) ? [path.slice(preferencesPage.length)] : []
               })
-            : textLinksTo(params.text ?? '', preferencesPage, { liquid: false })
+            : (params.text ?? '')
+                  .split(preferencesPage)
+                  .slice(1)
+                  .flatMap((rest) => rest.match(/^[^\s/?#]+\//) ?? [])
         const tokens = paths.flatMap((path) => {
             const page = path.split(/[?#]/)[0]
             return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
@@ -1697,8 +1700,6 @@ export class EmailService {
         ]
     }
 }
-
-const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
 const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
     body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)

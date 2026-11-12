@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
@@ -10,7 +9,7 @@ import {
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 
-import { clickableHrefs, textLinksTo } from '../messaging/helpers/clickable-links'
+import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -173,7 +172,6 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
-        messageCategory: SendCategorySchema.optional(),
         attachments: z
             .array(
                 z
@@ -239,48 +237,47 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
     category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
 
-const CODE_SEND_BODY = { placeholder: /\{\{\s*unsubscribe_url\s*\}\}/g, liquid: false }
-const LIQUID_BODY = {
-    placeholder: /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g,
-    liquid: true,
-}
+const LIQUID_UNSUBSCRIBE_PLACEHOLDER = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
 
-const hasClickableUnsubscribeLink = (
-    body: { html?: string; text?: string },
-    { placeholder, liquid }: { placeholder: RegExp; liquid: boolean }
-): boolean => {
-    const link = `unsubscribe-link-${randomUUID()}`
-    if (!body.html) {
-        const url = `https://${link}.invalid/`
-        return textLinksTo((body.text ?? '').replace(placeholder, url), url, { liquid }).includes('')
-    }
-    return clickableHrefs(body.html.replace(placeholder, link)).includes(link)
-}
+const hasUnsubscribeLink = ({ html, text }: { html?: string; text?: string }, placeholder: RegExp): boolean =>
+    html
+        ? clickableHrefs(html).some((href) => href.search(placeholder) !== -1)
+        : (text ?? '').search(placeholder) !== -1
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
 
+const marketingEmailInputs = (action: HogFlowAction, category: SendCategory | undefined) =>
+    category?.type === 'marketing' && isMarketingEmailStep(action)
+        ? (action.config.inputs.email?.value ?? {})
+        : undefined
+
 export type MarketingSendRefusal = 'unsubscribe_link_required' | 'copies_not_allowed'
+
+export const marketingCopiesRefusal = (
+    action: HogFlowAction,
+    send: AcceptedSend | undefined,
+    category: SendCategory | undefined
+): 'copies_not_allowed' | undefined => {
+    const email = marketingEmailInputs(action, category)
+    return email && (hasAddresses(send?.cc ?? email.cc) || hasAddresses(send?.bcc ?? email.bcc))
+        ? 'copies_not_allowed'
+        : undefined
+}
 
 export const marketingSendRefusal = (
     action: HogFlowAction,
     send: AcceptedSend | undefined,
     category: SendCategory | undefined
 ): MarketingSendRefusal | undefined => {
-    if (category?.type !== 'marketing' || !isMarketingEmailStep(action)) {
+    const email = marketingEmailInputs(action, category)
+    if (!email) {
         return undefined
     }
-    const email = action.config.inputs.email?.value ?? {}
-    const hasUnsubscribeLink = send?.content
-        ? hasClickableUnsubscribeLink(send.content, CODE_SEND_BODY)
-        : hasClickableUnsubscribeLink(email, LIQUID_BODY)
-    if (!hasUnsubscribeLink) {
-        return 'unsubscribe_link_required'
-    }
-    if (hasAddresses(send?.cc ?? email.cc) || hasAddresses(send?.bcc ?? email.bcc)) {
-        return 'copies_not_allowed'
-    }
-    return undefined
+    const linked = send?.content
+        ? hasUnsubscribeLink(send.content, UNSUBSCRIBE_PLACEHOLDER)
+        : hasUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_PLACEHOLDER)
+    return linked ? marketingCopiesRefusal(action, send, category) : 'unsubscribe_link_required'
 }
 
 export const acceptedSendEmailFields = (
@@ -318,9 +315,6 @@ export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
-
-export const sendCategory = ({ send, message_category }: TransactionalEmailRequest): SendCategory | undefined =>
-    send?.messageCategory ?? message_category
 
 export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
     to,

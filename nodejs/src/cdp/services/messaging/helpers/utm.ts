@@ -5,7 +5,6 @@ import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
 import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
-import { trimUrlWhitespace } from './clickable-links'
 import { escapeHtml } from './escape-html'
 import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
@@ -113,6 +112,20 @@ const hostOf = (url: string): string | null => {
     } catch {
         return null
     }
+}
+
+const isStrippedByUrlParser = (char: string): boolean => char <= ' '
+
+const trimUrlWhitespace = (href: string): string => {
+    let start = 0
+    let end = href.length
+    while (start < end && isStrippedByUrlParser(href[start])) {
+        start++
+    }
+    while (end > start && isStrippedByUrlParser(href[end - 1])) {
+        end--
+    }
+    return href.slice(start, end)
 }
 
 /**

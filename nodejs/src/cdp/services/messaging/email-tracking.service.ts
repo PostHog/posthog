@@ -25,7 +25,6 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import { trimUrlWhitespace } from './helpers/clickable-links'
 import { escapeHtml } from './helpers/escape-html'
 import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
@@ -267,7 +266,7 @@ export const addTrackingToEmail = (
         if (optedOut) {
             return m
         }
-        const tracked = signer.redirectUrl(trackingInvocation, trimUrlWhitespace(href), isTest)
+        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)

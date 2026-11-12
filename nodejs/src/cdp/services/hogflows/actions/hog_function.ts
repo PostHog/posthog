@@ -26,7 +26,7 @@ import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
-import { emailStepForApiSend, marketingSendRefusal } from '../transactional-email'
+import { emailStepForApiSend, marketingCopiesRefusal } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
@@ -479,15 +479,12 @@ export class HogFunctionHandler implements ActionHandler {
                 })
         )
 
-        const marketingRefusal =
+        const copiesRefusal =
             invocation.hogFlow.trigger?.type === 'api' &&
-            marketingSendRefusal(action, invocation.state.send, invocation.state.messageCategory)
-        if (marketingRefusal) {
-            const message =
-                marketingRefusal === 'copies_not_allowed'
-                    ? 'Skipping send: a marketing email cannot have cc or bcc recipients.'
-                    : 'Skipping send: a marketing email needs a link to {{ unsubscribe_url }} that readers can click.'
-            this.recordSkippedEmail(hogFunctionInvocation, action, marketingRefusal, hogExecutorOptions)
+            marketingCopiesRefusal(action, invocation.state.send, invocation.state.messageCategory)
+        if (copiesRefusal) {
+            const message = 'Skipping send: a marketing email cannot have cc or bcc recipients.'
+            this.recordSkippedEmail(hogFunctionInvocation, action, copiesRefusal, hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,

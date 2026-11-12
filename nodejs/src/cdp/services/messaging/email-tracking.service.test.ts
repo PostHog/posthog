@@ -446,11 +446,6 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
-                [
-                    'an href padded with whitespace',
-                    '<a href="  https://example.com/a\n">x</a>',
-                    'https://example.com/a',
-                ],
             ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
                 const html = addTrackingToEmail(
                     `<body>${anchor}</body>`,

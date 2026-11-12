@@ -71,7 +71,6 @@ import {
     isRecipientFormatIssue,
     marketingEmailStep,
     marketingSendRefusal,
-    sendCategory,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -1432,7 +1431,7 @@ export class CdpApi {
                 if (!savedHogFlow || savedHogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
-                const category = sendCategory(parsed.data)
+                const category = parsed.data.message_category
                 const hogFlow = hogFlowForApiSend(savedHogFlow, category)
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
