@@ -337,12 +337,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 )
             # Database.create_for reads the mode and the union flag, so the database is built after both are set.
             if database is not None:
-                context = HogQLContext(
-                    team_id=self.team.pk, team=self.team, database=database(), enable_select_queries=True
-                )
-                return execute_hogql_query(
-                    query, team=self.team, filters=filters, modifiers=modifiers, context=context, pretty=False
-                )
+                baseline = {
+                    "context": HogQLContext(
+                        team_id=self.team.pk, team=self.team, database=database(), enable_select_queries=True
+                    )
+                }
             return execute_hogql_query(
                 query, team=self.team, filters=filters, modifiers=modifiers, pretty=False, **baseline
             )
@@ -1813,6 +1812,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                         "SELECT {j}.distinct_id FROM {source} GROUP BY {j}.distinct_id, {j}.event "
                         "HAVING {j}.event = '$feature_flag_called'",
                     ),
+                    (
+                        "not_of_not_equal",
+                        "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event != '$feature_flag_called')",
+                    ),
+                    (
+                        "not_of_not_equal_in_function_form",
+                        "SELECT {j}.distinct_id FROM {source} WHERE not(notEquals({j}.event, '$feature_flag_called'))",
+                    ),
+                    (
+                        "not_of_not_of_equal",
+                        "SELECT {j}.distinct_id FROM {source} WHERE NOT (NOT ({j}.event = '$feature_flag_called'))",
+                    ),
                 ]
             ),
             *[
@@ -1959,6 +1970,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                             "SELECT {j}.distinct_id FROM {source} WHERE {j}.event NOT IN ('$feature_flag_called')",
                             FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         ),
+                        (
+                            "not_of_equal",
+                            "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event = '$feature_flag_called')",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_of_in",
+                            "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event IN ('$feature_flag_called'))",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
                     )
                 ],
                 (
@@ -2050,6 +2071,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 (
                     "another_lazy_join_to_events",
                     "SELECT calls.distinct_id, other_calls.event FROM persons WHERE calls.event = '$feature_flag_called'",
+                    ["foobarino"],
+                ),
+                (
+                    "same_lazy_join_on_another_alias",
+                    "SELECT a.calls.distinct_id, p.calls.event FROM persons a JOIN persons p ON a.id = p.id "
+                    "WHERE a.calls.event = '$feature_flag_called'",
                     ["foobarino"],
                 ),
             ]

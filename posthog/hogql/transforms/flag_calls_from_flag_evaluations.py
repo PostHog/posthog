@@ -62,7 +62,7 @@ _FLAG_KEY_PROPERTY = "$feature_flag"
 _Predicate = Callable[[ast.Expr], bool]
 
 
-class _Resolve(Protocol[_T_AST]):
+class Resolve(Protocol[_T_AST]):
     def __call__(self, node: _T_AST, /, *, join_sources: JoinSources | None = None) -> _T_AST: ...
 
 
@@ -194,7 +194,7 @@ def swap_database(context: HogQLContext) -> "Database | None":
     return context.database
 
 
-def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST]) -> _T_AST:
+def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: Resolve[_T_AST]) -> _T_AST:
     """`node` resolved with `resolve`, with each `events` scan that `swap_flag_calls` accepts reading
     `posthog.flag_evaluations` instead."""
     return swap_flag_calls(node, context, resolve).resolved
@@ -203,7 +203,7 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
 def swap_flag_calls(
     node: _T_AST,
     context: HogQLContext,
-    resolve: _Resolve[_T_AST],
+    resolve: Resolve[_T_AST],
     *,
     scope: FlagCallScope | None = None,
 ) -> FlagCallSwap[_T_AST]:
@@ -267,7 +267,7 @@ def swap_flag_calls(
 def _resolve_with_swaps(
     node: _T_AST,
     context: HogQLContext,
-    resolve: _Resolve[_T_AST],
+    resolve: Resolve[_T_AST],
     database: "Database",
     scope: FlagCallScope | None,
 ) -> FlagCallSwap[_T_AST]:

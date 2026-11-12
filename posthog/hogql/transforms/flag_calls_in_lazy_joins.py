@@ -13,10 +13,11 @@ from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JO
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EventsScan,
     FlagCallScope,
+    Resolve,
     SyntaxVisitor,
-    _Resolve,
     and_conditions,
     compared_values,
+    comparison_of,
     filter_conjuncts,
     flag_calls_only_in_flag_evaluations_error,
     is_flag_called,
@@ -41,7 +42,7 @@ def read_flag_calls_in_lazy_join(
     node: ast.SelectQuery,
     original_select_type: ast.SelectQueryType,
     context: HogQLContext,
-    resolve: _Resolve[ast.SelectQuery],
+    resolve: Resolve[ast.SelectQuery],
 ) -> None:
     """Points the `events` scan in the subquery of `join_to_add` at `posthog.flag_evaluations` when `swap_flag_calls`
     accepts it, or raises when the organization's flag calls are only in `flag_evaluations` and the join would miss
@@ -62,8 +63,8 @@ def read_flag_calls_in_lazy_join(
     - The subquery passes each row of its scan through on its own. A filter before a GROUP BY, an aggregate, a window
       function, a LIMIT or DISTINCT changes which rows come out.
 
-    It raises when `node` compares the join's `event` with `$feature_flag_called` by `=` or `IN` and one of these
-    does not hold. The function builds the pin on the subquery's scan, so no name from `node` has to resolve in the
+    It raises when `node` compares the join's `event` with `$feature_flag_called` by `=` or `IN`, or by `!=` or
+    `NOT IN` under an odd number of NOTs, and one of these does not hold. The function builds the pin on the subquery's scan, so no name from `node` has to resolve in the
     subquery.
     """
     subquery = join_to_add.table
@@ -177,6 +178,25 @@ def _compares_with_flag_calls(node: AST, reads_join_event: Callable[[ast.Expr], 
     return finder.found
 
 
+_NEGATED_OPS = {
+    ast.CompareOperationOp.Eq: ast.CompareOperationOp.NotEq,
+    ast.CompareOperationOp.NotEq: ast.CompareOperationOp.Eq,
+    ast.CompareOperationOp.In: ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.NotIn: ast.CompareOperationOp.In,
+    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.GlobalNotIn,
+    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.GlobalIn,
+}
+
+
+def _negated_operand(expr: ast.Expr) -> ast.Expr | None:
+    if isinstance(expr, ast.Not):
+        return expr.expr
+    # The parser emits the NOT keyword as a call named "NOT". HogQL matches function names without case.
+    if isinstance(expr, ast.Call) and expr.name.lower() == "not" and len(expr.args) == 1:
+        return expr.args[0]
+    return None
+
+
 class _JoinEventComparisonFinder(SyntaxVisitor):
     def __init__(self, reads_join_event: Callable[[ast.Expr], bool]) -> None:
         super().__init__()
@@ -187,9 +207,31 @@ class _JoinEventComparisonFinder(SyntaxVisitor):
         self._check(node)
         super().visit_compare_operation(node)
 
+    def visit_not(self, node: ast.Not) -> None:
+        self._visit_negation(node)
+
     def visit_call(self, node: ast.Call) -> None:
+        if _negated_operand(node) is not None:
+            self._visit_negation(node)
+            return
         self._check(node)
         super().visit_call(node)
+
+    def _visit_negation(self, expr: ast.Expr) -> None:
+        # Only NOTs stacked directly over a comparison change which values it keeps. A NOT over AND or OR leaves each
+        # comparison inside it checked as written.
+        negated = False
+        while (operand := _negated_operand(expr)) is not None:
+            expr, negated = operand, not negated
+        comparison = comparison_of(expr)
+        if comparison is None or not negated:
+            self.visit(expr)
+            return
+        flipped = _NEGATED_OPS.get(comparison.op)
+        if flipped is not None:
+            self._check(ast.CompareOperation(op=flipped, left=comparison.left, right=comparison.right))
+        self.visit(comparison.left)
+        self.visit(comparison.right)
 
     def _check(self, expr: ast.Expr) -> None:
         values = compared_values(expr, self.reads_join_event)
