@@ -7,8 +7,7 @@ from unittest import mock
 
 from posthog.settings.data_stores import REDIS_URL
 
-# `from posthog.settings import celery` returns the celery package: the settings package re-exports
-# the module's own `import celery` through its star import.
+# The settings package re-exports the celery package under this name, so import the module by path.
 celery_settings = importlib.import_module("posthog.settings.celery")
 
 

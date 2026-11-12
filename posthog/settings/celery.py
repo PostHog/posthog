@@ -42,8 +42,10 @@ CELERY_IMPORTS: list[str] = [
 
 
 def with_tls_verification(url: str | None) -> str | None:
-    # A rediss:// URL without ssl_cert_reqs makes kombu connect with certificate checks off
-    # (it only logs a warning), and makes Celery's Redis result backend refuse to start.
+    """Add ssl_cert_reqs=required to a rediss:// URL that lacks it.
+
+    Without it, kombu connects with certificate checks off and the Redis result backend refuses to start.
+    """
     if not url or urlsplit(url).scheme != "rediss":
         return url
     parts = urlsplit(url)
@@ -54,30 +56,18 @@ def with_tls_verification(url: str | None) -> str | None:
 
 
 def _celery_redis_url(env_key: str, default: str | None) -> str | None:
-    # Only URLs set through these variables get the TLS rewrite, so a deployment whose REDIS_URL
-    # already uses rediss:// keeps its current behavior.
+    """Read an optional Celery Redis URL. Only explicitly set URLs get the TLS rewrite, so REDIS_URL behaves as before."""
     url = get_from_env(env_key, optional=True)
     return with_tls_verification(url) if url else default
 
 
-# The broker, the result backend and the RedBeat scheduler state can each live on their own
-# Redis, and all default to REDIS_URL. Set CELERY_BROKER_READ_REDIS_URL and
-# CELERY_BROKER_WRITE_REDIS_URL only on a worker set that drains an old broker: it consumes from
-# the read URL and publishes retries and follow-up tasks to the write URL.
-# The environment variables are not named CELERY_BROKER_URL, CELERY_BROKER_READ_URL,
-# CELERY_BROKER_WRITE_URL or CELERY_RESULT_BACKEND, because Celery reads those names from the
-# environment itself, ahead of these settings, and would skip with_tls_verification.
+# Not named CELERY_BROKER_URL etc.: Celery reads those from the environment ahead of these settings.
 CELERY_BROKER_URL = _celery_redis_url("CELERY_BROKER_REDIS_URL", REDIS_URL)
 CELERY_BROKER_READ_URL = _celery_redis_url("CELERY_BROKER_READ_REDIS_URL", None)
 CELERY_BROKER_WRITE_URL = _celery_redis_url("CELERY_BROKER_WRITE_REDIS_URL", None)
-# RedBeat falls back to the broker URL when this is unset. Pin it, so that a broker move does
-# not also move the scheduler lock: two lock locations let two schedulers run at the same time,
-# and every periodic task then runs twice.
+# Pinned so a broker move doesn't move the scheduler lock and run two schedulers.
 CELERY_REDBEAT_REDIS_URL = _celery_redis_url("CELERY_REDBEAT_REDIS_URL", REDIS_URL)
 
-# Kombu redelivers a task that a worker took but did not acknowledge within this timeout. A task
-# with an ETA or countdown is held unacknowledged until it runs, so a timeout shorter than the
-# longest delay makes that task run twice.
 _broker_visibility_timeout_seconds = get_from_env(
     "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", optional=True, type_cast=int
 )
