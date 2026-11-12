@@ -34,6 +34,7 @@ export default defineCommand({
             const hints: Partial<Record<string, string>> = {
                 needs_newer_hog: 'Update hog to get the newest tools.',
                 pinned: 'Unset HOG_API_CATALOG to download the catalog.',
+                insecure_tls: 'Turn TLS verification back on to download the catalog.',
                 not_served: 'Update this PostHog instance to serve the newest tools to hog.',
             }
             throw new HogError(

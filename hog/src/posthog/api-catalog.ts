@@ -45,7 +45,7 @@ export function catalogUrl(host: Host): string {
 
 export type CatalogOrigin = 'network' | 'cache' | 'bundled'
 
-export type BundledReason = 'pinned' | 'needs_newer_hog' | 'no_folder' | 'unreachable' | 'not_served'
+export type BundledReason = 'pinned' | 'insecure_tls' | 'needs_newer_hog' | 'no_folder' | 'unreachable' | 'not_served'
 
 export interface ResolvedCatalog {
     origin: CatalogOrigin
@@ -59,12 +59,29 @@ export interface ResolvedCatalog {
     downloadSkipped: boolean
 }
 
+const IDENTIFIER = /^(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)$/
+
 function parseVersion(version: string): { core: number[]; pre: string[] } | undefined {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(version)
-    if (!match) {
+    const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
+    const pre = match?.[4] ? match[4].split('.') : []
+    if (!match || !pre.every((identifier) => IDENTIFIER.test(identifier))) {
         return undefined
     }
-    return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre: match[4] ? match[4].split('.') : [] }
+    return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre }
+}
+
+// SemVer precedence: numeric identifiers compare as numbers and sort before alphanumeric ones, which
+// compare in ASCII order.
+function compareIdentifiers(x: string, y: string): number {
+    const xNumeric = /^\d+$/.test(x)
+    const yNumeric = /^\d+$/.test(y)
+    if (xNumeric && yNumeric) {
+        return Math.sign(Number(x) - Number(y))
+    }
+    if (xNumeric !== yNumeric) {
+        return xNumeric ? -1 : 1
+    }
+    return x < y ? -1 : x > y ? 1 : 0
 }
 
 export function compareVersions(a: string, b: string): number | undefined {
@@ -88,10 +105,9 @@ export function compareVersions(a: string, b: string): number | undefined {
         if (x === undefined || y === undefined) {
             return x === undefined ? -1 : 1
         }
-        const numeric = /^\d+$/.test(x) && /^\d+$/.test(y)
-        const difference = numeric ? Number(x) - Number(y) : x.localeCompare(y)
-        if (difference !== 0) {
-            return Math.sign(difference)
+        const order = compareIdentifiers(x, y)
+        if (order !== 0) {
+            return order
         }
     }
     return 0
@@ -158,6 +174,7 @@ async function download(runtime: Runtime, url: string, etag: string | null): Pro
 export interface CatalogOptions {
     host: Host
     refresh?: boolean
+    skipSslVerification?: boolean
 }
 
 export async function resolveCatalog(runtime: Runtime, options: CatalogOptions): Promise<ResolvedCatalog> {
@@ -174,6 +191,9 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
 
     if (runtime.env.HOG_API_CATALOG === 'bundled') {
         return bundled('pinned', 'HOG_API_CATALOG is set to bundled')
+    }
+    if (options.skipSslVerification) {
+        return bundled('insecure_tls', 'TLS verification is off')
     }
 
     let path: string
