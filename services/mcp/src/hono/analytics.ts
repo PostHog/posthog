@@ -378,9 +378,15 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 // A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
 // address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
-const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-    'workflows-transactional-emails-list',
-    'workflows-transactional-email-get',
+// The suppression and opt-out imports take a list of addresses, but their result holds only counts and entry
+// numbers, so it is still captured.
+type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
+
+const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
+    ['workflows-transactional-emails-list', 'arguments-and-result'],
+    ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-add', 'arguments'],
+    ['suppressions-add', 'arguments'],
 ])
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
@@ -395,19 +401,22 @@ function sendsEmailContent(toolName: string, input: unknown): boolean {
     return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
 }
 
-function readsEmailRecipients(toolName: string, input: unknown): boolean {
-    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
-        return true
+function emailRecipientExposure(toolName: string, input: unknown): EmailRecipientExposure | undefined {
+    const direct = EMAIL_RECIPIENT_TOOLS.get(toolName)
+    if (direct) {
+        return direct
     }
     const command = (input as { command?: unknown } | null | undefined)?.command
-    return (
-        toolName === 'exec' &&
-        typeof command === 'string' &&
-        [...EMAIL_RECIPIENT_TOOL_NAMES].some((name) => command.includes(name))
-    )
+    if (toolName !== 'exec' || typeof command !== 'string') {
+        return undefined
+    }
+    const matched = [...EMAIL_RECIPIENT_TOOLS]
+        .filter(([name]) => command.includes(name))
+        .map(([, exposure]) => exposure)
+    return matched.includes('arguments-and-result') ? 'arguments-and-result' : matched[0]
 }
 
-function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
@@ -429,14 +438,19 @@ function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
         return false
     }
-    if (readsEmailRecipients(toolName, input)) {
-        return false
-    }
-    return true
+    return emailRecipientExposure(toolName, input) !== 'arguments-and-result'
 }
 
-function shouldCaptureToolOutput(toolName: string, input: unknown): boolean {
-    if (!shouldCaptureToolInput(toolName, input)) {
+function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+    return shouldCaptureToolCall(toolName, input) && emailRecipientExposure(toolName, input) === undefined
+}
+
+function shouldCaptureToolOutput(toolName: string, input: unknown, isError: boolean): boolean {
+    if (!shouldCaptureToolCall(toolName, input)) {
+        return false
+    }
+    // A failed import's error text can quote the addresses from the command that exec rejected.
+    if (isError && emailRecipientExposure(toolName, input) !== undefined) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -556,7 +570,7 @@ function capturedPayload(
         ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
             ? { parameters: redactForCapture(parameters) }
             : {}),
-        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters)
+        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters, isError)
             ? { response: redactForCapture(omitAppData(response)) }
             : {}),
     }
@@ -587,14 +601,14 @@ function omitAppData(output: unknown): unknown {
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {
-        if (!shouldCaptureToolOutput(toolName, meta.input)) {
+        if (!shouldCaptureToolOutput(toolName, meta.input, meta.isError)) {
             return
         }
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
-        const inputState = serializeSpanState(meta.input)
+        const inputState = shouldCaptureToolInput(toolName, meta.input) ? serializeSpanState(meta.input) : undefined
         const outputState = serializeSpanState(
             state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
         )

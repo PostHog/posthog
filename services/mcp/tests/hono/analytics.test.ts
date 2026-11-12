@@ -228,6 +228,20 @@ describe('Hono MCP analytics contexts', () => {
             false,
             false,
         ],
+        [
+            'a suppression list import',
+            'suppressions-add',
+            { suppressions: [{ identifier: 'ada@example.com' }] },
+            false,
+            true,
+        ],
+        [
+            'an opt-out list import through exec',
+            'exec',
+            { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            false,
+            true,
+        ],
     ])(
         'gates captured arguments and result for %s',
         async (_case, toolName, parameters, sendsArguments, sendsResult) => {
@@ -738,6 +752,37 @@ describe('Hono MCP analytics contexts', () => {
 
             const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
             expect(spanCalls).toHaveLength(captured ? 1 : 0)
+        })
+
+        it.each([
+            [
+                'a suppression list import',
+                'suppressions-add',
+                { suppressions: [{ identifier: 'ada@example.com', reason: 'bounce' }] },
+            ],
+            [
+                'an opt-out list import through exec',
+                'exec',
+                { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            ],
+        ])('keeps the counts but not the addresses for %s', async (_case, toolName, input) => {
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: false,
+                input,
+                output: '{"total":1,"created":1}',
+            })
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: true,
+                errorMessage: 'Invalid command: ada@example.com',
+                input,
+            })
+
+            const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
+            expect(spanCalls).toHaveLength(1)
+            expect(spanCalls[0]![0].properties).toMatchObject({ $ai_output_state: '{"total":1,"created":1}' })
+            expect(spanCalls[0]![0].properties).not.toHaveProperty('$ai_input_state')
         })
 
         it('joins the MCP session trace and truncates oversized results', async () => {
