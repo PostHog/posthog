@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { modelLabel } from '../replay_scanners/types'
+import { useModelNaming } from '../replay_scanners/useModelNaming'
 import { Fact, FactList } from './FactList'
 
 function durationLabel(observation: ReplayObservationApi): string | null {
@@ -26,6 +27,7 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
     const [expanded, setExpanded] = useState(false)
     const snapshot = observation.scanner_snapshot
     const duration = durationLabel(observation)
+    const { fieldLabel, naming } = useModelNaming()
 
     return (
         <div className="flex flex-col gap-2">
@@ -88,7 +90,7 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
                         </Fact>
                     )}
                     {duration && <Fact label="Duration">{duration}</Fact>}
-                    {snapshot?.model && <Fact label="Model">{modelLabel(snapshot.model)}</Fact>}
+                    {snapshot?.model && <Fact label={fieldLabel}>{modelLabel(snapshot.model, naming)}</Fact>}
                 </FactList>
             )}
         </div>
