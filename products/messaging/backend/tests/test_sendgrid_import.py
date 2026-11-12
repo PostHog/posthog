@@ -27,7 +27,11 @@ from products.messaging.backend.models.provider_import_run import ProviderImport
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
-from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider, missing_scopes
+from products.messaging.backend.provider_imports.sendgrid import (
+    SENDERS_NEED_FULL_ACCESS,
+    SendGridImportProvider,
+    missing_scopes,
+)
 from products.messaging.backend.provider_imports.sendgrid_templates import convert_version, plain_text_from_html
 from products.messaging.backend.services.sendgrid_client import SendGridClient, _seconds_until_reset
 from products.messaging.backend.services.suppression import remove_suppressions
@@ -309,6 +313,14 @@ class TestSendGridImport(BaseTest):
 
         assert run.status == "completed"
         assert len([r for r in self.state.requests if r["path"] == "/v3/suppression/bounces"]) >= 2
+
+    def test_a_key_that_cannot_read_senders_still_finishes_that_step(self) -> None:
+        self.state.failures["/v3/verified_senders"] = [403]
+
+        run = self._run(["senders"])
+
+        assert run.status == "completed"
+        assert run.progress["senders"]["warnings"] == [SENDERS_NEED_FULL_ACCESS]
 
     def test_an_eu_key_reads_from_the_eu_host(self) -> None:
         run = self._run(["suppressions"], EU_KEY)
@@ -597,6 +609,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": html})
 
         assert converted.text == f"{{% raw %}}{html[3:-4]}{{% endraw %}}"
+
+    def test_plain_text_drops_a_literal_attribute_whole(self) -> None:
+        converted = convert_version(
+            {"html_content": "<p title=\"{{default name '> {{ person.properties.secret }}'}}\">x</p>"}
+        )
+
+        assert converted.text == "x"
 
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html
