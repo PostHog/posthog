@@ -6,6 +6,7 @@ import { getUserAgent } from '@/lib/constants'
 import {
     describeTransportCause,
     ErrorCode,
+    ExperimentNotStartedError,
     formatSafeRequestTarget,
     hasTimeoutCause,
     isTimeoutError,
@@ -1142,6 +1143,19 @@ export class ApiClient {
                 )
             },
 
+            getHealth: async ({
+                experimentId,
+                signal,
+            }: {
+                experimentId: number
+                signal?: AbortSignal
+            }): Promise<Result<Schemas.ExperimentHealth>> => {
+                return this.fetchJson<Schemas.ExperimentHealth>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    { signal }
+                )
+            },
+
             getExposures: async ({
                 experimentId,
                 refresh = false,
@@ -1172,7 +1186,7 @@ export class ApiClient {
                 if (!experiment.start_date) {
                     return {
                         success: false,
-                        error: new Error(
+                        error: new ExperimentNotStartedError(
                             `Experiment "${experiment.name}" has not started yet. Exposure data is only available for started experiments.`
                         ),
                     }

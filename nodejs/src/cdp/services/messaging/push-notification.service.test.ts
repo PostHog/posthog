@@ -1,13 +1,19 @@
 import { createHash, generateKeyPairSync } from 'crypto'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
+import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { Team } from '~/types'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { MessageAssetsService } from './message-assets.service'
 import { PushNotificationFetchUtils, PushNotificationService } from './push-notification.service'
 
@@ -71,8 +77,27 @@ describe('PushNotificationService', () => {
     let mockValkeySet: jest.Mock
     let mockValkey: any
     let personsManager: { getCyclotronPerson: jest.Mock }
+    let workflowsActivationReporter: WorkflowsActivationReporter
 
     const mockTrackedFetch = jest.fn()
+    const createReporter = (analytics?: FakePostHog) =>
+        new WorkflowsActivationReporter(
+            {
+                getTeam: (teamId) =>
+                    Promise.resolve({ id: teamId, uuid: 'team-uuid', organization_id: 'org-id' } as Team),
+            },
+            { query: () => Promise.reject(new Error('connect ECONNREFUSED')) } as unknown as PostgresRouter,
+            analytics?.client
+        )
+    const createService = () =>
+        new PushNotificationService(
+            integrationManager,
+            encryptedFields,
+            fetchUtils,
+            mockValkey,
+            personsManager as any,
+            workflowsActivationReporter
+        )
 
     const firebaseIntegration = {
         id: 1,
@@ -123,13 +148,8 @@ describe('PushNotificationService', () => {
 
         personsManager = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
 
-        service = new PushNotificationService(
-            integrationManager,
-            encryptedFields,
-            fetchUtils,
-            mockValkey,
-            personsManager as any
-        )
+        workflowsActivationReporter = createReporter()
+        service = createService()
     })
 
     afterEach(() => {
@@ -196,6 +216,86 @@ describe('PushNotificationService', () => {
             )
             expect(result.finished).toBe(true)
             expect(result.deliveredToRecipient).toBe(true)
+        })
+
+        describe('workflows message sent', () => {
+            const acceptedPush = {
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            }
+            const pushTo = (fromWorkflowId?: string) => {
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                return fromWorkflowId
+                    ? {
+                          ...invocation,
+                          functionId: fromWorkflowId,
+                          hogFlow: new FixtureHogFlowBuilder().withTeamId(invocation.teamId).build(),
+                      }
+                    : invocation
+            }
+            const messageSent = (workflowId: string) => ({
+                team: 'team-uuid',
+                event: 'workflows message sent',
+                workflow_id: workflowId,
+                channel: 'push',
+                recipient_outside_org: true,
+            })
+            let analytics: FakePostHog
+            const activationEvents = () =>
+                analytics.events.map(({ event, properties }) => ({
+                    team: properties.team,
+                    event,
+                    workflow_id: properties.workflow_id,
+                    channel: properties.channel,
+                    recipient_outside_org: properties.recipient_outside_org,
+                }))
+
+            beforeEach(async () => {
+                analytics = await startFakePostHog()
+                workflowsActivationReporter = createReporter(analytics)
+                service = createService()
+            })
+
+            afterEach(async () => {
+                await analytics.close()
+            })
+
+            it('reports a delivered workflow push as sent to a recipient outside the organization', async () => {
+                mockTrackedFetch.mockResolvedValue(acceptedPush)
+
+                await service.executeSendPushNotification(pushTo('flow-1'))
+
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent('flow-1')]))
+            })
+
+            it.each([
+                ['a workflow test send', 'flow-1', true, acceptedPush],
+                ['a hog function send', undefined, false, acceptedPush],
+                [
+                    'a workflow push the provider rejected',
+                    'flow-1',
+                    false,
+                    {
+                        fetchError: null,
+                        fetchResponse: {
+                            status: 400,
+                            text: () => Promise.resolve('{"error":{"status":"INVALID_ARGUMENT"}}'),
+                            dump: () => Promise.resolve(),
+                        },
+                        fetchDuration: 10,
+                    },
+                ],
+            ])('reports nothing for %s', async (_name, workflowId, isTest, response) => {
+                mockTrackedFetch.mockResolvedValueOnce(response).mockResolvedValue(acceptedPush)
+
+                await service.executeSendPushNotification(pushTo(workflowId), isTest)
+                await service.executeSendPushNotification(pushTo('flow-sentinel'))
+
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent('flow-sentinel')]))
+            })
         })
 
         it('logs warning and records push_skipped when no device token found', async () => {
@@ -325,6 +425,7 @@ describe('PushNotificationService', () => {
                     fetchUtils,
                     mockValkey,
                     personsManager as any,
+                    workflowsActivationReporter,
                     new MessageAssetsService({ produce: jest.fn() } as any)
                 )
             })
@@ -398,6 +499,7 @@ describe('PushNotificationService', () => {
                     fetchUtils,
                     mockValkey,
                     personsManager as any,
+                    workflowsActivationReporter,
                     {
                         buildRowForPush: () => {
                             throw new Error('boom')
@@ -983,7 +1085,8 @@ describe('PushNotificationService', () => {
                         encryptedFields,
                         fetchUtils,
                         mockValkey,
-                        personsManager as any
+                        personsManager as any,
+                        workflowsActivationReporter
                     )
             )
             mockTrackedFetch.mockResolvedValue({
@@ -1037,7 +1140,8 @@ describe('PushNotificationService', () => {
                 encryptedFields,
                 fetchUtils,
                 flakyValkey,
-                personsManager as any
+                personsManager as any,
+                workflowsActivationReporter
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
@@ -1085,7 +1189,8 @@ describe('PushNotificationService', () => {
                 encryptedFields,
                 fetchUtils,
                 flakyValkey,
-                personsManager as any
+                personsManager as any,
+                workflowsActivationReporter
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
@@ -1122,7 +1227,8 @@ describe('PushNotificationService', () => {
                 encryptedFields,
                 fetchUtils,
                 failingValkey,
-                personsManager as any
+                personsManager as any,
+                workflowsActivationReporter
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
@@ -1433,7 +1539,8 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
-                    personsManager as any
+                    personsManager as any,
+                    workflowsActivationReporter
                 )
                 const retried = await otherPod.executeSendPushNotification(rescheduled.invocation)
 
@@ -1453,7 +1560,8 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
-                    personsManager as any
+                    personsManager as any,
+                    workflowsActivationReporter
                 ).executeSendPushNotification(otherKeyCarried)
                 expect(failed.finished).toBe(true)
                 expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
@@ -1470,7 +1578,8 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
-                    personsManager as any
+                    personsManager as any,
+                    workflowsActivationReporter
                 ).executeSendPushNotification(
                     createSendPushNotificationInvocation({
                         '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
@@ -1530,7 +1639,8 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockValkey,
-                    personsManager as any
+                    personsManager as any,
+                    workflowsActivationReporter
                 ).executeSendPushNotification(rescheduled.invocation)
 
                 expect(retried.finished).toBe(false)
@@ -1593,7 +1703,8 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     { useClient: jest.fn(() => null) } as any,
-                    personsManager as any
+                    personsManager as any,
+                    workflowsActivationReporter
                 )
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
 

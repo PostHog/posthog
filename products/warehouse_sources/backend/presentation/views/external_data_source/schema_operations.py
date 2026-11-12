@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 
 from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -376,12 +377,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
         source = base.SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:

@@ -28,6 +28,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.auth import is_mcp_request
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.event_usage import report_user_action
@@ -40,6 +41,7 @@ from posthog.scopes import APIScopeObject
 from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
+    MAX_SERIES_PER_CLAUSE,
     characterize_metric_anomaly,
     check_metric_variable_regex,
     derived_metric_resources,
@@ -327,6 +329,19 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
+    dropEmptySeries = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=MAX_SERIES_PER_CLAUSE,
+        help_text="Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
@@ -432,6 +447,11 @@ class _MetricSeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.",
     )
+    histogram_layout_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Most distinct bucket layouts merged into one point of a histogram_quantile series. Above 1, series with different buckets were merged by bucket width. Null for other aggregations.",
+    )
 
 
 class _MetricQueryResponseSerializer(serializers.Serializer):
@@ -441,7 +461,15 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
     )
     hint = serializers.CharField(
         required=False,
-        help_text="Set only when the query returned no points: what to check before querying again.",
+        help_text="Set when the query returned no points, with what to check before querying again, or when a histogram_quantile merged different bucket layouts, with how to read the result.",
+    )
+    omitted_empty_series = serializers.IntegerField(
+        required=False,
+        help_text="Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out.",
+    )
+    omitted_by_limit = serializers.IntegerField(
+        required=False,
+        help_text="Number of series left out by 'limit'. Set only when it left some out.",
     )
 
 
@@ -452,11 +480,48 @@ _NO_SERIES_HINT = (
 )
 
 
-def _series_response(series: list[MetricSeries]) -> Response:
-    response_data: dict = {"results": [asdict(s) for s in series]}
+def _series_magnitude(series: MetricSeries) -> float:
+    return sum(abs(point.value) for point in series.points if point.value is not None)
+
+
+def _mixed_layouts_hint(layout_count: int) -> str:
+    return (
+        f"Series with {layout_count} bucket layouts were merged by bucket width, so each quantile is only as "
+        "precise as histogram_bounds. PromQL histogram_quantile over sum by (le) of the _bucket series adds "
+        "different layouts by le and can overstate high quantiles, up to the top finite bucket edge. To compare "
+        "them, group by a label that separates the layouts, such as k8s.namespace.name or service_name."
+    )
+
+
+def _series_response(
+    series: list[MetricSeries], *, drop_empty_series: bool = False, limit: int | None = None
+) -> Response:
+    response_data: dict = {}
+    layout_count = max((s.histogram_layout_count or 0 for s in series), default=0)
     if not any(s.points for s in series):
         response_data["hint"] = _NO_SERIES_HINT
+    elif layout_count > 1:
+        response_data["hint"] = _mixed_layouts_hint(layout_count)
+    if drop_empty_series:
+        kept = [s for s in series if any(point.value for point in s.points)]
+        if omitted := len(series) - len(kept):
+            response_data["omitted_empty_series"] = omitted
+        series = kept
+    if limit is not None and len(series) > limit:
+        # Keep the largest series but leave them in their original order, which groups them by clause.
+        largest = set(sorted(range(len(series)), key=lambda index: -_series_magnitude(series[index]))[:limit])
+        response_data["omitted_by_limit"] = len(series) - limit
+        series = [s for index, s in enumerate(series) if index in largest]
+    response_data["results"] = [asdict(s) for s in series]
     return Response(response_data, status=status.HTTP_200_OK)
+
+
+def _trim_options(request: Request, query_data: dict) -> dict:
+    drop_empty_series = query_data.get("dropEmptySeries")
+    return {
+        "drop_empty_series": is_mcp_request(request) if drop_empty_series is None else drop_empty_series,
+        "limit": query_data.get("limit"),
+    }
 
 
 class _MetricAnomalyBodySerializer(serializers.Serializer):
@@ -1449,7 +1514,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return _series_response(series)
+        return _series_response(series, **_trim_options(request, query_data))
 
     def _can_read_derived_source(self, request: Request, resource: APIScopeObject) -> bool:
         return not scopes_caller_lacks(
@@ -1507,7 +1572,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team,
             request=request,
         )
-        return _series_response(series)
+        return _series_response(series, **_trim_options(request, query_data))
 
     @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])

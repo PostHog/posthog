@@ -544,6 +544,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
         many=True,
         help_text="The current window split per answer engine, ordered by engine. Engines that did not run are left out.",
     )
+    daily = AEOPromptDailyEngineStatsSerializer(
+        many=True,
+        help_text="Counts per day and engine over the current window. Days and engines without a check are left out.",
+    )
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
