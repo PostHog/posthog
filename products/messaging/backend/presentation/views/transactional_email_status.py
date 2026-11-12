@@ -32,6 +32,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailNotFound,
     EmailSendStatus,
     EmailStatus,
+    OutcomePending,
     RescheduleTooFar,
     ScheduledEmailPage,
     TransactionalEmailError,
@@ -108,6 +109,16 @@ class RescheduleEmailSerializer(serializers.Serializer):
                 }
             )
         return attrs
+
+    # drf-spectacular marks every PATCH body partial, which would make `scheduled_at` optional in the schema. A move
+    # always needs a time, so this serializer is never partial.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, value: bool) -> None:
+        pass
 
 
 class RescheduledEmailSerializer(serializers.Serializer):
@@ -347,11 +358,15 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             report["lead_time_bucket"] = lead_time_bucket(requested_at)
             if report["lead_time_bucket"] != "now":
                 # Moving an email to now needs no flag, so turning the flag off still lets callers flush what waits.
-                require_scheduled_sends(
-                    self.team,
-                    "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time that "
-                    "already passed to send it now.",
-                )
+                try:
+                    require_scheduled_sends(
+                        self.team,
+                        "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time "
+                        "that already passed to send it now.",
+                    )
+                except serializers.ValidationError:
+                    report["outcome"] = "scheduled_sends_off"
+                    raise
             message_id = _message_id(pk)
             scheduled_at = reschedule_email(self.team_id, message_id, requested_at)
             report["outcome"] = "scheduled"
@@ -362,12 +377,13 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
     @contextmanager
-    def _reporting_manage(self, request: Request, action: str, **properties: Any) -> Iterator[dict[str, Any]]:
+    def _reporting_manage(self, request: Request, action: str) -> Iterator[dict[str, Any]]:
         report: dict[str, Any] = {"outcome": "error"}
         try:
             yield report
         except serializers.ValidationError:
-            report["outcome"] = "invalid_request"
+            if report["outcome"] == "error":
+                report["outcome"] = "invalid_request"
             raise
         except EmailNotFound:
             report["outcome"] = "not_found"
@@ -382,6 +398,15 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except RescheduleTooFar as e:
             report["outcome"] = "invalid_scheduled_at"
             raise _explained(e, str(e), status_code=status.HTTP_400_BAD_REQUEST) from None
+        except OutcomePending:
+            report["outcome"] = "pending"
+            raise ExplainedRefusal(
+                "PostHog hasn't recorded yet what happened to this email.",
+                code="delivery_unavailable",
+                why="The email left the queue a moment ago, and its status hasn't caught up.",
+                fix="Try again in a few seconds. A retry is safe.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ) from None
         except DeliveryUnavailable:
             report["outcome"] = "unavailable"
             raise ExplainedRefusal(
@@ -398,7 +423,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {
                     "action": action,
                     **report,
-                    **properties,
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                 },
             )

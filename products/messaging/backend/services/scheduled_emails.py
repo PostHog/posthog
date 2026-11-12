@@ -18,6 +18,7 @@ from products.messaging.backend.facade.contracts import (
     EmailCanceled,
     EmailNotFound,
     EmailSendStatus,
+    OutcomePending,
     RescheduleTooFar,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status, queued_at
@@ -25,7 +26,7 @@ from products.messaging.backend.services.transactional_email_status import get_e
 logger = structlog.get_logger(__name__)
 
 _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
-# How long after a send its first status row can take to land.
+# How long a status row can take to land after what it records.
 _STATUS_LAG = timedelta(minutes=5)
 
 
@@ -42,19 +43,17 @@ def cancel_email(team_id: int, message_id: UUID) -> None:
     if response.status_code == 409 and refusal == "already_sending":
         raise AlreadySending()
     if response.status_code == 404 and refusal == "not_found":
-        # The CDP service deletes a job once it is done with it, so a repeat cancel can find nothing there. The
-        # status says whether the email went away as a cancel. Status rows land a few seconds after what they
-        # record, so a status that still waits, or none yet for a recent send, means the outcome isn't known and
-        # the caller must retry.
+        # The CDP service deletes a job seconds after it is done with it, so a repeat cancel can find nothing there.
+        # The status says whether the email went away as a cancel. Status rows land a few seconds after what they
+        # record, so a status that still waits, or none yet, asks for a retry while it is recent. After that the
+        # row is taken as lost, so a retry can't loop.
         email_status = get_email_status(team_id, message_id)
-        if email_status is None:
-            if datetime.now(UTC) - sent_at < _STATUS_LAG:
-                raise DeliveryUnavailable()
-            raise EmailNotFound()
-        if email_status.status == EmailSendStatus.CANCELED:
+        if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
             return
-        if email_status.status in _WAITING:
-            raise DeliveryUnavailable()
+        if email_status is None or email_status.status in _WAITING:
+            last_change = sent_at if email_status is None else email_status.status_at
+            if datetime.now(UTC) - last_change < _STATUS_LAG:
+                raise OutcomePending()
         raise EmailNotFound()
     raise _unexpected("cancel", team_id, message_id, response)
 
