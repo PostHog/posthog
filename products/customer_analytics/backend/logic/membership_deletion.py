@@ -244,6 +244,7 @@ class MembershipDeletionStore:
                 team_id=team_id,
                 workload=Workload.OFFLINE,
                 send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
+                sanitize_errors=True,
             )
             if survivors[0][0]:
                 raise RuntimeError("Membership deletion found surviving rows. Retry the batch later.")
@@ -264,6 +265,7 @@ class MembershipDeletionStore:
                     team_id=team_id,
                     workload=Workload.OFFLINE,
                     send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
+                    sanitize_errors=True,
                 )
             )
 

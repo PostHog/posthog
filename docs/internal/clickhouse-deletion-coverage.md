@@ -186,6 +186,7 @@ Each deletion resolves fresh shard topology, including sibling clusters.
 Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
 Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
 Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Verification sanitizes database errors before query tracing records them, while preserving numeric error codes.
 Candidates are removed only after verified erasure.
 Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
 Live-team erasure keeps eligibility config and unrelated membership.
