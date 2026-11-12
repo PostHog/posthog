@@ -341,6 +341,14 @@ const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, 
     },
 })
 
+export const SettingsEnvironmentAiSubscriptionsUnavailable: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.PHAI_SANDBOX_MODE),
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
 export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
     args: { sectionId: 'environment-ai-subscriptions' },
     parameters: {
