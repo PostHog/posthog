@@ -136,9 +136,20 @@ export function EvaluationReportDrawer({
             ) : searchPaused ? (
                 <div className="flex flex-col items-start gap-2 text-sm">
                     <p className="mb-0">{`This report is older than the last ${reportRuns.length} reports.`}</p>
-                    <LemonButton type="secondary" size="small" onClick={searchOlder}>
-                        Search older reports
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" size="small" onClick={searchOlder}>
+                            Search older reports
+                        </LemonButton>
+                        {newestRun && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => openRunById(newestRun.id, 'link')}
+                            >
+                                Open the latest report
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             ) : isSearchingForRun ? (
                 <div className="flex flex-col gap-2">

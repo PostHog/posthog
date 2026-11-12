@@ -354,12 +354,37 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("▼", html)
         self.assertIn("30.00pp", html)
 
-    def test_no_delta_when_previous_is_none(self):
-        metrics = EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0})
-        html = _render_metrics_block_html(metrics)
-        self.assertNotIn("▲", html)
-        self.assertNotIn("▼", html)
-        self.assertNotIn("pp vs previous", html)
+    @parameterized.expand(
+        [
+            ("no_previous_report", {"total_runs": 10, "result_counts": {"pass": 9, "fail": 1, "na": 0}}),
+            (
+                "empty_period",
+                {"total_runs": 0, "result_counts": {"pass": 0, "fail": 0, "na": 0}, "previous_pass_rate": 92.0},
+            ),
+            (
+                "empty_sentiment_period",
+                {
+                    "output_type": "sentiment",
+                    "total_runs": 0,
+                    "result_counts": {"positive": 0, "neutral": 0, "negative": 0},
+                    "result_rates": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
+                    "previous_result_rates": {"positive": 60.0, "neutral": 10.0, "negative": 30.0},
+                },
+            ),
+        ]
+    )
+    def test_no_delta_without_a_comparison(self, _name: str, fields: dict) -> None:
+        metrics = EvalReportMetrics(**fields)
+        for rendered in (_render_metrics_block_html(metrics), _render_metrics_slack_blocks(metrics)[0]["text"]["text"]):
+            self.assertNotIn("▲", rendered)
+            self.assertNotIn("▼", rendered)
+            self.assertNotIn("pp", rendered)
+
+    def test_empty_period_shows_no_pass_rate(self) -> None:
+        metrics = EvalReportMetrics(
+            total_runs=0, result_counts={"pass": 0, "fail": 0, "na": 0}, previous_pass_rate=92.0
+        )
+        self.assertIn("Pass rate: —", _render_metrics_slack_blocks(metrics)[0]["text"]["text"])
 
     def test_unavailable_metrics_render_notice_not_zero_table(self):
         html = _render_metrics_block_html(

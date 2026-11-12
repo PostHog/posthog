@@ -205,6 +205,10 @@ def validate_report_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportRun(UUIDTModel):
+    class DestinationType(models.TextChoices):
+        SLACK = "slack"
+        EMAIL = "email"
+
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
         GENERATED = "generated"

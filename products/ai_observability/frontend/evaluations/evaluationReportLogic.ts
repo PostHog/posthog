@@ -71,9 +71,8 @@ export const DEFAULT_RRULE = 'FREQ=DAILY'
 export const DEFAULT_SCHEDULE_CADENCE: ReportScheduleCadence = 'daily'
 export const DEFAULT_WEEKLY_DAYS: ReportScheduleWeekday[] = ['MO']
 export const REPORT_RUNS_PAGE_SIZE = 20
-// A manual report usually lands within a few minutes. The agent activity times out after 11.
 const NEW_REPORT_POLL_INTERVAL_MS = 15_000
-// The report workflow's own timeout, so the wait outlasts an agent retry.
+// A manual report usually lands within a few minutes, but an agent retry can take it past half an hour.
 const NEW_REPORT_POLL_TIMEOUT_MS = 30 * 60_000
 const NEW_REPORT_POLL_PAGE_SIZE = 5
 const NEW_REPORT_POLL = 'newReportPoll'
@@ -316,6 +315,7 @@ export interface evaluationReportLogicValues {
     configError: string | null
     configErrors: ReportConfigErrors
     cooldownMinutes: number
+    destinationsError: string | null
     editingDestinations: boolean
     generateResult: null
     generateResultLoading: boolean
@@ -588,6 +588,7 @@ export interface evaluationReportLogicMeta {
         isNewEvaluation: (evaluationId: string) => boolean
         configErrors: (configDraft: ReportConfigDraft) => ReportConfigErrors
         configError: (configDraft: ReportConfigDraft) => string | null
+        destinationsError: (shownDestinations: ReportDestination[], configDraft: ReportConfigDraft) => string | null
         reportHistoryReady: (
             reportsLoading: boolean,
             reportRunsLoading: boolean,
@@ -916,6 +917,15 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             (s) => [s.configDraft],
             (configDraft: ReportConfigDraft): string | null => getReportConfigError(configDraft),
         ],
+        // A Slack row without a workspace and channel would be dropped on save without a word.
+        destinationsError: [
+            (s) => [s.shownDestinations, s.configDraft],
+            (shownDestinations: ReportDestination[], configDraft: ReportConfigDraft): string | null =>
+                shownDestinations.includes('slack') &&
+                !(configDraft.slackIntegrationId && configDraft.slackChannelValue)
+                    ? 'Pick a Slack channel, or remove Slack.'
+                    : null,
+        ],
         // The baseline for "Generate now" is the newest loaded report, so it needs the history first.
         reportHistoryReady: [
             (s) => [s.reportsLoading, s.reportRunsLoading, s.reportRunsLoadFailed, s.reportRuns],
@@ -1047,8 +1057,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         },
         saveDraft: () => {
             const { configDraft, activeReport } = values
-            if (values.configError) {
-                lemonToast.error(values.configError)
+            const error = values.configError ?? values.destinationsError
+            if (error) {
+                lemonToast.error(error)
                 return
             }
 

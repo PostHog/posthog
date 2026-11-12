@@ -539,7 +539,9 @@ class _EvaluationReportStringListField(serializers.JSONField):
 
 
 class EvaluationReportDestinationSerializer(serializers.Serializer):
-    type = serializers.CharField(help_text="Destination kind: 'slack' or 'email'.")
+    type = serializers.ChoiceField(
+        choices=EvaluationReportRun.DestinationType.choices, help_text="Destination kind: 'slack' or 'email'."
+    )
     name = serializers.CharField(help_text="Slack channel name or email address.")
 
 

@@ -4762,9 +4762,24 @@ export const EvaluationReportRunDeliveryStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `slack` - Slack
+ * * `email` - Email
+ */
+export type EvaluationReportRunDestinationTypeEnumApi =
+    (typeof EvaluationReportRunDestinationTypeEnumApi)[keyof typeof EvaluationReportRunDestinationTypeEnumApi]
+
+export const EvaluationReportRunDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Email: 'email',
+} as const
+
 export interface EvaluationReportDestinationApi {
-    /** Destination kind: 'slack' or 'email'. */
-    type: string
+    /** Destination kind: 'slack' or 'email'.
+     *
+     * * `slack` - Slack
+     * * `email` - Email */
+    type: EvaluationReportRunDestinationTypeEnumApi
     /** Slack channel name or email address. */
     name: string
 }

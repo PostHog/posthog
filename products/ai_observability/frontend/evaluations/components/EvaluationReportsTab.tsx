@@ -71,6 +71,7 @@ export function EvaluationReportsTab({
         shownDestinations,
         editingDestinations,
         reportHistoryReady,
+        destinationsError,
     } = useValues(logic)
     const {
         generateReport,
@@ -133,8 +134,6 @@ export function EvaluationReportsTab({
 
     const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const savedDraft = activeReport ? draftFromReport(activeReport) : null
-    const slackIncomplete =
-        shownDestinations.includes('slack') && !(configDraft.slackIntegrationId && configDraft.slackChannelValue)
 
     return (
         <div className="@container max-w-6xl flex flex-col gap-4">
@@ -203,9 +202,7 @@ export function EvaluationReportsTab({
                                     type="primary"
                                     size="small"
                                     loading={reportsLoading}
-                                    disabledReason={
-                                        slackIncomplete ? 'Pick a Slack channel, or remove Slack.' : undefined
-                                    }
+                                    disabledReason={destinationsError ?? undefined}
                                     onClick={() => saveDestinations()}
                                     data-attr="llma-evaluation-report-save-destinations"
                                 >

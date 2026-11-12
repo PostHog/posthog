@@ -43623,9 +43623,24 @@ export namespace Schemas {
       reason?: string;
     }
 
+    /**
+     * * `slack` - Slack
+     * * `email` - Email
+     */
+    export type EvaluationReportRunDestinationTypeEnum = typeof EvaluationReportRunDestinationTypeEnum[keyof typeof EvaluationReportRunDestinationTypeEnum];
+
+
+    export const EvaluationReportRunDestinationTypeEnum = {
+      Slack: 'slack',
+      Email: 'email',
+    } as const;
+
     export interface EvaluationReportDestination {
-      /** Destination kind: 'slack' or 'email'. */
-      type: string;
+      /** Destination kind: 'slack' or 'email'.
+       *
+       * * `slack` - Slack
+       * * `email` - Email */
+      type: EvaluationReportRunDestinationTypeEnum;
       /** Slack channel name or email address. */
       name: string;
     }

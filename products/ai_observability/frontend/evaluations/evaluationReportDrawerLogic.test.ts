@@ -172,6 +172,19 @@ describe('evaluationReportDrawerLogic', () => {
         expect(reportLogic.values.editingDestinations).toBe(false)
     })
 
+    it('refuses to save a Slack destination without a channel', async () => {
+        await mountWithRuns()
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+
+        reportLogic.actions.addDraftDestination('slack')
+        reportLogic.actions.setDraftSlackIntegrationId(7)
+        expect(reportLogic.values.destinationsError).toBe('Pick a Slack channel, or remove Slack.')
+
+        reportLogic.actions.saveDraft()
+        await expectLogic(reportLogic).toNotHaveDispatchedActions(['updateReport'])
+        expect(patchBodies).toEqual([])
+    })
+
     it('fetches once more and stops when the report never arrives', async () => {
         await mountWithRuns()
         const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
