@@ -28,8 +28,6 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.logs.backend.models import LogsRetentionRule
-
 from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
@@ -592,55 +590,16 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
-    @patch("ee.billing.billing_manager.http_session.get")
-    def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
-        organization = self.organization
-        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
-        organization.save()
-        self.team.logs_settings = {"retention_days": 30}
-        self.team.save()
-        rule = LogsRetentionRule.objects.create(
-            team=self.team,
-            name="keep api logs",
-            enabled=True,
-            config={"retention_days": 90, "filter_group": {"type": "AND", "values": []}},
-        )
-
-        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123",
-            plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
-        )
-
-        # A cancellation lands the customer on free plans, which still carry (other) features.
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "available_product_features": [{"key": "surveys", "name": "Surveys"}]
-        }
-
-        BillingManager(license).update_available_product_features(organization)
-
-        organization.refresh_from_db()
-        self.team.refresh_from_db()
-        assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
-        assert self.team.logs_settings == {"retention_days": 14}
-        rule.refresh_from_db()
-        assert rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
-        assert rule.enabled is True
-        assert rule.version == 2
-
     @parameterized.expand(
         [
-            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
-            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
-            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, None, False),
-            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, None, False),
-            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, None, False),
-            ("set_period_within_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 6, False),
-            ("set_period_past_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 36, True),
+            ("downgrade_from_the_org_details_sync", _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
+            ("first_billing_sync", None, _FREE_RETENTION, 84, 12, None, False),
+            ("upgrade", _FREE_RETENTION, _SURVEYS, 12, 84, None, False),
+            ("teams_already_reconciled", _SURVEYS, _FREE_RETENTION, 12, 12, None, False),
+            ("set_period_within_the_new_plan", _SURVEYS, _FREE_RETENTION, 84, 12, 6, False),
+            ("set_period_past_the_new_plan", _SURVEYS, _FREE_RETENTION, 84, 12, 36, True),
             (
                 "downgrade_that_adds_standard_retention",
-                False,
                 _SURVEYS,
                 _STANDARD_THREE_YEAR_RETENTION,
                 84,
@@ -656,7 +615,6 @@ class TestBillingManager(BaseTest):
     def test_billing_sync_reconciles_events_retention_and_reports_a_downgrade(
         self,
         _name: str,
-        features_sync: bool,
         previous_features: list[dict] | None,
         features: list[dict],
         team_months: int,
@@ -680,14 +638,8 @@ class TestBillingManager(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        if features_sync:
-            with patch("ee.billing.billing_manager.http_session.get") as mock_get:
-                mock_get.return_value.status_code = 200
-                mock_get.return_value.json.return_value = {"available_product_features": features}
-                BillingManager(license).update_available_product_features(organization)
-        else:
-            billing_status = {"customer": {"available_product_features": features}}
-            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        billing_status = {"customer": {"available_product_features": features}}
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == expected_team_months

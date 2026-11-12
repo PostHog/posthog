@@ -117,10 +117,10 @@ def _reset_traces_retention_period(organization: Organization) -> int:
 def reset_revoked_logs_retention(organization: Organization, revoked_feature_keys: set[str]) -> int:
     """Reset team Logs retention to the default when its required feature was revoked.
 
-    Called from the billing feature-refresh paths (customer update messages, trial
-    cancellation) so that cancellations immediately stop applying paid retention to
-    newly ingested logs. The Temporal `retention_entitlements` workflow remains
-    available for org-wide manual reconciliation.
+    BillingManager.update_org_details calls this when a billing status refresh or
+    customer update message revokes the entitlement, so newly ingested logs stop
+    using paid retention. The Temporal `retention_entitlements` workflow supports
+    org-wide manual reconciliation.
     """
     if LOGS_RETENTION_PAID_FEATURE.value not in revoked_feature_keys:
         return 0

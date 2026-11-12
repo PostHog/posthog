@@ -516,41 +516,6 @@ class BillingManager:
         handle_billing_service_error(res)
         return res
 
-    def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
-        res = http_session.get(
-            f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
-            headers=self.get_auth_headers(organization),
-        )
-
-        handle_billing_service_error(res)
-
-        available_product_features_json = res.json()
-        available_product_features = available_product_features_json.get("available_product_features", [])
-        previous_feature_keys = {
-            feature.get("key") for feature in (organization.available_product_features or []) if feature
-        }
-        previous_retention_months = billed_events_retention_months(organization)
-        previous_standard_retention = has_standard_retention(organization)
-        organization.available_product_features = available_product_features
-        organization.save()
-
-        if (
-            available_product_features
-            and organization_events_retention_months(organization) != previous_retention_months
-        ):
-            apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
-
-        # Only reset on a non-empty list: the retention reset is not self-healing, so an
-        # empty error-path response must not permanently downgrade team settings.
-        if available_product_features:
-            revoked_feature_keys = previous_feature_keys - {
-                feature.get("key") for feature in available_product_features if feature
-            }
-            if revoked_feature_keys:
-                reset_revoked_logs_retention(organization, revoked_feature_keys)
-
-        return available_product_features
-
     def update_billing_organization_users(self, organization: Organization) -> None:
         """
         Updates the register of users in the Billing service, reporting any failure to error
