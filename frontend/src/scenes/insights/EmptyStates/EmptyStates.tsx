@@ -16,7 +16,6 @@ import {
     IconFunnels,
     IconInfo,
     IconLineGraph,
-    IconLock,
     IconPlusSmall,
     IconRefresh,
     IconWarning,
@@ -794,29 +793,21 @@ const ERROR_HOGGIES: Partial<Record<InsightErrorKind, React.ComponentType<{ clas
     permission: HedgehogStampDenied,
 }
 
-const QUILL_ERROR_ICONS: Record<InsightErrorKind, JSX.Element> = {
-    rate_limit: <IconClock />,
-    memory_limit: <IconWarning />,
-    invalid_query: <IconWarning />,
-    permission: <IconLock />,
-    transient: <IconClock />,
-    server: <IconWarning />,
-    unknown: <IconWarning />,
-}
-
 function InsightErrorIllustration({ kind }: { kind: InsightErrorKind }): JSX.Element {
     const quillSurface = useQuillSurface()
+    const Hoggie = ERROR_HOGGIES[kind]
+    if (Hoggie) {
+        return <Hoggie className="w-24 h-24" />
+    }
     if (quillSurface) {
-        const waitable = kind === 'rate_limit' || kind === 'transient' || kind === 'permission'
         return (
             <QuillInsightEmptyStateIcon
-                icon={QUILL_ERROR_ICONS[kind]}
-                color={waitable ? 'var(--warning-foreground)' : 'var(--destructive-foreground)'}
+                icon={kind === 'transient' ? <IconClock /> : <IconWarning />}
+                color={kind === 'transient' ? 'var(--warning-foreground)' : 'var(--destructive-foreground)'}
             />
         )
     }
-    const Hoggie = ERROR_HOGGIES[kind]
-    return Hoggie ? <Hoggie className="w-24 h-24" /> : <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+    return <IconErrorOutline className="text-4xl shrink-0 text-danger" />
 }
 
 function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
