@@ -6,8 +6,8 @@ import { PluginsServerConfig } from '../../types'
 import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherStates } from '../services/monitoring/hog-watcher.service'
 import { CrashGuard } from '../services/poison-batch/crash-guard'
-import { createQuarantineAutoDisable } from '../services/poison-batch/quarantine-auto-disable'
 import { InvocationQuarantine, recordTerminal } from '../services/poison-batch/quarantine-invocations'
+import { QuarantineTracker, createQuarantineTracker } from '../services/poison-batch/quarantine-tracker'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, DEAD_LETTER_QUEUE } from '../types'
 import { dualRead } from '../utils/dual-store'
 import { CdpCyclotronWorker, CdpCyclotronWorkerDeps } from './cdp-cyclotron-worker.consumer'
@@ -32,22 +32,21 @@ const SKIPPED_FUNCTION_DISABLED_FAILURE = {
  */
 export class CdpCyclotronDeadLetterWorker extends CdpCyclotronWorker {
     private quarantine: InvocationQuarantine
+    private tracker: QuarantineTracker | null
 
     constructor(config: PluginsServerConfig, deps: CdpCyclotronWorkerDeps, jobQueue: JobQueue) {
         super(config, deps, jobQueue, DEAD_LETTER_QUEUE)
-        const autoDisable = this.crashGuardSettings
-            ? createQuarantineAutoDisable(config, {
-                  valkey: this.crashGuardSettings.valkey,
-                  getHogFunction: (id) => this.hogFunctionManager.getHogFunction(id),
-                  hogWatcher: this.hogWatcher,
-                  hogWatcherMirror: this.hogWatcherMirror,
-              })
-            : null
+        this.tracker = this.crashGuardSettings ? createQuarantineTracker(config, this.crashGuardSettings.valkey) : null
         this.quarantine = new InvocationQuarantine(
             this.name,
             this.invocationResultsService.invocationResultsRowsService,
-            autoDisable
+            this.tracker
         )
+    }
+
+    public override async stop(): Promise<void> {
+        this.tracker?.stop()
+        await super.stop()
     }
 
     protected override consumerOptions(): ConsumerOptions {

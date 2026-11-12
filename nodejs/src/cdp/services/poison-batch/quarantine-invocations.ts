@@ -8,7 +8,7 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocation, DEAD_LETTER_QUEUE } from '../../types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { QuarantineAutoDisableService } from './quarantine-auto-disable'
+import { QuarantineTracker } from './quarantine-tracker'
 
 const invocationsQuarantined = new Counter({
     name: 'cdp_invocations_quarantined_total',
@@ -73,7 +73,7 @@ export class InvocationQuarantine {
     constructor(
         private workerName: string,
         private rows: HogInvocationResultsService,
-        private autoDisable: QuarantineAutoDisableService | null = null
+        private tracker: QuarantineTracker | null = null
     ) {}
 
     public async setAside(messages: Message[]): Promise<void> {
@@ -116,7 +116,7 @@ export class InvocationQuarantine {
             throw new Error('Could not record the terminal failure of a quarantined invocation')
         }
 
-        await this.autoDisable?.observe(quarantined.map(({ invocation }) => invocation))
+        await this.tracker?.observe(quarantined.map(({ invocation }) => invocation))
     }
 }
 

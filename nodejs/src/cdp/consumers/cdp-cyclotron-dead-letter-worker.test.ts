@@ -2,6 +2,8 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { register } from 'prom-client'
+
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -113,9 +115,9 @@ describe('CdpCyclotronDeadLetterWorker', () => {
         }
     })
 
-    it('disables the function once enough of its invocations are quarantined', async () => {
+    it('reports the function on the gauge once enough of its invocations are quarantined', async () => {
         const worker = new CdpCyclotronDeadLetterWorker(
-            { ...hub, CDP_QUARANTINE_AUTO_DISABLE: true, CDP_QUARANTINE_DISABLE_THRESHOLD: 1 },
+            { ...hub, CDP_QUARANTINE_ESCALATION_THRESHOLD: 1 },
             {
                 ...createCdpConsumerDeps(hub),
                 crashGuardSettings: {
@@ -123,16 +125,26 @@ describe('CdpCyclotronDeadLetterWorker', () => {
                     mode: 'shadow',
                     maxAttempts: 3,
                     keyTtlSeconds: 60,
+                    maxFlaggedPartitions: 32,
+                    backgroundTaskTimeoutMs: 10_000,
                 },
             },
             createMockJobQueue()
         )
 
-        await expect(
-            worker['quarantine'].quarantine([{ invocation: queued(), partition: 0, offset: 12 }])
-        ).resolves.toBeUndefined()
+        try {
+            await expect(
+                worker['quarantine'].quarantine([{ invocation: queued(), partition: 0, offset: 12 }])
+            ).resolves.toBeUndefined()
 
-        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(1)
-        expect((await worker.hogWatcher.getPersistedState(fn.id)).state).toEqual(HogWatcherState.disabled)
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(1)
+            const gauge = (await register.getSingleMetric('cdp_quarantined_functions')!.get()).values
+            expect(gauge.filter((v) => v.labels.function_id === fn.id)).toEqual([
+                expect.objectContaining({ labels: { function_id: fn.id, team_id: String(team.id) }, value: 1 }),
+            ])
+            expect((await worker.hogWatcher.getPersistedState(fn.id)).state).toEqual(HogWatcherState.healthy)
+        } finally {
+            worker['tracker']?.stop()
+        }
     })
 })

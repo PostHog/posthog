@@ -516,7 +516,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
         beforeEach(async () => {
             await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS, HOG_TOPIC])
             await resetTestDatabase()
-            hub = await createHub({ HOG_INVOCATION_RESULTS_ENABLED: true, CDP_QUARANTINE_AUTO_DISABLE: true })
+            hub = await createHub({ HOG_INVOCATION_RESULTS_ENABLED: true })
             team = await getFirstTeam(hub.postgres)
             cdpWorkers = []
             personsDown = false
@@ -695,7 +695,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
 
         const attemptsAt = (groupId: string, partition: number, offset: number): Promise<string | null> =>
             quarantineFor('enforce').valkey.useClient({ name: 'test' }, (client) =>
-                client.get(batchAttemptsKey(groupId, partition, offset))
+                client.hget(batchAttemptsKey(groupId, partition, offset), 'attempts')
             )
 
         const watchedState = async (fn: HogFunctionType): Promise<HogWatcherState> =>
@@ -714,13 +714,10 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
 
         const isUnavailable = expect.objectContaining({ code: Code.Unavailable, isRetriable: true })
 
-        // The dead letter worker checks the function for a disable after it produced the row, so a test waits
-        // for the checks before it reads the state.
-        const disableChecks = async (): Promise<number> =>
-            (await register.getSingleMetric('cdp_quarantine_disable_checks_total')!.get()).values.reduce(
-                (sum, { value }) => sum + value,
-                0
-            )
+        const reportedQuarantines = async (fn: HogFunctionType): Promise<number | undefined> =>
+            (await register.getSingleMetric('cdp_quarantined_functions')!.get()).values.find(
+                (v) => v.labels.function_id === fn.id && v.labels.team_id === String(team.id)
+            )?.value
 
         it.each([
             ['v1', false],
@@ -778,13 +775,12 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
             expect(quarantined()).toEqual([])
         })
 
-        it('disables a function whose poisoned invocations crash both workers until they are quarantined, then skips the rest', async () => {
+        it('reports a function whose poisoned invocations crash both workers until they are quarantined, and skips the rest once a person disables it', async () => {
             const poisons = [poisonedInvocation(), poisonedInvocation(), poisonedInvocation()]
             for (const poison of poisons) {
                 await enqueue(HOG_TOPIC, poison)
             }
             const divertedBefore = await counter('cdp_batch_diverted_messages_total', { group: HOG_GROUP })
-            const disabledBefore = await counter('cdp_functions_auto_disabled_total')
 
             const hogCrashes = await cdpCrashLoop('hog', poisons.length * MAX_ATTEMPTS)
             expect(hogCrashes).toEqual(Array(poisons.length * MAX_ATTEMPTS).fill(expect.any(TypeError)))
@@ -799,13 +795,20 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
             await enqueue(HOG_TOPIC, healthyInvocation())
             await waitForExpect(() => expect(executions()).toEqual(1), 30_000)
             const remaining = poisonedInvocation()
-            await divert(remaining)
 
             const dlqCrashes = await dlqCrashLoop(poisons.length * MAX_ATTEMPTS)
             expect(dlqCrashes).toEqual(Array(poisons.length * MAX_ATTEMPTS).fill(expect.any(TypeError)))
-            await startDlqWorker()
+            const dlqWorker = await startDlqWorker()
             await waitForExpect(() => expect(quarantined()).toHaveLength(poisons.length), 30_000)
             expect(quarantined().map((x) => x.invocation_id)).toEqual(poisons.map((x) => x.id))
+            await waitForExpect(async () => expect(await reportedQuarantines(poisonFn)).toEqual(poisons.length), 30_000)
+            expect(await watchedState(poisonFn)).toEqual(HogWatcherState.healthy)
+
+            // The runbook of the gauge's alert has a person disable the function.
+            await forceState(poisonFn, HogWatcherState.forcefully_disabled)
+            await stopCdpWorker(dlqWorker)
+            await divert(remaining)
+            await startDlqWorker()
             await waitForExpect(
                 () =>
                     expect(quarantined(SKIPPED_FUNCTION_DISABLED_ERROR_KIND)).toEqual([
@@ -814,9 +817,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
                 30_000
             )
 
-            await waitForExpect(async () => expect(await watchedState(poisonFn)).toEqual(HogWatcherState.disabled))
-            expect(stateChanges()).toEqual([{ id: poisonFn.id, state: 'disabled' }])
-            expect(await counter('cdp_functions_auto_disabled_total')).toEqual(disabledBefore + 1)
+            expect(stateChanges()).toEqual([])
 
             // The hog worker runs whatever reaches its topic. The events consumer is what stops queuing a
             // disabled function, so a new event reaches only the healthy function.
@@ -837,48 +838,19 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
             }
         })
 
-        it.each([
-            ['keeps a function with fewer quarantines than the threshold healthy', 2, true, undefined],
-            ['does not disable a function while automatic disabling is off', 3, false, undefined],
-            ['leaves a forcefully degraded function alone', 3, true, HogWatcherState.forcefully_degraded],
-        ])('%s', async (_, poisonCount, automaticallyDisable, forcedState) => {
-            hub.CDP_QUARANTINE_AUTO_DISABLE = automaticallyDisable
-            if (forcedState) {
-                await forceState(poisonFn, forcedState)
-            }
-            const poisons = Array.from({ length: poisonCount }, () => poisonedInvocation())
+        it('leaves a function with fewer quarantines than the threshold off the gauge and healthy', async () => {
+            const poisons = [poisonedInvocation(), poisonedInvocation()]
             for (const poison of poisons) {
                 await divert(poison)
             }
-            const checksBefore = await disableChecks()
 
-            await dlqCrashLoop(poisonCount * MAX_ATTEMPTS)
+            await dlqCrashLoop(poisons.length * MAX_ATTEMPTS)
             await startDlqWorker()
-            await waitForExpect(async () => expect(await disableChecks()).toEqual(checksBefore + poisonCount), 30_000)
-            expect(quarantined()).toHaveLength(poisonCount)
+            await waitForExpect(() => expect(quarantined()).toHaveLength(poisons.length), 30_000)
 
-            expect(await watchedState(poisonFn)).toEqual(forcedState ?? HogWatcherState.healthy)
+            expect(await reportedQuarantines(poisonFn)).toBeUndefined()
+            expect(await watchedState(poisonFn)).toEqual(HogWatcherState.healthy)
             expect(stateChanges()).toEqual([])
-        })
-
-        it('counts each function quarantined at once as newly quarantined', async () => {
-            const functions = [poisonFn, ...(await Promise.all(Array.from({ length: 5 }, insertFunction)))]
-            const newBefore = await counter('cdp_quarantined_functions_new_total')
-            for (const fn of functions) {
-                await divert(poisonedInvocation(fn))
-            }
-
-            const checksBefore = await disableChecks()
-
-            await dlqCrashLoop(functions.length * MAX_ATTEMPTS)
-            await startDlqWorker()
-            await waitForExpect(
-                async () => expect(await disableChecks()).toEqual(checksBefore + functions.length),
-                30_000
-            )
-            expect(quarantined()).toHaveLength(functions.length)
-
-            expect(await counter('cdp_quarantined_functions_new_total')).toEqual(newBefore + functions.length)
         })
 
         it('diverts nothing while personhog is down and runs the batch once it is back', async () => {
