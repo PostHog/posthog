@@ -4172,6 +4172,24 @@ class TestPlan(BaseTest):
         else:
             assert [(r.start, r.end) for r in plan.build_ranges] == [(start, end)]
 
+    def test_plan_reports_the_ready_job_that_a_newer_pending_job_overlaps(self) -> None:
+        start, end = datetime(2026, 3, 8, tzinfo=UTC), datetime(2026, 3, 9, tzinfo=UTC)
+        with time_machine.travel(self.NOW, tick=False):
+            ready_job = self._job(start, end, PreaggregationJob.Status.READY, created_hours_ago=2)
+            pending_job = self._job(start, end, PreaggregationJob.Status.PENDING, created_hours_ago=1)
+            executor = LazyComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.05)
+
+            plan = executor.plan(team=self.team, query_info=self._query_info(), start=start, end=end)
+            # The PENDING job never started in ClickHouse, so execute() marks it stale and serves the READY job.
+            result = executor.execute(
+                team=self.team, query_info=self._query_info(), start=start, end=end, run_insert=lambda t, j: 1
+            )
+
+        assert plan is not None
+        assert plan.ready_job_ids == (ready_job.id,)
+        assert plan.pending_job_ids == (pending_job.id,)
+        assert result.job_ids == [ready_job.id]
+
     def test_plan_is_none_before_the_retention_floor(self) -> None:
         with time_machine.travel(self.NOW, tick=False):
             plan = LazyComputationExecutor(events_retention_months=1).plan(

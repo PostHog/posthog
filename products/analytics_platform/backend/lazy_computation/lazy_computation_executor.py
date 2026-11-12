@@ -916,6 +916,12 @@ def filter_overlapping_jobs(jobs: list[PreaggregationJob]) -> list[Preaggregatio
     return selected
 
 
+def _serve_set(fresh_jobs: list[PreaggregationJob]) -> list[PreaggregationJob]:
+    """The READY jobs a read serves. PENDING jobs are dropped before the overlap filter, so a newer
+    PENDING job cannot hide an older READY job that still holds the data."""
+    return filter_overlapping_jobs([j for j in fresh_jobs if j.status == PreaggregationJob.Status.READY])
+
+
 def find_missing_contiguous_windows(
     existing_jobs: list[PreaggregationJob],
     start_timestamp: datetime,
@@ -1342,9 +1348,7 @@ class LazyComputationExecutor:
                 servable_stale=True,
             )
         return LazyComputationPlan(
-            ready_job_ids=tuple(
-                j.id for j in filter_overlapping_jobs(coverage.fresh_jobs) if j.status == PreaggregationJob.Status.READY
-            ),
+            ready_job_ids=tuple(j.id for j in _serve_set(coverage.fresh_jobs)),
             pending_job_ids=tuple(j.id for j in coverage.pending_jobs),
             build_ranges=tuple(coverage.build_ranges),
             servable_stale=False,
@@ -1746,7 +1750,7 @@ class LazyComputationExecutor:
         # All ranges covered — collect READY job IDs
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
-        final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
+        final_ready = _serve_set(final_fresh)
         result = LazyComputationResult(
             ready=True,
             job_ids=[j.id for j in final_ready],
