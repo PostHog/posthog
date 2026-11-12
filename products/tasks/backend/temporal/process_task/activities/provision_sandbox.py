@@ -24,7 +24,7 @@ from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, GITLAB_HOST, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
@@ -634,7 +634,6 @@ def _build_environment_variables(
         # The agent reads these to push with plain git and open merge requests through the GitLab API.
         environment_variables["POSTHOG_GIT_PROVIDER"] = "gitlab"
         environment_variables["GITLAB_TOKEN"] = gitlab_token
-        environment_variables["GITLAB_HOST"] = GITLAB_HOST
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
     # agent-server launch (see the sandbox services) so backend maintenance execs don't source

@@ -175,8 +175,8 @@ def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
         for directory, dirs, files in os.walk(sys.argv[1], onerror=fail):
             if ".git" not in dirs and ".git" not in files:
                 continue
-            if ".git" in dirs:
-                dirs.remove(".git")
+            # A checkout root: never walk into its working tree, which can hold huge build output.
+            dirs.clear()
             command = ["git", "-C", directory, "config", "--local", "--no-includes"]
             result = subprocess.run(command + ["--null", "--get-regexp", r"^remote\\..*\\.(url|pushurl)$"], capture_output=True)
             if result.returncode == 1:
@@ -270,12 +270,18 @@ def sandbox_credential_lock(sandbox_id: str) -> Iterator[bool]:
         yield acquired
 
 
+def _is_gitlab_task(task_id: str) -> bool:
+    return Task.objects.filter(id=task_id, repository_integration_id__isnull=False).exists()
+
+
 def _apply_token_locked(
     sandbox: "SandboxBase",
     repositories: Sequence[str],
     token: str,
     run_id: str,
     permitted_session_user_id: int | None,
+    *,
+    task_id: str,
 ) -> bool:
     """Apply a token only while the sandbox's session still belongs to the permitted identity.
 
@@ -286,6 +292,11 @@ def _apply_token_locked(
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
             logger.warning("token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id})
+            return False
+        # A GitLab turn clears GitHub credentials under this same lock, so a task that moved to
+        # GitLab is checked here rather than under a task row lock held across the sandbox write.
+        if _is_gitlab_task(task_id):
+            logger.info("token_apply_skipped_gitlab_task", extra={"run_id": run_id, "sandbox_id": sandbox.id})
             return False
         rebound_actor = _actor_rebound_away_from(sandbox.id, permitted_session_user_id)
         if rebound_actor is not None:
@@ -361,19 +372,15 @@ def _propagate_user_token(user_integration_id: int, token: str) -> int:
             sandbox = get_sandbox_class_for_sandbox_id(live.sandbox_id).get_by_id(live.sandbox_id)
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
-            if sandbox.is_running():
-                # Task updates take this same row lock, so the provider cannot change between
-                # the final check and writing the token into the sandbox.
-                with transaction.atomic():
-                    task = Task.objects.select_for_update().filter(id=live.task_id).first()
-                    if (
-                        task is not None
-                        and task.repository_integration_id is None
-                        and _apply_token_locked(
-                            sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
-                        )
-                    ):
-                        applied += 1
+            if sandbox.is_running() and _apply_token_locked(
+                sandbox,
+                [live.repository] if live.repository else [],
+                token,
+                live.run_id,
+                live.owner_id,
+                task_id=live.task_id,
+            ):
+                applied += 1
         except Exception:
             logger.warning(
                 "Failed to propagate refreshed GitHub user token to sibling sandbox",
@@ -446,6 +453,12 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        # A run that started on GitHub keeps this credential in its context after the task moves to
+        # GitLab, and a GitLab sandbox must not get a GitHub token back.
+        if task.repository_integration_id is not None:
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
         # A read-only run must stay read-only for its whole lifetime: without this guard the
         # periodic refresh would resolve the full credential path (the team integration is
         # attached to every task) and silently swap the downscoped token for the write-capable
@@ -566,7 +579,9 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        applied = _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+        applied = _apply_token_locked(
+            sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+        )
         return CredentialRefreshOutcome(
             self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
@@ -591,14 +606,18 @@ class GitHubSandboxCredential:
                 )
             # An installation token is the team's, not a person's, so it may only land in the
             # owner's own session, never in that of someone whose personal token just failed.
-            applied = _apply_token_locked(sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id)
+            applied = _apply_token_locked(
+                sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id, task_id=ctx.task_id
+            )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
         if token and _loop_owner_credentials_revoked(task, ctx.state):
             token = None
         applied = (
-            _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+            _apply_token_locked(
+                sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+            )
             if token
             else False
         )

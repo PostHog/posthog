@@ -464,7 +464,6 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "GITHUB_TOKEN",
         "GH_TOKEN",
         "GITLAB_TOKEN",
-        "GITLAB_HOST",
         "POSTHOG_GIT_PROVIDER",
         "LLM_GATEWAY_URL",
         "AI_GATEWAY_URL",
