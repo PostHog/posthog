@@ -2188,6 +2188,25 @@ class TestIntegrationAPIKeyAccess:
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
 
+    @patch("posthog.api.integration.GitLabIntegration.list_projects", side_effect=requests.Timeout())
+    def test_gitlab_projects_transport_failure(self, _mock_list_projects, client: HttpClient):
+        integration = Integration.objects.create(team=self.team, kind="gitlab", config={}, sensitive_config={})
+        key_value = "test_key_gitlab_projects"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/gitlab_projects/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Could not connect to GitLab. Try again." in str(response.json())
+
     @pytest.mark.parametrize(
         "kind,url_suffix,list_method,expected_call",
         [

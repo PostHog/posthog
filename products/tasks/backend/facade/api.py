@@ -6722,6 +6722,10 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
+    if task.repository_integration_id is not None:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(kind="detail", detail="GitLab task runs are not available yet.")
+        )
     if task.origin_product == Task.OriginProduct.TASK_ANALYSIS:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
@@ -7006,6 +7010,8 @@ def start_task_run(
             )
             if not run.matches_task_ownership(task):
                 return "ownership_changed", None
+            if task.repository_integration_id is not None:
+                return "gitlab_unsupported", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -7089,6 +7095,8 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
+        if task.repository_integration_id is not None:
+            return "auth_error:GitLab task runs are not available yet.", None, None
         if run.environment != TaskRun.Environment.CLOUD:
             return "not_cloud", None, None
 
@@ -8702,7 +8710,12 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 
 
 def update_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    expected_repository_state: tuple | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
     validated_data = dict(validated_data)
@@ -8718,6 +8731,27 @@ def update_task(
             return None
         if not _task_drive_allowed(task, user_id):
             return None
+        if (
+            expected_repository_state is not None
+            and not validated_data.keys().isdisjoint(
+                {
+                    "repository",
+                    "repositories",
+                    "repository_integration_id",
+                    "github_integration",
+                    "github_user_integration",
+                }
+            )
+            and expected_repository_state
+            != (
+                task.repository,
+                task.repositories or ([task.repository] if task.repository else []),
+                task.github_integration_id,
+                task.github_user_integration_id,
+                task.repository_integration_id,
+            )
+        ):
+            raise ValidationError("Repository configuration changed. Try again.")
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -10024,6 +10058,10 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.repository_integration_id is not None:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(kind="detail", detail="GitLab task runs are not available yet.")
+        )
     # Another product may need to finish something before this task runs, for example a chat that
     # is copied into the task a few seconds behind each turn.
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)

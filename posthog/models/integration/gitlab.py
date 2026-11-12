@@ -1,6 +1,7 @@
 """GitLab integration."""
 
 import re
+import time
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Any, Literal
@@ -77,7 +78,7 @@ class GitLabCredentialSource(ABC):
     def access_token(self) -> GitLabAccessToken: ...
 
     @abstractmethod
-    def describe(self) -> GitLabTokenInfo | None:
+    def describe(self, *, timeout: float = 10) -> GitLabTokenInfo | None:
         """The scopes and expiry of the token, or None when GitLab does not report them."""
 
 
@@ -91,7 +92,7 @@ class PastedTokenSource(GitLabCredentialSource):
     def access_token(self) -> GitLabAccessToken:
         return GitLabAccessToken(token=self._token, refresh_after_seconds=None)
 
-    def describe(self) -> GitLabTokenInfo | None:
+    def describe(self, *, timeout: float = 10) -> GitLabTokenInfo | None:
         try:
             response = GitLabIntegration._request(
                 "GET",
@@ -100,6 +101,7 @@ class PastedTokenSource(GitLabCredentialSource):
                 self._token,
                 endpoint="/api/v4/personal_access_tokens/self",
                 scoped=False,
+                timeout=timeout,
             )
         except requests.RequestException:
             return None
@@ -131,7 +133,15 @@ class GitLabIntegration:
 
     @staticmethod
     def _request(
-        method: str, hostname: str, path: str, access_token: str, *, endpoint: str, scoped: bool = True, **kwargs: Any
+        method: str,
+        hostname: str,
+        path: str,
+        access_token: str,
+        *,
+        endpoint: str,
+        scoped: bool = True,
+        timeout: float = 10,
+        **kwargs: Any,
     ) -> requests.Response:
         """``endpoint`` is the template for the metric label. A project id can be an encoded path
         such as ``group%2Frepo``, so the path itself is customer data and never becomes a label."""
@@ -146,7 +156,7 @@ class GitLabIntegration:
             scoped=scoped,
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
-            timeout=10,
+            timeout=timeout,
             **kwargs,
         )
 
@@ -381,7 +391,7 @@ class GitLabIntegration:
 
         return self._issue_results(issues)
 
-    def list_projects(self, search: str = "") -> list[GitLabProject]:
+    def list_projects(self, search: str = "", *, deadline: float | None = None) -> list[GitLabProject]:
         """Projects the token can push to, most recently active first."""
         hostname = self.integration.config.get("hostname")
         access_token = self._access_token()
@@ -400,8 +410,17 @@ class GitLabIntegration:
         projects: list[GitLabProject] = []
         page = "1"
         for _ in range(MAX_PROJECT_PAGES):
+            remaining = deadline - time.monotonic() if deadline is not None else 10.0
+            if remaining <= 0:
+                raise GitLabIntegrationError("Could not load GitLab projects in time. Try again.")
             response = self._request(
-                "GET", hostname, "projects", access_token, endpoint="/api/v4/projects", params={**params, "page": page}
+                "GET",
+                hostname,
+                "projects",
+                access_token,
+                endpoint="/api/v4/projects",
+                params={**params, "page": page},
+                timeout=min(10.0, remaining),
             )
             if response.status_code != 200:
                 raise GitLabIntegrationError(f"GitLabIntegration: failed to list projects: {response.text[:300]}")

@@ -16,6 +16,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from django_filters.utils import translate_validation
 from django_redis.cache import RedisCache
@@ -2975,10 +2976,14 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_projects endpoint is only supported for GitLab integrations")
         gitlab = GitLabIntegration(instance)
         try:
-            projects = gitlab.list_projects(query_serializer.validated_data["search"])
-            token_info = gitlab.credentials.describe()
+            deadline = time.monotonic() + 10.0
+            projects = gitlab.list_projects(query_serializer.validated_data["search"], deadline=deadline)
+            remaining = deadline - time.monotonic()
+            token_info = gitlab.credentials.describe(timeout=remaining) if remaining > 0 else None
         except GitLabIntegrationError as error:
             raise ValidationError(str(error))
+        except requests.RequestException as error:
+            raise ValidationError("Could not connect to GitLab. Try again.") from error
         return Response(
             GitLabProjectsResponseSerializer(
                 {

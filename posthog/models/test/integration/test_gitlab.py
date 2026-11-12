@@ -264,6 +264,21 @@ class TestGitLabIntegrationModel:
         assert [project.path_with_namespace for project in projects] == ["acme/app", "acme/platform/api"]
         assert [call.kwargs["params"]["page"] for call in mock_request.call_args_list] == ["1", "2"]
 
+    @patch("posthog.models.integration.gitlab.time.monotonic", side_effect=[1.0, 11.0])
+    @patch("posthog.models.integration.gitlab.GitLabIntegration._request")
+    def test_project_listing_stops_at_deadline(self, mock_request, _clock):
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        integration = MagicMock(
+            kind="gitlab", config={"hostname": "https://gitlab.com"}, sensitive_config={"access_token": "token123"}
+        )
+        mock_request.return_value = MagicMock(status_code=200, headers={"X-Next-Page": "2"})
+        mock_request.return_value.json.return_value = []
+        with pytest.raises(GitLabIntegrationError, match="Try again"):
+            GitLabIntegration(integration).list_projects(deadline=10.0)
+        assert mock_request.call_count == 1
+        assert mock_request.call_args.kwargs["timeout"] == 9.0
+
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_create_merge_request_opens_a_draft(self, _mock_is_url_allowed, mock_request):

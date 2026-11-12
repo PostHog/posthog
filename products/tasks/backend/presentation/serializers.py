@@ -1067,7 +1067,10 @@ class TaskWriteSerializer(serializers.Serializer):
         initial_data = getattr(self, "initial_data", {})
         if "repository_integration" in initial_data:
             return initial_data["repository_integration"] not in (None, "")
-        return getattr(self.instance, "repository_integration_id", None) is not None
+        return (
+            getattr(self.instance, "repository_integration", getattr(self.instance, "repository_integration_id", None))
+            is not None
+        )
 
     def validate_repository(self, value):
         """Validate repository configuration"""
@@ -1107,24 +1110,41 @@ class TaskWriteSerializer(serializers.Serializer):
             if legacy != (repositories[0] if repositories else None):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
         repositories = attrs.get("repositories")
-        plural_repositories = repositories
         if repositories is None and "repository" in attrs:
             repositories = [attrs["repository"]] if attrs["repository"] else []
-        if attrs.get("repository_integration") is not None:
-            self._validate_gitlab_task(attrs, repositories or [])
-        elif plural_repositories and attrs.get("github_integration") is None:
-            instance_integration = getattr(self.instance, "github_integration", None)
-            if instance_integration is None:
-                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
-        integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
-        if repositories and integration and attrs.get("repository_integration") is None:
-            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
-                self.context["team"].id, integration.id, repositories
+        if repositories is None:
+            repositories = getattr(self.instance, "repositories", None) or (
+                [self.instance.repository] if self.instance and self.instance.repository else []
             )
-            if inaccessible:
-                raise serializers.ValidationError(
-                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+        gitlab = attrs.get("repository_integration", getattr(self.instance, "repository_integration", None))
+        github = attrs.get("github_integration", getattr(self.instance, "github_integration", None))
+        github_user = attrs.get("github_user_integration", getattr(self.instance, "github_user_integration", None))
+        repository_fields_changed = not attrs.keys().isdisjoint(
+            {"repository", "repositories", "repository_integration", "github_integration", "github_user_integration"}
+        )
+        if gitlab and (github or github_user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if gitlab and repository_fields_changed:
+            if isinstance(gitlab, int):
+                gitlab = self.fields["repository_integration"].run_validation(gitlab)
+            self._validate_gitlab_task({**attrs, "repository_integration": gitlab}, repositories)
+        elif repository_fields_changed:
+            repositories = [normalized_repository_name(repository) for repository in repositories]
+            if repositories and "repositories" in attrs and not github:
+                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+            if repositories and github:
+                integration_id = github if isinstance(github, int) else github.id
+                inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                    self.context["team"].id, integration_id, repositories
                 )
+                if inaccessible:
+                    raise serializers.ValidationError(
+                        {
+                            "repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"
+                        }
+                    )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
