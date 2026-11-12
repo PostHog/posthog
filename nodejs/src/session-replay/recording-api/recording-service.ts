@@ -1,4 +1,4 @@
-import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
@@ -203,6 +203,18 @@ export class RecordingService {
                     sessionId,
                 })
                 RecordingApiMetrics.observeGetBlock('not_found', (performance.now() - startTime) / 1000, 'unknown')
+                return { ok: false, error: 'not_found' }
+            }
+
+            // A role without s3:ListBucket gets AccessDenied for a missing key, so it reads as a missing block. The
+            // separate metric result keeps a real permission fault visible on the dashboard.
+            if (error instanceof S3ServiceException && error.name === 'AccessDenied') {
+                logger.warn('[RecordingService] S3 denied the read, treating the block as missing', {
+                    key,
+                    teamId,
+                    sessionId,
+                })
+                RecordingApiMetrics.observeGetBlock('access_denied', (performance.now() - startTime) / 1000, 'unknown')
                 return { ok: false, error: 'not_found' }
             }
 

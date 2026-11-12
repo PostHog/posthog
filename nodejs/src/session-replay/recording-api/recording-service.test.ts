@@ -1,4 +1,4 @@
-import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import sodium from 'libsodium-wrappers'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -188,8 +188,21 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined, deletedBy: '' })
         })
 
-        it('returns not_found when S3 throws NoSuchKey', async () => {
-            mockS3Send.mockRejectedValue(new NoSuchKey({ message: 'The specified key does not exist.', $metadata: {} }))
+        it.each([
+            ['NoSuchKey', () => new NoSuchKey({ message: 'The specified key does not exist.', $metadata: {} })],
+            // The public role has no s3:ListBucket, so S3 answers a missing key with AccessDenied.
+            [
+                'AccessDenied',
+                () =>
+                    new S3ServiceException({
+                        name: 'AccessDenied',
+                        $fault: 'client',
+                        message: 'Access Denied',
+                        $metadata: { httpStatusCode: 403 },
+                    }),
+            ],
+        ])('returns not_found when S3 throws %s', async (_, makeError) => {
+            mockS3Send.mockRejectedValue(makeError())
 
             const result = await service.getBlock(validParams)
 
