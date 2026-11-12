@@ -38,7 +38,8 @@ export interface FakeRuntimeOptions {
     respond?: (
         url: string,
         body: unknown,
-        authorization: string | null
+        authorization: string | null,
+        headers: Headers
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
@@ -179,12 +180,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             const url = String(input)
             const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
-            const authorization = new Headers(init?.headers).get('authorization')
-            const reply = options.respond?.(url, body, authorization) ?? {
+            const headers = new Headers(init?.headers)
+            const reply = options.respond?.(url, body, headers.get('authorization'), headers) ?? {
                 status: 500,
                 body: { detail: 'no fake response' },
             }
-            const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
+            const text =
+                reply.status === 304 ? null : typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status, headers: reply.headers })
         }) as typeof fetch,
         now: clock.now,
