@@ -9,62 +9,51 @@ import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
 import { ContentAutopilotSetupCostNote } from './ContentAutopilotSetupCostNote'
+import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
-import { ContentAutopilotSetupProgress } from './ContentAutopilotSetupProgress'
 import { unavailableEngineReason } from './utils'
+
+const CONSENT_REASON = 'Needs AI data processing approved for your organization'
 
 /** The first screen for a project with no prompts: PostHog sets everything up from the site, or the person does it. */
 export const ContentAutopilotSetupCard = (): JSX.Element => {
     const {
         setupContext,
         setupContextLoading,
+        setupContextError,
         domain,
         websiteHint,
         selectedEngines,
         startDisabledReason,
+        consentMissing,
         starting,
         startError,
         job,
-        jobRunning,
+        setupJobShown,
     } = useValues(contentAutopilotSetupLogic)
-    const { setDomain, toggleEngine, startSetup, dismissJob } = useActions(contentAutopilotSetupLogic)
+    const { setDomain, toggleEngine, startSetup, loadSetupContext } = useActions(contentAutopilotSetupLogic)
     const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
 
-    if (!setupContext && setupContextLoading) {
+    if (job && setupJobShown) {
+        return <ContentAutopilotSetupJobCard job={job} />
+    }
+    if (setupContextError && !setupContext) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+            >
+                Couldn't load setup. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
+    if (!setupContext) {
         return <LemonSkeleton className="h-96 w-full" />
     }
 
-    if (job) {
-        return (
-            <LemonCard
-                hoverEffect={false}
-                className="mx-auto w-full max-w-2xl p-6"
-                data-attr="content-autopilot-setup-job"
-            >
-                <h3 className="m-0">{jobRunning ? 'Setting up AI visibility' : 'Setup finished'}</h3>
-                <p className="m-0 mt-1 mb-4 text-muted">
-                    {jobRunning
-                        ? 'PostHog is reading your site and choosing prompts and keywords. This takes a few minutes, and you can leave this page.'
-                        : job.status === 'failed'
-                          ? job.error
-                          : 'Your prompts and keywords are saved. Review them on the Prompts and Keywords tabs.'}
-                </p>
-                <ContentAutopilotSetupProgress job={job} />
-                {job.status === 'failed' ? (
-                    <div className="mt-4 flex justify-end">
-                        <LemonButton type="secondary" onClick={dismissJob}>
-                            Back to setup
-                        </LemonButton>
-                    </div>
-                ) : null}
-            </LemonCard>
-        )
-    }
-
-    const consentMissing = setupContext ? !setupContext.ai_data_processing_approved : false
     const runDisabledReason =
         startDisabledReason ??
-        (setupContext && !setupContext.first_run_available ? "Checks aren't available for this project yet" : undefined)
+        (setupContext.first_run_available ? undefined : "Checks aren't available for this project yet")
 
     return (
         <LemonCard
@@ -93,19 +82,21 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                         value={domain}
                         onChange={setDomain}
                         placeholder="example.com"
-                        disabledReason={consentMissing ? 'Needs AI data processing approved' : undefined}
+                        disabledReason={consentMissing ? CONSENT_REASON : undefined}
                         data-attr="content-autopilot-setup-domain"
                     />
                 </LemonField.Pure>
 
                 <LemonField.Pure label="Engines to track" help="Each engine answers every prompt in each run.">
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {(setupContext?.engines ?? []).map((setting) => (
+                        {setupContext.engines.map((setting) => (
                             <LemonCheckbox
                                 key={setting.engine}
                                 checked={setting.available && selectedEngines.includes(setting.engine)}
                                 onChange={(checked) => toggleEngine(setting.engine, checked)}
-                                disabledReason={unavailableEngineReason(setting)}
+                                disabledReason={
+                                    unavailableEngineReason(setting) ?? (consentMissing ? CONSENT_REASON : undefined)
+                                }
                                 label={
                                     <span className="flex flex-col">
                                         <ContentAutopilotEngineLabel engine={setting.engine} />
@@ -122,10 +113,7 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                     </div>
                 </LemonField.Pure>
 
-                <ContentAutopilotSetupCostNote
-                    prompts={setupContext?.prompt_target ?? 0}
-                    engines={selectedEngines.length}
-                />
+                <ContentAutopilotSetupCostNote prompts={setupContext.prompt_target} engines={selectedEngines.length} />
             </div>
 
             {startError ? (
@@ -158,7 +146,10 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
             <div className="mt-6 border-t pt-4">
                 <p className="m-0 mb-2 text-xs text-secondary">Or choose your prompts yourself.</p>
                 <div className="flex flex-wrap gap-2">
-                    <ContentAutopilotPromptSuggestButton type="secondary" />
+                    <ContentAutopilotPromptSuggestButton
+                        type="secondary"
+                        disabledReason={consentMissing ? CONSENT_REASON : undefined}
+                    />
                     <LemonButton
                         type="secondary"
                         icon={<IconPlusSmall />}

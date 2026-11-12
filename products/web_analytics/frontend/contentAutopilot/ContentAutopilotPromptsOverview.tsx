@@ -20,6 +20,8 @@ import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromp
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
+import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
@@ -43,6 +45,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
+    const { job: setupJob, setupJobShown } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -56,6 +59,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 Couldn't load the overview. Try again, and if it keeps happening contact support.
             </LemonBanner>
         )
+    }
+    // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
+    if (setupJob && setupJobShown) {
+        return <ContentAutopilotSetupJobCard job={setupJob} />
     }
     if (!overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />

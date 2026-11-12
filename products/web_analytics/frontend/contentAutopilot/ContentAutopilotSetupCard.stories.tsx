@@ -23,6 +23,7 @@ const CONTEXT: AEOSetupContextApi = {
     ai_data_processing_approved: true,
     first_run_available: true,
     prompt_target: 20,
+    website_days: 7,
     engines: [
         { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
         { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
@@ -50,6 +51,35 @@ const RUNNING_JOB: AEOSetupJobApi = {
         { step: 'prompts', status: 'done', added: 20, detail: '' },
         { step: 'keywords', status: 'running', added: 0, detail: '' },
         { step: 'first_run', status: 'pending', added: 0, detail: '' },
+    ],
+}
+
+const FINISHED_JOB: AEOSetupJobApi = {
+    id: '00000000-0000-4000-8000-000000000a02',
+    status: 'completed',
+    error: '',
+    steps: [
+        { step: 'brand', status: 'done', added: 1, detail: '' },
+        { step: 'prompts', status: 'done', added: 20, detail: '' },
+        {
+            step: 'keywords',
+            status: 'failed',
+            added: 0,
+            detail: 'Keyword suggestions took too long. Try again with fewer keywords.',
+        },
+        { step: 'first_run', status: 'skipped', added: 0, detail: 'not_requested' },
+    ],
+}
+
+const FIRST_RUN_QUEUED_JOB: AEOSetupJobApi = {
+    id: '00000000-0000-4000-8000-000000000a03',
+    status: 'completed',
+    error: '',
+    steps: [
+        { step: 'brand', status: 'skipped', added: 0, detail: 'not_requested' },
+        { step: 'prompts', status: 'skipped', added: 0, detail: 'not_requested' },
+        { step: 'keywords', status: 'skipped', added: 0, detail: 'not_requested' },
+        { step: 'first_run', status: 'done', added: 0, detail: '' },
     ],
 }
 
@@ -103,17 +133,17 @@ AiDataProcessingNotApproved.parameters = {
     testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-consent-banner"]' },
 }
 
-const RunningSetup = (): JSX.Element => {
+const WithJob = ({ job, children }: { job: AEOSetupJobApi; children: JSX.Element }): JSX.Element => {
     const { setJob } = useActions(contentAutopilotSetupLogic)
-    useEffect(() => setJob(RUNNING_JOB), [setJob])
-    return (
-        <Frame>
-            <ContentAutopilotSetupCard />
-        </Frame>
-    )
+    useEffect(() => setJob(job), [job, setJob])
+    return <Frame>{children}</Frame>
 }
 
-export const SetupRunning: StoryFn = () => <RunningSetup />
+export const SetupRunning: StoryFn = () => (
+    <WithJob job={RUNNING_JOB}>
+        <ContentAutopilotSetupCard />
+    </WithJob>
+)
 SetupRunning.decorators = [mocks(CONTEXT)]
 SetupRunning.parameters = {
     testOptions: {
@@ -129,3 +159,35 @@ export const ConfiguredNoRunYet: StoryFn = () => (
 )
 ConfiguredNoRunYet.decorators = [mocks(CONFIGURED_CONTEXT)]
 ConfiguredNoRunYet.parameters = { testOptions: { waitForSelector: COUNTED } }
+
+export const SetupFinished: StoryFn = () => (
+    <WithJob job={FINISHED_JOB}>
+        <ContentAutopilotSetupCard />
+    </WithJob>
+)
+SetupFinished.decorators = [mocks(CONTEXT)]
+SetupFinished.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-dismiss"]' },
+}
+
+export const ContextLoadError: StoryFn = () => (
+    <Frame>
+        <ContentAutopilotSetupCard />
+    </Frame>
+)
+ContextLoadError.decorators = [
+    mswDecorator({
+        get: { '/api/projects/:team_id/aeo_setup/context/': () => [500, { detail: 'Server error' }] },
+    }),
+]
+ContextLoadError.parameters = { testOptions: { waitForSelector: '.LemonBanner' } }
+
+export const FirstChecksRunning: StoryFn = () => (
+    <WithJob job={FIRST_RUN_QUEUED_JOB}>
+        <ContentAutopilotFirstRunCard prompts={20} />
+    </WithJob>
+)
+FirstChecksRunning.decorators = [mocks(CONFIGURED_CONTEXT)]
+FirstChecksRunning.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-first-run-queued"]' },
+}

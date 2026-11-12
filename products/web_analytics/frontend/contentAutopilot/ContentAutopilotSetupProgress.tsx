@@ -13,8 +13,9 @@ const STEP_LABELS: Record<AEOSetupStepApi['step'], string> = {
 const SKIP_LABELS: Record<string, string> = {
     already_set: 'Already set up',
     already_run: 'Checks already ran',
-    not_requested: 'Runs with the daily schedule',
+    not_requested: 'Not requested',
     not_available: 'Not available for this project yet',
+    nothing_to_run: 'Needs your brand and active prompts first',
 }
 
 const stepNote = (step: AEOSetupStepApi): string => {

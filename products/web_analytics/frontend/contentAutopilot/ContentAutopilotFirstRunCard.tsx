@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetupCostNote } from './ContentAutopilotSetupCostNote'
@@ -13,53 +14,98 @@ const CHECKLIST = [
     { tab: 'settings', label: 'Choose engines', detail: 'Turn engines on or off and set how often they run.' },
 ] as const
 
+const SKIP_REASONS: Record<string, string> = {
+    not_available: "Checks aren't available for this project yet.",
+    nothing_to_run:
+        'Checks need your brand and at least one active prompt. Add them in settings and on the Prompts tab.',
+    already_run: 'Checks already ran for this project.',
+}
+
 /** The overview of a project that has prompts but no checks yet. */
 export const ContentAutopilotFirstRunCard = ({ prompts }: { prompts: number }): JSX.Element => {
-    const { setupContext, selectedEngines, startDisabledReason, starting, startError, firstRunQueued } =
-        useValues(contentAutopilotSetupLogic)
-    const { startSetup } = useActions(contentAutopilotSetupLogic)
+    const {
+        activeEngineCount,
+        firstRunDisabledReason,
+        starting,
+        startError,
+        jobRunning,
+        firstRunQueued,
+        firstRunStep,
+        pollError,
+    } = useValues(contentAutopilotSetupLogic)
+    const { startFirstRun, retryJob, dismissJob, watchFirstChecks } = useActions(contentAutopilotSetupLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const runDisabledReason =
-        startDisabledReason ??
-        (setupContext && !setupContext.first_run_available ? "Checks aren't available for this project yet" : undefined)
+
+    // After a reload the overview still has to notice when the queued checks land.
+    useEffect(() => {
+        if (firstRunQueued) {
+            watchFirstChecks()
+        }
+    }, [firstRunQueued, watchFirstChecks])
+
+    const skipReason =
+        firstRunStep?.status === 'skipped' && firstRunStep.detail ? SKIP_REASONS[firstRunStep.detail] : undefined
 
     return (
         <LemonCard hoverEffect={false} className="p-6" data-attr="content-autopilot-first-run">
             {firstRunQueued ? (
-                <>
+                <div data-attr="content-autopilot-first-run-queued">
                     <h3 className="m-0">The first checks are running</h3>
                     <p className="m-0 mt-1 text-muted">
-                        Each engine is answering your prompts. Results show up here as the checks finish, which takes a
-                        few minutes.
+                        Each engine is answering your prompts. This page updates as the checks finish, which takes a few
+                        minutes.
                     </p>
-                </>
+                </div>
+            ) : jobRunning ? (
+                <div className="flex items-center gap-2" data-attr="content-autopilot-first-run-starting">
+                    <Spinner />
+                    <h3 className="m-0">Queuing the first checks</h3>
+                </div>
             ) : (
                 <>
                     <h3 className="m-0">Your prompts are ready</h3>
                     <p className="m-0 mt-1 text-muted">
-                        The daily schedule runs the first checks. To see results sooner, run them now.
+                        Each engine runs the first checks on its schedule. To see results sooner, run them now.
                     </p>
                     <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
                         <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={selectedEngines.length} />
+                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
                         </div>
                         <LemonButton
                             type="primary"
-                            onClick={() => startSetup(true)}
+                            onClick={startFirstRun}
                             loading={starting}
-                            disabledReason={runDisabledReason}
+                            disabledReason={firstRunDisabledReason}
                             data-attr="content-autopilot-first-run-now"
                         >
                             Run checks now
                         </LemonButton>
                     </div>
-                    {startError ? (
-                        <LemonBanner type="error" className="mt-4">
-                            {startError}
-                        </LemonBanner>
-                    ) : null}
                 </>
             )}
+            {startError ? (
+                <LemonBanner type="error" className="mt-4">
+                    {startError}
+                </LemonBanner>
+            ) : firstRunStep?.status === 'failed' ? (
+                <LemonBanner type="error" className="mt-4" action={{ children: 'Try again', onClick: startFirstRun }}>
+                    {firstRunStep.detail || "The checks couldn't be queued. Try again."}
+                </LemonBanner>
+            ) : skipReason && !firstRunQueued ? (
+                <LemonBanner type="info" className="mt-4" onClose={dismissJob}>
+                    {skipReason}
+                </LemonBanner>
+            ) : null}
+            {pollError ? (
+                <LemonBanner
+                    type="error"
+                    className="mt-4"
+                    action={{ children: 'Try again', onClick: retryJob }}
+                    onClose={dismissJob}
+                >
+                    {pollError}
+                </LemonBanner>
+            ) : null}
             <ul className="m-0 mt-5 flex list-none flex-col gap-2 border-t p-0 pt-4">
                 {CHECKLIST.map((item) => (
                     <li key={item.tab}>

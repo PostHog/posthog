@@ -2,9 +2,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
-import { aeoSetupContext, aeoSetupCreate } from '../generated/api'
+import { aeoSetupContext, aeoSetupCreate, aeoSetupRetrieve } from '../generated/api'
 import type { AEOSetupContextApi } from '../generated/api.schemas'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
@@ -23,6 +25,7 @@ const CONTEXT: AEOSetupContextApi = {
     ai_data_processing_approved: true,
     first_run_available: true,
     prompt_target: 20,
+    website_days: 7,
     engines: [
         { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
         { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
@@ -61,5 +64,29 @@ describe('contentAutopilotSetupLogic', () => {
             engines: ['claude-web-search', 'exa-answer'],
             run_first_check: runFirstCheck,
         })
+    })
+
+    it('runs only the first checks without sending a site or engines', async () => {
+        await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
+
+        logic.actions.startFirstRun()
+
+        await expectLogic(logic).toDispatchActions(['setJob'])
+        expect(aeoSetupCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), { only_first_run: true })
+        expect(logic.values.jobRef?.onlyFirstRun).toBe(true)
+    })
+
+    it('follows the job already running when setup is refused with a conflict', async () => {
+        await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
+        jest.mocked(aeoSetupCreate).mockRejectedValue(
+            new ApiError('conflict', 409, undefined, { detail: 'Setup is already running.', job_id: 'running' })
+        )
+        jest.mocked(aeoSetupRetrieve).mockResolvedValue({ id: 'running', status: 'pending', steps: [], error: '' })
+
+        logic.actions.startSetup(false)
+
+        await expectLogic(logic).toDispatchActions(['followJob', 'setJob'])
+        expect(logic.values.jobRef?.id).toBe('running')
+        expect(logic.values.startError).toBeNull()
     })
 })
