@@ -17,6 +17,16 @@ CI runs typecheck, lint, and tests; see [CI.md](CI.md).
 For inbox pagination, check that an invalid next-page response keeps the loaded reports visible and shows the retry footer.
 Retry after the server returns a valid page and confirm that the remaining reports load.
 
+## Sign-in region menu
+
+On both an iOS simulator and an Android emulator:
+
+1. Open the data region menu and select European Union. The menu must close and the field must show European Union.
+2. Reopen the menu and switch back to United States. Repeat to check that the menu remains usable.
+3. Tap outside the menu. It must close without changing the region. On Android, Back must do the same.
+4. After dismissal, open the self-hosted form and return to PostHog Cloud. The selected cloud region must remain unchanged.
+5. Tap Try the demo and check that the app opens its configured default page.
+
 ## Authenticated local checks
 
 Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
