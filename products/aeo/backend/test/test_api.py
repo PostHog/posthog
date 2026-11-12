@@ -397,11 +397,11 @@ class TestAEOPromptAPI(APIBaseTest):
             # claude-web-search cites "cited?", but exa-answer never does.
             ("one_engine", {"engine": "exa-answer"}, ["cited long ago?", "cited?", "edited again?", "never cited?"]),
             # The window reaches the citation of 40 days ago.
-            ("longer_window", {"days": 60}, ["edited again?", "never cited?"]),
+            ("longer_window", {"days": "60"}, ["edited again?", "never cited?"]),
         ]
     )
     def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(
-        self, _name: str, query: dict[str, object], expected: list[str]
+        self, _name: str, query: dict[str, str], expected: list[str]
     ) -> None:
         texts = ["cited?", "never cited?", "only failed?", "cited long ago?", "never checked?"]
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
