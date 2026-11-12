@@ -277,9 +277,9 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
+            if self.variables or find_placeholders(self.select_query).has_variables:
                 self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
+                    node=self.select_query, variables=list((self.variables or {}).values()), team=self.team
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")

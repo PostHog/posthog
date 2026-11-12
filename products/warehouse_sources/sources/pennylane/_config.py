@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class PennylaneSourceConfig(config.Config):
-    pass
+    api_key: str

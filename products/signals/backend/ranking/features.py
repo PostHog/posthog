@@ -71,6 +71,11 @@ REPORT_SOURCES_COLUMNS = (
     SIGNAL_INSERTED_AT_COLUMN,
 )
 REPORT_LIVE_SOURCES_COLUMNS = ("report_id", "source_product")
+# The report facts the scoring sweep recorded when it first scored each report, under this key in
+# `extras`: the rows of the dataset dag's `inbox_report_scored_facts`, one per report, known from
+# `SCORED_AT_COLUMN`. A report scored before recording began has no row.
+REPORT_SCORED_FACTS_EXTRA = "report_scored_facts"
+SCORED_AT_COLUMN = "scored_at"
 # A fixed vocabulary, so a new source product does not change the feature names. A product outside
 # it sets `source_other`.
 SOURCE_PRODUCTS = (

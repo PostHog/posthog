@@ -7,7 +7,7 @@ const COLUMN_LABELS: Record<string, string> = {
     space: 'Collection',
     tags: 'Tags',
     owner: 'Owner',
-    last_viewed_at: 'Last viewed',
+    last_viewed_at: 'Last viewed by me',
     created_at: 'Created',
 }
 
