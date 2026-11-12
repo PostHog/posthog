@@ -341,6 +341,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         [
             ("report_notification_thread", True, False, None, False, "channel"),
             ("report_thread_in_direct_message", True, False, None, False, "im"),
+            ("report_thread_in_private_channel", True, False, None, False, "group"),
             ("report_implementation", True, True, None, False, "channel"),
             ("implementation_mapping_failure", True, True, "mapping", False, "channel"),
             ("implementation_registration_failure", True, True, "registration", False, "channel"),
@@ -472,7 +473,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert work_log.count() == int(from_report_thread)
         if from_report_thread and not implementation and failure_stage is None:
             action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
-            if channel_type == "im":
+            if channel_type != "channel":
                 assert action.metadata == {}
             else:
                 assert action.metadata["task_id"] == str(task.id)

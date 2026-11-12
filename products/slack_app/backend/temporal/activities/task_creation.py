@@ -613,7 +613,7 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
-    from products.slack_app.backend.models import CHANNEL_CONVERSATION_TYPES, SlackThreadTaskMapping
+    from products.slack_app.backend.models import PUBLIC_CHANNEL_CONVERSATION_TYPES, SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -925,14 +925,15 @@ def create_posthog_code_task_for_repo_activity(
         )
 
         if signal_report_id:
-            # The report's scout reads the question. Only a channel thread already shared it with the team.
-            shared_in_channel = not is_fork and conversation_type in CHANNEL_CONVERSATION_TYPES
+            # The report's scout reads the question, and what a scout reads can reach the whole project.
+            # Only a public channel thread was already open to everyone in the workspace.
+            shared_in_public_channel = not is_fork and conversation_type in PUBLIC_CHANNEL_CONVERSATION_TYPES
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,
                 task_id=str(created.task_id),
                 report_id=signal_report_id,
                 user_id=user_id,
-                question=title_text or None if shared_in_channel else None,
+                question=title_text or None if shared_in_public_channel else None,
             )
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {

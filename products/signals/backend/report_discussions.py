@@ -24,9 +24,9 @@ full steering gate, including the credential scopes this read cannot recover.
 
 A reply in a report's Slack thread starts a discussion too (`record_slack_report_discussion`), and
 no note carries its question. The tasks facade returns such a task only when its thread is in a
-Slack channel, never a direct message. Its summary is always null: other people in the thread can
-send the task turns, and the thread reaches its agent as context, so the creator is never its only
-author. Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` action row that
+public Slack channel, never a private channel or a direct message. Its summary is always null: other
+people in the thread can send the task turns, and the thread reaches its agent as context, so the
+creator is never its only author. Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` action row that
 the Slack flow wrote when it linked the task, never from the task description, which a `task:write`
 credential can rewrite. It is returned only when the creator passes `user_can_steer_scouts`. A Slack
 user is verified as a PostHog user, and has no credential scopes to check.

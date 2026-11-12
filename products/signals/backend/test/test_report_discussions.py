@@ -122,7 +122,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("public_channel", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, False, True),
-            ("private_channel", SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, False, True),
+            ("private_channel", SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, False, False),
             ("direct_message", SlackThreadTaskMapping.ConversationType.IM, False, False),
             ("group_direct_message", SlackThreadTaskMapping.ConversationType.MPIM, False, False),
             ("unclassified_thread", None, False, False),
@@ -130,7 +130,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
             ("creator_cannot_steer_scouts", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, True, True),
         ]
     )
-    def test_slack_discussion_is_returned_only_from_a_channel(
+    def test_slack_discussion_is_returned_only_from_a_public_channel(
         self, _name: str, conversation_type: str | None, outsider: bool, returned: bool
     ) -> None:
         creator = (

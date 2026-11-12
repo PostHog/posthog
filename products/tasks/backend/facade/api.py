@@ -2099,7 +2099,7 @@ def link_slack_task_to_report(
     """Link only a saved Slack task; a repeated activity must not add another discussion entry.
 
     `question` is the verified Slack user's own message, recorded for the report's scout. Pass it only
-    for a thread in a Slack channel.
+    for a thread in a public Slack channel.
     """
     from products.signals.backend.facade.api import record_slack_report_discussion
 
