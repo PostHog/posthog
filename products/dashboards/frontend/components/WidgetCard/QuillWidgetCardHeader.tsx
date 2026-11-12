@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { Heading, Spinner, Text } from '@posthog/quill'
+import { CardDescription, CardTitle, Spinner } from '@posthog/quill'
 
 import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -50,16 +50,12 @@ export function QuillWidgetCardHeader({
             menuItems={menuItems}
             content={
                 <>
-                    <Heading
-                        size="sm"
-                        render={
-                            <h4
-                                title={displayTitle}
-                                data-attr="widget-card-title"
-                                data-slot="widget-card-header-title"
-                                className={clsx(titleHref && 'inline-flex items-center overflow-visible')}
-                            />
-                        }
+                    <CardTitle
+                        role="heading"
+                        aria-level={4}
+                        title={displayTitle}
+                        data-attr="widget-card-title"
+                        className={clsx('flex min-h-7 min-w-0 items-center', titleHref && 'overflow-visible')}
                     >
                         {titleHref ? (
                             <LinkPrimitive to={titleHref} className="max-w-full truncate text-foreground">
@@ -68,11 +64,11 @@ export function QuillWidgetCardHeader({
                         ) : (
                             titleContent
                         )}
-                    </Heading>
+                    </CardTitle>
                     {showDescription !== false && !!description && (
-                        <Text size="xs" variant="muted" render={<div />}>
-                            <WidgetCardHeaderDescription description={description} compact />
-                        </Text>
+                        <CardDescription className="leading-4">
+                            <WidgetCardHeaderDescription description={description} />
+                        </CardDescription>
                     )}
                 </>
             }

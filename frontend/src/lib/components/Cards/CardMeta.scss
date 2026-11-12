@@ -22,17 +22,6 @@
     // Inside a quill Card the card paints the surface.
     &.CardMeta--quill {
         background: none;
-
-        // The Lemon h4 rule below is unlayered, so it would beat quill's text utilities.
-        h4 {
-            font-size: revert-layer;
-            font-weight: revert-layer;
-            line-height: revert-layer;
-        }
-
-        &.CardMeta--compact .CardMeta__controls {
-            background: var(--card);
-        }
     }
 
     h5 {

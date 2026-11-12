@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { IconClock, IconWarning } from '@posthog/icons'
-import { Badge, Heading, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Badge, CardDescription, CardTitle, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -55,14 +55,11 @@ export function QuillInsightMetaContent({
 
     return (
         <>
-            <Heading
-                size="sm"
-                render={
-                    <h4
-                        data-attr="insight-card-title"
-                        className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
-                    />
-                }
+            <CardTitle
+                role="heading"
+                aria-level={4}
+                data-attr="insight-card-title"
+                className={clsx('flex min-h-7 min-w-0 items-center', hasTitleIndicator && 'overflow-visible')}
             >
                 {link ? (
                     <LinkPrimitive to={link} className="max-w-full truncate text-foreground">
@@ -95,13 +92,13 @@ export function QuillInsightMetaContent({
                     </TitleIndicator>
                 )}
                 {infoPopover}
-            </Heading>
+            </CardTitle>
             {showDescription !== false && !!description && (
-                <Text size="xs" variant="muted" render={<div />}>
+                <CardDescription className="leading-4">
                     <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                         {description}
                     </LemonMarkdown>
-                </Text>
+                </CardDescription>
             )}
         </>
     )
