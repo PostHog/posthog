@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -792,6 +794,29 @@ class TestSignupAPI(APIBaseTest):
                 "detail": detail,
                 "attr": "password",
             }, [password, res.json()]
+
+    @override_settings(PWNED_PASSWORDS_CHECK_ENABLED=True)
+    def test_cant_sign_up_with_breached_password(self):
+        password = "vX9#qLm2$rTp-unique"
+        breached = requests.Response()
+        breached.status_code = 200
+        breached._content = f"{hashlib.sha1(password.encode()).hexdigest().upper()[5:]}:3".encode()
+        count = User.objects.count()
+
+        with patch("requests.request", return_value=breached):
+            res = self.client.post(
+                "/api/signup/",
+                {"first_name": "Jane", "email": "failed@posthog.com", "password": password},
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json() == {
+            "type": "validation_error",
+            "code": "password_compromised",
+            "detail": "This password appeared in a known data breach. Choose a different password.",
+            "attr": "password",
+        }
+        assert User.objects.count() == count
 
     def test_default_dashboard_is_created_on_signup(self):
         """

@@ -17,13 +17,18 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_variables
 
 import jwt
+import httpx
+import requests
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
+from pwned_passwords_django.api import PwnedPasswords
+from pwned_passwords_django.validators import PwnedPasswordsValidator
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
@@ -33,6 +38,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.egress.pwned_passwords import pwned_passwords_request
 from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
@@ -234,6 +240,34 @@ class ZxcvbnValidator:
                 f"{warning} {self.NEXT_STEP}",
                 code="password_too_weak",
             )
+
+
+class EgressPwnedPasswordsHTTPClient:
+    """The sync HTTP client that pwned-passwords-django calls, sent through the egress transport."""
+
+    def get(self, url: str, headers: dict[str, str], timeout: httpx.Timeout) -> requests.Response:
+        return pwned_passwords_request(url, source="password_validation", headers=headers, timeout=timeout.read)
+
+
+_pwned_passwords_api_client = PwnedPasswords(client=EgressPwnedPasswordsHTTPClient())
+
+
+class BreachedPasswordValidator(PwnedPasswordsValidator):
+    """
+    Reject a password that appears in a Have I Been Pwned data breach.
+    If the API fails, pwned-passwords-django checks only Django's common-password list.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            error_message="This password appeared in a known data breach. Choose a different password.",
+            api_client=_pwned_passwords_api_client,
+        )
+
+    @sensitive_variables()
+    def validate(self, password: str, user: Optional[User] = None) -> None:
+        if settings.PWNED_PASSWORDS_CHECK_ENABLED:
+            super().validate(password, user)
 
 
 class SessionAuthentication(

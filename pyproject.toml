@@ -226,6 +226,7 @@ dependencies = [
     "requests-oauthlib~=2.0.0",
     "adlfs~=2026.8.0",
     "sqlglot==30.25.0",
+    "pwned-passwords-django==5.2.0",
 ]
 
 [dependency-groups]

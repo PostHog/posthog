@@ -462,7 +462,13 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "posthog.auth.ZxcvbnValidator"},
+    {"NAME": "posthog.auth.BreachedPasswordValidator"},
 ]
+
+# The breached-password check calls api.pwnedpasswords.com, so an instance without outbound access turns it off.
+PWNED_PASSWORDS_CHECK_ENABLED = get_from_env("PWNED_PASSWORDS_CHECK_ENABLED", not TEST, type_cast=str_to_bool)
+# pwned-passwords-django reads this. A short timeout stops a slow API from holding up signup.
+PWNED_PASSWORDS = {"API_TIMEOUT": 1.0}
 
 if TEST:
     # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
