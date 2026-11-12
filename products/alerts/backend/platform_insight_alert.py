@@ -351,12 +351,24 @@ def moved_alert_settings(*, team_id: int, alert_ids: Collection[UUID]) -> dict[U
     )
     return {
         alert_id: MovedAlertSettings(
-            fields={**_row_settings(view), "enabled": view.enabled},
+            fields={**_copied_row_settings(view), "enabled": view.enabled},
             threshold=_threshold_of(view),
             schedule_start_time=view.anchor_time,
         )
         for alert_id, view in views.items()
     }
+
+
+def _copied_row_settings(view: PlatformAlertConfigurationView) -> dict[str, Any]:
+    """`_row_settings`, with the insight row settings a copy holds as stored. A copy made before it held
+    one keeps the row's, rather than a default."""
+    settings = _row_settings(view)
+    for key in INSIGHT_ROW_SETTINGS:
+        if key in view.source_config:
+            settings[key] = view.source_config[key]
+        else:
+            del settings[key]
+    return settings
 
 
 def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:

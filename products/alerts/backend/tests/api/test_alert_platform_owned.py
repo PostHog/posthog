@@ -73,6 +73,7 @@ from products.alerts_platform.backend.facade.api import (
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDelivery,
     DestinationType,
     InvalidPlatformAlertEdit,
@@ -540,6 +541,25 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert {key: row[key] for key in written} == written
         assert (row["threshold"]["configuration"], row["state"]) == (threshold, "Snoozed")
+
+    def test_a_moved_alert_keeps_its_rows_settings_that_an_older_copy_lacks(self) -> None:
+        row_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
+        AlertConfiguration.objects.filter(id=self.alert.id).update(config=row_config, skip_weekend=True)
+        with team_scope(self.team.id):
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    "insight_id": self.alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                    },
+                },
+            )
+
+        row = self._row("retrieve")
+
+        assert (row["config"], row["skip_weekend"]) == (row_config, True)
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)
