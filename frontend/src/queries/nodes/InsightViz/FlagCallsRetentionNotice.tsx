@@ -1,5 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
-import { Item, ItemContent, Text } from '@posthog/quill'
+import { Item, ItemContent, ItemMedia, Text } from '@posthog/quill'
 
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
@@ -30,6 +31,9 @@ export function FlagCallsRetentionNotice({
     if (quillSurface) {
         return (
             <Item variant="outline" size="sm" tone="info" className="m-2 w-auto">
+                <ItemMedia variant="icon" aria-hidden>
+                    <IconInfo />
+                </ItemMedia>
                 <ItemContent className="min-w-0">
                     <Text size="xs" render={<div />}>
                         {message}

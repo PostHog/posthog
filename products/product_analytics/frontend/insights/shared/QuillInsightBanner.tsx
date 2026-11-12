@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { Button, Item, ItemActions, ItemContent, Text } from '@posthog/quill'
+import { IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { Button, Item, ItemActions, ItemContent, ItemMedia, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -24,6 +24,9 @@ export function QuillInsightBanner({
 }: QuillInsightBannerProps): JSX.Element {
     return (
         <Item variant="outline" size="sm" tone={tone} className={className} data-attr={dataAttr}>
+            <ItemMedia variant="icon" aria-hidden>
+                {tone === 'warning' ? <IconWarning /> : <IconInfo />}
+            </ItemMedia>
             <ItemContent className="min-w-0">
                 <Text size="xs" render={<div />}>
                     {children}
