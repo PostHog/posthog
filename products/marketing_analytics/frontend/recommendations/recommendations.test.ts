@@ -2,12 +2,15 @@ import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-genera
 
 import {
     RecommendationsLoadStatus,
+    ResolutionOverrides,
     groupRecommendations,
-    recommendationKey,
+    reconcileResolutionOverrides,
     recommendationsShownState,
     unresolved,
     withResolutionOverrides,
 } from './recommendations'
+
+const DISMISSED = { id: 'r1', resolution: 'dismissed' as const, resolved_at: '2026-11-01T00:00:00Z' }
 
 function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): MarketingAnalyticsRecommendation {
     return {
@@ -21,6 +24,7 @@ function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): M
             campaign_id: '',
             subject: 'term',
         },
+        key: 'key-term',
         action: 'Add it as a negative',
         reason: 'No conversions',
         impact: 100,
@@ -33,44 +37,96 @@ function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): M
 
 describe('recommendations', () => {
     describe('groupRecommendations', () => {
-        it('puts groups that only say keep last and sums impact per currency', () => {
-            const groups = groupRecommendations([
-                recommendation({ rule: 'brand_overlap', impactDirection: 'keep', impact: 5000 }),
-                recommendation({ subject: 'a', impact: 100, currency: 'USD' }),
-                recommendation({ subject: 'b', impact: 50, currency: 'USD' }),
-                recommendation({ subject: 'c', impact: 90000, currency: 'EUR' }),
-            ])
+        const rows = [
+            recommendation({ rule: 'brand_overlap', key: 'keep', impactDirection: 'keep' }),
+            recommendation({ key: 'a' }),
+            recommendation({ key: 'b', resolution: DISMISSED }),
+            recommendation({ rule: 'keyword_gap', key: 'c', resolution: DISMISSED }),
+        ]
 
-            expect(groups.map((group) => [group.rule, group.totals])).toEqual([
-                [
-                    'spend_without_conversions',
-                    [
-                        { direction: 'save', currency: 'USD', amount: 150 },
-                        { direction: 'save', currency: 'EUR', amount: 90000 },
-                    ],
+        it.each([
+            {
+                name: 'puts groups that only say keep last and leaves out fully resolved rules',
+                showResolved: false,
+                keepRule: null,
+                expected: [
+                    ['spend_without_conversions', ['a'], 1],
+                    ['brand_overlap', ['keep'], 1],
                 ],
-                ['brand_overlap', [{ direction: 'keep', currency: 'USD', amount: 5000 }]],
-            ])
+            },
+            {
+                name: 'keeps the open rule with no rows once all of it is resolved',
+                showResolved: false,
+                keepRule: 'keyword_gap' as const,
+                expected: [
+                    ['spend_without_conversions', ['a'], 1],
+                    ['keyword_gap', [], 0],
+                    ['brand_overlap', ['keep'], 1],
+                ],
+            },
+            {
+                name: 'lists resolved rows while they are on show',
+                showResolved: true,
+                keepRule: null,
+                expected: [
+                    ['spend_without_conversions', ['a', 'b'], 1],
+                    ['keyword_gap', ['c'], 0],
+                    ['brand_overlap', ['keep'], 1],
+                ],
+            },
+        ])('$name', ({ showResolved, keepRule, expected }) => {
+            expect(
+                groupRecommendations(rows, showResolved, keepRule).map((group) => [
+                    group.rule,
+                    group.recommendations.map((row) => row.key),
+                    group.activeCount,
+                ])
+            ).toEqual(expected)
         })
     })
 
     describe('withResolutionOverrides', () => {
-        it('applies resolutions made in this session to the matching identity only', () => {
-            const identity = recommendation({}).identity
-            const dismissed = { id: 'r1', state: 'dismissed' as const, resolvedAt: '2026-11-01T00:00:00Z' }
+        it('applies resolutions made in this session to the matching key only', () => {
             const rows = [
-                recommendation({ identity: { ...identity, customer_id: '111' } }),
-                recommendation({ identity: { ...identity, customer_id: '222' }, resolution: dismissed }),
-                recommendation({ identity: { ...identity, customer_id: '333' }, resolution: dismissed }),
+                recommendation({ key: '111' }),
+                recommendation({ key: '222', resolution: DISMISSED }),
+                recommendation({ key: '333', resolution: DISMISSED }),
             ]
 
             const shown = withResolutionOverrides(rows, {
-                [recommendationKey(rows[0])]: { ...dismissed, state: 'applied' },
-                [recommendationKey(rows[1])]: null,
+                '111': { ...DISMISSED, resolution: 'applied' },
+                '222': null,
             })
 
-            expect(unresolved(shown).map((row) => row.identity.customer_id)).toEqual(['222'])
-            expect(shown[0].resolution?.state).toBe('applied')
+            expect(unresolved(shown).map((row) => row.key)).toEqual(['222'])
+            expect(shown[0].resolution?.resolution).toBe('applied')
+        })
+    })
+
+    describe('reconcileResolutionOverrides', () => {
+        const applied = { ...DISMISSED, resolution: 'applied' as const }
+
+        it.each([
+            ['keeps a dismissal an in-flight response does not have yet', DISMISSED, [recommendation({})], true],
+            ['keeps a dismissal over an older resolution', DISMISSED, [recommendation({ resolution: applied })], true],
+            [
+                'keeps a restore an in-flight response does not have yet',
+                null,
+                [recommendation({ resolution: DISMISSED })],
+                true,
+            ],
+            [
+                'drops a dismissal the response agrees with',
+                DISMISSED,
+                [recommendation({ resolution: DISMISSED })],
+                false,
+            ],
+            ['drops a restore the response agrees with', null, [recommendation({ resolution: null })], false],
+            ['drops an override the response has no recommendation for', DISMISSED, [], false],
+        ])('%s', (_, override, fromResponse, kept) => {
+            const overrides: ResolutionOverrides = { 'key-term': override }
+
+            expect(reconcileResolutionOverrides(overrides, fromResponse)).toEqual(kept ? overrides : {})
         })
     })
 

@@ -16,7 +16,7 @@ import {
 import { urls } from 'scenes/urls'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
@@ -31,12 +31,8 @@ import {
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
-    RecommendationDataGap,
     RecommendationGroup,
-    RecommendationSection,
     RecommendationTotal,
-    sumImpact,
-    unresolved,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationSteps } from './RecommendationSteps'
@@ -78,10 +74,6 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
     )
 }
 
-function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
-    return `${row.rule}-${row.subject}-${row.campaign ?? ''}-${index}`
-}
-
 function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -101,13 +93,13 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
         <LemonTable<MarketingAnalyticsRecommendation>
             size="small"
             dataSource={rows}
-            rowKey={rowKey}
+            rowKey={(row) => row.key}
             // Dims the content but not the last cell, so Restore still reads as a live button.
-            rowClassName={(row) => (row.resolution ? '[&>td:not(:last-child)]:opacity-50' : null)}
+            rowClassName={(row) => (row.resolution ? '[&>td:not(:last-child)]:text-tertiary' : null)}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
-                isRowExpanded: (row, index) => expanded.has(rowKey(row, index)),
+                isRowExpanded: (row) => expanded.has(row.key),
                 showRowExpansionToggle: false,
             }}
             columns={[
@@ -125,8 +117,8 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                 {
                     title: 'Recommendation',
                     key: 'action',
-                    render: (_, row, index) => {
-                        const key = rowKey(row, index)
+                    render: (_, row) => {
+                        const key = row.key
                         return (
                             <div className="flex flex-col items-start gap-0.5 py-1">
                                 <span>{row.action}</span>
@@ -180,34 +172,22 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
     )
 }
 
-export function RecommendationsModal({
-    isOpen,
-    onClose,
-    total,
-    totals,
-    resolvedCount,
-    sections,
-    selectedGroup,
-    onSelect,
-    dataNodeProps,
-    dataGaps,
-    disclaimer,
-}: {
-    isOpen: boolean
-    onClose: () => void
-    total: number
-    totals: RecommendationTotal[]
-    resolvedCount: number
-    sections: RecommendationSection[]
-    selectedGroup: RecommendationGroup | undefined
-    onSelect: (group: RecommendationGroup) => void
-    dataNodeProps: DataNodeLogicProps
-    dataGaps: RecommendationDataGap[]
-    disclaimer: string | undefined
-}): JSX.Element {
-    const { showResolved } = useValues(recommendationsLogic)
-    const selectedRows = unresolved(selectedGroup?.recommendations ?? [])
-    const { reportRecommendationsActionClicked, setShowResolved } = useActions(recommendationsLogic)
+export function RecommendationsModal(): JSX.Element {
+    const {
+        showResolved,
+        selectedRule,
+        activeRecommendations,
+        totals,
+        resolvedCount,
+        sections,
+        selectedGroup,
+        selectedGroupTotals,
+        dataNodeProps,
+        dataGaps,
+        disclaimer,
+    } = useValues(recommendationsLogic)
+    const { reportRecommendationsActionClicked, setShowResolved, selectRule, closeRecommendations } =
+        useActions(recommendationsLogic)
     const toggleResolved = (): void => {
         if (!showResolved) {
             reportRecommendationsActionClicked('show_resolved', 'modal')
@@ -217,7 +197,7 @@ export function RecommendationsModal({
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
     const selectGroup = (group: RecommendationGroup): void => {
-        onSelect(group)
+        selectRule(group.rule, group.activeCount)
         // In a narrow modal the rule list sits above the table, so the table has to come into view.
         if ((detailRef.current?.offsetTop ?? 0) > (navRef.current?.offsetTop ?? 0) + 8) {
             requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
@@ -225,8 +205,8 @@ export function RecommendationsModal({
     }
     return (
         <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
+            isOpen={selectedRule !== null}
+            onClose={closeRecommendations}
             width={1120}
             title={
                 <div className="flex flex-wrap items-center justify-between gap-2 pr-8">
@@ -253,7 +233,7 @@ export function RecommendationsModal({
             }
             description={
                 <span className="flex flex-wrap items-center gap-2">
-                    <span>{`${total} for the selected sources and dates`}</span>
+                    <span>{`${activeRecommendations.length} for the selected sources and dates`}</span>
                     <ImpactTotals totals={totals} />
                     {resolvedCount > 0 && (
                         <LemonButton
@@ -293,8 +273,9 @@ export function RecommendationsModal({
                                         onClick={() => selectGroup(group)}
                                         sideIcon={
                                             <LemonBadge.Number
-                                                count={unresolved(group.recommendations).length}
+                                                count={group.activeCount}
                                                 maxDigits={2}
+                                                showZero
                                                 status={group.rule === selectedGroup?.rule ? 'primary' : 'muted'}
                                             />
                                         }
@@ -313,14 +294,14 @@ export function RecommendationsModal({
                                     <h3 className="mb-0">
                                         {RECOMMENDATION_RULE_LABELS[selectedGroup.rule]}
                                         <span className="ml-2 text-sm font-normal text-secondary">
-                                            {subjectCount(selectedGroup, selectedRows.length)}
+                                            {subjectCount(selectedGroup, selectedGroup.activeCount)}
                                         </span>
                                     </h3>
                                     <p className="mb-0 text-secondary">
                                         {RECOMMENDATION_RULE_DESCRIPTIONS[selectedGroup.rule]}
                                     </p>
                                 </div>
-                                <ImpactTotals totals={sumImpact(selectedRows)} />
+                                <ImpactTotals totals={selectedGroupTotals} />
                             </div>
                             {dataGaps
                                 .filter((gap) => gap.rules.includes(selectedGroup.rule))
@@ -346,7 +327,14 @@ export function RecommendationsModal({
                                         </div>
                                     </LemonBanner>
                                 ))}
-                            <RecommendationRows rows={selectedGroup.recommendations} />
+                            {selectedGroup.recommendations.length > 0 ? (
+                                <RecommendationRows rows={selectedGroup.recommendations} />
+                            ) : (
+                                <p className="mb-0 text-secondary">
+                                    Every recommendation in this rule is dismissed or applied. Review them to restore
+                                    one.
+                                </p>
+                            )}
                         </section>
                     ) : (
                         <p className="mb-0 text-secondary">

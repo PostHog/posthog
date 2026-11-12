@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -7,10 +8,11 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { recommendationKey } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 
 const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
+const DISMISSED = { id: 'resolution-1', resolution: 'dismissed' as const, resolved_at: '2026-11-01T00:00:00Z' }
 
 const RECOMMENDATION: MarketingAnalyticsRecommendation = {
     rule: 'spend_without_conversions',
@@ -24,6 +26,7 @@ const RECOMMENDATION: MarketingAnalyticsRecommendation = {
         campaign_id: '',
         subject: 'example shoes',
     },
+    key: 'key-example-shoes',
     action: 'Add it as a negative keyword',
     reason: 'No conversions',
     impact: 100,
@@ -36,11 +39,20 @@ describe('recommendationsLogic', () => {
     let logic: ReturnType<typeof recommendationsLogic.build>
 
     beforeEach(() => {
-        useMocks({ get: { '/api/environments/:team_id/external_data_sources/': { results: [] } } })
+        useMocks({
+            get: { '/api/environments/:team_id/external_data_sources/': { results: [] } },
+            post: { [QUERY_URL]: { results: [RECOMMENDATION], disclaimer: '' } },
+        })
         initKeaTests()
         logic = recommendationsLogic()
         logic.mount()
+        // The section hands its query to the node the same way.
+        dataNodeLogic(logic.values.dataNodeProps)
     })
+
+    const respond = (results: MarketingAnalyticsRecommendation[]): void => {
+        dataNodeLogic(logic.values.dataNodeProps).actions.loadDataSuccess({ results, disclaimer: '' })
+    }
 
     it.each([
         {
@@ -71,19 +83,29 @@ describe('recommendationsLogic', () => {
     })
 
     it.each(['dismissed', 'applied'] as const)(
-        'hides a recommendation marked %s, restores it, and reports both',
+        'hides a recommendation marked %s, reloads, and undoes it from the toast',
         async (resolution) => {
             let posted: Record<string, unknown> | undefined
             useMocks({
                 post: {
                     [RESOLUTIONS_URL]: async ({ request }) => {
                         posted = (await request.json()) as Record<string, unknown>
-                        return [201, { id: 'resolution-1', ...posted, resolved_at: '2026-11-01T00:00:00Z' }]
+                        return [
+                            201,
+                            {
+                                id: 'resolution-1',
+                                ...posted,
+                                key: RECOMMENDATION.key,
+                                resolved_by: null,
+                                resolved_at: '2026-11-01T00:00:00Z',
+                                created_at: '2026-11-01T00:00:00Z',
+                            },
+                        ]
                     },
                 },
                 delete: { [`${RESOLUTIONS_URL}:id/`]: [204] },
             })
-            const key = recommendationKey(RECOMMENDATION)
+            const toast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(marketingAnalyticsLogic, () =>
                 logic.actions.resolveRecommendation(RECOMMENDATION, resolution)
@@ -94,34 +116,63 @@ describe('recommendationsLogic', () => {
                     resolution
                 ),
             ])
-            expect(posted).toEqual({
-                ...RECOMMENDATION.identity,
-                resolution,
-                snapshot: { action: 'Add it as a negative keyword', impact: 100, currency: 'USD' },
-            })
-            expect(logic.values.resolutionOverrides[key]?.state).toBe(resolution)
+            await expectLogic(logic).toDispatchActions(['loadData'])
+            expect(posted).toEqual({ identity: RECOMMENDATION.identity, resolution })
+            expect(logic.values.resolutionOverrides[RECOMMENDATION.key]?.resolution).toBe(resolution)
             expect(logic.values.pendingKeys).toEqual([])
 
             await expectLogic(marketingAnalyticsLogic, () =>
-                logic.actions.restoreRecommendation({
-                    ...RECOMMENDATION,
-                    resolution: logic.values.resolutionOverrides[key],
-                })
+                toast.mock.calls[0][1]?.button?.action()
             ).toDispatchActions([
+                marketingAnalyticsLogic.actionCreators.reportRecommendationsActionClicked(
+                    'undo',
+                    'toast',
+                    'spend_without_conversions'
+                ),
                 marketingAnalyticsLogic.actionCreators.reportRecommendationRestored(
                     'spend_without_conversions',
                     'search_term',
                     resolution
                 ),
             ])
-            expect(logic.values.resolutionOverrides[key]).toBeNull()
+            expect(logic.values.resolutionOverrides[RECOMMENDATION.key]).toBeNull()
             expect(logic.values.pendingKeys).toEqual([])
-
-            await expectLogic(logic, () =>
-                dataNodeLogic(logic.values.dataNodeProps).actions.loadDataSuccess({ results: [], disclaimer: '' })
-            ).toMatchValues({ resolutionOverrides: {} })
         }
     )
+
+    it('keeps a dismissal hidden when a response that started before it arrives', async () => {
+        await expectLogic(logic)
+            .toDispatchActions(['loadDataSuccess'])
+            .toMatchValues({ activeRecommendations: [RECOMMENDATION] })
+        respond([RECOMMENDATION])
+        logic.actions.resolutionSaved(RECOMMENDATION.key, DISMISSED)
+
+        await expectLogic(logic, () => respond([RECOMMENDATION])).toMatchValues({ activeRecommendations: [] })
+        expect(logic.values.resolutionOverrides).toEqual({ [RECOMMENDATION.key]: DISMISSED })
+
+        await expectLogic(logic, () => respond([{ ...RECOMMENDATION, resolution: DISMISSED }])).toMatchValues({
+            activeRecommendations: [],
+            resolutionOverrides: {},
+        })
+    })
+
+    it('keeps the open rule in view, with no rows, after its last recommendation is resolved', async () => {
+        const other = { ...RECOMMENDATION, rule: 'keyword_gap' as const, key: 'key-other' }
+        respond([RECOMMENDATION, other])
+        logic.actions.openRecommendations('spend_without_conversions', 'button', 2)
+        logic.actions.resolutionSaved(RECOMMENDATION.key, DISMISSED)
+
+        expect(logic.values.selectedGroup).toMatchObject({
+            rule: 'spend_without_conversions',
+            recommendations: [],
+            activeCount: 0,
+        })
+
+        await expectLogic(marketingAnalyticsLogic, () => logic.actions.selectRule('keyword_gap', 1)).toDispatchActions([
+            marketingAnalyticsLogic.actionCreators.reportRecommendationsRuleSelected('keyword_gap', 1),
+        ])
+        expect(logic.values.groups.map((group) => group.rule)).toEqual(['keyword_gap'])
+    })
 
     it('clears the pending state and reports nothing when resolving fails', async () => {
         useMocks({ post: { [RESOLUTIONS_URL]: () => [500, { detail: 'nope' }] } })
@@ -135,15 +186,12 @@ describe('recommendationsLogic', () => {
 
     it('drops the local resolution when someone else already restored it', async () => {
         useMocks({ delete: { [`${RESOLUTIONS_URL}:id/`]: () => [404, { detail: 'Not found.' }] } })
-        const resolved = {
-            ...RECOMMENDATION,
-            resolution: { id: 'resolution-1', state: 'dismissed' as const, resolvedAt: '2026-11-01T00:00:00Z' },
-        }
+        const resolved = { ...RECOMMENDATION, resolution: DISMISSED }
 
         await expectLogic(logic, () => logic.actions.restoreRecommendation(resolved))
             .toDispatchActions(['resolutionRemoved'])
             .toNotHaveDispatchedActions(['resolutionRequestFailed'])
-        expect(logic.values.resolutionOverrides[recommendationKey(RECOMMENDATION)]).toBeNull()
+        expect(logic.values.resolutionOverrides[RECOMMENDATION.key]).toBeNull()
         expect(logic.values.pendingKeys).toEqual([])
     })
 })

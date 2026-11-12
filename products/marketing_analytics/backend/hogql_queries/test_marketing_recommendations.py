@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import MarketingAnalyticsRecommendationResolution
+
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
@@ -13,11 +15,12 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
+    apply_resolutions,
     brands_from_site_urls,
-    dedupe_site_rules,
-    identity_key,
+    dedupe_account_agnostic_rules,
     recommend,
 )
+from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
 
 
 def _campaign(**overrides: object) -> CampaignStats:
@@ -268,31 +271,83 @@ class TestMarketingRecommendations(SimpleTestCase):
     ) -> None:
         rule = expected[0]
         before, after = (
-            [
-                (rec.identity.rule, rec.identity.customer_id, rec.identity.campaign_id, rec.identity.subject)
-                for rec in recommend(_inputs(campaigns, terms))
-                if rec.rule == rule
-            ]
+            [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == rule]
             for campaigns, terms in ((campaigns_before, terms_before), (campaigns_after, terms_after))
         )
 
-        assert before == after == [expected]
+        identity = [
+            (rec.identity.rule, rec.identity.customer_id, rec.identity.campaign_id, rec.identity.subject)
+            for rec in before
+        ]
+        assert identity == [expected]
+        assert [rec.key for rec in before] == [rec.key for rec in after]
+        for rec in before:
+            validate_identity(rec.identity)
 
-    def test_resolved_recommendations_free_their_slot_under_the_per_rule_limit(self) -> None:
+    def test_per_rule_limit_shows_the_top_unresolved_recommendations(self) -> None:
         terms = (
             *(_term(f"waste term {i:02d}", "c1", cost=500 + i, conversions=0) for i in range(12)),
             _term("product analytics", "c1", cost=500, conversions=100),
         )
-        first = [rec for rec in recommend(_inputs((_campaign(),), terms)) if rec.rule == "spend_without_conversions"]
+        candidates = recommend(_inputs((_campaign(),), terms))
+
+        def wasted(
+            resolutions: dict[str, MarketingAnalyticsRecommendationResolution], include_resolved: bool
+        ) -> list[tuple[str, str | None]]:
+            return [
+                (rec.subject, rec.resolution.resolution if rec.resolution else None)
+                for rec in apply_resolutions(candidates, resolutions, include_resolved=include_resolved)
+                if rec.rule == "spend_without_conversions"
+            ]
+
+        first = wasted({}, include_resolved=False)
         assert len(first) == 10
+        dismissed = {
+            rec.key: MarketingAnalyticsRecommendationResolution(
+                id=str(i), resolution="dismissed", resolved_at="2026-01-01T00:00:00+00:00"
+            )
+            for i, rec in enumerate(candidates)
+            if (rec.subject, None) in first
+        }
 
-        recs = recommend(
-            replace(_inputs((_campaign(),), terms), resolved=frozenset(identity_key(rec.identity) for rec in first))
+        assert wasted(dismissed, include_resolved=False) == [("waste term 01", None), ("waste term 00", None)]
+        annotated = wasted(dismissed, include_resolved=True)
+        assert annotated[:2] == [("waste term 01", None), ("waste term 00", None)]
+        assert sorted(annotated[2:]) == sorted((subject, "dismissed") for subject, _ in first)
+
+        organic = tuple(
+            OrganicQueryStats(query=f"{word} analysis", clicks=20, impressions=2000, position=12.0)
+            for word in (
+                *("funnel", "cohort", "retention", "trend", "path", "lifecycle"),
+                *("stickiness", "survey", "experiment", "heatmap", "replay", "warehouse"),
+            )
         )
-
-        wasted = [rec.subject for rec in recs if rec.rule == "spend_without_conversions"]
-        assert wasted[:2] == ["waste term 01", "waste term 00"]
-        assert sorted(wasted[2:]) == sorted(rec.subject for rec in first)
+        cheap_account = recommend(
+            _inputs(
+                (_campaign(),),
+                tuple(_term(query.query, "c1", cost=100, conversions=5) for query in organic[:6]),
+                organic,
+            )
+        )
+        costly_account = recommend(
+            replace(
+                _inputs(
+                    (_campaign(),),
+                    tuple(_term(query.query, "c1", cost=900, conversions=5) for query in organic[6:]),
+                    organic,
+                ),
+                customer_id="9876543210",
+            )
+        )
+        striking = [
+            rec.subject
+            for rec in apply_resolutions(
+                dedupe_account_agnostic_rules(cheap_account + costly_account), {}, include_resolved=False
+            )
+            if rec.rule == "striking_distance"
+        ]
+        assert len(striking) == 10
+        assert {query.query for query in organic[6:]} <= set(striking)
 
     @parameterized.expand(
         [
@@ -414,7 +469,9 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert {rec.rule for rec in organic_recs if rec.subject == "funnel analysis"} == expected
         assert all(rec.identity.customer_id == rec.identity.campaign_id == "" for rec in organic_recs)
         other_account = recommend(replace(_inputs((_campaign(),), terms, organic), customer_id="9876543210"))
-        merged = [rec.rule for rec in dedupe_site_rules(recs + other_account) if rec.subject == "funnel analysis"]
+        merged = [
+            rec.rule for rec in dedupe_account_agnostic_rules(recs + other_account) if rec.subject == "funnel analysis"
+        ]
         assert sorted(merged) == sorted(expected)
 
     @parameterized.expand(

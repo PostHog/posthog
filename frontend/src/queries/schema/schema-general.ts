@@ -8930,9 +8930,12 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
-export type MarketingAnalyticsRecommendationIdentitySourceType = 'google_ads'
+// A const array, not a single-value union, so the Python schema gets a StrEnum the model choices can derive from.
+export const MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES = ['google_ads'] as const
+export type MarketingAnalyticsRecommendationIdentitySourceType =
+    (typeof MARKETING_ANALYTICS_RECOMMENDATION_SOURCE_TYPES)[number]
 
-/** What a dismissal or an applied mark keys on. The field names match the recommendation resolutions API, so a client sends this object as is. */
+/** What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API. */
 export interface MarketingAnalyticsRecommendationIdentity {
     rule: MarketingAnalyticsRecommendationRule
     /** The ad platform the ids belong to. */
@@ -8950,9 +8953,9 @@ export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'app
 export interface MarketingAnalyticsRecommendationResolution {
     /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
     id: string
-    state: MarketingAnalyticsRecommendationResolutionState
-    /** When someone last dismissed the recommendation or marked it as applied. */
-    resolvedAt: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
 }
 
 /**
@@ -9003,6 +9006,8 @@ export interface MarketingAnalyticsRecommendation {
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
     identity: MarketingAnalyticsRecommendationIdentity
+    /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
+    key: string
     /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
     resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string

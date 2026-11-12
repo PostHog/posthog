@@ -361,6 +361,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
                               |Release
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
@@ -879,6 +880,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
                         |Release
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState

@@ -115,8 +115,9 @@ export interface RecommendationTotal {
 export interface RecommendationGroup {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendation['level']
+    // The rows the table shows: the unresolved ones, plus the resolved ones while they are on show.
     recommendations: MarketingAnalyticsRecommendation[]
-    totals: RecommendationTotal[]
+    activeCount: number
 }
 
 // Accounts can use different currencies, so amounts only add up within one currency.
@@ -137,11 +138,6 @@ export function sumImpact(recommendations: MarketingAnalyticsRecommendation[]): 
     )
 }
 
-export function recommendationKey(recommendation: MarketingAnalyticsRecommendation): string {
-    const { rule, source_type, customer_id, campaign_id, subject } = recommendation.identity
-    return JSON.stringify([rule, source_type, customer_id, campaign_id, subject])
-}
-
 // Resolutions made in this session, by recommendation key. Null means restored.
 export type ResolutionOverrides = Record<string, MarketingAnalyticsRecommendationResolution | null>
 
@@ -150,10 +146,32 @@ export function withResolutionOverrides(
     recommendations: MarketingAnalyticsRecommendation[],
     overrides: ResolutionOverrides
 ): MarketingAnalyticsRecommendation[] {
-    return recommendations.map((recommendation) => {
-        const key = recommendationKey(recommendation)
-        return key in overrides ? { ...recommendation, resolution: overrides[key] } : recommendation
-    })
+    return recommendations.map((recommendation) =>
+        recommendation.key in overrides
+            ? { ...recommendation, resolution: overrides[recommendation.key] }
+            : recommendation
+    )
+}
+
+function sameResolution(
+    a: MarketingAnalyticsRecommendationResolution | null | undefined,
+    b: MarketingAnalyticsRecommendationResolution | null | undefined
+): boolean {
+    return !a || !b ? !a === !b : a.id === b.id && a.resolution === b.resolution
+}
+
+// A query that started before a resolution can finish after it, so an override stays until a response agrees with it.
+export function reconcileResolutionOverrides(
+    overrides: ResolutionOverrides,
+    recommendations: MarketingAnalyticsRecommendation[]
+): ResolutionOverrides {
+    const byKey = new Map(recommendations.map((recommendation) => [recommendation.key, recommendation]))
+    return Object.fromEntries(
+        Object.entries(overrides).filter(([key, override]) => {
+            const recommendation = byKey.get(key)
+            return !!recommendation && !sameResolution(recommendation.resolution, override)
+        })
+    )
 }
 
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
@@ -186,21 +204,32 @@ export function recommendationsShownState(status: RecommendationsLoadStatus): Re
     return status.responseError ? 'error' : 'empty'
 }
 
-export function groupRecommendations(recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] {
+export function groupRecommendations(
+    recommendations: MarketingAnalyticsRecommendation[],
+    showResolved: boolean,
+    // Kept in the list with no rows, so resolving the last row of the open rule does not switch to another rule.
+    keepRule: MarketingAnalyticsRecommendationRule | null
+): RecommendationGroup[] {
     const byRule = new Map<MarketingAnalyticsRecommendationRule, MarketingAnalyticsRecommendation[]>()
     for (const recommendation of recommendations) {
         byRule.set(recommendation.rule, [...(byRule.get(recommendation.rule) ?? []), recommendation])
     }
-    const groups = [...byRule.entries()].map(([rule, rows]) => ({
-        rule,
-        level: rows[0].level,
-        recommendations: rows,
-        totals: sumImpact(rows),
-    }))
+    const groups = [...byRule.entries()].map(([rule, rows]) => {
+        const active = unresolved(rows)
+        return {
+            group: {
+                rule,
+                level: rows[0].level,
+                recommendations: showResolved ? rows : active,
+                activeCount: active.length,
+            },
+            needsAction: rows.some((row) => row.impactDirection !== 'keep'),
+        }
+    })
     // The backend already orders rules by impact. Groups that only say "keep" need no action, so they go last.
-    const needsAction = (group: RecommendationGroup): boolean =>
-        group.recommendations.some((row) => row.impactDirection !== 'keep')
-    return [...groups.filter(needsAction), ...groups.filter((group) => !needsAction(group))]
+    return [...groups.filter((g) => g.needsAction), ...groups.filter((g) => !g.needsAction)]
+        .map(({ group }) => group)
+        .filter((group) => group.recommendations.length > 0 || group.rule === keepRule)
 }
 
 function syncedTable(source: ExternalDataSource, name: string): string | undefined {

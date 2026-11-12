@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
@@ -6,17 +6,8 @@ import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { MarketingAnalyticsRecommendationsQueryResponse } from '~/queries/schema/schema-general'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
-import {
-    groupRecommendations,
-    recommendationsShownState,
-    sectionRecommendations,
-    sumImpact,
-    unresolved,
-    withResolutionOverrides,
-} from './recommendations'
 import { RecommendationsIdle } from './RecommendationsIdle'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
@@ -28,43 +19,24 @@ export function RecommendationsSection(): JSX.Element {
         dataWarehouseSources,
         sources,
         dataGaps,
-        selectedRule,
         introSeen,
-        connectedSourceTypes,
-        resolutionOverrides,
-        showResolved,
-    } = useValues(recommendationsLogic)
-    const { openRecommendations, selectRule, closeRecommendations, dismissIntro, reportRecommendationsShown } =
-        useActions(recommendationsLogic)
-    const { response, responseLoading, responseError, queryId } = useValues(dataNodeLogic(dataNodeProps))
-    const { loadData } = useActions(dataNodeLogic(dataNodeProps))
-
-    const recommendationsResponse = response as MarketingAnalyticsRecommendationsQueryResponse | null
-    const allResults = withResolutionOverrides(recommendationsResponse?.results ?? [], resolutionOverrides)
-    const results = unresolved(allResults)
-    const resolvedCount = allResults.length - results.length
-    const visibleGroups = groupRecommendations(results)
-    const groups = showResolved && resolvedCount > 0 ? groupRecommendations(allResults) : visibleGroups
-    const sections = sectionRecommendations(groups)
-    // With every recommendation resolved the modal still opens, so the resolved ones stay reachable.
-    const firstRule = sections[0]?.groups[0]?.rule ?? allResults[0]?.rule
-    // Reloading can drop the open rule, so the modal falls back to the first one instead of closing on its own.
-    const selectedGroup =
-        selectedRule === null
-            ? undefined
-            : (groups.find((group) => group.rule === selectedRule) ?? sections[0]?.groups[0])
-    const shownState = recommendationsShownState({
-        sourcesLoading: !dataWarehouseSources,
         responseLoading,
-        responseError: !!responseError,
-        connectedSourceCount: connectedSourceTypes.length,
-        selectedSourceCount: sources.length,
-        hasRecommendations: !!firstRule,
-    })
+        responseError,
+        queryId,
+        activeRecommendations,
+        activeGroups,
+        resolvedCount,
+        firstRule,
+        shownState,
+    } = useValues(recommendationsLogic)
+    const { openRecommendations, dismissIntro, reportRecommendationsShown, loadData } = useActions(recommendationsLogic)
+    // Hands the current query to the node, which runs it again when the sources or dates change.
+    useMountedLogic(dataNodeLogic(dataNodeProps))
+
     const showGroups = shownState === 'recommendations'
     const openFirstRule = (source: 'intro' | 'button'): void => {
         if (firstRule) {
-            openRecommendations(firstRule, source, results.length)
+            openRecommendations(firstRule, source, activeRecommendations.length)
         }
     }
 
@@ -75,8 +47,8 @@ export function RecommendationsSection(): JSX.Element {
         }
         reportedState.current = shownState
         // A failed or skipped load keeps the last response, so only the recommendations state reports its results.
-        const shownResults = showGroups ? results : []
-        const shownGroups = showGroups ? visibleGroups : []
+        const shownResults = showGroups ? activeRecommendations : []
+        const shownGroups = showGroups ? activeGroups : []
         const directions = new Set(shownResults.filter((row) => row.impact != null).map((row) => row.impactDirection))
         reportRecommendationsShown({
             state: shownState,
@@ -127,7 +99,7 @@ export function RecommendationsSection(): JSX.Element {
             >
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
                     {shownState === 'recommendations' ? (
-                        <RecommendationsSummary results={results} onOpen={() => openFirstRule('button')} />
+                        <RecommendationsSummary onOpen={() => openFirstRule('button')} />
                     ) : shownState === null ? (
                         <LemonSkeleton className="h-6 w-60" />
                     ) : (
@@ -143,22 +115,7 @@ export function RecommendationsSection(): JSX.Element {
                     loading={responseLoading}
                 />
             ) : null}
-            <RecommendationsModal
-                isOpen={selectedRule !== null}
-                onClose={closeRecommendations}
-                total={results.length}
-                totals={sumImpact(results)}
-                resolvedCount={resolvedCount}
-                sections={sections}
-                selectedGroup={selectedGroup}
-                onSelect={(group) =>
-                    group.rule !== selectedGroup?.rule &&
-                    selectRule(group.rule, unresolved(group.recommendations).length)
-                }
-                dataNodeProps={dataNodeProps}
-                dataGaps={dataGaps}
-                disclaimer={recommendationsResponse?.disclaimer}
-            />
+            <RecommendationsModal />
         </div>
     )
 }

@@ -81,6 +81,7 @@ function recommendation(
             campaign_id: '',
             subject: overrides.subject,
         },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -408,7 +409,11 @@ function withResolved(
         return resolved
             ? {
                   ...row,
-                  resolution: { id: `resolution-${row.subject}`, state: resolved, resolvedAt: '2025-02-14T12:00:00Z' },
+                  resolution: {
+                      id: `resolution-${row.subject}`,
+                      resolution: resolved,
+                      resolved_at: '2025-02-14T12:00:00Z',
+                  },
               }
             : row
     })
@@ -453,5 +458,57 @@ export const AllDismissedInModal: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+
+async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    const modal = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
+    await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
+}
+
+export const ResolvingInModal: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [RESOLUTIONS_URL]: () => new Promise(() => {}) } } },
+        // The request never finishes, so the buttons keep their spinner.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => dismissHighCostCampaign(canvasElement),
+}
+
+export const RuleResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            201,
+                            {
+                                id: 'resolution-review',
+                                ...body,
+                                key: 'review_campaign:Search - Competitors',
+                                resolved_by: null,
+                                resolved_at: '2025-02-15T12:00:00Z',
+                                created_at: '2025-02-15T12:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await dismissHighCostCampaign(canvasElement)
+        await within(canvasElement.ownerDocument.body).findByText(
+            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+        )
     },
 }

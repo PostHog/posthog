@@ -39028,6 +39028,10 @@
                 "impactType": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactType"
                 },
+                "key": {
+                    "description": "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is.",
+                    "type": "string"
+                },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
@@ -39060,7 +39064,17 @@
                     "type": "string"
                 }
             },
-            "required": ["rule", "level", "subject", "identity", "action", "reason", "impactDirection", "impactType"],
+            "required": [
+                "rule",
+                "level",
+                "subject",
+                "identity",
+                "key",
+                "action",
+                "reason",
+                "impactDirection",
+                "impactType"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationCpa": {
@@ -39104,7 +39118,7 @@
         },
         "MarketingAnalyticsRecommendationIdentity": {
             "additionalProperties": false,
-            "description": "What a dismissal or an applied mark keys on. The field names match the recommendation resolutions API, so a client sends this object as is.",
+            "description": "What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API.",
             "properties": {
                 "campaign_id": {
                     "description": "The Google Ads campaign id. Empty when the recommendation is not about one campaign.",
@@ -39130,7 +39144,7 @@
             "type": "object"
         },
         "MarketingAnalyticsRecommendationIdentitySourceType": {
-            "const": "google_ads",
+            "enum": ["google_ads"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
@@ -39152,15 +39166,15 @@
                     "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
                     "type": "string"
                 },
-                "resolvedAt": {
-                    "description": "When someone last dismissed the recommendation or marked it as applied.",
-                    "type": "string"
-                },
-                "state": {
+                "resolution": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                },
+                "resolved_at": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp.",
+                    "type": "string"
                 }
             },
-            "required": ["id", "state", "resolvedAt"],
+            "required": ["id", "resolution", "resolved_at"],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationResolutionState": {

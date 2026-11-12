@@ -153,6 +153,7 @@ export type RecommendationsAction =
     | 'view_instructions'
     | 'open_step_link'
     | 'show_resolved'
+    | 'undo'
 
 export type RecommendationsActionLocation =
     | 'section_empty'
@@ -162,6 +163,7 @@ export type RecommendationsActionLocation =
     | 'rule_banner'
     | 'instructions'
     | 'modal'
+    | 'toast'
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a

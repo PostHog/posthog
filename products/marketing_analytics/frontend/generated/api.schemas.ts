@@ -2783,105 +2783,15 @@ export const RecommendationRuleEnumApi = {
 /**
  * * `google_ads` - Google Ads
  */
-export type RecommendationResolutionSourceTypeEnumApi =
-    (typeof RecommendationResolutionSourceTypeEnumApi)[keyof typeof RecommendationResolutionSourceTypeEnumApi]
+export type RecommendationSourceTypeEnumApi =
+    (typeof RecommendationSourceTypeEnumApi)[keyof typeof RecommendationSourceTypeEnumApi]
 
-export const RecommendationResolutionSourceTypeEnumApi = {
+export const RecommendationSourceTypeEnumApi = {
     GoogleAds: 'google_ads',
 } as const
 
-/**
- * * `dismissed` - Dismissed
- * * `applied` - Applied
- */
-export type RecommendationResolutionStateEnumApi =
-    (typeof RecommendationResolutionStateEnumApi)[keyof typeof RecommendationResolutionStateEnumApi]
-
-export const RecommendationResolutionStateEnumApi = {
-    Dismissed: 'dismissed',
-    Applied: 'applied',
-} as const
-
-export interface RecommendationSnapshotApi {
-    /**
-     * The recommendation's `action` when it was resolved.
-     * @maxLength 1000
-     */
-    action: string
-    /**
-     * The recommendation's `impact` when it was resolved.
-     * @nullable
-     */
-    impact?: number | null
-    /**
-     * The recommendation's `currency` when it was resolved.
-     * @maxLength 8
-     * @nullable
-     */
-    currency?: string | null
-}
-
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface RecommendationResolutionApi {
-    /** The resolution id. Delete it to show the recommendation again. */
-    readonly id: string
-    /** The rule that produced the resolved recommendation.
+export interface RecommendationIdentityApi {
+    /** The rule that produced the recommendation.
      *
      * * `budget_constrained` - Budget Constrained
      * * `brand_leak` - Brand Leak
@@ -2895,38 +2805,94 @@ export interface RecommendationResolutionApi {
      * * `striking_distance` - Striking Distance
      * * `keyword_tracking` - Keyword Tracking */
     rule: RecommendationRuleEnumApi
-    /** The recommendation's `identity.source_type`.
+    /** The ad platform the ids belong to.
      *
      * * `google_ads` - Google Ads */
-    source_type?: RecommendationResolutionSourceTypeEnumApi
+    source_type: RecommendationSourceTypeEnumApi
     /**
-     * The recommendation's `identity.customer_id`.
+     * The Google Ads account id. Empty when the recommendation is not tied to one account.
      * @maxLength 64
      */
-    customer_id?: string
+    customer_id: string
     /**
-     * The recommendation's `identity.campaign_id`.
+     * The Google Ads campaign id. Empty when the recommendation is not about one campaign.
      * @maxLength 64
      */
-    campaign_id?: string
+    campaign_id: string
     /**
-     * The recommendation's `identity.subject`.
-     * @maxLength 1024
+     * The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.
+     * @maxLength 10000
      */
-    subject?: string
+    subject: string
+}
+
+/**
+ * * `dismissed` - Dismissed
+ * * `applied` - Applied
+ */
+export type RecommendationResolutionStateEnumApi =
+    (typeof RecommendationResolutionStateEnumApi)[keyof typeof RecommendationResolutionStateEnumApi]
+
+export const RecommendationResolutionStateEnumApi = {
+    Dismissed: 'dismissed',
+    Applied: 'applied',
+} as const
+
+export interface RecommendationResolverApi {
+    /** The user's id. */
+    id: number
+    /** The user's UUID. */
+    uuid: string
+    /**
+     * The user's distinct id.
+     * @nullable
+     */
+    distinct_id: string | null
+    /** The user's first name. */
+    first_name: string
+    /** The user's last name. */
+    last_name: string
+    /** The user's email address. */
+    email: string
+}
+
+export interface RecommendationResolutionApi {
+    /** The resolution id. Delete it to show the recommendation again. */
+    id: string
+    /** The identity of the resolved recommendation. */
+    identity: RecommendationIdentityApi
+    /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
+    key: string
     /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
      *
      * * `dismissed` - Dismissed
      * * `applied` - Applied */
     resolution: RecommendationResolutionStateEnumApi
-    /** What the recommendation suggested when it was resolved. */
-    snapshot?: RecommendationSnapshotApi | null
-    /** The user who last resolved the recommendation. */
-    readonly resolved_by: UserBasicApi
+    /** The user who last resolved the recommendation. Null when that user was deleted. */
+    resolved_by: RecommendationResolverApi | null
     /** When the recommendation was last resolved. */
-    readonly resolved_at: string
+    resolved_at: string
     /** When the recommendation was first resolved. */
-    readonly created_at: string
+    created_at: string
+}
+
+export interface PaginatedRecommendationResolutionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RecommendationResolutionApi[]
+}
+
+export interface RecommendationResolutionRequestApi {
+    /** The recommendation's `identity` from the recommendations query, sent as is. */
+    identity: RecommendationIdentityApi
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
 }
 
 export type MarketingAnalyticsDataSourcesRetrieveParams = {
@@ -3020,4 +2986,16 @@ export type MarketingAnalyticsUtmAuditRetrieveParams = {
      * @nullable
      */
     date_to?: string | null
+}
+
+export type MarketingAnalyticsRecommendationResolutionsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

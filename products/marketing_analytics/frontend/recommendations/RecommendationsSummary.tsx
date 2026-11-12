@@ -5,15 +5,8 @@ import { LemonBadge, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
-
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
-import {
-    IMPACT_DIRECTION_DESCRIPTIONS,
-    IMPACT_DIRECTION_LABELS,
-    RecommendationTotal,
-    sumImpact,
-} from './recommendations'
+import { IMPACT_DIRECTION_DESCRIPTIONS, IMPACT_DIRECTION_LABELS, RecommendationTotal } from './recommendations'
 import { RecommendationsConnectGoogleAdsButton } from './RecommendationsConnectGoogleAdsButton'
 import { recommendationsLogic } from './recommendationsLogic'
 
@@ -37,14 +30,9 @@ function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Eleme
     )
 }
 
-export function RecommendationsSummary({
-    results,
-    onOpen,
-}: {
-    results: MarketingAnalyticsRecommendation[]
-    onOpen: () => void
-}): JSX.Element {
-    const { hasAdsSource, dataGaps, connectedSourceTypes } = useValues(recommendationsLogic)
+export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.Element {
+    const { hasAdsSource, dataGaps, connectedSourceTypes, activeRecommendations, totals } =
+        useValues(recommendationsLogic)
 
     return (
         <>
@@ -52,14 +40,14 @@ export function RecommendationsSummary({
                 type="secondary"
                 size="small"
                 icon={<IconLightBulb />}
-                sideIcon={<LemonBadge.Number count={results.length} maxDigits={3} />}
+                sideIcon={<LemonBadge.Number count={activeRecommendations.length} maxDigits={3} />}
                 onClick={onOpen}
                 data-attr="marketing-recommendations-open"
             >
                 Recommendations
             </LemonButton>
-            {results.length > 0 ? (
-                <ImpactSummary totals={sumImpact(results)} />
+            {activeRecommendations.length > 0 ? (
+                <ImpactSummary totals={totals} />
             ) : (
                 <span className="text-secondary">All recommendations for this period are dismissed or applied.</span>
             )}

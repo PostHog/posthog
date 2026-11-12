@@ -200,6 +200,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
@@ -7115,7 +7116,9 @@ class MarketingAnalyticsRecommendationIdentity(BaseModel):
         description=("The Google Ads account id. Empty when the recommendation is not tied to one account."),
     )
     rule: MarketingAnalyticsRecommendationRule
-    source_type: Literal["google_ads"] = Field(default="google_ads", description="The ad platform the ids belong to.")
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType = Field(
+        ..., description="The ad platform the ids belong to."
+    )
     subject: str = Field(
         ...,
         description=(
@@ -7133,11 +7136,13 @@ class MarketingAnalyticsRecommendationResolution(BaseModel):
         ...,
         description=("The resolution id. Delete it through the resolutions API to show the recommendation again."),
     )
-    resolvedAt: str = Field(
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    resolved_at: str = Field(
         ...,
-        description=("When someone last dismissed the recommendation or marked it as applied."),
+        description=(
+            "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
+        ),
     )
-    state: MarketingAnalyticsRecommendationResolutionState
 
 
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
@@ -21855,6 +21860,12 @@ class MarketingAnalyticsRecommendation(BaseModel):
     )
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    key: str = Field(
+        ...,
+        description=(
+            "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is."
+        ),
+    )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(

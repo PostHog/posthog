@@ -24,35 +24,21 @@ import type {
     MarketingAnalyticsDataSourcesRetrieveParams,
     MarketingAnalyticsDiagnoseRetrieveParams,
     MarketingAnalyticsExplainConversionGoalRetrieveParams,
+    MarketingAnalyticsRecommendationResolutionsListParams,
     MarketingAnalyticsSetupPlanRetrieveParams,
     MarketingAnalyticsSuggestConversionGoalsRetrieveParams,
     MarketingAnalyticsSuggestUtmMappingsRetrieveParams,
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
+    PaginatedRecommendationResolutionListApi,
     PatchedConversionGoalUpdateApi,
     RecommendationResolutionApi,
+    RecommendationResolutionRequestApi,
     SetupPlanResponseApi,
     SourceValidationApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
 
 export const getMarketingAnalyticsApplySetupOpsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics/apply_setup_ops/`
@@ -497,25 +483,61 @@ export const marketingAnalyticsUtmAuditRetrieve = async (
     })
 }
 
+export const getMarketingAnalyticsRecommendationResolutionsListUrl = (
+    projectId: string,
+    params?: MarketingAnalyticsRecommendationResolutionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/`
+}
+
+/**
+ * Lists the project's dismissed and applied recommendations, most recently resolved first.
+ * @summary List resolved recommendations
+ */
+export const marketingAnalyticsRecommendationResolutionsList = async (
+    projectId: string,
+    params?: MarketingAnalyticsRecommendationResolutionsListParams,
+    options?: RequestInit
+): Promise<PaginatedRecommendationResolutionListApi> => {
+    return apiMutator<PaginatedRecommendationResolutionListApi>(
+        getMarketingAnalyticsRecommendationResolutionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getMarketingAnalyticsRecommendationResolutionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/`
 }
 
 /**
- * Marketing analytics recommendations that someone in the project dismissed or marked as applied. The
- * recommendations query leaves a resolved recommendation out for everyone in the project until someone deletes
- * its resolution.
+ * Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids.
+ * @summary Resolve a recommendation
  */
 export const marketingAnalyticsRecommendationResolutionsCreate = async (
     projectId: string,
-    recommendationResolutionApi: NonReadonly<RecommendationResolutionApi>,
+    recommendationResolutionRequestApi: RecommendationResolutionRequestApi,
     options?: RequestInit
 ): Promise<RecommendationResolutionApi> => {
     return apiMutator<RecommendationResolutionApi>(getMarketingAnalyticsRecommendationResolutionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(recommendationResolutionApi),
+        body: JSON.stringify(recommendationResolutionRequestApi),
     })
 }
 
@@ -524,9 +546,8 @@ export const getMarketingAnalyticsRecommendationResolutionsDestroyUrl = (project
 }
 
 /**
- * Marketing analytics recommendations that someone in the project dismissed or marked as applied. The
- * recommendations query leaves a resolved recommendation out for everyone in the project until someone deletes
- * its resolution.
+ * Deletes a resolution, so its recommendation shows again.
+ * @summary Restore a recommendation
  */
 export const marketingAnalyticsRecommendationResolutionsDestroy = async (
     projectId: string,

@@ -133,7 +133,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
         )
 
-        def run(include_resolved: bool = False) -> list[tuple[str, str | None]]:
+        def run(include_resolved: bool = False) -> tuple[bool, list[tuple[str, str | None]]]:
             response = MarketingAnalyticsRecommendationsQueryRunner(
                 query=MarketingAnalyticsRecommendationsQuery(
                     dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
@@ -148,26 +148,29 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 user=self.user,
             ).run()
             assert isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse)
-            return [(rec.rule, rec.resolution.state if rec.resolution else None) for rec in response.results]
+            return response.is_cached or False, [
+                (rec.rule, rec.resolution.resolution if rec.resolution else None) for rec in response.results
+            ]
 
-        assert run() == [("budget_constrained", None)]
+        assert run() == (False, [("budget_constrained", None)])
         resolution = RecommendationResolution.objects.for_team(self.team.pk).create(
             team=self.team,
             rule="budget_constrained",
+            source_type="google_ads",
             customer_id="1234567890",
             campaign_id="1",
             resolution="dismissed",
         )
 
-        assert run() == []
-        assert run(include_resolved=True) == [("budget_constrained", "dismissed")]
+        assert run() == (True, [])
+        assert run(include_resolved=True) == (True, [("budget_constrained", "dismissed")])
 
         resolution.resolution = "applied"
         resolution.save()
-        assert run(include_resolved=True) == [("budget_constrained", "applied")]
+        assert run(include_resolved=True) == (True, [("budget_constrained", "applied")])
 
         resolution.delete()
-        assert run() == [("budget_constrained", None)]
+        assert run() == (True, [("budget_constrained", None)])
 
     def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
         query_page = self._table(

@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.marketing_analytics.backend.api import MarketingAnalyticsViewSet
-from products.marketing_analytics.backend.recommendation_resolution_api import RecommendationResolutionViewSet
+from products.marketing_analytics.backend.presentation.recommendation_resolutions import RecommendationResolutionViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from itertools import groupby
 from typing import Literal
 from urllib.parse import quote
 
@@ -11,23 +12,24 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as BenchmarkSource,
     MarketingAnalyticsRecommendationIdentity,
+    MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationStep as Step,
 )
 
 from posthog.dataclasses import frozen
 
-from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
+from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
+    ACCOUNT_AGNOSTIC_RULES,
+    SEARCH_TERM_RULES,
+    RecommendationKey,
+    recommendation_identity,
+)
 
 PER_RULE_LIMIT = 10
-IdentityKey = tuple[str, str, str, str, str]
-SITE_ACTION_RULES = frozenset(
-    {
-        MarketingAnalyticsRecommendationRule.CONTENT_GAP,
-        MarketingAnalyticsRecommendationRule.KEYWORD_GAP,
-        MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
-    }
-)
+# Bounds the cached results. Resolutions apply after the cache, so a rule keeps spare candidates to fill the slots of
+# the ones someone resolved.
+CANDIDATES_PER_RULE = 100
 # Share of impressions that become clicks once a page reaches the top 3 organic results. A rough industry figure.
 TOP3_CTR = 0.15
 # Below this, reaching the top 3 brings too few clicks to be worth editing the page.
@@ -183,7 +185,6 @@ class RecommendationInputs:
     term_keywords: tuple[TermKeywordStats, ...] = ()
     ranking_pages: tuple[RankingPage, ...] = ()
     customer_id: str | None = None
-    resolved: frozenset[IdentityKey] = frozenset()
     keyword_tracking: KeywordTracking | None = None
 
 
@@ -269,52 +270,66 @@ def _merge_organic(queries: Iterable[OrganicQueryStats]) -> dict[str, OrganicQue
     return merged
 
 
-def recommendation_identity(
-    rule: MarketingAnalyticsRecommendationRule,
-    customer_id: str | None,
-    *,
-    term: str | None = None,
-    campaign_id: str | None = None,
-    budget_id: str | None = None,
-) -> MarketingAnalyticsRecommendationIdentity:
-    # A resolution must outlive campaign renames and date range changes, so the identity holds ids and search
-    # terms, never a campaign name or the campaign that spent the most on a term in the selected range.
-    subject: str | None = None
-    if rule in SITE_ACTION_RULES:
-        # A site change is the same change whichever ad account surfaced it.
-        customer_id, campaign_id, subject = None, None, term
-    elif term is not None:
-        campaign_id, subject = None, term
-    elif rule == MarketingAnalyticsRecommendationRule.BUDGET_CONSTRAINED and budget_id:
-        # Campaigns that share a budget get one recommendation, and the campaign that carries it can change.
-        campaign_id, subject = None, budget_id
-    return MarketingAnalyticsRecommendationIdentity(
-        rule=rule,
-        source_type=RecommendationResolution.SourceType.GOOGLE_ADS,
-        customer_id=customer_id or "",
-        campaign_id=campaign_id or "",
-        subject=subject or "",
-    )
-
-
-def identity_key(identity: MarketingAnalyticsRecommendationIdentity) -> IdentityKey:
-    return (identity.rule, identity.source_type, identity.customer_id, identity.campaign_id, identity.subject)
-
-
-def dedupe_site_rules(
+def dedupe_account_agnostic_rules(
     recommendations: Iterable[MarketingAnalyticsRecommendation],
 ) -> list[MarketingAnalyticsRecommendation]:
-    # Site rules carry no account ids, so every ad account that buys the search repeats the same site change.
-    seen: set[IdentityKey] = set()
+    # These rules carry no account ids, so every ad account that buys the search repeats the same recommendation.
+    seen: set[str] = set()
     deduped = []
     for recommendation in recommendations:
-        if recommendation.rule in SITE_ACTION_RULES:
-            key = identity_key(recommendation.identity)
-            if key in seen:
+        if recommendation.rule in ACCOUNT_AGNOSTIC_RULES:
+            if recommendation.key in seen:
                 continue
-            seen.add(key)
+            seen.add(recommendation.key)
         deduped.append(recommendation)
     return deduped
+
+
+def apply_resolutions(
+    recommendations: Iterable[MarketingAnalyticsRecommendation],
+    resolutions: Mapping[str, MarketingAnalyticsRecommendationResolution],
+    *,
+    include_resolved: bool,
+) -> list[MarketingAnalyticsRecommendation]:
+    """Drop resolved recommendations, or annotate them, and cap each search term rule per ad account.
+
+    Account-agnostic rules have no ad account, so their candidates from every account share one cap and the
+    highest-impact ones fill it. `resolutions` maps a recommendation key to its resolution. Resolved
+    recommendations take no slot, so resolving the top ones lets the next ones surface. With `include_resolved`,
+    they follow the unresolved ones of their run.
+    """
+    shown: dict[tuple[str, str], int] = defaultdict(int)
+    applied: list[MarketingAnalyticsRecommendation] = []
+    runs = groupby(_pool_account_agnostic_rules(recommendations), key=lambda rec: (rec.rule, rec.identity.customer_id))
+    for (rule, customer_id), run in runs:
+        resolved = []
+        for recommendation in run:
+            resolution = resolutions.get(recommendation.key)
+            if resolution is not None:
+                if include_resolved:
+                    resolved.append(recommendation.model_copy(update={"resolution": resolution}))
+            elif rule not in SEARCH_TERM_RULES or shown[(rule, customer_id)] < PER_RULE_LIMIT:
+                shown[(rule, customer_id)] += 1
+                applied.append(recommendation)
+        applied.extend(resolved)
+    return applied
+
+
+def _pool_account_agnostic_rules(
+    recommendations: Iterable[MarketingAnalyticsRecommendation],
+) -> list[MarketingAnalyticsRecommendation]:
+    candidates = list(recommendations)
+    pooled: dict[MarketingAnalyticsRecommendationRule, list[MarketingAnalyticsRecommendation]] = defaultdict(list)
+    for recommendation in candidates:
+        if recommendation.rule in ACCOUNT_AGNOSTIC_RULES:
+            pooled[recommendation.rule].append(recommendation)
+    ordered: list[MarketingAnalyticsRecommendation] = []
+    for recommendation in candidates:
+        if recommendation.rule not in ACCOUNT_AGNOSTIC_RULES:
+            ordered.append(recommendation)
+        elif (pool := pooled.pop(recommendation.rule, None)) is not None:
+            ordered.extend(sorted(pool, key=lambda rec: -(rec.impact or 0)))
+    return ordered
 
 
 def recommend(inputs: RecommendationInputs) -> list[MarketingAnalyticsRecommendation]:
@@ -792,11 +807,7 @@ class _Recommender:
             MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
             MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
         ):
-            ranked = sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))
-            unresolved = [rec for rec in ranked if identity_key(rec.identity) not in self.inputs.resolved]
-            resolved = [rec for rec in ranked if identity_key(rec.identity) in self.inputs.resolved]
-            # Resolved recommendations take no slot, so dismissing the top ones lets the next ones surface.
-            ordered.extend(unresolved[:PER_RULE_LIMIT] + resolved)
+            ordered.extend(sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE])
         return ordered
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
@@ -982,7 +993,7 @@ class _Recommender:
                     "invest",
                     "estimated",
                     recommendation_identity(
-                        MarketingAnalyticsRecommendationRule.KEYWORD_GAP, self.inputs.customer_id, term=query.query
+                        MarketingAnalyticsRecommendationRule.KEYWORD_GAP, self.inputs.customer_id, subject=query.query
                     ),
                     campaign.name if campaign else None,
                     steps=steps,
@@ -1243,7 +1254,7 @@ class _Recommender:
             impact * self.per_month,
             direction,
             impact_type,
-            recommendation_identity(rule, self.inputs.customer_id, term=term.term),
+            recommendation_identity(rule, self.inputs.customer_id, subject=term.term),
             self._campaign_name(term),
             steps=steps,
             cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark),
@@ -1271,7 +1282,7 @@ class _Recommender:
             impact,
             direction,
             impact_type,
-            recommendation_identity(rule, self.inputs.customer_id, campaign_id=campaign.id, budget_id=budget_id),
+            recommendation_identity(rule, self.inputs.customer_id, campaign_id=campaign.id, subject=budget_id),
             steps=steps,
             cpa=cpa,
         )
@@ -1297,6 +1308,7 @@ class _Recommender:
             subject=subject,
             campaign=campaign,
             identity=identity,
+            key=RecommendationKey.from_identity(identity).encoded,
             action=action,
             reason=reason,
             impact=round(impact) if impact is not None else None,

@@ -57148,6 +57148,13 @@ export namespace Schemas {
       KeywordTracking: 'keyword_tracking',
     } as const;
 
+    export type MarketingAnalyticsRecommendationIdentitySourceType = typeof MarketingAnalyticsRecommendationIdentitySourceType[keyof typeof MarketingAnalyticsRecommendationIdentitySourceType];
+
+
+    export const MarketingAnalyticsRecommendationIdentitySourceType = {
+      GoogleAds: 'google_ads',
+    } as const;
+
     export interface MarketingAnalyticsRecommendationIdentity {
       /** The Google Ads campaign id. Empty when the recommendation is not about one campaign. */
       campaign_id: string;
@@ -57155,7 +57162,7 @@ export namespace Schemas {
       customer_id: string;
       rule: MarketingAnalyticsRecommendationRule;
       /** The ad platform the ids belong to. */
-      source_type?: 'google_ads';
+      source_type: MarketingAnalyticsRecommendationIdentitySourceType;
       /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
       subject: string;
     }
@@ -57198,9 +57205,9 @@ export namespace Schemas {
     export interface MarketingAnalyticsRecommendationResolution {
       /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
       id: string;
-      /** When someone last dismissed the recommendation or marked it as applied. */
-      resolvedAt: string;
-      state: MarketingAnalyticsRecommendationResolutionState;
+      resolution: MarketingAnalyticsRecommendationResolutionState;
+      /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+      resolved_at: string;
     }
 
     export interface MarketingAnalyticsRecommendationStep {
@@ -57225,6 +57232,8 @@ export namespace Schemas {
       impact?: number | null;
       impactDirection: MarketingAnalyticsRecommendationImpactDirection;
       impactType: MarketingAnalyticsRecommendationImpactType;
+      /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
+      key: string;
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
@@ -75735,6 +75744,141 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
+    }
+
+    /**
+     * * `budget_constrained` - Budget Constrained
+     * * `brand_leak` - Brand Leak
+     * * `scale_campaign` - Scale Campaign
+     * * `review_campaign` - Review Campaign
+     * * `policy_limited` - Policy Limited
+     * * `brand_overlap` - Brand Overlap
+     * * `content_gap` - Content Gap
+     * * `keyword_gap` - Keyword Gap
+     * * `spend_without_conversions` - Spend Without Conversions
+     * * `striking_distance` - Striking Distance
+     * * `keyword_tracking` - Keyword Tracking
+     */
+    export type RecommendationRuleEnum = typeof RecommendationRuleEnum[keyof typeof RecommendationRuleEnum];
+
+
+    export const RecommendationRuleEnum = {
+      BudgetConstrained: 'budget_constrained',
+      BrandLeak: 'brand_leak',
+      ScaleCampaign: 'scale_campaign',
+      ReviewCampaign: 'review_campaign',
+      PolicyLimited: 'policy_limited',
+      BrandOverlap: 'brand_overlap',
+      ContentGap: 'content_gap',
+      KeywordGap: 'keyword_gap',
+      SpendWithoutConversions: 'spend_without_conversions',
+      StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
+    } as const;
+
+    /**
+     * * `google_ads` - Google Ads
+     */
+    export type RecommendationSourceTypeEnum = typeof RecommendationSourceTypeEnum[keyof typeof RecommendationSourceTypeEnum];
+
+
+    export const RecommendationSourceTypeEnum = {
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface RecommendationIdentity {
+      /** The rule that produced the recommendation.
+       *
+       * * `budget_constrained` - Budget Constrained
+       * * `brand_leak` - Brand Leak
+       * * `scale_campaign` - Scale Campaign
+       * * `review_campaign` - Review Campaign
+       * * `policy_limited` - Policy Limited
+       * * `brand_overlap` - Brand Overlap
+       * * `content_gap` - Content Gap
+       * * `keyword_gap` - Keyword Gap
+       * * `spend_without_conversions` - Spend Without Conversions
+       * * `striking_distance` - Striking Distance
+       * * `keyword_tracking` - Keyword Tracking */
+      rule: RecommendationRuleEnum;
+      /** The ad platform the ids belong to.
+       *
+       * * `google_ads` - Google Ads */
+      source_type: RecommendationSourceTypeEnum;
+      /**
+         * The Google Ads account id. Empty when the recommendation is not tied to one account.
+         * @maxLength 64
+         */
+      customer_id: string;
+      /**
+         * The Google Ads campaign id. Empty when the recommendation is not about one campaign.
+         * @maxLength 64
+         */
+      campaign_id: string;
+      /**
+         * The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.
+         * @maxLength 10000
+         */
+      subject: string;
+    }
+
+    /**
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied
+     */
+    export type RecommendationResolutionStateEnum = typeof RecommendationResolutionStateEnum[keyof typeof RecommendationResolutionStateEnum];
+
+
+    export const RecommendationResolutionStateEnum = {
+      Dismissed: 'dismissed',
+      Applied: 'applied',
+    } as const;
+
+    export interface RecommendationResolver {
+      /** The user's id. */
+      id: number;
+      /** The user's UUID. */
+      uuid: string;
+      /**
+         * The user's distinct id.
+         * @nullable
+         */
+      distinct_id: string | null;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email address. */
+      email: string;
+    }
+
+    export interface RecommendationResolution {
+      /** The resolution id. Delete it to show the recommendation again. */
+      id: string;
+      /** The identity of the resolved recommendation. */
+      identity: RecommendationIdentity;
+      /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
+      key: string;
+      /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+       *
+       * * `dismissed` - Dismissed
+       * * `applied` - Applied */
+      resolution: RecommendationResolutionStateEnum;
+      /** The user who last resolved the recommendation. Null when that user was deleted. */
+      resolved_by: RecommendationResolver | null;
+      /** When the recommendation was last resolved. */
+      resolved_at: string;
+      /** When the recommendation was first resolved. */
+      created_at: string;
+    }
+
+    export interface PaginatedRecommendationResolutionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: RecommendationResolution[];
     }
 
     export interface ReleaseOwnerDTO {
@@ -102378,126 +102522,14 @@ export namespace Schemas {
       color: string;
     }
 
-    /**
-     * * `budget_constrained` - Budget Constrained
-     * * `brand_leak` - Brand Leak
-     * * `scale_campaign` - Scale Campaign
-     * * `review_campaign` - Review Campaign
-     * * `policy_limited` - Policy Limited
-     * * `brand_overlap` - Brand Overlap
-     * * `content_gap` - Content Gap
-     * * `keyword_gap` - Keyword Gap
-     * * `spend_without_conversions` - Spend Without Conversions
-     * * `striking_distance` - Striking Distance
-     * * `keyword_tracking` - Keyword Tracking
-     */
-    export type RecommendationRuleEnum = typeof RecommendationRuleEnum[keyof typeof RecommendationRuleEnum];
-
-
-    export const RecommendationRuleEnum = {
-      BudgetConstrained: 'budget_constrained',
-      BrandLeak: 'brand_leak',
-      ScaleCampaign: 'scale_campaign',
-      ReviewCampaign: 'review_campaign',
-      PolicyLimited: 'policy_limited',
-      BrandOverlap: 'brand_overlap',
-      ContentGap: 'content_gap',
-      KeywordGap: 'keyword_gap',
-      SpendWithoutConversions: 'spend_without_conversions',
-      StrikingDistance: 'striking_distance',
-      KeywordTracking: 'keyword_tracking',
-    } as const;
-
-    /**
-     * * `google_ads` - Google Ads
-     */
-    export type RecommendationResolutionSourceTypeEnum = typeof RecommendationResolutionSourceTypeEnum[keyof typeof RecommendationResolutionSourceTypeEnum];
-
-
-    export const RecommendationResolutionSourceTypeEnum = {
-      GoogleAds: 'google_ads',
-    } as const;
-
-    /**
-     * * `dismissed` - Dismissed
-     * * `applied` - Applied
-     */
-    export type RecommendationResolutionStateEnum = typeof RecommendationResolutionStateEnum[keyof typeof RecommendationResolutionStateEnum];
-
-
-    export const RecommendationResolutionStateEnum = {
-      Dismissed: 'dismissed',
-      Applied: 'applied',
-    } as const;
-
-    export interface RecommendationSnapshot {
-      /**
-         * The recommendation's `action` when it was resolved.
-         * @maxLength 1000
-         */
-      action: string;
-      /**
-         * The recommendation's `impact` when it was resolved.
-         * @nullable
-         */
-      impact?: number | null;
-      /**
-         * The recommendation's `currency` when it was resolved.
-         * @maxLength 8
-         * @nullable
-         */
-      currency?: string | null;
-    }
-
-    export interface RecommendationResolution {
-      /** The resolution id. Delete it to show the recommendation again. */
-      readonly id: string;
-      /** The rule that produced the resolved recommendation.
-       *
-       * * `budget_constrained` - Budget Constrained
-       * * `brand_leak` - Brand Leak
-       * * `scale_campaign` - Scale Campaign
-       * * `review_campaign` - Review Campaign
-       * * `policy_limited` - Policy Limited
-       * * `brand_overlap` - Brand Overlap
-       * * `content_gap` - Content Gap
-       * * `keyword_gap` - Keyword Gap
-       * * `spend_without_conversions` - Spend Without Conversions
-       * * `striking_distance` - Striking Distance
-       * * `keyword_tracking` - Keyword Tracking */
-      rule: RecommendationRuleEnum;
-      /** The recommendation's `identity.source_type`.
-       *
-       * * `google_ads` - Google Ads */
-      source_type?: RecommendationResolutionSourceTypeEnum;
-      /**
-         * The recommendation's `identity.customer_id`.
-         * @maxLength 64
-         */
-      customer_id?: string;
-      /**
-         * The recommendation's `identity.campaign_id`.
-         * @maxLength 64
-         */
-      campaign_id?: string;
-      /**
-         * The recommendation's `identity.subject`.
-         * @maxLength 1024
-         */
-      subject?: string;
+    export interface RecommendationResolutionRequest {
+      /** The recommendation's `identity` from the recommendations query, sent as is. */
+      identity: RecommendationIdentity;
       /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
        *
        * * `dismissed` - Dismissed
        * * `applied` - Applied */
       resolution: RecommendationResolutionStateEnum;
-      /** What the recommendation suggested when it was resolved. */
-      snapshot?: RecommendationSnapshot | null;
-      /** The user who last resolved the recommendation. */
-      readonly resolved_by: UserBasic;
-      /** When the recommendation was last resolved. */
-      readonly resolved_at: string;
-      /** When the recommendation was first resolved. */
-      readonly created_at: string;
     }
 
     export interface RecomputeResult {
@@ -126980,6 +127012,7 @@ export namespace Schemas {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -127103,6 +127136,7 @@ export namespace Schemas {
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
       ReviewInstallationClaim: 'ReviewInstallationClaim',
+      RecommendationResolution: 'RecommendationResolution',
     } as const;
 
     /**
@@ -127212,6 +127246,7 @@ export namespace Schemas {
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -127323,6 +127358,7 @@ export namespace Schemas {
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
       ReviewInstallationClaim: 'ReviewInstallationClaim',
+      RecommendationResolution: 'RecommendationResolution',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -136834,6 +136870,18 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
+    };
+
+    export type MarketingAnalyticsRecommendationResolutionsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type MaterializedColumnSlotsListParams = {

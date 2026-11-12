@@ -5,12 +5,18 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import {
     RecommendationsEntryPoint,
+    RecommendationsShownState,
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    DataNodeLogicProps,
+    dataNodeLogic,
+    dataNodeLogicActions,
+    dataNodeLogicValues,
+} from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     IntegrationFilter,
     MarketingAnalyticsRecommendation,
@@ -18,6 +24,7 @@ import {
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -31,13 +38,32 @@ import { selectedSearchSources } from '../search/searchPerformance'
 import {
     RECOMMENDATIONS_QUERY_KEY,
     RecommendationDataGap,
+    RecommendationGroup,
+    RecommendationSection,
+    RecommendationTotal,
     ResolutionOverrides,
+    groupRecommendations,
+    reconcileResolutionOverrides,
     recommendationDataGaps,
-    recommendationKey,
+    recommendationsShownState,
     recommendationsSource,
+    sectionRecommendations,
+    sumImpact,
+    unresolved,
+    withResolutionOverrides,
 } from './recommendations'
 
 const RECOMMENDATION_SOURCE_TYPES = ['GoogleAds', 'GoogleSearchConsole']
+
+// Only the key, so connecting finds the node the section mounts with its query instead of replacing that query.
+const RECOMMENDATIONS_DATA_NODE = {
+    key: RECOMMENDATIONS_QUERY_KEY,
+    dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+} as DataNodeLogicProps
+
+function responseRecommendations(response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendation[] {
+    return (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.results ?? []
+}
 
 interface DateFilter {
     dateFrom: string | null
@@ -45,6 +71,10 @@ interface DateFilter {
 }
 
 export interface recommendationsLogicValues {
+    response: dataNodeLogicValues['response']
+    responseLoading: boolean
+    responseError: string | null
+    queryId: string | null
     dataWarehouseSources: { results: ExternalDataSource[] } | null
     integrationFilter: IntegrationFilter
     dateFilter: DateFilter
@@ -61,20 +91,35 @@ export interface recommendationsLogicValues {
     resolutionOverrides: ResolutionOverrides
     pendingKeys: string[]
     showResolved: boolean
+    disclaimer: string | undefined
+    recommendations: MarketingAnalyticsRecommendation[]
+    activeRecommendations: MarketingAnalyticsRecommendation[]
+    resolvedCount: number
+    totals: RecommendationTotal[]
+    activeGroups: RecommendationGroup[]
+    groups: RecommendationGroup[]
+    sections: RecommendationSection[]
+    firstRule: MarketingAnalyticsRecommendationRule | null
+    selectedGroup: RecommendationGroup | null
+    selectedGroupTotals: RecommendationTotal[]
+    shownState: RecommendationsShownState | null
 }
 
-export interface recommendationsLogicActions extends Pick<
-    marketingAnalyticsLogicActions,
-    | 'loadSources'
-    | 'reportRecommendationsShown'
-    | 'reportRecommendationsOpened'
-    | 'reportRecommendationsIntroDismissed'
-    | 'reportRecommendationsRuleSelected'
-    | 'reportRecommendationsClosed'
-    | 'reportRecommendationsActionClicked'
-    | 'reportRecommendationResolved'
-    | 'reportRecommendationRestored'
-> {
+export interface recommendationsLogicActions
+    extends
+        Pick<dataNodeLogicActions, 'loadData' | 'loadDataSuccess'>,
+        Pick<
+            marketingAnalyticsLogicActions,
+            | 'loadSources'
+            | 'reportRecommendationsShown'
+            | 'reportRecommendationsOpened'
+            | 'reportRecommendationsIntroDismissed'
+            | 'reportRecommendationsRuleSelected'
+            | 'reportRecommendationsClosed'
+            | 'reportRecommendationsActionClicked'
+            | 'reportRecommendationResolved'
+            | 'reportRecommendationRestored'
+        > {
     openRecommendations: (
         rule: MarketingAnalyticsRecommendationRule,
         entryPoint: RecommendationsEntryPoint,
@@ -100,6 +145,10 @@ export interface recommendationsLogicActions extends Pick<
     restoreRecommendation: (recommendation: MarketingAnalyticsRecommendation) => {
         recommendation: MarketingAnalyticsRecommendation
     }
+    undoResolution: (
+        recommendation: MarketingAnalyticsRecommendation,
+        resolution: MarketingAnalyticsRecommendationResolution
+    ) => { recommendation: MarketingAnalyticsRecommendation; resolution: MarketingAnalyticsRecommendationResolution }
     resolutionSaved: (
         key: string,
         resolution: MarketingAnalyticsRecommendationResolution
@@ -119,8 +168,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             ['dataWarehouseSources', 'integrationFilter', 'dateFilter'],
             teamLogic,
             ['currentTeamId'],
+            dataNodeLogic(RECOMMENDATIONS_DATA_NODE),
+            ['response', 'responseLoading', 'responseError', 'queryId'],
         ],
         actions: [
+            dataNodeLogic(RECOMMENDATIONS_DATA_NODE),
+            ['loadData', 'loadDataSuccess'],
             marketingAnalyticsLogic,
             [
                 'loadSources',
@@ -155,6 +208,10 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             resolution,
         }),
         restoreRecommendation: (recommendation: MarketingAnalyticsRecommendation) => ({ recommendation }),
+        undoResolution: (
+            recommendation: MarketingAnalyticsRecommendation,
+            resolution: MarketingAnalyticsRecommendationResolution
+        ) => ({ recommendation, resolution }),
         resolutionSaved: (key: string, resolution: MarketingAnalyticsRecommendationResolution) => ({
             key,
             resolution,
@@ -169,18 +226,15 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             {
                 resolutionSaved: (state, { key, resolution }) => ({ ...state, [key]: resolution }),
                 resolutionRemoved: (state, { key }) => ({ ...state, [key]: null }),
-                // A new response carries the current resolutions, including ones made by other people.
-                [dataNodeLogic({
-                    key: RECOMMENDATIONS_QUERY_KEY,
-                    query: { kind: NodeKind.MarketingAnalyticsRecommendationsQuery },
-                }).actionTypes.loadDataSuccess]: () => ({}),
+                loadDataSuccess: (state, { response }) =>
+                    reconcileResolutionOverrides(state, responseRecommendations(response)),
             },
         ],
         pendingKeys: [
             [] as string[],
             {
-                resolveRecommendation: (state, { recommendation }) => [...state, recommendationKey(recommendation)],
-                restoreRecommendation: (state, { recommendation }) => [...state, recommendationKey(recommendation)],
+                resolveRecommendation: (state, { recommendation }) => [...state, recommendation.key],
+                restoreRecommendation: (state, { recommendation }) => [...state, recommendation.key],
                 resolutionSaved: (state, { key }) => state.filter((pending) => pending !== key),
                 resolutionRemoved: (state, { key }) => state.filter((pending) => pending !== key),
                 resolutionRequestFailed: (state, { key }) => state.filter((pending) => pending !== key),
@@ -252,32 +306,141 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         dataNodeProps: [
             (s) => [s.query],
             (query: MarketingAnalyticsRecommendationsQuery): DataNodeLogicProps => ({
-                key: RECOMMENDATIONS_QUERY_KEY,
+                ...RECOMMENDATIONS_DATA_NODE,
                 query,
-                dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
             }),
+        ],
+        disclaimer: [
+            (s) => [s.response],
+            (response: dataNodeLogicValues['response']): string | undefined =>
+                (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.disclaimer,
+        ],
+        recommendations: [
+            (s) => [s.response, s.resolutionOverrides],
+            (
+                response: dataNodeLogicValues['response'],
+                resolutionOverrides: ResolutionOverrides
+            ): MarketingAnalyticsRecommendation[] =>
+                withResolutionOverrides(responseRecommendations(response), resolutionOverrides),
+        ],
+        activeRecommendations: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
+                unresolved(recommendations),
+        ],
+        resolvedCount: [
+            (s) => [s.recommendations, s.activeRecommendations],
+            (
+                recommendations: MarketingAnalyticsRecommendation[],
+                activeRecommendations: MarketingAnalyticsRecommendation[]
+            ): number => recommendations.length - activeRecommendations.length,
+        ],
+        totals: [
+            (s) => [s.activeRecommendations],
+            (activeRecommendations: MarketingAnalyticsRecommendation[]): RecommendationTotal[] =>
+                sumImpact(activeRecommendations),
+        ],
+        activeGroups: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] =>
+                groupRecommendations(recommendations, false, null),
+        ],
+        groups: [
+            (s) => [s.recommendations, s.activeRecommendations, s.resolvedCount, s.showResolved, s.selectedRule],
+            (
+                recommendations: MarketingAnalyticsRecommendation[],
+                activeRecommendations: MarketingAnalyticsRecommendation[],
+                resolvedCount: number,
+                showResolved: boolean,
+                selectedRule: MarketingAnalyticsRecommendationRule | null
+            ): RecommendationGroup[] =>
+                groupRecommendations(
+                    recommendations,
+                    showResolved && resolvedCount > 0,
+                    // With nothing left anywhere, the modal says so for every rule instead of one empty rule.
+                    activeRecommendations.length > 0 ? selectedRule : null
+                ),
+        ],
+        sections: [
+            (s) => [s.groups],
+            (groups: RecommendationGroup[]): RecommendationSection[] => sectionRecommendations(groups),
+        ],
+        firstRule: [
+            (s) => [s.sections, s.recommendations],
+            (
+                sections: RecommendationSection[],
+                recommendations: MarketingAnalyticsRecommendation[]
+            ): MarketingAnalyticsRecommendationRule | null =>
+                // With every recommendation resolved the modal still opens, so the resolved ones stay reachable.
+                sections[0]?.groups[0]?.rule ?? recommendations[0]?.rule ?? null,
+        ],
+        selectedGroup: [
+            (s) => [s.selectedRule, s.groups, s.sections],
+            (
+                selectedRule: MarketingAnalyticsRecommendationRule | null,
+                groups: RecommendationGroup[],
+                sections: RecommendationSection[]
+            ): RecommendationGroup | null =>
+                selectedRule === null
+                    ? null
+                    : // A new date range can drop the open rule, so the modal shows the first one instead of closing.
+                      (groups.find((group) => group.rule === selectedRule) ?? sections[0]?.groups[0] ?? null),
+        ],
+        selectedGroupTotals: [
+            (s) => [s.selectedGroup],
+            (selectedGroup: RecommendationGroup | null): RecommendationTotal[] =>
+                sumImpact(unresolved(selectedGroup?.recommendations ?? [])),
+        ],
+        shownState: [
+            (s) => [
+                s.dataWarehouseSources,
+                s.responseLoading,
+                s.responseError,
+                s.connectedSourceTypes,
+                s.sources,
+                s.firstRule,
+            ],
+            (
+                dataWarehouseSources: { results: ExternalDataSource[] } | null,
+                responseLoading: boolean,
+                responseError: string | null,
+                connectedSourceTypes: string[],
+                sources: MarketingAnalyticsRecommendationsSource[],
+                firstRule: MarketingAnalyticsRecommendationRule | null
+            ): RecommendationsShownState | null =>
+                recommendationsShownState({
+                    sourcesLoading: !dataWarehouseSources,
+                    responseLoading,
+                    responseError: !!responseError,
+                    connectedSourceCount: connectedSourceTypes.length,
+                    selectedSourceCount: sources.length,
+                    hasRecommendations: !!firstRule,
+                }),
         ],
     }),
     listeners(({ actions, selectors, values }) => ({
         resolveRecommendation: async ({ recommendation, resolution }) => {
             try {
                 const saved = await marketingAnalyticsRecommendationResolutionsCreate(String(values.currentTeamId), {
-                    ...recommendation.identity,
+                    identity: recommendation.identity,
                     resolution,
-                    snapshot: {
-                        action: recommendation.action,
-                        impact: recommendation.impact ?? null,
-                        currency: recommendation.currency ?? null,
-                    },
                 })
-                actions.resolutionSaved(recommendationKey(recommendation), {
-                    id: saved.id,
-                    state: saved.resolution,
-                    resolvedAt: saved.resolved_at,
-                })
+                actions.resolutionSaved(recommendation.key, saved)
                 actions.reportRecommendationResolved(recommendation.rule, recommendation.level, resolution)
+                lemonToast.success(
+                    resolution === 'applied' ? 'Recommendation marked as applied' : 'Recommendation dismissed',
+                    {
+                        button: {
+                            label: 'Undo',
+                            action: () => actions.undoResolution(recommendation, saved),
+                            dataAttr: 'marketing-recommendations-undo',
+                        },
+                    }
+                )
+                // The freed slot of the rule fills with its next recommendation.
+                actions.loadData()
             } catch {
-                actions.resolutionRequestFailed(recommendationKey(recommendation))
+                actions.resolutionRequestFailed(recommendation.key)
                 lemonToast.error(
                     resolution === 'applied'
                         ? "Couldn't mark the recommendation as applied. Try again."
@@ -286,34 +449,43 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             }
         },
         restoreRecommendation: async ({ recommendation }) => {
-            const key = recommendationKey(recommendation)
             const resolution = recommendation.resolution
             if (!resolution) {
-                actions.resolutionRemoved(key)
+                actions.resolutionRemoved(recommendation.key)
                 return
             }
             try {
                 await marketingAnalyticsRecommendationResolutionsDestroy(String(values.currentTeamId), resolution.id)
-                actions.resolutionRemoved(key)
-                actions.reportRecommendationRestored(recommendation.rule, recommendation.level, resolution.state)
+                actions.resolutionRemoved(recommendation.key)
+                actions.reportRecommendationRestored(recommendation.rule, recommendation.level, resolution.resolution)
+                actions.loadData()
             } catch (error) {
                 // Someone else already restored it, so the local copy is stale rather than the request wrong.
                 if (error instanceof ApiError && error.status === 404) {
-                    actions.resolutionRemoved(key)
+                    actions.resolutionRemoved(recommendation.key)
+                    actions.loadData()
                     return
                 }
-                actions.resolutionRequestFailed(key)
+                actions.resolutionRequestFailed(recommendation.key)
                 lemonToast.error("Couldn't restore the recommendation. Try again.")
             }
+        },
+        undoResolution: ({ recommendation, resolution }) => {
+            actions.reportRecommendationsActionClicked('undo', 'toast', recommendation.rule)
+            actions.restoreRecommendation({ ...recommendation, resolution })
         },
         openRecommendations: ({ entryPoint, recommendationCount }) => {
             actions.reportRecommendationsOpened(entryPoint, recommendationCount)
         },
-        selectRule: ({ rule, ruleRecommendationCount }) => {
-            actions.reportRecommendationsRuleSelected(rule, ruleRecommendationCount)
+        selectRule: ({ rule, ruleRecommendationCount }, _, __, previousState) => {
+            if (selectors.selectedGroup(previousState)?.rule !== rule) {
+                actions.reportRecommendationsRuleSelected(rule, ruleRecommendationCount)
+            }
         },
         closeRecommendations: (_, __, ___, previousState) => {
-            actions.reportRecommendationsClosed(selectors.selectedRule(previousState))
+            actions.reportRecommendationsClosed(
+                selectors.selectedGroup(previousState)?.rule ?? selectors.selectedRule(previousState)
+            )
         },
         dismissIntro: () => {
             actions.reportRecommendationsIntroDismissed()

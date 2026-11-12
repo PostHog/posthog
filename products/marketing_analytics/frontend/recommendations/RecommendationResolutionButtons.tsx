@@ -4,7 +4,6 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
-import { recommendationKey } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function RecommendationResolutionButtons({
@@ -14,8 +13,8 @@ export function RecommendationResolutionButtons({
 }): JSX.Element {
     const { pendingKeys } = useValues(recommendationsLogic)
     const { resolveRecommendation, restoreRecommendation } = useActions(recommendationsLogic)
-    const resolution = recommendation.resolution?.state
-    const loading = pendingKeys.includes(recommendationKey(recommendation))
+    const resolution = recommendation.resolution?.resolution
+    const loading = pendingKeys.includes(recommendation.key)
 
     if (resolution) {
         return (
@@ -29,6 +28,7 @@ export function RecommendationResolutionButtons({
                     loading={loading}
                     tooltip="Show this recommendation again for everyone in this project"
                     onClick={() => restoreRecommendation(recommendation)}
+                    aria-label={`Restore ${recommendation.subject}`}
                     data-attr="marketing-recommendations-restore"
                 >
                     Restore
@@ -46,6 +46,7 @@ export function RecommendationResolutionButtons({
                     loading={loading}
                     tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
                     onClick={() => resolveRecommendation(recommendation, 'applied')}
+                    aria-label={`Mark ${recommendation.subject} as applied`}
                     data-attr="marketing-recommendations-mark-applied"
                 >
                     Mark as applied
@@ -57,6 +58,7 @@ export function RecommendationResolutionButtons({
                 loading={loading}
                 tooltip="Hide this recommendation for everyone in this project, for any date range, until someone restores it."
                 onClick={() => resolveRecommendation(recommendation, 'dismissed')}
+                aria-label={`Dismiss ${recommendation.subject}`}
                 data-attr="marketing-recommendations-dismiss"
             >
                 Dismiss

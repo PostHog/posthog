@@ -39,8 +39,7 @@ class Migration(migrations.Migration):
                 (
                     "source_type",
                     models.CharField(
-                        choices=[("google_ads", "Google Ads")],
-                        default="google_ads",
+                        choices=products.marketing_analytics.backend.models.recommendation_resolution.recommendation_source_type_choices,
                         max_length=32,
                     ),
                 ),
@@ -52,7 +51,8 @@ class Migration(migrations.Migration):
                     "campaign_id",
                     models.CharField(blank=True, default="", max_length=64),
                 ),
-                ("subject", models.CharField(blank=True, default="", max_length=1024)),
+                ("subject", models.TextField(blank=True, default="")),
+                ("subject_hash", models.CharField(editable=False, max_length=64)),
                 (
                     "resolution",
                     models.CharField(
@@ -62,7 +62,6 @@ class Migration(migrations.Migration):
                 ),
                 ("resolved_at", models.DateTimeField(auto_now=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("snapshot", models.JSONField(blank=True, null=True)),
                 (
                     "resolved_by",
                     models.ForeignKey(
@@ -93,7 +92,7 @@ class Migration(migrations.Migration):
                             "source_type",
                             "customer_id",
                             "campaign_id",
-                            "subject",
+                            "subject_hash",
                         ),
                         name="ma_recommendation_resolution_unique",
                     )

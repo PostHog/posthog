@@ -1,21 +1,19 @@
 import json
 from datetime import datetime
 from functools import cached_property
-from typing import Any
-
-from django.db.models import Count, Max
+from typing import Any, Optional
 
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
+    CacheMissResponse,
     MarketingAnalyticsRecommendation,
-    MarketingAnalyticsRecommendationResolution,
-    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
     MarketingAnalyticsRecommendationsSourceType,
+    QueryStatusResponse,
 )
 
 from posthog.hogql import ast
@@ -25,23 +23,24 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.event_usage import AnalyticsProps
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     CampaignStats,
-    IdentityKey,
     KeywordTracking,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
-    dedupe_site_rules,
-    identity_key,
+    apply_resolutions,
+    dedupe_account_agnostic_rules,
     recommend,
 )
-from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
+from products.marketing_analytics.backend.recommendation_resolutions import resolutions_by_key
 from products.warehouse_sources.backend.facade.api import (
     all_queryable_table_keys,
     list_schemas_for_source,
@@ -99,13 +98,44 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(select=[ast.Constant(value=1)])
 
-    def get_cache_key_variant(self) -> str:
-        # A dismissal or a restore changes the results without changing the query, so it must miss the cache.
-        state = RecommendationResolution.objects.for_team(self.team.pk).aggregate(
-            count=Count("id"), latest=Max("resolved_at")
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Resolutions apply after the cache, so both views of the results share one entry.
+        payload["query"].pop("includeResolved", None)
+        return payload
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
+    ) -> CachedMarketingAnalyticsRecommendationsQueryResponse | CacheMissResponse | QueryStatusResponse:
+        response = super().run(
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
+            analytics_props=analytics_props,
         )
-        latest = state["latest"].isoformat() if state["latest"] else ""
-        return f"_resolutions_{state['count']}_{latest}"
+        if not isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse):
+            return response
+        # The cache holds every candidate without resolutions, so a dismissal or a restore shows on the next
+        # read without recomputing the warehouse queries.
+        return response.model_copy(
+            update={
+                "results": apply_resolutions(
+                    response.results,
+                    resolutions_by_key(self.team.pk),
+                    include_resolved=bool(self.query.includeResolved),
+                )
+            }
+        )
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
         sources = self.query.sources if self.query.sources is not None else self._project_sources()
@@ -144,48 +174,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         customer_id=self._customer_id(source),
-                        resolved=frozenset(self._resolutions),
                     )
                 )
             )
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=self._apply_resolutions(dedupe_site_rules(results)), disclaimer=DISCLAIMER, dataGaps=data_gaps
+            results=dedupe_account_agnostic_rules(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
         )
-
-    @cached_property
-    def _resolutions(self) -> dict[IdentityKey, RecommendationResolution]:
-        return {
-            (
-                resolution.rule,
-                resolution.source_type,
-                resolution.customer_id,
-                resolution.campaign_id,
-                resolution.subject,
-            ): resolution
-            for resolution in RecommendationResolution.objects.for_team(self.team.pk)
-        }
-
-    def _apply_resolutions(
-        self, results: list[MarketingAnalyticsRecommendation]
-    ) -> list[MarketingAnalyticsRecommendation]:
-        annotated = []
-        for recommendation in results:
-            resolution = self._resolutions.get(identity_key(recommendation.identity))
-            if resolution is None:
-                annotated.append(recommendation)
-            elif self.query.includeResolved:
-                annotated.append(
-                    recommendation.model_copy(
-                        update={
-                            "resolution": MarketingAnalyticsRecommendationResolution(
-                                id=str(resolution.id),
-                                state=MarketingAnalyticsRecommendationResolutionState(resolution.resolution),
-                                resolvedAt=resolution.resolved_at.isoformat(),
-                            )
-                        }
-                    )
-                )
-        return annotated
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
         table_keys = all_queryable_table_keys(self.team.pk)
