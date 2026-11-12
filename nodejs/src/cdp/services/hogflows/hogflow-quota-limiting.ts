@@ -13,6 +13,8 @@ export const counterHogFlowQuotaLimited = new Counter({
     labelNames: ['team_id'],
 })
 
+export const HOG_FLOW_QUOTA_LIMITED_MESSAGE = 'The project is over its workflow quota'
+
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
 }
@@ -86,7 +88,7 @@ function sendsEmail(hogFlow: HogFlow): boolean {
  * Returns true if the invocation should be blocked, false otherwise.
  */
 export async function shouldBlockHogFlowDueToQuota(
-    item: CyclotronJobInvocationHogFlow,
+    item: Pick<CyclotronJobInvocationHogFlow, 'teamId' | 'functionId' | 'hogFlow'>,
     context: HogFlowQuotaLimitingContext
 ): Promise<boolean> {
     const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.quotaLimiting)

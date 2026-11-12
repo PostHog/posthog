@@ -27,10 +27,14 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Conversations": "Conversations",
     "Meetings": "Meetings",
     "SessionReplays": "Session replays",
+    "DotMatrix": "Dot matrix",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
+DOT_MATRIX_PRESET_SOURCES = ("usage_metrics", "product_usage")
+DOT_MATRIX_REQUIRED_MAPPING = frozenset({"row", "column"})
+DOT_MATRIX_MAPPING_KEYS = frozenset({"row", "column", "series", "value", "user", "rowLabel"})
 ACCOUNT_VIEW_IDENTITY_PROPS = {
     "accountId",
     "account_id",
@@ -132,8 +136,66 @@ def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
     return []
 
 
+def _dot_matrix_key_list_errors(keys: object, label: str) -> list[str]:
+    if (
+        not isinstance(keys, list)
+        or len(keys) > 64
+        or any(not isinstance(key, str) or not 1 <= len(key) <= 128 for key in keys)
+    ):
+        return [f"Dot matrix config must contain up to 64 {label} of 1 to 128 characters."]
+    if len(set(keys)) != len(keys):
+        return [f"Dot matrix config cannot contain duplicate {label}."]
+    return []
+
+
+def _dot_matrix_source_errors(source: object) -> list[str]:
+    if source is None:
+        return []
+    if not isinstance(source, dict):
+        return ["Dot matrix source must be an object."]
+    kind = source.get("kind")
+    if kind in DOT_MATRIX_PRESET_SOURCES:
+        return [] if set(source) == {"kind"} else ["Dot matrix source has unsupported fields."]
+    if kind != "hogql":
+        return ["Dot matrix source has an unsupported kind."]
+    if set(source) != {"kind", "query", "mapping"}:
+        return ["A HogQL source needs a query and a mapping."]
+    query = source["query"]
+    if not isinstance(query, str) or not query.strip():
+        return ["A HogQL source query cannot be empty."]
+    mapping = source["mapping"]
+    if (
+        not isinstance(mapping, dict)
+        or not DOT_MATRIX_REQUIRED_MAPPING.issubset(mapping)
+        or not DOT_MATRIX_MAPPING_KEYS.issuperset(mapping)
+        or any(not isinstance(column, str) or not 1 <= len(column) <= 128 for column in mapping.values())
+    ):
+        return [
+            "A HogQL source mapping needs row and column names and may add series, value, user, and row label names."
+        ]
+    return []
+
+
+def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
+    if set(config).difference({"dataset", "mode", "selectedSeries", "weeks", "metricIds", "source"}):
+        return ["Dot matrix config has unsupported fields."]
+    if "source" in config and (source_errors := _dot_matrix_source_errors(config["source"])):
+        return source_errors
+    if config.get("dataset", "people") not in ("product_activity", "people", "ci"):
+        return ["Dot matrix config has an unsupported dataset."]
+    if config.get("mode", "dots") not in ("dots", "count"):
+        return ["Dot matrix config has an unsupported display."]
+    weeks = config.get("weeks", 8)
+    if isinstance(weeks, bool) or not isinstance(weeks, int) or not 4 <= weeks <= 26:
+        return ["Dot matrix config weeks must be a whole number from 4 to 26."]
+    return _dot_matrix_key_list_errors(config.get("selectedSeries", []), "series keys") or _dot_matrix_key_list_errors(
+        config.get("metricIds", []), "metric IDs"
+    )
+
+
 ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
     "Properties": validate_properties_widget_config,
+    "DotMatrix": validate_dot_matrix_widget_config,
 }
 
 
