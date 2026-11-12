@@ -109,3 +109,14 @@ def test_a_run_whose_installation_is_gone_turns_the_daily_work_focus_off(org_tea
     row.refresh_from_db()
     # The picked time stays for when the person turns it on again from an installation that remains.
     assert row.next_run_at is None and row.at == time(8, 30)
+
+
+@pytest.mark.django_db
+def test_a_daily_run_queued_without_its_claimed_time_sends_nothing(workspace_integration) -> None:
+    outcome = find_slack_app_work_focus_activity(
+        SlackAppWorkFocusInputs(
+            integration_id=workspace_integration.id, slack_team_id=SLACK_TEAM_ID, slack_user_id="U_QUEUED", since=1
+        )
+    )
+
+    assert outcome == "superseded"

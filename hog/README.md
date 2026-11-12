@@ -42,6 +42,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                                  |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
+| `hog feedback [message]`                  | Sends feedback about hog or PostHog to the PostHog team. `-` reads it from stdin. See [Feedback](#feedback).                      |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
 ## What's left
@@ -183,6 +184,17 @@ A flag beats the environment variable, which beats `posthog.json`.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
 
+## Feedback
+
+`hog feedback "hog query run cuts off long values"` sends a message to the PostHog team. Its first line is the summary, and the whole text goes along when it's longer.
+
+- `--type` says what it's about: `cli` (hog itself, the default), `product`, `docs`, `mcp` or `other`. `--area` names the product or command, like `session replay`.
+- `--sentiment` is `positive`, `neutral`, `negative` or `mixed`, and `--suggestion` says what would make it better.
+- At a terminal, `hog feedback` alone asks for the message. Agents pass it as an argument, or `-` to read stdin.
+- It sends the event `cli feedback submitted` to the project telemetry goes to, with the same `feedback_` properties as the MCP server's `agent-feedback` tool.
+- Feedback goes out with telemetry off too, because you asked hog to send it. Then it carries no PostHog user, organization or install ID.
+- `--dry-run` shows the summary and type without sending anything.
+
 ## Telemetry
 
 hog sends usage events to PostHog, so the team can see who uses which commands and where they fail.
@@ -232,6 +244,7 @@ Point `$schema` at the published schema to get validation in your editor:
 `errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
 `endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
 `hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.

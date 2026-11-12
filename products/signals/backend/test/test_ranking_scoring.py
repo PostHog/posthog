@@ -35,6 +35,8 @@ from products.signals.backend.ranking.features import (
     PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
@@ -42,6 +44,8 @@ from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.report_facts import FACTS_SCHEMA_VERSION
 from products.signals.backend.ranking.scorer import (
     NO_PROJECT_VECTORS,
+    NO_REPORT_FACTS,
+    NO_REPORT_SOURCES,
     NO_VECTOR,
     PROJECT_VECTOR_KINDS_MISSING,
     ScoringError,
@@ -71,6 +75,7 @@ from products.signals.backend.report_embedding_reader import (
     latest_report_vectors,
 )
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_sources_reader import live_report_sources
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 
 PREFIX = "inbox_ranking_test"
@@ -698,6 +703,36 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         }
         assert scores[now_p0] > scores[now_p4]
 
+    @parameterized.expand(
+        [("read", None, "scored", None), ("read_fails", RuntimeError("down"), "skipped", NO_REPORT_SOURCES)]
+    )
+    def test_a_sources_model_scores_from_the_live_sources_or_is_skipped_when_the_read_fails(
+        self, _name: str, error: Exception | None, status: str, skip_reason: str | None
+    ) -> None:
+        self.team_id = self.team.id
+        served = self._served()
+        sources = self._challenger("nn_with_prio_sources", REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET)
+        self.store.publish_manifest([served, sources])
+        report = self._report(self.team.id)
+        vectors = {EMBEDDING_RENDERING_TITLE_SUMMARY: {report: ReportVector(embedding=_vector(1), inserted_at=LANDED)}}
+        read = patch.object(scorer, "live_report_sources", side_effect=error, return_value=[(report, "error_tracking")])
+
+        with read:
+            (outcome,), _, _ = self._score([report], vectors, persist=False)
+
+        assert outcome.score is not None
+        assert outcome.score.results[served.key].status == "scored"
+        result = outcome.score.results[sources.key]
+        assert (result.status, result.skip_reason) == (status, skip_reason)
+        if error is None:
+            return
+        model_store.clear_model_cache()
+        self.store.publish_manifest(
+            [self.store.publish_model("nn_with_prio_sources", REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET)]
+        )
+        with read, self.assertRaisesRegex(ScoringError, "reads report sources"):
+            self._score([report], vectors, persist=False)
+
     def test_without_persist_nothing_is_written_or_captured(self) -> None:
         self.team_id = self.team.id
         self.store.publish_manifest([self._served()])
@@ -712,6 +747,68 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         assert outcome.score is not None
         assert not SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.RANKING_SCORE).exists()
         assert captured.events == []
+
+
+class TestLiveReportSources(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(f"TRUNCATE TABLE {REPORT_EMBEDDINGS_TABLE}", flush=False, team_id=self.team.pk)
+        self.base = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=2)).replace(microsecond=0)
+
+    def _emit(
+        self,
+        signal_id: str,
+        report_id: str,
+        product: str,
+        *,
+        hours: int,
+        deleted: bool = False,
+        team_id: int | None = None,
+    ) -> None:
+        at = self.base + datetime.timedelta(hours=hours)
+        team_id = team_id or self.team.pk
+        metadata = {"report_id": report_id, "source_product": product, "deleted": deleted}
+        sync_execute(
+            f"""
+            INSERT INTO {REPORT_EMBEDDINGS_TABLE} (
+                team_id, product, document_type, rendering, document_id,
+                timestamp, inserted_at, content, metadata, embedding,
+                _timestamp, _offset, _partition
+            ) VALUES
+            """,
+            [
+                (
+                    team_id,
+                    "signals",
+                    "signal",
+                    "plain",
+                    signal_id,
+                    self.base,
+                    at,
+                    "",
+                    json.dumps(metadata),
+                    [0.0] * EMBEDDING_DIMENSIONS,
+                    at,
+                    0,
+                    0,
+                )
+            ],
+            flush=False,
+            team_id=team_id,
+        )
+
+    def test_reads_the_latest_emission_of_each_live_signal_of_the_team_only(self) -> None:
+        self._emit("s1", "r1", "error_tracking", hours=1)
+        self._emit("s2", "r1", "", hours=1)
+        self._emit("s3", "r1", "zendesk", hours=1)
+        self._emit("s3", "r1", "zendesk", hours=2, deleted=True)
+        self._emit("s4", "r1", "linear", hours=1)
+        self._emit("s4", "r2", "linear", hours=2)
+        self._emit("s5", "r1", "github", hours=1, team_id=self.team.pk + 1)
+
+        sources = live_report_sources(self.team.pk, ["r1", "r2", "absent"])
+
+        assert sorted(sources, key=str) == sorted([("r1", "error_tracking"), ("r1", None), ("r2", "linear")], key=str)
 
 
 @override_settings(INBOX_RANKING_RECORD_REPORT_FACTS=True)
@@ -767,6 +864,27 @@ class TestScorerRecordsFacts(ClickhouseTestMixin, _ScorerTestMixin, BaseTest):
         )
         SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=created_at)
 
+    def _assess(self, report_id: str, actionability: str) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": actionability, "already_addressed": False}),
+        )
+
+    def _ml_features_challenger(self, roles: Sequence[str] = (CROSS_FAMILY_ROLE,)) -> ServingManifestEntry:
+        feature_names = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.feature_names
+        x = pd.DataFrame(np.zeros((40, len(feature_names))), columns=list(feature_names))
+        x["actionability_immediately_actionable"] = np.arange(40) % 2
+        x["emb_0"] = np.random.default_rng(0).normal(size=40)
+        booster = xgb.XGBClassifier(n_estimators=3, max_depth=2).fit(x, x["actionability_immediately_actionable"])
+        entry = self.store.publish_model(
+            "nn_with_prio_ml_features", REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET, roles=roles
+        )
+        for head in HEADS:
+            self.store.objects[f"{entry.prefix}/{head}.ubj"] = bytes(booster.get_booster().save_raw("ubj"))
+        return entry
+
     def _pass(self, report_ids_by_team: Mapping[int, Sequence[str]]) -> list[dict[str, Any]]:
         vector = ReportVector(embedding=_vector(1), inserted_at=LANDED)
         vectors = {
@@ -814,22 +932,74 @@ class TestScorerRecordsFacts(ClickhouseTestMixin, _ScorerTestMixin, BaseTest):
             for properties in facts
         } == {(NOW.isoformat(), LANDED.isoformat(), FACTS_SCHEMA_VERSION)}
 
+    def test_an_ml_features_model_scores_from_the_facts_the_pass_records(self) -> None:
+        ml_features = self._ml_features_challenger()
+        self.store.publish_manifest([self._served(), ml_features])
+        actionable, not_actionable = self._report(self.team, title="A"), self._report(self.team, title="B")
+        unscored = self._report(self.team, title="C")
+        self._assess(actionable, "immediately_actionable")
+        self._assess(not_actionable, "not_actionable")
+        vector = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+        captured = _Captured()
+
+        with (
+            patch.object(
+                scorer,
+                "latest_report_vectors",
+                _FakeVectors({EMBEDDING_RENDERING_TITLE_SUMMARY: {actionable: vector, not_actionable: vector}}),
+            ),
+            patch.object(scorer, "read_report_facts", wraps=report_facts.read_report_facts) as read,
+        ):
+            score_reports(
+                self.team.id,
+                [actionable, not_actionable, unscored],
+                persist=True,
+                now=NOW,
+                capture=cast(Any, captured.record),
+            )
+
+        scored = {
+            event["properties"]["report_id"]: event["properties"]
+            for event in captured.events
+            if event["event"] == REPORT_SCORED_EVENT and event["properties"]["model_key"] == ml_features.key
+        }
+        assert {properties["status"] for properties in scored.values()} == {"scored"}
+        assert scored[actionable]["p_open"] > scored[not_actionable]["p_open"]
+        assert read.call_count == 1
+        assert {
+            event["properties"]["report_id"]: event["properties"]["actionability"]
+            for event in captured.events
+            if event["event"] == REPORT_FACTS_EVENT
+        } == {actionable: "immediately_actionable", not_actionable: "not_actionable"}
+
     @parameterized.expand([("read_fails", True), ("turned_off", False)])
     def test_without_facts_the_scores_still_persist_and_no_facts_event_is_captured(
         self, _name: str, enabled: bool
     ) -> None:
+        ml_features = self._ml_features_challenger()
+        self.store.publish_manifest([self._served(), ml_features])
         report = self._report(self.team)
+        read_fails = patch.object(
+            report_facts, "fetch_source_products_for_reports", side_effect=RuntimeError("unreachable")
+        )
 
-        with (
-            override_settings(INBOX_RANKING_RECORD_REPORT_FACTS=enabled),
-            patch.object(report_facts, "fetch_source_products_for_reports", side_effect=RuntimeError("unreachable")),
-        ):
+        with override_settings(INBOX_RANKING_RECORD_REPORT_FACTS=enabled), read_fails:
             events = self._pass({self.team.id: [report]})
 
         assert SignalReportArtefact.objects.filter(
             report_id=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
         ).exists()
-        assert [event["event"] for event in events] == [REPORT_SCORED_EVENT]
+        assert {
+            event["properties"]["model_key"]: (event["properties"]["status"], event["properties"]["skip_reason"])
+            for event in events
+            if event["event"] == REPORT_SCORED_EVENT
+        }[ml_features.key] == ("skipped", NO_REPORT_FACTS)
+        assert {event["event"] for event in events} == {REPORT_SCORED_EVENT}
+
+        model_store.clear_model_cache()
+        self.store.publish_manifest([self._ml_features_challenger(roles=[SERVED_ROLE])])
+        with read_fails, self.assertRaisesRegex(ScoringError, "reads report facts"):
+            self._pass({self.team.id: [report]})
 
 
 class TestLatestReportVectors(ClickhouseTestMixin, BaseTest):

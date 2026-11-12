@@ -144,8 +144,14 @@ jobs:
                     exit 1
                   fi
 
+            # The builder fetches the build source itself (see the build context below).
+            # The runner needs only the local composite actions, and docker-meta reads the
+            # HEAD commit metadata from the object database, which a sparse checkout keeps.
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -168,7 +174,12 @@ jobs:
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
-                  context: .
+                  # The full SHA pins this run's revision without Git query support in the builder.
+                  # BuildKit fetches the commit history because a ref such as refs/pull/N/merge can move during a run.
+                  context: ${{ github.server_url }}/${{ github.repository }}.git#${{ github.sha }}
+                  # The action adds this token only when the context is its own default URL. A private repository needs it to clone.
+                  secrets: |
+                      GIT_AUTH_TOKEN=${{ github.token }}
                   buildx-fallback: false
                   project: '00mrvlsdvh'
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
@@ -187,14 +198,16 @@ jobs:
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
                   echo "Full image reference: $IMAGE_REGISTRY/$ECR_IMAGE:${{ github.sha }}@$IMAGE_DIGEST"
-                  echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$IMAGE_REGISTRY/$ECR_IMAGE:${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  {
+                    echo "## Container image built :rocket:"
+                    echo ""
+                    echo "**Image reference:** \`$IMAGE_REGISTRY/$ECR_IMAGE:${{ github.sha }}@$IMAGE_DIGEST\`"
+                    echo ""
+                    echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`"
+                    echo ""
+                    echo "- Commit: \`${{ github.sha }}\`"
+                    echo "- Digest: \`$IMAGE_DIGEST\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Report failure
               if: failure()

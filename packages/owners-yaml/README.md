@@ -222,6 +222,10 @@ resolution = OwnersResolver().resolve("billing/api/invoices.py")
 resolution.owners  # ['team-billing', '@alice']
 ```
 
+Pass `include_added=False` to omit new-path metadata when only ownership is needed.
+The default still includes that metadata.
+Lint uses this mode for tracked-file coverage so files excluded by sparse checkout do not cause another ownership lookup.
+
 The names exported from the top-level `owners_yaml` package are the public API.
 Submodules can change between minor releases.
 

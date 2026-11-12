@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -53,7 +54,7 @@ function formatPValue(pValue: number): string {
     return `p = ${Number(pValue.toPrecision(2))}`
 }
 
-function formatHours(hours: number): string {
+export function formatHours(hours: number): string {
     return hours < 48 ? `${Math.floor(hours)} hours` : `${Math.floor(hours / 24)} days`
 }
 
@@ -108,6 +109,62 @@ function calculatedMetricsReading(values: HealthCheckValues | undefined): Health
     return reading('Metrics calculated', `${formatCount(completedCount)} of ${formatCount(metricCount)}`)
 }
 
+function invalidMetricsReading(values: HealthCheckValues | undefined): HealthReading | null {
+    const metricCount = numberValue(values, 'metric_count')
+    const invalidCount = numberValue(values, 'invalid_metric_count')
+    if (metricCount === null || invalidCount === null) {
+        return null
+    }
+    return reading("Metrics whose query doesn't compile", `${formatCount(invalidCount)} of ${formatCount(metricCount)}`)
+}
+
+function textReading(label: string, values: HealthCheckValues | undefined, key: string): HealthReading | null {
+    const value = values?.[key]
+    return reading(label, typeof value === 'string' ? value : null)
+}
+
+function receivedReading(values: HealthCheckValues | undefined): HealthReading | null {
+    if (typeof values?.event !== 'string' || values.event_received === undefined) {
+        return null
+    }
+    // Null means PostHog keeps no record of the event name, so it can't tell.
+    return reading(
+        'Received by this project',
+        values.event_received === true ? 'Yes' : values.event_received === false ? 'No' : 'Unknown'
+    )
+}
+
+function sampleReading(values: HealthCheckValues | undefined, units: string): HealthReading | null {
+    const samples = numberValue(values, 'sample_count')
+    const planned = numberValue(values, 'planned_sample_count')
+    if (samples === null) {
+        return null
+    }
+    return reading(
+        `${capitalizeFirstLetter(units)} so far`,
+        planned === null ? formatCount(samples) : `${formatCount(samples)} of ${formatCount(planned)} planned`
+    )
+}
+
+function timeReading(
+    label: string,
+    values: HealthCheckValues | undefined,
+    key: string,
+    asDate = false
+): HealthReading | null {
+    const time = values?.[key]
+    return typeof time === 'string' ? { label, time, asDate } : null
+}
+
+function dailyCalculationReading(values: HealthCheckValues | undefined): HealthReading | null {
+    const endsAt = values?.daily_calculation_ends_at
+    if (typeof endsAt !== 'string') {
+        return null
+    }
+    const label = dayjs(endsAt).isAfter(dayjs()) ? 'Daily calculation runs until' : 'Daily calculation stopped on'
+    return { label, time: endsAt, asDate: true }
+}
+
 function flagReading(values: HealthCheckValues | undefined): HealthReading | null {
     if (typeof values?.flag_active !== 'boolean') {
         return null
@@ -132,6 +189,8 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
     const primaryMetrics = numberValue(values, 'primary_metric_count')
     const waitingMetrics = numberValue(values, 'waiting_metric_count')
     const calculatedAt = values?.calculated_at
+
+    const uncheckedMetrics = numberValue(values, 'unchecked_metric_count')
 
     return [
         exposedReading(values, units),
@@ -167,8 +226,41 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         ),
         calculatedMetricsReading(values),
         numberReading('Metrics whose calculation failed', values, 'failed_metric_count', formatCount),
+        invalidMetricsReading(values),
+        uncheckedMetrics ? reading("Metrics it couldn't check", formatCount(uncheckedMetrics)) : null,
         typeof calculatedAt === 'string' ? { label: 'Last calculated', time: calculatedAt } : null,
         flagReading(values),
+        numberReading(
+            `${capitalizeFirstLetter(units)} who got a variant outside PostHog`,
+            values,
+            'assigned_outside_count',
+            formatCount
+        ),
+        textReading('Feature flag variants', values, 'flag_split'),
+        textReading('Baseline variant', values, 'baseline_variant'),
+        numberReading('Other running experiments on this flag', values, 'other_running_experiment_count', formatCount),
+        numberReading('Other draft experiments on this flag', values, 'other_draft_experiment_count', formatCount),
+        timeReading('Last flag call', values, 'flag_last_called_at'),
+        textReading('Exposure event', values, 'event'),
+        receivedReading(values),
+        numberReading('Running for', values, 'since_start_hours', formatHours),
+        dailyCalculationReading(values),
+        reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
+        sampleReading(values, units),
+        numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),
+        numberReading(
+            `${capitalizeFirstLetter(units)} the release conditions served`,
+            values,
+            'matched_count',
+            formatCount
+        ),
+        timeReading('Counted since', values, 'traffic_since_at', true),
+        numberReading(
+            'Calls evaluated by the flag service',
+            values,
+            'flag_service_call_percentage',
+            formatHealthPercentage
+        ),
     ].filter((line): line is HealthReading => line !== null)
 }
 
@@ -191,6 +283,8 @@ function warnsWhen(rule: HealthCheckRule, units: string): string {
             return rule.warns === 'below' && threshold === 1
                 ? `No ${units} are exposed`
                 : `${comparative(rule, 'More', 'Fewer')} than ${formatCount(threshold)} ${units} are exposed`
+        case 'since_start_hours':
+            return `The experiment runs for ${comparative(rule, 'more', 'less')} than ${formatHours(threshold)}`
         default:
             return `${rule.value} is ${rule.warns} ${threshold}`
     }

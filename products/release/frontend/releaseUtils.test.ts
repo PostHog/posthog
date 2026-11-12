@@ -102,7 +102,7 @@ describe('buildReleaseRow', () => {
         ).toEqual([
             ['Broadcast sent', undefined],
             ['Broadcast failed', undefined],
-            ['Broadcast', true],
+            ['Broadcast scheduled', true],
         ])
         expect(result.nextDate).toBe(NEXT_SEND)
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')
@@ -134,6 +134,25 @@ describe('buildReleaseRow', () => {
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('early-access')
     })
 
+    it('waits for linked flags that have not loaded yet instead of asking to link one', () => {
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id],
+            has_hidden_flags: false,
+            broadcast_ids: [],
+            broadcasts: [],
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex([], [], [], [], { complete: true, resolvedFlagIds: [], unknownFlagIds: [] })
+
+        const result = buildReleaseRow(release, index)
+
+        expect([result.stage, result.status, result.nextStep?.title]).toEqual(['flag', 'Loading flags…', undefined])
+    })
+
     it.each([
         ['every linked flag is visible', false, [FLAG], 'released', 'Clean up the flag', false],
         ['a linked flag is hidden from the caller', true, [FLAG], 'flag', undefined, false],
@@ -145,6 +164,42 @@ describe('buildReleaseRow', () => {
         expect(result.stage).toBe(stage)
         expect(result.nextStep?.title).toBe(nextStep)
         expect(result.needsDecision).toBe(needsDecision)
+    })
+
+    it('counts only flags open to all users toward the flags that reach everyone', () => {
+        const targeted = {
+            ...FLAG,
+            id: 2,
+            key: 'quiet-theme-paid',
+            filters: { groups: [{ properties: [{ key: 'plan', value: 'paid' }], rollout_percentage: 100 }] },
+        } as unknown as FeatureFlagApi
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id, targeted.id],
+            has_hidden_flags: false,
+            broadcast_ids: [],
+            broadcasts: [],
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex([FLAG, targeted], [], [], [], {
+            complete: true,
+            resolvedFlagIds: [FLAG.id, targeted.id],
+            unknownFlagIds: [],
+        })
+
+        expect(buildReleaseRow(release, index).headline).toBe('1 of 2 flags reach everyone')
+    })
+})
+
+describe('broadcast suggestion', () => {
+    it('links the new broadcast to the release without asking for an audience', () => {
+        const suggestion = row(false).suggestions.find((item) => item.key === 'broadcast')
+        const params = new URL(suggestion?.to ?? '', 'https://example.com').searchParams
+
+        expect([params.get('source_record'), params.has('audience')]).toEqual(['release:release-1', false])
     })
 })
 
