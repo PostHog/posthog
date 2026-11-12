@@ -34,7 +34,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
     followUp?: {
         flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
-        offer(unit: Unit, context: OfferContext): Promise<FollowUpAnswer>
+        offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<FollowUpAnswer>
     }
 }
 
@@ -211,8 +211,9 @@ export const bounceFollowup: TrafficKind = {
     offer: (unit, context) => produce(context, unit, BOUNCE_EVENT, { email: unitAddress(unit) }),
     followUp: {
         flow: transactionalEmail.flow,
-        offer: async (unit, { sesFeedback, cdpApi }) => {
-            const notSent = await sesFeedback.settled(unit.unitId)
+        offer: async (unit, { sesFeedback, cdpApi }, signal) => {
+            const notSent = await sesFeedback.settled(unit.unitId, signal)
+            signal.throwIfAborted()
             return notSent === undefined ? sendTransactional(unit, cdpApi) : { notSent }
         },
     },

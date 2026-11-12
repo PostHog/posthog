@@ -8,7 +8,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import type { LoadedCard } from '../cards'
 import { durationMs } from '../duration'
-import type { Judge } from '../judge/judge'
+import type { FollowUpAnswer, Judge } from '../judge/judge'
 import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
 export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
@@ -99,6 +99,7 @@ export async function drive(
     const end = start + forMs
     let offeredUnits = 0
     const offers: Promise<void>[] = []
+    const followUps: Promise<unknown>[] = []
     const failed = new AbortController()
     const stop = AbortSignal.any([signal, failed.signal])
     for (const [n, { kind, atMs }] of schedule.entries()) {
@@ -123,10 +124,12 @@ export async function drive(
         const offeredAt = Date.now()
         const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
             const answeredAt = Date.now()
-            const followUp =
-                kind.followUp && followUpFlowId !== undefined && answer.accepted && !stop.aborted
-                    ? await kind.followUp.offer({ unitId, teamId, flowId: followUpFlowId }, context)
-                    : undefined
+            let followUp: FollowUpAnswer | undefined
+            if (kind.followUp && followUpFlowId !== undefined && answer.accepted && !stop.aborted) {
+                const offered = kind.followUp.offer({ unitId, teamId, flowId: followUpFlowId }, context, stop)
+                followUps.push(offered)
+                followUp = await offered
+            }
             if (stop.aborted) {
                 return
             }
@@ -143,10 +146,15 @@ export async function drive(
                 offeredUnits += 1
             }
         })
-        offer.catch((error: unknown) => failed.abort(error))
+        offer.catch((error: unknown) => {
+            if (!stop.aborted) {
+                failed.abort(error)
+            }
+        })
         offers.push(offer)
     }
     await untilAborted(Promise.all(offers), stop)
+    await Promise.allSettled(followUps)
     if (!stop.aborted && Date.now() < end) {
         await pause(end - Date.now(), stop)
     }

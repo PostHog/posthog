@@ -309,7 +309,7 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
     })
 
-    it.each<[string, 'bounce' | 'rejected' | undefined, FollowUpAnswer, object]>([
+    it.each<[string, 'bounce' | 'rejected' | undefined, FollowUpAnswer | undefined, object]>([
         [
             'bounced, then refused as suppressed',
             'bounce',
@@ -326,6 +326,12 @@ describe('judge', () => {
                 violation: `${UNIT}: the follow-up was not sent: the edge recorded no SES feedback within 60s`,
                 unitIds: [UNIT],
             },
+        ],
+        [
+            'bounced, with no follow-up',
+            'bounce',
+            undefined,
+            { passed: false, observed: 1, violation: `${UNIT}: no follow-up was offered`, unitIds: [UNIT] },
         ],
         [
             'bounced, then accepted again',

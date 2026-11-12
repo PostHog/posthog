@@ -5,6 +5,7 @@ import type { TruthRecord } from '../provider-edge'
 import { watchSesFeedback } from './ses-feedback'
 
 const UNIT = 'run-a-1'
+const NEVER_ABORTED = new AbortController().signal
 
 type Feedback = Pick<TruthRecord, 'unitId' | 'status' | 'detail'> & Partial<Pick<TruthRecord, 'kind'>>
 
@@ -77,7 +78,7 @@ describe('watchSesFeedback', () => {
         try {
             const watch = watchSesFeedback({ edgeUrl: edge.url, lag, withinMs: 1000, pollMs: 5 })
 
-            expect(await watch.settled(UNIT)).toBe(expected)
+            expect(await watch.settled(UNIT, NEVER_ABORTED)).toBe(expected)
         } finally {
             await edge.close()
         }

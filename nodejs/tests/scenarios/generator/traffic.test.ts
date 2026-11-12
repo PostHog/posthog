@@ -106,7 +106,13 @@ describe('bounce_followup traffic', () => {
     ])('%s', async (_story, settled, expected, sends) => {
         const cdpApi = await startCdpApi({ status: 422, body: { error: 'recipient_suppressed' } })
         try {
-            expect(await bounceFollowup.followUp!.offer(UNIT, contextFor(cdpApi.url, settled))).toEqual(expected)
+            expect(
+                await bounceFollowup.followUp!.offer(
+                    UNIT,
+                    contextFor(cdpApi.url, settled),
+                    new AbortController().signal
+                )
+            ).toEqual(expected)
             expect(cdpApi.received).toHaveLength(sends)
         } finally {
             await cdpApi.close()

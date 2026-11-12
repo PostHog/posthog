@@ -6,7 +6,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { TruthPage, TruthRecord } from '../provider-edge'
 
 export interface SesFeedback {
-    settled(unitId: string): Promise<string | undefined>
+    settled(unitId: string, signal: AbortSignal): Promise<string | undefined>
 }
 
 export type SesFeedbackOptions = {
@@ -45,7 +45,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
     const read = (): Promise<void> => (reading ??= readTruth().finally(() => (reading = undefined)))
 
     return {
-        async settled(unitId) {
+        async settled(unitId, signal) {
             const deadline = Date.now() + withinMs
             for (;;) {
                 await read()
@@ -59,7 +59,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
                 if (Date.now() >= deadline) {
                     return `the edge recorded no SES feedback within ${withinMs / 1000}s`
                 }
-                await sleep(pollMs)
+                await sleep(pollMs, undefined, { signal })
             }
             for (;;) {
                 const behind = await lag()
@@ -69,7 +69,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
                 if (Date.now() >= deadline) {
                     return `the SES webhooks consumer was ${behind} messages behind after ${withinMs / 1000}s`
                 }
-                await sleep(pollMs)
+                await sleep(pollMs, undefined, { signal })
             }
         },
     }

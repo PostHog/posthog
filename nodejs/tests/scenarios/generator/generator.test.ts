@@ -122,7 +122,6 @@ describe('drive', () => {
             'its first send was accepted',
             () => Promise.resolve(),
             {
-                followUps: ['run-a-1'],
                 journal: [{ unitId: 'run-a-1', answer: { accepted: true }, followUp: { notSent: 'no feedback' } }],
                 summary: { targetUnits: 1, offeredUnits: 1 },
             },
@@ -131,7 +130,6 @@ describe('drive', () => {
             'its first send was refused',
             () => Promise.reject(new Error('broker down')),
             {
-                followUps: [],
                 journal: [{ unitId: 'run-a-1', answer: { accepted: false }, followUp: undefined }],
                 summary: { targetUnits: 1, offeredUnits: 0 },
             },
@@ -139,12 +137,8 @@ describe('drive', () => {
     ])(
         'journals a follow-up after the window with the unit, and counts it by its first answer, once %s',
         async (_story, produce, expected) => {
-            const followUps: string[] = []
             const sesFeedback = {
-                settled: (unitId: string) => {
-                    followUps.push(unitId)
-                    return new Promise<string>((resolve) => setTimeout(() => resolve('no feedback'), 5000))
-                },
+                settled: () => new Promise<string>((resolve) => setTimeout(() => resolve('no feedback'), 5000)),
             }
             const { driving, journal } = startDrive(
                 cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'bounce_followup' }),
@@ -156,11 +150,54 @@ describe('drive', () => {
 
             expect({
                 summary: await driving,
-                followUps,
                 journal: journal.map(({ unitId, answer, followUp }) => ({ unitId, answer, followUp })),
             }).toMatchObject(expected)
         }
     )
+
+    it('sends no follow-up after an interrupt, and returns once the follow-up it waited on settled', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        let followUpsSent = 0
+        const server = http.createServer((request, response) => {
+            followUpsSent += 1
+            request.resume()
+            response.writeHead(422).end(JSON.stringify({ error: 'recipient_suppressed' }))
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        const interrupt = new AbortController()
+        try {
+            const { driving, journal } = startDrive(
+                cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'bounce_followup' }),
+                ACKNOWLEDGED,
+                {
+                    signal: interrupt.signal,
+                    cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                    sesFeedback: {
+                        settled: () => new Promise((resolve) => setTimeout(() => resolve(undefined), 1000)),
+                    },
+                }
+            )
+            let summary: Summary | undefined
+            void driving.then((ended) => (summary = ended))
+
+            await jest.advanceTimersByTimeAsync(50)
+            interrupt.abort()
+            await jest.advanceTimersByTimeAsync(949)
+            const beforeTheFollowUpSettled = summary
+            await jest.advanceTimersByTimeAsync(1)
+
+            expect({ beforeTheFollowUpSettled, summary: await driving, followUpsSent, journal }).toEqual({
+                beforeTheFollowUpSettled: undefined,
+                summary: { targetUnits: 1, offeredUnits: 0 },
+                followUpsSent: 0,
+                journal: [],
+            })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
 
     it('counts a transactional unit sent inside the window though cdp-api refused it after the window', async () => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })

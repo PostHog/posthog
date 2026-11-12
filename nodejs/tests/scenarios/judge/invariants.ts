@@ -146,7 +146,10 @@ export const bouncedSuppressed: InvariantDefinition = {
             )
         )
         const unsuppressed = journal.flatMap(({ unitId, followUp }) => {
-            const reason = followUp && bounced.has(unitId) ? unsuppressedReason(followUp) : undefined
+            if (!bounced.has(unitId)) {
+                return []
+            }
+            const reason = followUp ? unsuppressedReason(followUp) : 'no follow-up was offered'
             return reason === undefined ? [] : [{ unitId, reason }]
         })
         const [first] = unsuppressed
