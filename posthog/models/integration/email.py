@@ -1,6 +1,7 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 import json
+import secrets
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -19,7 +20,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationConflict, IntegrationNotFound, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import (
+    IntegrationConflict,
+    IntegrationNotFound,
+    IntegrationPatch,
+    IntegrationRecord,
+    UpdatedRows,
+)
 from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -28,7 +35,11 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from . import model, row_writes
 
 if TYPE_CHECKING:
-    from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
+    from products.workflows.backend.facade.contracts import (
+        EmailDomainCheck,
+        EmailDomainDnsRecord,
+        EmailDomainVerification,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +48,8 @@ EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
 # Each domain still waiting for verification holds an identity at the email provider, and the provider
 # caps identities per region for all customers together.
 MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION = 3
+
+ORGANIZATION_PROOF_TOKEN_KEY = "organization_proof_token"
 
 
 def _duplicate_sender_error(email_address: str) -> ValidationError:
@@ -72,6 +85,55 @@ def _senders_of_other_organizations(domain: str, organization_id: str) -> list[m
         model.Integration.objects.filter(kind="email", config__domain=domain).exclude(
             team__organization_id=organization_id
         )
+    )
+
+
+def _organization_proof_token_for(domain: str, organization_id: str) -> str:
+    """The token of the organization's existing senders on the domain, so its projects share one record."""
+    existing = (
+        model.Integration.objects.filter(
+            kind="email",
+            config__domain=domain,
+            team__organization_id=organization_id,
+            config__has_key=ORGANIZATION_PROOF_TOKEN_KEY,
+        )
+        .values_list(f"config__{ORGANIZATION_PROOF_TOKEN_KEY}", flat=True)
+        .first()
+    )
+    return existing or secrets.token_hex(16)
+
+
+def _proof_record(domain: str, token: str) -> "EmailDomainDnsRecord":
+    from products.workflows.backend.facade.api import (
+        email_domain_organization_proof_record,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+    )
+
+    return email_domain_organization_proof_record(domain, token=token)
+
+
+def _proof_published(domain: str, token: str) -> bool:
+    from products.workflows.backend.facade.api import (
+        email_domain_organization_proof_published,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+    )
+
+    return email_domain_organization_proof_published(domain, token=token)
+
+
+def _release_claims(domain: str, claimants: Sequence[model.Integration]) -> None:
+    """End the claims of the other organizations, which could not publish the verifying organization's record."""
+    for claimant in claimants:
+        try:
+            row_writes.row_accessor(claimant).delete(claimant.team_id, claimant.id, ignore_usages=True)
+        except IntegrationNotFound:
+            continue
+    from products.workflows.backend.facade.api import (
+        remove_ses_tenant_associations,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+    )
+
+    # The domain identity stays for the verifying organization, so the delete hook keeps it and its links to the
+    # other organizations' tenants. Those links would make the identity look foreign to the verifying organization.
+    remove_ses_tenant_associations(
+        domain, team_ids={claimant.team_id for claimant in claimants if claimant.config.get("provider") == "ses"}
     )
 
 
@@ -163,6 +225,7 @@ class EmailIntegration:
                     "name": name,
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
+                    ORGANIZATION_PROOF_TOKEN_KEY: _organization_proof_token_for(domain, str(organization_id)),
                 },
                 created_by_id=created_by.id if created_by else None,
             )
@@ -179,6 +242,13 @@ class EmailIntegration:
         )
 
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
+
+        # The identity at the provider is shared by every organization that added the domain, so a claim that has
+        # not proven ownership must not change it for the others.
+        if mail_from_changed and not self.integration.config.get("verified") and self._other_organization_senders():
+            raise ValidationError(
+                "Another organization also added this domain. Verify the domain before you change its MAIL FROM subdomain."
+            )
 
         if provider == "ses":
             if mail_from_changed:
@@ -260,26 +330,26 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
-        if verification_result.get("status") == "success" and (claimants := self._other_organization_senders()):
-            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                email_domain_organization_proof_published,
-                email_domain_organization_proof_record,
-            )
+        if verification_result.get("status") != "success":
+            return verification_result
 
-            organization_id = self._organization_id()
-            if not email_domain_organization_proof_published(domain, organization_id=organization_id):
-                return {
-                    "status": "pending",
-                    "dnsRecords": [
-                        *verification_result["dnsRecords"],
-                        email_domain_organization_proof_record(domain, organization_id=organization_id),
-                    ],
-                }
-            self._release_claims(claimants)
-
-        if verification_result.get("status") == "success":
-            self._mark_domain_verified(on_domain_verified)
-
+        # Under the domain lock, a claim added by another organization either commits before this check or waits
+        # until this verification is recorded, so two organizations cannot each release the other's claim.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                lock_sender_domain(cursor, domain)
+            if claimants := self._other_organization_senders():
+                proof_token = self._organization_proof_token()
+                if any(claimant.config.get("verified") is True for claimant in claimants) or not _proof_published(
+                    domain, proof_token
+                ):
+                    return {
+                        "status": "pending",
+                        "dnsRecords": [*verification_result["dnsRecords"], _proof_record(domain, proof_token)],
+                    }
+                _release_claims(domain, claimants)
+            senders = self._record_verification()
+        self._announce_verification(senders, on_domain_verified)
         return verification_result
 
     def _organization_id(self) -> str:
@@ -288,13 +358,17 @@ class EmailIntegration:
     def _other_organization_senders(self) -> list[model.Integration]:
         return _senders_of_other_organizations(self.integration.config["domain"], self._organization_id())
 
-    # The other claimants could not publish this organization's record, so their claims end once it verifies.
-    def _release_claims(self, claimants: Sequence[model.Integration]) -> None:
-        for claimant in claimants:
-            try:
-                row_writes.row_accessor(claimant).delete(claimant.team_id, claimant.id, ignore_usages=True)
-            except IntegrationNotFound:
-                continue
+    def _organization_proof_token(self) -> str:
+        if token := self.integration.config.get(ORGANIZATION_PROOF_TOKEN_KEY):
+            return token
+        # Senders added before the record existed have no token, so the first contested check stores one.
+        token = _organization_proof_token_for(self.integration.config["domain"], self._organization_id())
+        self.integration = model.integration_model(
+            row_writes.update_row(
+                self.integration, IntegrationPatch(config_patch={ORGANIZATION_PROOF_TOKEN_KEY: token})
+            )
+        )
+        return token
 
     def status(
         self,
@@ -321,7 +395,7 @@ class EmailIntegration:
             )
 
             check = email_domain_check_with_organization_proof(
-                check, domain=self.integration.config["domain"], organization_id=self._organization_id()
+                check, domain=self.integration.config["domain"], token=self._organization_proof_token()
             )
         # Reading the status never saves the verification. The caller records it with verify().
         unrecorded_verification = check.is_verified and not self.integration.config.get("verified")
@@ -367,7 +441,7 @@ class EmailIntegration:
             return get_maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
         raise ValueError(f"Invalid provider: {provider}")
 
-    def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
+    def _record_verification(self) -> UpdatedRows:
         original = self.integration
         senders = row_writes.row_accessor(original).update_where(
             original.team_id,
@@ -380,7 +454,9 @@ class EmailIntegration:
         else:
             row_writes.keep_caller_row_current(original, fresh)
         self.integration = model.integration_model(fresh)
+        return senders
 
+    def _announce_verification(self, senders: UpdatedRows, on_domain_verified: Callable[[], None] | None) -> None:
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )

@@ -697,6 +697,17 @@ class SESProvider:
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
 
+    def remove_tenant_associations(self, domain: str, *, team_ids: Iterable[int]) -> None:
+        arn = self._identity_arn(domain)
+        for team_id in team_ids:
+            try:
+                self.ses_v2_client.delete_tenant_resource_association(
+                    TenantName=self._tenant_name_for_team(team_id), ResourceArn=arn
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+
     def disable_feedback_forwarding(self, domain: str) -> None:
         """
         Stop SES from emailing bounce and complaint notices to the sender address.

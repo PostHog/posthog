@@ -117,6 +117,7 @@ class FakeSes:
                 "create_tenant": self._create_tenant,
                 "create_tenant_resource_association": self._create_tenant_resource_association,
                 "list_resource_tenants": self._list_resource_tenants,
+                "delete_tenant_resource_association": self._delete_tenant_resource_association,
                 "put_email_identity_feedback_attributes": self._put_email_identity_feedback_attributes,
             },
             "sts": {"get_caller_identity": lambda: {"Account": ACCOUNT_ID}},
@@ -212,6 +213,14 @@ class FakeSes:
                 if ResourceArn in resources
             ]
         }
+
+    def _delete_tenant_resource_association(self, *, TenantName: str, ResourceArn: str) -> dict:
+        self.writes.append("delete_tenant_resource_association")
+        resources = self.tenant_resources.get(TenantName, set())
+        if ResourceArn not in resources:
+            raise ClientError({"Error": {"Code": "NotFoundException"}}, "DeleteTenantResourceAssociation")
+        resources.discard(ResourceArn)
+        return {}
 
     def _known(self, domains: list[str]) -> list[SesIdentity]:
         return [self.identities[domain] for domain in domains if domain in self.identities]

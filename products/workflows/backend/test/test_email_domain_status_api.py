@@ -7,6 +7,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import Integration
 from posthog.models.integration.email import EmailIntegration
@@ -468,22 +469,51 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
             organization_id=str(other_organization.id),
         )
 
+    def _organization_record(self, records: list[dict]) -> dict:
+        return next(record for record in records if record["kind"] == "organization")
+
     def test_only_the_organization_that_publishes_its_own_record_verifies_the_domain(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         records = self.records_to_publish(sender)
         assert [record["kind"] for record in records if record["kind"] not in ALL_KINDS] == ["organization"]
+        other_records = EmailIntegration(self.other_sender).status(refresh=True).check.records
+        other_record = next(record for record in other_records if record.kind == "organization")
+        assert other_record.value != self._organization_record(records)["value"]
 
         self.publish(records, *ALL_KINDS)
+        self.world.dns.publish_txt(other_record.hostname, other_record.value)
         body = self.status_body(sender)
         assert (body["status"], record_statuses(body)["organization"]) == ("pending", ["pending"])
-        assert EmailIntegration(self.other_sender).verify()["status"] == "pending"
-        assert not self.is_verified(self.other_sender.id)
+        assert self.verify(sender).json()["status"] == "pending"
+        assert not self.is_verified(sender)
 
         self.publish(records, "organization")
         assert self.status_body(sender)["status"] == "verified"
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
         assert not Integration.objects.filter(id=self.other_sender.id).exists()
+        self.create_sender(f"news@{DOMAIN}")
+
+    def test_a_domain_another_organization_verified_does_not_verify_again(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        self.publish(records, *ALL_KINDS, "organization")
+        Integration.objects.filter(id=self.other_sender.id).update(
+            config={**self.other_sender.config, "verified": True}
+        )
+
+        assert self.verify(sender).json()["status"] == "pending"
+        assert not self.is_verified(sender)
+        assert Integration.objects.filter(id=self.other_sender.id).exists()
+
+    def test_an_unverified_claim_cannot_change_the_shared_mail_from_subdomain(self) -> None:
+        self.create_sender(f"hello@{DOMAIN}")
+
+        with self.assertRaisesMessage(ValidationError, "Verify the domain before you change"):
+            EmailIntegration(self.other_sender).update_native_integration(
+                {"mail_from_subdomain": "bounce"}, self.other_team.id
+            )
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
 
 
 class TestEmailDomainDnsLookups(EmailDomainApiTestCase):

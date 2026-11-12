@@ -493,25 +493,23 @@ def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_i
     )
 
 
-def email_domain_check_with_organization_proof(
-    check: EmailDomainCheck, *, domain: str, organization_id: str
-) -> EmailDomainCheck:
+def email_domain_check_with_organization_proof(check: EmailDomainCheck, *, domain: str, token: str) -> EmailDomainCheck:
     """The check, with the record that proves this organization owns a domain another organization also claims."""
     from products.workflows.backend.services.email_domain_proof import with_organization_proof  # noqa: PLC0415
 
-    return with_organization_proof(check, domain=domain, organization_id=organization_id)
+    return with_organization_proof(check, domain=domain, token=token)
 
 
-def email_domain_organization_proof_published(domain: str, *, organization_id: str) -> bool:
+def email_domain_organization_proof_published(domain: str, *, token: str) -> bool:
     from products.workflows.backend.services.email_domain_proof import organization_proof_published  # noqa: PLC0415
 
-    return organization_proof_published(domain, organization_id)
+    return organization_proof_published(domain, token)
 
 
-def email_domain_organization_proof_record(domain: str, *, organization_id: str) -> EmailDomainDnsRecord:
+def email_domain_organization_proof_record(domain: str, *, token: str) -> EmailDomainDnsRecord:
     from products.workflows.backend.services.email_domain_proof import organization_proof_record  # noqa: PLC0415
 
-    record = organization_proof_record(domain, organization_id)
+    record = organization_proof_record(domain, token)
     return {
         "type": "verification",
         "recordType": "TXT",
@@ -519,6 +517,12 @@ def email_domain_organization_proof_record(domain: str, *, organization_id: str)
         "recordValue": record.value,
         "status": "pending",
     }
+
+
+def remove_ses_tenant_associations(domain: str, *, team_ids: Iterable[int]) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().remove_tenant_associations(domain, team_ids=team_ids)
 
 
 def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:
