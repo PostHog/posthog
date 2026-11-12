@@ -28,6 +28,8 @@ interface DashboardLayoutInteraction {
     startInteraction: (layout: Layout, item: LayoutItem, kind: InteractionKind) => void
     /** `discardLayout` drops the gesture's layout, for a tile that left its grid. */
     finishInteraction: (options?: { discardLayout?: boolean }) => void
+    /** Makes the grid settle the current gesture on the layout it had before the gesture. */
+    cancelInteraction: () => void
 }
 
 export function useDashboardLayoutInteraction({
@@ -45,6 +47,7 @@ export function useDashboardLayoutInteraction({
     const resizeNeighbors = useRef<ResizeNeighbors>({})
     const activeItemId = useRef<string | null>(null)
     const interactionKind = useRef<InteractionKind | null>(null)
+    const interactionCanceled = useRef(false)
 
     const gridCompactor = useMemo<Compactor>(() => {
         const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
@@ -56,6 +59,11 @@ export function useDashboardLayoutInteraction({
                 const activeTileId = activeItemId.current
                 if (!baseline || !activeTileId) {
                     return compactor.compact(layout, cols)
+                }
+                // react-grid-layout ends a resize with the layout from its last render, which can still hold the
+                // carried size when the pointer moved back in the same task. The baseline does not depend on renders.
+                if (interactionCanceled.current && layout.some((layoutItem) => layoutItem.i === activeTileId)) {
+                    return baseline.map((layoutItem) => cloneLayoutItem(layoutItem))
                 }
 
                 const restoredLayout = restoreUnmovedItemPositions(
@@ -102,6 +110,7 @@ export function useDashboardLayoutInteraction({
         baselineById.current = new Map(baselineLayout.current.map((layoutItem) => [layoutItem.i, layoutItem]))
         activeItemId.current = item.i
         interactionKind.current = kind
+        interactionCanceled.current = false
         resizeNeighbors.current = kind === 'resize' ? getResizeNeighbors(baselineLayout.current, item, item.i) : {}
     }, [])
 
@@ -123,9 +132,21 @@ export function useDashboardLayoutInteraction({
             resizeNeighbors.current = {}
             activeItemId.current = null
             interactionKind.current = null
+            interactionCanceled.current = false
         },
         [updateLayouts]
     )
 
-    return { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction }
+    const cancelInteraction = useCallback((): void => {
+        interactionCanceled.current = true
+    }, [])
+
+    return {
+        gridCompactor,
+        handleLayoutChange,
+        interactionInProgress,
+        startInteraction,
+        finishInteraction,
+        cancelInteraction,
+    }
 }

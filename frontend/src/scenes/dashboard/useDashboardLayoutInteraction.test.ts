@@ -76,4 +76,22 @@ describe('useDashboardLayoutInteraction', () => {
 
         expect(updateLayouts).not.toHaveBeenCalled()
     })
+
+    it('settles a canceled gesture on the layout from before it, whatever size the grid last rendered', () => {
+        const { gridCompactor, startInteraction, cancelInteraction, finishInteraction } = renderInteraction()
+        const neighbor: LayoutItem = { i: '2', x: 6, y: 0, w: 6, h: 5 }
+        const grown: Layout = [
+            { ...item, w: 9, h: 7 },
+            { ...neighbor, x: 9 },
+        ]
+
+        startInteraction([item, neighbor], item, 'resize')
+        cancelInteraction()
+
+        expect(gridCompactor.compact(grown, 12).map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))).toEqual([
+            item,
+            neighbor,
+        ])
+        finishInteraction()
+    })
 })

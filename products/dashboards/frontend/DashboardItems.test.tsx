@@ -383,7 +383,7 @@ describe('DashboardItems', () => {
         it.each([
             { name: 'with nothing over the grid', overrides: {}, undoes: true },
             { name: 'while the text tile modal is open', overrides: { showTextTileModal: true }, undoes: false },
-            { name: 'while a tile is carried', overrides: { carryingTile: true }, undoes: false },
+            { name: 'while a tile is carried', overrides: { carryingTile: 'move' }, undoes: false },
             {
                 name: 'on an embedded dashboard',
                 overrides: { placement: DashboardPlacement.ProjectHomepage },

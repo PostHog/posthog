@@ -25,7 +25,7 @@ interface CarryTileProps extends TilePickUp {
     clientX: number
     clientY: number
     held?: boolean
-    onHeldRelease?: () => void
+    onHeldRelease?: (event: MouseEvent) => void
     onDrop: () => void
     onCancel: () => void
 }
@@ -41,6 +41,10 @@ function swallowEvent(event: Event): void {
     event.stopPropagation()
 }
 
+export function travelledLikeClick(press: { x: number; y: number }, clientX: number, clientY: number): boolean {
+    return Math.hypot(clientX - press.x, clientY - press.y) <= CLICK_TRAVEL_LIMIT_PX
+}
+
 export function getTilePickUp(
     event: MouseEvent,
     press: { x: number; y: number } | null,
@@ -50,7 +54,7 @@ export function getTilePickUp(
     if (!press || event.button !== 0 || event.detail > 1) {
         return null
     }
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_TRAVEL_LIMIT_PX) {
+    if (!travelledLikeClick(press, event.clientX, event.clientY)) {
         return null
     }
     const target = event.target instanceof Element ? event.target : null
@@ -118,7 +122,7 @@ export function carryTile({
             // Letting go of the held press keeps the tile moving, so react-grid-layout must not see this release.
             awaitingHeldRelease = false
             swallowEvent(event)
-            onHeldRelease?.()
+            onHeldRelease?.(event)
             return
         }
         // This release has to reach react-grid-layout to end the drag. Only the click that follows is swallowed.

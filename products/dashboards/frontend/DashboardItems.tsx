@@ -295,12 +295,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         canEditLayout ? 'dashboard-layout-editable dashboard-drop-space-end' : 'dashboard-layout-static'
     )
 
-    const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction } = useDashboardLayoutInteraction({
-        enabled: canEditLayout,
-        layoutCompaction: dashboard?.customization?.layout_compaction,
-        // Each band grid reports only its own tiles.
-        updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
-    })
+    const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction, cancelInteraction } =
+        useDashboardLayoutInteraction({
+            enabled: canEditLayout,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            // Each band grid reports only its own tiles.
+            updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
+        })
     const canEditTileGroups = canEditDashboard && isEditablePlacement
     const onCopyGroupToDashboard = canEditTileGroups ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditTileGroups ? changeTileGroupDisplay : undefined
@@ -405,12 +406,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         restoreLayout: (layout) => stageLayouts({ sm: layout }),
     })
     const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
-    const { tileMoveInputRef, carryHeldDrag } = useClickToMoveTile({
+    const { tileMoveInputRef, carryHeldDrag, carryHeldResize } = useClickToMoveTile({
         containerRef: containerRef as RefObject<HTMLElement>,
         enabled: dragConfig.enabled,
         handleSelector: dragConfig.handle,
         cancelSelector: dragConfig.cancel,
         onCarryingChange: setCarryingTile,
+        // A canceled move returns by releasing at the pick-up point. A resize cannot, so the grid restores its layout.
+        onCarryCanceled: (kind) => kind === 'resize' && cancelInteraction(),
     })
 
     const resizeConfig = useMemo(
@@ -538,7 +541,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             _oldItem: LayoutItem | null,
             newItem: LayoutItem | null,
             _placeholder: LayoutItem | null,
-            event: Event
+            event: Event,
+            resizeHandle: HTMLElement | null
         ) => {
             event.preventDefault()
             if (!newItem) {
@@ -547,23 +551,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             setLayoutGestureActive(true)
             startInteraction(layout, newItem, 'resize')
             startLayoutGesture()
+            carryHeldResize(resizeHandle)
         },
-        [startInteraction, setLayoutGestureActive, startLayoutGesture]
+        [startInteraction, setLayoutGestureActive, startLayoutGesture, carryHeldResize]
     )
 
     const handleResizeStop = useCallback(() => {
         const releasedAt = performance.now()
         setLayoutGestureActive(false)
         finishInteraction()
+        const input = tileMoveInputRef.current
         const dashboardId = dashboard?.id
         finishLayoutGesture(
-            dashboardId
+            dashboardId && input !== 'canceled'
                 ? (gesturePerformance) =>
-                      reportDashboardTileRepositioned(dashboardId, 'resized', 'drag', gesturePerformance)
+                      reportDashboardTileRepositioned(dashboardId, 'resized', input, gesturePerformance)
                 : null,
             releasedAt
         )
-    }, [dashboard?.id, finishInteraction, finishLayoutGesture, setLayoutGestureActive])
+    }, [dashboard?.id, finishInteraction, finishLayoutGesture, setLayoutGestureActive, tileMoveInputRef])
 
     // Toggled on the DOM rather than in state, so a drag does not re-render every tile.
     const setTileDragActive = useCallback(
@@ -1040,7 +1046,7 @@ function TileMoveHint(): JSX.Element | null {
             role="status"
             className="pointer-events-none fixed bottom-6 left-1/2 z-top flex -translate-x-1/2 items-center gap-2 rounded-full border bg-surface-primary px-3 py-1 text-sm shadow"
         >
-            <span>Click to drop the tile</span>
+            <span>{carryingTile === 'resize' ? 'Click to set the size' : 'Click to drop the tile'}</span>
             <span className="text-secondary">· Esc to cancel</span>
         </div>,
         document.body

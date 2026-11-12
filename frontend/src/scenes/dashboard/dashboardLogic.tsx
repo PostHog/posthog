@@ -813,7 +813,7 @@ export interface dashboardLogicValues {
     canSaveProjectDashboardTemplate: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
-    carryingTile: boolean
+    carryingTile: 'move' | 'resize' | null
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
     collapsedTileIds: Set<number>
@@ -1486,8 +1486,8 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
-    setCarryingTile: (carryingTile: boolean) => {
-        carryingTile: boolean
+    setCarryingTile: (carryingTile: 'move' | 'resize' | null) => {
+        carryingTile: 'move' | 'resize' | null
     }
     setCompareFilter: (compareFilter: CompareFilter | null) => {
         compareFilter: CompareFilter | null
@@ -2364,7 +2364,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
-        setCarryingTile: (carryingTile: boolean) => ({ carryingTile }),
+        setCarryingTile: (carryingTile: 'move' | 'resize' | null) => ({ carryingTile }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3820,10 +3820,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         carryingTile: [
-            false,
+            null as 'move' | 'resize' | null,
             {
                 setCarryingTile: (_, { carryingTile }) => carryingTile,
-                setDashboardMode: () => false,
+                setDashboardMode: () => null,
             },
         ],
         addWidgetSelectedTypes: [
