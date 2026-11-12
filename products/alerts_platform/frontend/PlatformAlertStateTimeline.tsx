@@ -7,9 +7,9 @@ import { cn } from 'lib/utils/css-classes'
 import { shortTimeZone } from 'lib/utils/timezones'
 
 import {
-    LogsAlertConfigurationStateEnumApi,
-    LogsAlertStateIntervalApi,
-} from 'products/logs/frontend/generated/api.schemas'
+    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateIntervalApi,
+} from './generated/api.schemas'
 
 // Snap the hairline to the nearest state-transition boundary when the cursor is within
 // this many pixels — users care about "when did it change" far more than arbitrary mid-
@@ -22,35 +22,43 @@ const SNAP_THRESHOLD_PX = 6
 // exact proportional fidelity for long quiet periods.
 const MIN_INTERVAL_PX = 2
 
+// The segments sit inside a bordered row, so they get the measured width minus both borders.
+const BAR_BORDER_PX = 1
+
 const PX_PER_AXIS_LABEL = 64
 const AXIS_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const
 
-const STATE_LABELS: Record<LogsAlertConfigurationStateEnumApi, string> = {
-    [LogsAlertConfigurationStateEnumApi.NotFiring]: 'OK',
-    [LogsAlertConfigurationStateEnumApi.Firing]: 'Firing',
-    [LogsAlertConfigurationStateEnumApi.PendingResolve]: 'Resolving',
-    [LogsAlertConfigurationStateEnumApi.Errored]: 'Errored',
-    [LogsAlertConfigurationStateEnumApi.Snoozed]: 'Snoozed',
-    [LogsAlertConfigurationStateEnumApi.Broken]: 'Broken',
+// Legacy logs alerts also report a pending-resolve state, which platform alerts do not have.
+type TimelineState = PlatformAlertStateApi | 'pending_resolve'
+
+type AlertStateInterval = Omit<PlatformAlertStateIntervalApi, 'state'> & { state: TimelineState }
+
+const STATE_LABELS: Record<TimelineState, string> = {
+    [PlatformAlertStateApi.NotFiring]: 'OK',
+    [PlatformAlertStateApi.Firing]: 'Firing',
+    pending_resolve: 'Resolving',
+    [PlatformAlertStateApi.Errored]: 'Errored',
+    [PlatformAlertStateApi.Snoozed]: 'Snoozed',
+    [PlatformAlertStateApi.Broken]: 'Broken',
 }
 
-const STATE_BG: Record<LogsAlertConfigurationStateEnumApi, string> = {
-    [LogsAlertConfigurationStateEnumApi.NotFiring]: 'bg-success',
-    [LogsAlertConfigurationStateEnumApi.Firing]: 'bg-danger',
-    [LogsAlertConfigurationStateEnumApi.PendingResolve]: 'bg-warning',
-    [LogsAlertConfigurationStateEnumApi.Errored]: 'bg-warning',
-    [LogsAlertConfigurationStateEnumApi.Snoozed]: 'bg-muted',
-    [LogsAlertConfigurationStateEnumApi.Broken]: 'bg-danger-highlight',
+const STATE_BG: Record<TimelineState, string> = {
+    [PlatformAlertStateApi.NotFiring]: 'bg-success',
+    [PlatformAlertStateApi.Firing]: 'bg-danger',
+    pending_resolve: 'bg-warning',
+    [PlatformAlertStateApi.Errored]: 'bg-warning',
+    [PlatformAlertStateApi.Snoozed]: 'bg-muted',
+    [PlatformAlertStateApi.Broken]: 'bg-danger-highlight',
 }
 
-function bgForInterval(state: LogsAlertConfigurationStateEnumApi, enabled: boolean): string {
+function bgForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
         return 'bg-surface-tertiary'
     }
     return STATE_BG[state] ?? 'bg-muted'
 }
 
-function labelForInterval(state: LogsAlertConfigurationStateEnumApi, enabled: boolean): string {
+function labelForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
         return 'Disabled'
     }
@@ -63,19 +71,19 @@ interface HoverState {
     barX: number
 }
 
-export interface LogsAlertStateTimelineProps {
-    timeline: readonly LogsAlertStateIntervalApi[] | undefined
+export interface PlatformAlertStateTimelineProps {
+    timeline: readonly AlertStateInterval[] | undefined
     className?: string
     // Render a time axis below the bar — HH:mm labels at a responsive hour granularity,
     // falling back to "24h ago" / "Now" when the bar is too narrow for multiple labels.
     showAxis?: boolean
 }
 
-export function LogsAlertStateTimeline({
+export function PlatformAlertStateTimeline({
     timeline,
     className,
     showAxis = false,
-}: LogsAlertStateTimelineProps): JSX.Element | null {
+}: PlatformAlertStateTimelineProps): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement>(null)
     const segmentRefs = useRef<(HTMLDivElement | null)[]>([])
     const { width: measuredWidth = 0 } = useResizeObserver<HTMLDivElement>({ ref: containerRef })
@@ -219,6 +227,10 @@ export function LogsAlertStateTimeline({
     const tzSuffix = tz ? ` ${tz}` : ''
     const tooltipClientX = hover && hoverInfo ? hover.barLeft + hoverInfo.hairlineX : 0
 
+    // A flapping alert has more intervals than the bar has room for at the minimum, and forcing it
+    // would push the newest ones, the current state among them, out of view.
+    const minIntervalPx = measuredWidth - BAR_BORDER_PX * 2 >= timeline.length * MIN_INTERVAL_PX ? MIN_INTERVAL_PX : 0
+
     const bar = (
         <div
             ref={containerRef}
@@ -237,7 +249,7 @@ export function LogsAlertStateTimeline({
                             }}
                             className={cn('h-full', bgForInterval(interval.state, interval.enabled))}
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ flex: `${flex} 0 0`, minWidth: MIN_INTERVAL_PX }}
+                            style={{ flex: `${flex} 0 0`, minWidth: minIntervalPx }}
                         />
                     )
                 })}

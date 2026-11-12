@@ -37,6 +37,10 @@ const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotif
     [PlatformAlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
 }
 
+export function destinationTypeLabel(type: PlatformAlertDestinationTypeEnumApi): string {
+    return TYPE_LABELS[type] ?? type
+}
+
 // Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
 export const MAX_DESTINATIONS_PER_ALERT = 5
 
