@@ -72,7 +72,6 @@ export type EmailSkipReason =
 const STATUS_RANK: Record<EmailStatus, bigint> = {
     scheduled: 0n,
     queued: 0n,
-    // Canceled before a worker claimed the send, so no later status follows it.
     canceled: 1n,
     failed: 2n,
     sent: 3n,

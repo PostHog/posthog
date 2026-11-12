@@ -1635,8 +1635,6 @@ export class CdpApi {
         })
     }
 
-    // Auth: a per-call JWT minted by Django on its own audience, on the transactional email key, pinned to the team,
-    // the message and the action, so one token can't cancel or move another send.
     private async manageScheduledSend(
         req: ModifiedRequest,
         res: express.Response,

@@ -607,7 +607,6 @@ export type HogFlowInvocationContext = {
     variables?: Record<string, any>
     send?: QueuedSend
     scheduledAt?: string
-    // The time of the send's latest status row, so a reschedule timed by the database clock still writes after it.
     statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
