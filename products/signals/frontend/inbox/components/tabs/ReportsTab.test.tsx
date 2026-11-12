@@ -16,7 +16,14 @@ import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
-import { INBOX_SCOPE_ENTIRE_PROJECT, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
+import {
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    InboxReportSectionKey,
+    InboxScope,
+    SignalReport,
+    SignalReportStatus,
+} from '../../types'
 import { InboxStateFilter } from '../shell/InboxStateFilter'
 import { ReportsTab } from './ReportsTab'
 
@@ -305,6 +312,49 @@ describe('ReportsTab', () => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
             expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: total, is_empty: empty })
+        })
+    })
+
+    // Product analytics reads these to tell "no personal ranking yet" apart from "nothing to rank".
+    it.each<{ scope: InboxScope; forYouCount: number | null }>([
+        { scope: INBOX_SCOPE_FOR_YOU, forYouCount: 14 },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, forYouCount: null },
+    ])('records the personal ranking status on Inbox viewed in the $scope scope', async ({ scope, forYouCount }) => {
+        const status = { state: 'real', size: 4, age_minutes: 90, checked_age_minutes: 5, fallback_reason: null }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const count = COUNT_BY_FILTER.find((c) => c.match(params))?.count ?? 0
+                    const page = { count, next: null, previous: null, results: [] }
+                    return [
+                        200,
+                        params.get('count_only') === 'true'
+                            ? page
+                            : { ...page, ranker: 'priority', personal_ranking_status: status },
+                    ]
+                },
+            },
+        })
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setScope(scope)
+
+        render(<ReportsTab />)
+
+        await waitFor(() => {
+            const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
+            expect(viewed).toHaveLength(1)
+            expect(viewed[0][1]).toMatchObject({
+                personal_list_state: 'real',
+                personal_list_size: 4,
+                personal_list_age_minutes: 90,
+                personal_list_checked_age_minutes: 5,
+                personal_list_fallback_reason: null,
+                for_you_report_count: forYouCount,
+                sort_field: 'recommended',
+                ranker_id: 'priority',
+            })
         })
     })
 

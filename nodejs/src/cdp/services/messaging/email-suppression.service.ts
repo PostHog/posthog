@@ -11,7 +11,7 @@ import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced; `transient_bounce_repeat` = a soft bounce already counted, seen again on a redelivery; `unstorable_address` = an address left out of a write because Postgres cannot store it.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_before_delivery` = a bounce that list ignored because a newer delivery was recorded for the address; `global_hard_bounce_cleared` = an entry on that list ended by a newer delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced; `transient_bounce_repeat` = a soft bounce already counted, seen again on a redelivery; `unstorable_address` = an address left out of a write because Postgres cannot store it.',
     labelNames: ['result'],
 })
 
@@ -96,8 +96,10 @@ type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enf
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
 
 // Like the SES global list, an entry expires so a recovered mailbox is retried; a team's own list stays permanent.
+// A delivery at the same instant as the last bounce does not prove the bounce is stale, so a tie stays held.
 const GLOBAL_HARD_BOUNCE_IS_HELD = `last_bounced_at + LEAST(
-    GREATEST(last_bounced_at - first_bounced_at, INTERVAL '1 day'), INTERVAL '14 days') > NOW()`
+    GREATEST(last_bounced_at - first_bounced_at, INTERVAL '1 day'), INTERVAL '14 days') > NOW()
+    AND (last_delivered_at IS NULL OR last_delivered_at <= last_bounced_at)`
 const GLOBAL_HARD_BOUNCE_DIAGNOSTIC = "This address doesn't exist. An earlier email to it hard-bounced."
 
 // Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
@@ -413,7 +415,8 @@ export class EmailSuppressionService {
         bounceTimestamp?: string,
         { throwOnFailure = false }: SuppressionWriteOptions = {}
     ): Promise<void> {
-        const identifiers = toStorableIdentifiers(emails)
+        // Sorted so the upsert locks rows in the order `recordDeliveries` does, and the two cannot deadlock.
+        const identifiers = toStorableIdentifiers(emails).sort()
         if (identifiers.length === 0) {
             return
         }
@@ -421,18 +424,31 @@ export class EmailSuppressionService {
         const valueClauses = identifiers.map(
             (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
         )
+        // The first bounce after a delivery starts a new run, so the hold restarts from it.
         try {
-            await this.postgres.query(
+            const result = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
                  VALUES ${valueClauses.join(', ')}
                  ON CONFLICT (email) DO UPDATE SET
-                     first_bounced_at = LEAST(posthog_emailhardbounce.first_bounced_at, EXCLUDED.first_bounced_at),
-                     last_bounced_at = GREATEST(posthog_emailhardbounce.last_bounced_at, EXCLUDED.last_bounced_at)`,
+                     first_bounced_at = CASE
+                         WHEN posthog_emailhardbounce.last_bounced_at < posthog_emailhardbounce.last_delivered_at
+                             THEN EXCLUDED.first_bounced_at
+                         ELSE LEAST(posthog_emailhardbounce.first_bounced_at, EXCLUDED.first_bounced_at) END,
+                     last_bounced_at = GREATEST(posthog_emailhardbounce.last_bounced_at, EXCLUDED.last_bounced_at)
+                 WHERE posthog_emailhardbounce.last_delivered_at IS NULL
+                    OR posthog_emailhardbounce.last_delivered_at <= EXCLUDED.last_bounced_at`,
                 [bounceTimestamp ?? null, ...identifiers],
                 'recordGlobalHardBounces'
             )
-            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
+            const recorded = result.rowCount ?? identifiers.length
+            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, recorded)
+            if (recorded < identifiers.length) {
+                cdpEmailSuppressionTotal.inc(
+                    { result: 'global_hard_bounce_before_delivery' },
+                    identifiers.length - recorded
+                )
+            }
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
             if (throwOnFailure) {
@@ -578,20 +594,34 @@ export class EmailSuppressionService {
             return
         }
 
-        // A delivery proves the address exists. The timestamp guard stops a late, older delivery from
-        // clearing a fresh bounce.
+        // The row keeps the delivery time instead of being deleted, so an older bounce processed later cannot block
+        // the address again. `previous` locks each row first, so concurrent deliveries count a cleared entry once.
         try {
-            const result = await this.postgres.query(
+            const result = await this.postgres.query<{ cleared: boolean }>(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_emailhardbounce
-                 WHERE email = ANY($1)
+                `UPDATE posthog_emailhardbounce AS entry
+                 SET last_delivered_at = $2::timestamptz
+                 FROM (
+                     SELECT email, last_bounced_at, last_delivered_at
+                     FROM posthog_emailhardbounce
+                     WHERE email = ANY($1)
+                     -- Byte order, the same as the sorted identifiers in recordGlobalHardBounces.
+                     ORDER BY email COLLATE "C"
+                     FOR UPDATE
+                 ) AS previous
+                 WHERE previous.email = entry.email
+                   AND entry.email = ANY($1)
                    AND $2::timestamptz IS NOT NULL
-                   AND last_bounced_at < $2::timestamptz`,
+                   AND (entry.last_delivered_at IS NULL OR entry.last_delivered_at < $2::timestamptz)
+                 RETURNING entry.last_bounced_at < $2::timestamptz
+                     AND (previous.last_delivered_at IS NULL OR previous.last_delivered_at <= previous.last_bounced_at)
+                     AS cleared`,
                 [identifiers, deliveryTimestamp ?? null],
                 'clearGlobalHardBounces'
             )
-            if (result.rowCount) {
-                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, result.rowCount)
+            const cleared = result.rows.filter((row) => row.cleared).length
+            if (cleared) {
+                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, cleared)
             }
         } catch (error) {
             logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })

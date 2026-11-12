@@ -613,16 +613,77 @@ describe('EmailSuppressionService', () => {
             expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(true)
         })
 
-        it('clears the entry for a delivery that happened after the bounce but arrived first', async () => {
-            const email = `late-bounce-${team.id}@example.com`
-            const svc = newService(true)
-            const bounceAt = new Date(Date.now() - 120_000).toISOString()
-            const deliveredAt = new Date(Date.now() - 60_000).toISOString()
-            await svc.recordGlobalHardBounces([email], bounceAt)
-            await svc.recordDeliveries(team.id, [email], deliveredAt, { clearGlobal: true })
+        const HOUR = 60 * 60_000
+        const DAY = 24 * HOUR
+        // Steps run in processing order. Each age is how long ago SES saw the event, and no age means no SES timestamp.
+        it.each([
+            [
+                'a delivery newer than the bounce',
+                [
+                    ['bounce', 2 * HOUR],
+                    ['delivery', HOUR],
+                ],
+                false,
+            ],
+            [
+                'a bounce older than a delivery, processed after it',
+                [
+                    ['bounce', 3 * HOUR],
+                    ['delivery', HOUR],
+                    ['bounce', 2 * HOUR],
+                ],
+                false,
+            ],
+            [
+                'a bounce newer than the delivery',
+                [
+                    ['bounce', 3 * HOUR],
+                    ['delivery', HOUR],
+                    ['bounce', HOUR / 2],
+                ],
+                true,
+            ],
+            [
+                'a bounce with no timestamp after a delivery',
+                [['bounce', 3 * HOUR], ['delivery', HOUR], ['bounce']],
+                true,
+            ],
+            [
+                'a delivery at the same time as the bounce',
+                [
+                    ['bounce', HOUR],
+                    ['delivery', HOUR],
+                ],
+                true,
+            ],
+            [
+                'a bounce after a delivery that broke a long bounce run',
+                [
+                    ['bounce', 10 * DAY],
+                    ['bounce', 9 * DAY],
+                    ['delivery', 8 * DAY],
+                    ['bounce', 2 * DAY],
+                ],
+                false,
+            ],
+        ] as [string, [('bounce' | 'delivery')?, number?][], boolean][])(
+            'orders bounces and deliveries by when SES saw them: %s',
+            async (label, steps, blocked) => {
+                const email = `ordered-${label.replace(/\W+/g, '-')}-${team.id}@example.com`
+                const svc = newService(true)
+                const now = Date.now()
+                for (const [kind, ago] of steps) {
+                    const at = ago === undefined ? undefined : new Date(now - ago).toISOString()
+                    if (kind === 'bounce') {
+                        await svc.recordGlobalHardBounces([email], at)
+                    } else {
+                        await svc.recordDeliveries(team.id, [email], at, { clearGlobal: true })
+                    }
+                }
 
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
-        })
+                expect(await newService(true).isSuppressed(team.id, email)).toBe(blocked)
+            }
+        )
 
         const lapseGlobalEntry = async (email: string): Promise<void> => {
             await hub.postgres.query(
@@ -880,13 +941,8 @@ describe('EmailSuppressionService', () => {
                 await holder.end()
                 await impatient.end()
             }
-            const remaining = await hub.postgres.query(
-                PostgresUse.COMMON_READ,
-                'SELECT email FROM posthog_emailhardbounce WHERE email = $1',
-                [email],
-                'test-read-global-hard-bounce'
-            )
-            expect(remaining.rows).toEqual([{ email }])
+            const enforcing = new EmailSuppressionService(hub.postgres, { ...config, globalHardBounceEnforce: true })
+            expect(await enforcing.isSuppressed(team.id, email)).toBe(true)
         })
     })
 })

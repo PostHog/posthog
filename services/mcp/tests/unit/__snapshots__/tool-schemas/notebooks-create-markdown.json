@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "markdown": {
+            "description": "Optional initial markdown body below the title: the question and the plan, not results computed elsewhere. Do not include executable cells here — add them with notebooks-add-cell.",
+            "type": "string"
+        },
+        "title": {
+            "description": "Notebook title. Becomes the leading `# heading` of the document.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["title"],
+    "type": "object"
+}

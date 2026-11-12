@@ -294,8 +294,10 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET: 'customer-analytics-automations-widget', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_CUSTOMER_TASKS: 'customer-analytics-customer-tasks', // owner: @arthurdedeus #team-web-analytics
+    CUSTOMER_ANALYTICS_DOT_MATRIX: 'customer-analytics-dot-matrix', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS: 'customer-analytics-feature-requests',
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOMER_ANALYTICS_PRODUCT_USAGE: 'customer-analytics-product-usage', // owner: @arthurdedeus #team-customer-analytics, gates BookActivityMatrixQuery and the product usage source. Project 2 only
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
@@ -518,7 +520,6 @@ export const FEATURE_FLAGS = {
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
     REPLAY_WATCH_LAYOUT: 'replay-watch-layout', // owner: #team-replay multivariate=control,compact,youtube,landing. The arm name is the layout; compare the variant string, a truthy check turns on for control too
-    REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection; on with today-rail-nav too
@@ -534,7 +535,6 @@ export const FEATURE_FLAGS = {
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SMALL_SOFTWARE_APPS: 'small-software-apps', // owner: @DanielVisca, shows the canvas app tile in the dashboard add-widget picker; the backend gates tile creation on the same key
-    SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_SAVE_AS_CHOOSER: 'sql-editor-save-as-chooser', // owner: #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
@@ -588,6 +588,7 @@ export const FEATURE_FLAGS = {
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
     WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
+    WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)

@@ -251,7 +251,8 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         (
             await hub.postgres.query<{ email: string }>(
                 PostgresUse.COMMON_READ,
-                `SELECT email FROM posthog_emailhardbounce WHERE email = $1`,
+                `SELECT email FROM posthog_emailhardbounce
+                 WHERE email = $1 AND (last_delivered_at IS NULL OR last_delivered_at <= last_bounced_at)`,
                 [RECIPIENT],
                 'test-read-sandbox-global-bounces'
             )
