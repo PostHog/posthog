@@ -2253,3 +2253,11 @@ class WarehouseMigrationUploadThrottle(_TeamBucketRateThrottle):
 
     scope = "warehouse_migration_upload"
     rate = "60/minute"
+
+
+class WarehouseMigrationCostEstimateThrottle(_TeamBucketRateThrottle):
+    """A cost estimate reads every item of the migration and can call the billing service for prices. The budget sits
+    far above an agent that asks again after each change the user makes."""
+
+    scope = "warehouse_migration_cost_estimate"
+    rate = "60/minute"

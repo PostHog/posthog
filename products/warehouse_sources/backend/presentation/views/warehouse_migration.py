@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.rate_limit import (
+    WarehouseMigrationCostEstimateThrottle,
     WarehouseMigrationCrawlThrottle,
     WarehouseMigrationUploadStartThrottle,
     WarehouseMigrationUploadThrottle,
@@ -416,6 +417,7 @@ _ACTION_THROTTLES: dict[str, type[BaseThrottle]] = {
     "refresh": WarehouseMigrationCrawlThrottle,
     "upload": WarehouseMigrationUploadStartThrottle,
     "connections": WarehouseMigrationUploadThrottle,
+    "cost_estimate": WarehouseMigrationCostEstimateThrottle,
 }
 
 _ITEM_ID = OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")
