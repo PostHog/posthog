@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -134,15 +133,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let coordination_handle = manager.register(
         "coordination",
         ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
-    );
-    let kafka_handle = manager.register(
-        "kafka-producer",
-        // The graceful window is the ceiling; the bounded flush task
-        // spawned after the producer is built normally completes well
-        // inside it.
-        ComponentOptions::new()
-            .with_graceful_shutdown(config.phase1_graceful_shutdown())
-            .with_shutdown_phase(1),
     );
 
     let authority_metrics_handle = manager.register(
@@ -300,27 +290,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(
         PartitionedCache::new(config.cache_memory_capacity_bytes)
             .with_properties_compression(config.cache_properties_compression_enabled),
-    );
-
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
-        Ok(producer) => producer,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to create Kafka producer");
-            return Err(e.into());
-        }
-    };
-    // Runs at phase 1, after the coordination drain, so the drain's last
-    // records are in the queue it flushes. The changelog path awaits each
-    // record's delivery before acking, so a timed-out flush drops only
-    // records nobody acked.
-    spawn_bounded_flush_on_shutdown(
-        kafka_producer.clone(),
-        kafka_handle,
-        Duration::from_secs(10),
     );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
@@ -436,6 +408,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
+            cluster: live_cluster.clone().map(Arc::new),
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );

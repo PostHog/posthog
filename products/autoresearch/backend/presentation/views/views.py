@@ -810,6 +810,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         "materialize_features",
         "upload_artifact",
         "delete_artifact",
+        "stop",
     ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
@@ -1007,6 +1008,43 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 reader_summary=data.get("reader_summary"),
                 headline=data.get("headline"),
                 next_steps=data.get("next_steps"),
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The stopped training run, with status 'failed'.",
+            ),
+            400: OpenApiResponse(description="The training run already finished."),
+            403: OpenApiResponse(description="The request came from the training agent's sandbox."),
+            404: OpenApiResponse(description="The training run does not exist under this pipeline."),
+        },
+        summary="Stop a training run",
+        description=(
+            "Stop a pending or running training run. The run fails with a 'stopped' error, its sandbox is "
+            "cancelled, and no model is promoted from it, so the current champion keeps scoring. The iterations "
+            "it recorded stay. When this was the pipeline's first run, the pipeline goes back to draft and its "
+            "definition can change again. The run still counts against the project's daily training limit."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="stop")
+    def stop(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The training agent writes only through its own run, so a confused or injected agent must not stop runs.
+        if is_sandbox_origin_request(request) and _is_training_agent_sandbox(request, self.team_id):
+            raise PermissionDenied("Training runs cannot be stopped from inside a training sandbox.")
+        try:
+            training_run = api.stop_training_run(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                user_id=request.user.pk,
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

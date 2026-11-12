@@ -42,6 +42,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         legacy_configuration_id: UUID | None = None,
         source_kind: str = PlatformAlertConfiguration.SourceKind.LOGS,
         owner: str = PlatformAlertConfiguration.Owner.SOURCE,
+        created_by: User | None = None,
     ) -> PlatformAlertConfiguration:
         with team_scope(team.id):
             return PlatformAlertConfiguration.objects.create(
@@ -52,6 +53,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 check_interval_minutes=10,
                 legacy_configuration_id=legacy_configuration_id,
                 owner=owner,
+                created_by=created_by,
             )
 
     def _set_flag(self, enabled: bool) -> None:
@@ -296,7 +298,9 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert set(first_ids).isdisjoint(second_ids)
         assert set(first_ids) | set(second_ids) == created
 
-    @parameterized.expand([("legacy_configuration_id", "Copied"), ("source_kind", "Metrics alert")])
+    @parameterized.expand(
+        [("legacy_configuration_id", "Copied"), ("source_kind", "Metrics alert"), ("created_by", "Mine")]
+    )
     def test_a_list_filter_returns_only_the_matching_alert(self, filter_name: str, wanted_name: str) -> None:
         self._set_flag(True)
         legacy_configuration_id = uuid4()
@@ -305,7 +309,12 @@ class TestPlatformAlertAPI(APIBaseTest):
         self._create_configuration(
             self.team, "Metrics alert", source_kind=PlatformAlertConfiguration.SourceKind.METRICS
         )
-        value = {"legacy_configuration_id": legacy_configuration_id, "source_kind": "metrics"}[filter_name]
+        self._create_configuration(self.team, "Mine", legacy_configuration_id=uuid4(), created_by=self.user)
+        value = {
+            "legacy_configuration_id": legacy_configuration_id,
+            "source_kind": "metrics",
+            "created_by": self.user.uuid,
+        }[filter_name]
 
         response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/?{filter_name}={value}")
 
@@ -634,3 +643,78 @@ class TestPlatformAlertAPI(APIBaseTest):
         if field is not None:
             assert response.json()["attr"] == field
         assert self._snoozes(configuration) == {"checkout": None, "api": None}
+
+    def _native_traces_alert(self, **fields: Any) -> PlatformAlertConfiguration:
+        configuration = self._create_configuration(
+            self.team,
+            "Checkout errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.TRACES,
+            owner=PlatformAlertConfiguration.Owner.PLATFORM,
+            created_by=self.user,
+        )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(**fields)
+        return configuration
+
+    def test_the_list_shows_who_created_an_alert_and_where_it_notifies(self) -> None:
+        self._set_flag(True)
+        configuration = self._native_traces_alert()
+        self.client.post(
+            f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/alert"},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/?source_kind=traces")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (row,) = response.json()["results"]
+        assert (row["created_by"]["uuid"], row["destination_types"]) == (str(self.user.uuid), ["webhook"])
+
+    @parameterized.expand(
+        [
+            ("in the past", "2026-01-01T11:00:00Z", status.HTTP_400_BAD_REQUEST),
+            ("more than 30 days away", "2026-02-15T12:00:00Z", status.HTTP_400_BAD_REQUEST),
+            ("tomorrow", "2026-01-02T12:00:00Z", status.HTTP_200_OK),
+            ("cleared", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_snoozing_a_whole_alert(self, _name: str, snooze_until: str | None, expected: int) -> None:
+        self._set_flag(True)
+        configuration = self._native_traces_alert()
+
+        with time_machine.travel(datetime(2026, 1, 1, 12, tzinfo=UTC), tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/snooze/",
+                {"snooze_until": snooze_until},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_200_OK:
+            assert response.json()["snooze_until"] == snooze_until
+
+    @parameterized.expand(
+        [
+            ("broken", PlatformAlertConfiguration.CheckStatus.BROKEN, False, status.HTTP_200_OK),
+            ("broken migrated copy", PlatformAlertConfiguration.CheckStatus.BROKEN, True, status.HTTP_200_OK),
+            ("not broken", PlatformAlertConfiguration.CheckStatus.OK, False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_resetting_an_alert(self, _name: str, check_status: str, migrated: bool, expected: int) -> None:
+        self._set_flag(True)
+        configuration = self._native_traces_alert(
+            check_status=check_status,
+            consecutive_failures=5,
+            **({"legacy_configuration_id": uuid4()} if migrated else {}),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/reset/")
+
+        configuration.refresh_from_db()
+        assert (response.status_code, configuration.check_status) == (
+            expected,
+            PlatformAlertConfiguration.CheckStatus.OK,
+        ), response.json()
+        logged = ActivityLog.objects.filter(scope="PlatformAlertConfiguration", activity="reset", user=self.user)
+        assert logged.count() == (1 if expected == status.HTTP_200_OK else 0)

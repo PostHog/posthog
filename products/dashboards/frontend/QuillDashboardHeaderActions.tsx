@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
 import { DashboardLayoutUndoButton } from './DashboardLayoutUndoButton'
+import { DashboardShortcuts } from './DashboardShortcuts'
 import { QuillDashboardAddTileButton } from './QuillDashboardAddTileButton'
 import { QuillDashboardCustomizeButton } from './QuillDashboardCustomizeButton'
 import { QuillDashboardSubscribeButton } from './QuillDashboardSubscribeButton'
@@ -48,6 +49,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
         <>
             <QuillDashboardSubscribeButton />
             <DashboardLayoutUndoButton />
+            <DashboardShortcuts />
             {!dashboardEditing && (tiles.length > 0 || dashboard.is_shared) && (
                 <Button
                     variant="outline"

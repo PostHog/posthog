@@ -12,8 +12,8 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
+from products.data_modeling.backend.facade.contracts import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_pin,

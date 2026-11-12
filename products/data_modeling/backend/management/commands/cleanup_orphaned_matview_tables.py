@@ -21,7 +21,8 @@ from django.db.models import Q, QuerySet
 
 import structlog
 
-from products.data_modeling.backend.logic.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
+from products.data_modeling.backend.facade.contracts import HasDependentsError
+from products.data_modeling.backend.logic.saved_query_dag_sync import delete_node_from_dag
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 from products.data_tools.backend.facade.models import DataWarehouseJoin
