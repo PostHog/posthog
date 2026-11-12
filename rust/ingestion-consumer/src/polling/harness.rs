@@ -53,7 +53,6 @@ impl<P: PollingStrategy> Harness<P> {
         }
     }
 
-    /// `(poll id, accepted)` in completion order. The n-th submitted poll is `poll-n`.
     pub(super) fn completed_polls(&self) -> Vec<(String, u32)> {
         self.recorder
             .backlog()

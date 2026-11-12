@@ -71,7 +71,6 @@ pub(crate) struct CollectedBatch {
 }
 
 pub(crate) struct InFlightPoll {
-    /// The `batch_id` of the poll's debug events.
     pub(crate) poll_id: String,
     pub(crate) dispatched_at: std::time::Instant,
     pub(crate) partitions: HashMap<TopicPartition, PartitionDeliveries>,

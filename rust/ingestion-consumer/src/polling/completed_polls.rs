@@ -7,10 +7,10 @@ use common_kafka_consumer::{Offset, TopicPartition};
 use super::poll::InFlightPoll;
 use crate::debug_recorder::{DebugEventKind, DebugRecorder, PartitionOffset};
 
+// Not the partition frontier: polls finish in any order, and the frontier
+// passes a poll only after every earlier poll on the partition finishes.
 pub(super) struct CompletedPolls {
     recorder: Arc<DebugRecorder>,
-    // Counted per poll: polls finish in any order, and the partition frontier
-    // passes a finished poll only when every earlier poll is finished too.
     polls: HashMap<u64, PendingPoll>,
     next_poll: u64,
     slices: HashMap<TopicPartition, BTreeMap<i64, PollSlice>>,
@@ -151,7 +151,7 @@ impl CompletedPolls {
         let Some(poll) = self.polls.remove(&key) else {
             return;
         };
-        // After a revoke, the next assignment's poll can start at the same offset.
+        // After a revoke or an assignment, a new poll can start at the same offset.
         for (topic_partition, first) in &poll.slice_starts {
             if let Some(slices) = self.slices.get_mut(topic_partition) {
                 if slices.get(first).is_some_and(|slice| slice.poll == key) {
