@@ -76,7 +76,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     const content = { subject: 'Your sign-in code', html: '<p>Your code is 123456</p>', text: 'Your code is 123456' }
 
     beforeAll(async () => {
-        hub = await createHub({ SITE_URL: 'http://localhost:8000', WORKFLOWS_SANDBOX_SENDER_ENABLED: true })
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+            WORKFLOWS_SANDBOX_SENDER_ENABLED: true,
+            CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
+        })
         queued = []
         api = new CdpApi(
             hub,
@@ -557,6 +561,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ['a reply-to address', () => ({ replyTo: ['help@example.com'] })],
         ['a custom from address', (integrationId) => ({ from: { integrationId, email: 'me@example.com' } })],
         ['a custom from name', (integrationId) => ({ from: { integrationId, name: 'Support' } })],
+        [
+            'a file attachment',
+            () => ({
+                attachments: [{ sha256: 'a'.repeat(64), filename: 'invoice.pdf', content_type: 'application/pdf' }],
+            }),
+        ],
     ])('refuses a send with %s instead of dropping it', async (_desc, fields) => {
         const res = await sendFromCode(request(sandboxSend(fields(sandboxSenderId))))
 
