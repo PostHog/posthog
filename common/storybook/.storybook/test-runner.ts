@@ -858,7 +858,7 @@ async function takeSettledSnapshotImage(
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
-    let previous = await takeSnapshotImage(locator, context, options)
+    let previous = await takeSnapshotImage(locator, context, false, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
         await page.waitForTimeout(RECAPTURE_SETTLE_MS)
         await waitForChartCanvasesPainted(page)
@@ -866,7 +866,7 @@ async function takeSettledSnapshotImage(
         if (loaderWaitTimeout !== null) {
             await waitForEveryLoaderHidden(page, loaderWaitTimeout)
         }
-        const image = await takeSnapshotImage(locator, context, options)
+        const image = await takeSnapshotImage(locator, context, true, options)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
         if (image.equals(previous) && !loaderShowed) {
             return image
@@ -887,8 +887,9 @@ const cdpSessionByPage = new WeakMap<Page, CDPSession>()
  *
  * Chromium captures a target that does not fit the viewport by resizing the page for the capture.
  * Script that reacts to the resize renders again or reloads data during the capture, so the picture
- * can show a loading state. Paused script cannot react, and the layout stays the one the story has at
- * its own viewport. WebKit has no CDP, so there it does nothing.
+ * can show a loading state. The first capture of a story runs with script on, so the page reacts once,
+ * for example lazy content renders when it comes into view. Later captures run with script paused, so
+ * the reaction cannot start again. WebKit has no CDP, so there it does nothing.
  */
 async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean> {
     if (page.context().browser()?.browserType().name() !== 'chromium') {
@@ -916,10 +917,11 @@ async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean
 async function takeSnapshotImage(
     locator: Locator | Page,
     context: TestContext,
+    pauseScript: boolean,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
     const page = 'page' in locator ? locator.page() : locator
-    const scriptPaused = await setPageScriptPaused(page, true)
+    const scriptPaused = pauseScript && (await setPageScriptPaused(page, true))
     try {
         return await locator.screenshot({ ...options })
     } catch (error) {
