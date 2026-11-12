@@ -509,6 +509,7 @@ rules:
                               |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
+                              |IntercomImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -1033,6 +1034,7 @@ rules:
                         |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
+                        |IntercomImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
