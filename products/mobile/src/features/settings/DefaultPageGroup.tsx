@@ -42,7 +42,7 @@ export function DefaultPageGroup(): ReactElement {
     return (
         <SettingsGroup
             title="Start page"
-            footer="The app opens on this page. This is your home page."
+            footer="Choose the home page that opens when you start the app."
             testID="settings-default-page"
         >
             {DEFAULT_PAGES.map((option) => (
