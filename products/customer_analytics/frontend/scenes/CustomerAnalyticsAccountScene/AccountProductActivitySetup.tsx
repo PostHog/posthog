@@ -15,7 +15,6 @@ export function AccountProductActivitySetup({ projectId }: { projectId: number }
     const { openCreateEditor, setEditorName, addEditorComponent } = useActions(accountViewsLogic({ projectId }))
     if (
         currentLocation.searchParams.setup !== PRODUCT_ACTIVITY_SETUP ||
-        !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS] ||
         !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX]
     ) {
         return null
