@@ -1,6 +1,7 @@
 import os
 import json
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import httpx
@@ -8,7 +9,7 @@ import requests
 from anthropic import APIError
 
 from ..backend.facade.contracts import MergeCheckReport
-from ..backend.settings import docs_source_for
+from ..backend.settings import DocsSource, docs_source_for
 from .check import merge_reports_by_variant, run_merge_check
 from .judge import Variant, judge_client
 from .sources import (
@@ -21,6 +22,7 @@ from .sources import (
 )
 
 MAX_RECENT_MERGES = 100
+EVAL_JOBS = 8
 DEGRADED_REASONS = frozenset({"facts_unavailable", "page_check_unavailable"})
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
@@ -80,41 +82,71 @@ def eval_command(arguments: argparse.Namespace) -> int:
     eval_rows = read_merges(arguments.eval)
     scored_rows_by_variant: dict[Variant, list[tuple[dict, MergeCheckReport]]] = {variant: [] for variant in variants}
     failed_count_by_variant = dict.fromkeys(variants, 0)
-    with httpx.Client(timeout=30) as http:
-        for eval_row in eval_rows:
-            change = LandedChange(
-                repository=eval_row["repository"],
-                after=eval_row["commit_sha"],
-                pull_request_number=eval_row["pull_request_number"],
-            )
-            try:
-                with judge_client(change.after) as anthropic_client:
-                    report_by_variant = merge_reports_by_variant(
-                        change,
-                        is_final_attempt=True,
-                        github=github,
-                        http=http,
-                        anthropic_client=anthropic_client,
-                        source=source,
-                        writer_login=arguments.writer_login,
-                        variants=variants,
-                        is_pinned_to_merge=True,
-                    )
-            except EVAL_ROW_ERRORS as error:
-                for variant in variants:
-                    failed_count_by_variant[variant] += 1
-                print(json.dumps({"commit_sha": change.after, "error": type(error).__name__}))  # noqa: T201 — eval row
-                continue
-            for variant, report in report_by_variant.items():
-                print(json.dumps(eval_line(variant, eval_row, report)))  # noqa: T201 — one eval row per variant
-                if is_degraded(report):
-                    failed_count_by_variant[variant] += 1
+    with httpx.Client(timeout=30) as http, ThreadPoolExecutor(max_workers=EVAL_JOBS) as pool:
+        pending_checks = {
+            pool.submit(
+                check_eval_row,
+                eval_row,
+                github=github,
+                http=http,
+                source=source,
+                writer_login=arguments.writer_login,
+                variants=variants,
+            ): eval_row
+            for eval_row in eval_rows
+        }
+        try:
+            for finished_check in as_completed(pending_checks):
+                eval_row = pending_checks[finished_check]
+                try:
+                    report_by_variant = finished_check.result()
+                except EVAL_ROW_ERRORS as error:
+                    for variant in variants:
+                        failed_count_by_variant[variant] += 1
+                    error_line = {"commit_sha": eval_row["commit_sha"], "error": type(error).__name__}
+                    print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
                     continue
-                scored_rows_by_variant[variant].append((eval_row, report))
+                for variant, report in report_by_variant.items():
+                    print(json.dumps(eval_line(variant, eval_row, report)), flush=True)  # noqa: T201 — one eval row per variant
+                    if is_degraded(report):
+                        failed_count_by_variant[variant] += 1
+                        continue
+                    scored_rows_by_variant[variant].append((eval_row, report))
+        except BaseException:
+            pool.shutdown(cancel_futures=True)
+            raise
     for variant, scored_rows in scored_rows_by_variant.items():
         summary = {"variant": variant, "failed": failed_count_by_variant[variant], **eval_score(scored_rows)}
         print(json.dumps(summary))  # noqa: T201 — eval summary per variant
     return 0
+
+
+def check_eval_row(
+    eval_row: dict,
+    *,
+    github: GitHubReader,
+    http: httpx.Client,
+    source: DocsSource,
+    writer_login: str | None,
+    variants: tuple[Variant, ...],
+) -> dict[Variant, MergeCheckReport]:
+    change = LandedChange(
+        repository=eval_row["repository"],
+        after=eval_row["commit_sha"],
+        pull_request_number=eval_row["pull_request_number"],
+    )
+    with judge_client(change.after) as anthropic_client:
+        return merge_reports_by_variant(
+            change,
+            is_final_attempt=True,
+            github=github,
+            http=http,
+            anthropic_client=anthropic_client,
+            source=source,
+            writer_login=writer_login,
+            variants=variants,
+            is_pinned_to_merge=True,
+        )
 
 
 def is_degraded(report: MergeCheckReport) -> bool:
