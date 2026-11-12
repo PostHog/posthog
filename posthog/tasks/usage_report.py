@@ -919,33 +919,6 @@ def get_teams_with_mcp_event_count_in_period(begin: datetime, end: datetime) -> 
         )
 
 
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_web_mcp_event_count_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
-    use_new = use_new_events_schema(None)
-    interface_expression, _ = get_property_string_expr(
-        "events", "$mcp_interface", "'$mcp_interface'", "properties", use_new_events_schema=use_new
-    )
-    # nosemgrep: clickhouse-fstring-param-audit - table and property expressions come from internal helpers
-    query_template = f"""
-        SELECT team_id, count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-        FROM {events_read_table(use_new)}
-        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND startsWith(event, %(mcp_event_prefix)s)
-        WHERE {interface_expression} = %(mcp_interface)s
-        GROUP BY team_id
-    """
-
-    with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_calendar_aligned_split_query(
-            begin,
-            end,
-            query_template,
-            {"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "mcp_interface": "webmcp"},
-            num_splits=12,
-        )
-
-
 @frozen
 class _AISubSDKEventMetricCounts:
     counts_by_metric: dict[str, list[tuple[int, int]]]
@@ -1024,12 +997,9 @@ def _get_ai_sub_sdk_event_metric_counts(
     )
 
 
-# MCP Analytics events emitted verbatim by the @posthog/mcp SDK, beyond `$mcp_tool_call` (which
-# has its own dedicated metric/query below and must not be folded in here — see
-# `mcp_tool_call_events` in `get_all_event_metrics_in_period`). Excludes `$exception`/`$identify`
-# (shared with every SDK, would double count) and `$mcp_custom` (a registered constant that's
-# never emitted verbatim, so it would always be zero).
+# $exception/$identify are shared SDK events, not MCP usage.
 MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
+    "$mcp_tool_call": "mcp_tool_call_events",
     "$mcp_missing_capability": "mcp_missing_capability_events",
     "$mcp_initialize": "mcp_initialize_events",
     "$mcp_tools_list": "mcp_tools_list_events",
@@ -1041,28 +1011,27 @@ MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
 
 
 def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    """One grouped query for all `MCP_ANALYTICS_EVENT_METRICS`, fanned out in Python.
+    """Keep MCP metrics on `events`, whose ORDER BY key matches their dedup expression.
 
-    Mirrors `_get_ai_sub_sdk_event_metric_counts`'s "one query, group by two dims, fan out"
-    shape, but groups by `event` (not `$ai_lib`).
-
-    Reads `events` directly, matching `mcp_tool_call_events` rather than the
-    `events_read_table(use_new)` the rest of this module uses. The two must agree: every MCP
-    metric shares one dedup expression so the counts stay comparable, and that expression is the
-    legacy `events` ORDER BY key. The JSON table sorts by full-precision `timestamp` and raw
-    `distinct_id`/`uuid` instead, so the same expression does not dedup it equivalently. Moving
-    these metrics onto that table means changing how they dedup, for the whole module at once.
+    The native-JSON table sorts by full-precision timestamp and raw distinct_id/uuid instead.
+    Moving these metrics onto that table requires changing their deduplication together.
     """
-    quoted_events = ", ".join(f"'{event}'" for event in MCP_ANALYTICS_EVENT_METRICS)
-    # nosemgrep: clickhouse-fstring-param-audit - event names are internal constants, not user input
+    interface_expression, _ = get_property_string_expr(
+        "events", "$mcp_interface", "'$mcp_interface'", "properties", use_new_events_schema=False
+    )
+    # nosemgrep: clickhouse-fstring-param-audit - property expression comes from an internal helper
     query_template = f"""
         SELECT
             team_id,
             event,
-            uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+            uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count,
+            uniqExactIf(
+                tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)),
+                {interface_expression} = %(web_mcp_interface)s
+            ) AS web_mcp_count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-        WHERE event IN ({quoted_events})
+            AND startsWith(event, %(mcp_event_prefix)s)
         GROUP BY team_id, event
     """
 
@@ -1070,20 +1039,23 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
         counts_by_metric: dict[str, dict[int, int]] = {
             metric_name: {} for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
         }
+        counts_by_metric["web_mcp_events"] = {}
         for results in results_list:
-            for team_id, event, count in results:
+            for team_id, event, count, web_mcp_count in results:
                 metric_name = MCP_ANALYTICS_EVENT_METRICS.get(event)
-                if metric_name is None:
-                    continue
-                team_counts = counts_by_metric[metric_name]
-                team_counts[team_id] = team_counts.get(team_id, 0) + count
+                if metric_name is not None:
+                    team_counts = counts_by_metric[metric_name]
+                    team_counts[team_id] = team_counts.get(team_id, 0) + count
+                if web_mcp_count:
+                    web_counts = counts_by_metric["web_mcp_events"]
+                    web_counts[team_id] = web_counts.get(team_id, 0) + web_mcp_count
         return {metric_name: list(team_counts.items()) for metric_name, team_counts in counts_by_metric.items()}
 
     return _execute_calendar_aligned_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
-        params={},
+        params={"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "web_mcp_interface": "webmcp"},
         num_splits=12,
         combine_results_func=combine_mcp_analytics_results,
     )
@@ -1247,21 +1219,6 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
-        )
-        metrics["mcp_tool_call_events"] = _execute_calendar_aligned_split_query(
-            begin=begin,
-            end=end,
-            query_template="""
-            SELECT
-                team_id,
-                uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
-            FROM events
-            PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            WHERE event = '$mcp_tool_call'
-            GROUP BY team_id
-            """,
-            params={},
-            num_splits=12,
         )
         ai_sub_sdk_metric_counts = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
@@ -3284,9 +3241,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_rust_mcp_events_count_in_period": all_metrics["rust_mcp_events"],
         "teams_with_go_mcp_events_count_in_period": all_metrics["go_mcp_events"],
         "teams_with_ruby_mcp_events_count_in_period": all_metrics["ruby_mcp_events"],
-        "teams_with_web_mcp_events_count_in_period": get_teams_with_web_mcp_event_count_in_period(
-            period_start, period_end
-        ),
+        "teams_with_web_mcp_events_count_in_period": all_metrics["web_mcp_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],

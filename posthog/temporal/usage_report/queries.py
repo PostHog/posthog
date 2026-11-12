@@ -93,7 +93,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
-    get_teams_with_web_mcp_event_count_in_period,
     get_teams_with_workflow_transactional_emails_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
@@ -288,11 +287,6 @@ QUERIES: list[QuerySpec] = [
         timeout_minutes=30,
     ),
     QuerySpec(
-        name="teams_with_web_mcp_events_count_in_period",
-        fn=get_teams_with_web_mcp_event_count_in_period,
-        timeout_minutes=30,
-    ),
-    QuerySpec(
         name="all_event_metrics",
         fn=get_all_event_metrics_in_period,
         output="multi",
@@ -311,6 +305,7 @@ QUERIES: list[QuerySpec] = [
             "rust_mcp_events": "teams_with_rust_mcp_events_count_in_period",
             "go_mcp_events": "teams_with_go_mcp_events_count_in_period",
             "ruby_mcp_events": "teams_with_ruby_mcp_events_count_in_period",
+            "web_mcp_events": "teams_with_web_mcp_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
             "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",

@@ -1806,7 +1806,11 @@ class TestQueryUsageReportSQL:
         mock_execute_split_query: MagicMock,
         _mock_use_new_events_schema: MagicMock,
     ) -> None:
-        mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
+        mock_get_property_string_expr.side_effect = [
+            ("lib_expr", True),
+            ("ai_lib_expr", True),
+            ("interface_expr", True),
+        ]
         # 1st _execute_split_query call is the main per-$lib scan; 2nd is the AI sub-SDK rows
         # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
         mock_execute_split_query.side_effect = [
@@ -1834,12 +1838,10 @@ class TestQueryUsageReportSQL:
                 (1, "posthog-aspnetcore", "posthog-ai", 2),
             ],
         ]
-        # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
-        # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
-        # A single day spans one calendar-aligned split, hence one call each.
-        mock_sync_execute.side_effect = [
-            [(1, 4)],
-            [(1, "$mcp_missing_capability", 6), (1, "$mcp_initialize", 7)],
+        mock_sync_execute.return_value = [
+            (1, "$mcp_tool_call", 4, 2),
+            (1, "$mcp_missing_capability", 6, 0),
+            (1, "$mcp_initialize", 7, 0),
         ]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
@@ -1882,22 +1884,15 @@ class TestQueryUsageReportSQL:
 
         dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
 
-        mcp_query = mock_sync_execute.call_args_list[0].args[0]
-        assert "event = '$mcp_tool_call'" in mcp_query
+        mcp_query = mock_sync_execute.call_args.args[0]
         assert dedup_expression in mcp_query
+        assert "GROUP BY team_id, event" in mcp_query
+        assert "FROM events" in mcp_query
+        assert "interface_expr" in mcp_query
+        assert "interface_expr" not in main_query
+        assert mock_sync_execute.call_count == 1
         assert result["mcp_tool_call_events"] == [(1, 4)]
-
-        # The other 7 MCP Analytics events share one grouped query, and reuse `$mcp_tool_call`'s
-        # dedup expression and table so every MCP metric is counted the same way.
-        mcp_analytics_query = mock_sync_execute.call_args_list[1].args[0]
-        assert dedup_expression in mcp_analytics_query
-        assert "GROUP BY team_id, event" in mcp_analytics_query
-        assert "FROM events" in mcp_analytics_query
-        # `$mcp_tool_call` keeps its own untouched query; `$mcp_custom` is never emitted verbatim.
-        assert "'$mcp_tool_call'" not in mcp_analytics_query
-        assert "'$mcp_custom'" not in mcp_analytics_query
-        # One grouped query for the 7, not one query each.
-        assert mock_sync_execute.call_count == 2
+        assert result["web_mcp_events"] == [(1, 2)]
 
         # Subtract AI sub-SDK counts so each event belongs to one SDK metric.
         assert result["posthog_ai_events"] == [(1, 2)]
@@ -6254,9 +6249,13 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
         # pieces that must be added, not overwritten, and kept separate per team and per event.
         mock_sync_execute.side_effect = [
-            [(1, "$mcp_initialize", 2), (2, "$mcp_initialize", 5)],
-            [(1, "$mcp_initialize", 3), (1, "$mcp_tools_list", 7)],
-            [(1, "$mcp_initialize", 4), ("unexpected", "$mcp_not_a_real_event", 9)],
+            [(1, "$mcp_initialize", 2, 1), (2, "$mcp_initialize", 5, 0)],
+            [(1, "$mcp_initialize", 3, 2), (1, "$mcp_tools_list", 7, 0)],
+            [
+                (1, "$mcp_initialize", 4, 0),
+                ("unexpected", "$mcp_not_a_real_event", 9, 0),
+                (3, "$mcp_future_event", 4, 4),
+            ],
         ]
 
         result = _get_mcp_analytics_event_metric_counts(
@@ -6268,7 +6267,8 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # Every metric key is present even when no row mentioned it, so `_get_all_usage_data`
         # never KeyErrors on a quiet event.
         self.assertEqual(result["mcp_prompts_list_events"], [])
-        self.assertEqual(set(result), set(MCP_ANALYTICS_EVENT_METRICS.values()))
+        self.assertEqual(sorted(result["web_mcp_events"]), [(1, 3), (3, 4)])
+        self.assertEqual(set(result), {*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events"})
 
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
@@ -6530,9 +6530,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         sync_execute("SYSTEM STOP MERGES")
         self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
-        for lib in ("web", "js", "custom-browser"):
+        for lib, event in [
+            ("web", "$mcp_tool_call"),
+            ("js", "$mcp_tools_list"),
+            ("custom-browser", "$mcp_tool_call"),
+        ]:
             event_uuid = _create_event(
-                event="$mcp_tool_call",
+                event=event,
                 team=self.team,
                 distinct_id="webmcp_user",
                 timestamp=self.begin + relativedelta(hours=1),
@@ -6572,16 +6576,20 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
         flush_persons_and_events()
 
-        key = "teams_with_web_mcp_events_count_in_period"
-        rows = QUERY_INDEX[key].fn(self.begin, self.end)
-        assert dict(rows) == {self.team.id: 3, self.analytics_team.id: 1}
+        metrics = get_all_event_metrics_in_period(self.begin, self.end)
+        assert dict(metrics["web_mcp_events"]) == {self.team.id: 3, self.analytics_team.id: 1}
+        assert dict(metrics["web_events"])[self.analytics_team.id] == 1
+        assert dict(metrics["web_lite_events"]) == {self.team.id: 1}
+        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 4, self.analytics_team.id: 1}
+        assert dict(metrics["mcp_tools_list_events"]) == {self.team.id: 1}
 
         all_data: dict[str, dict[int, int]] = {
             destination: {}
             for spec in QUERY_INDEX.values()
             for destination in (spec.multi_keys_mapping.values() if spec.output == "multi" else [spec.name])
         }
-        all_data[key] = dict(rows)
+        for metric, destination in QUERY_INDEX["all_event_metrics"].multi_keys_mapping.items():
+            all_data[destination] = dict(metrics[metric])
         for team, expected_count in [(self.team, 3), (self.analytics_team, 1)]:
             report = dataclasses.asdict(_get_team_report(all_data, team))
             assert report["web_mcp_events_count_in_period"] == expected_count
