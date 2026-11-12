@@ -377,6 +377,8 @@ interface SaveContext {
     // The form's edit version when this save was dispatched. Its response compares against it to
     // tell whether the user kept editing, including while an earlier save was still in flight.
     editVersion: number
+    // Names of the steps this save sent with errors. The form can change before the response lands.
+    stepsNeedingWork: string[]
 }
 
 // Putting the edits back adds no new content, so a queued save that already sent them stays current.
@@ -3592,6 +3594,9 @@ export const workflowLogic = kea<workflowLogicType>([
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
                         editVersion: values.workflowEditVersion,
+                        stepsNeedingWork: updates.actions
+                            .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                            .map((action) => action.name),
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -4546,6 +4551,11 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The "Draft saved" toast offers Publish too, and it can outlive the edit that broke a step.
+            if (values.publishDisabledReason) {
+                lemonToast.warning(values.publishDisabledReason)
+                return
+            }
             actions.setDraftActionPending('publish')
             let preview
             try {
@@ -4814,10 +4824,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                 }
 
-                const stepsNeedingWork = values.workflow.actions
-                    .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                    .map((action) => action.name)
-                    .join(', ')
+                const stepsNeedingWork = (saveContext?.stepsNeedingWork ?? []).join(', ')
 
                 if (originalWorkflow.draft && stepsNeedingWork) {
                     lemonToast.warning(`Draft saved. Fix these steps before you publish: ${stepsNeedingWork}`)

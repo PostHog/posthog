@@ -153,6 +153,7 @@ describe('workflowLogic auto-save', () => {
             {
                 case: 'a clean workflow',
                 actions: [validTrigger, workflow.actions[1]],
+                editedWhileSaving: null,
                 respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
                 message: 'Workflow saved',
                 kind: 'success-toast',
@@ -160,6 +161,15 @@ describe('workflowLogic auto-save', () => {
             {
                 case: 'a workflow with a step error',
                 actions: workflow.actions,
+                editedWhileSaving: null,
+                respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
+                message: 'Workflow saved. These steps still need work: Trigger',
+                kind: 'warning-toast',
+            },
+            {
+                case: 'a step error fixed only after the save was sent',
+                actions: workflow.actions,
+                editedWhileSaving: [validTrigger, workflow.actions[1]],
                 respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
                 message: 'Workflow saved. These steps still need work: Trigger',
                 kind: 'warning-toast',
@@ -167,24 +177,40 @@ describe('workflowLogic auto-save', () => {
             {
                 case: 'a live workflow whose staged draft has a step error',
                 actions: workflow.actions,
+                editedWhileSaving: null,
                 respond: liveWithDraft,
                 message: 'Draft saved. Fix these steps before you publish: Trigger',
                 kind: 'warning-toast',
             },
-        ])('a manual save of $case says whether steps still need work', async ({ actions, respond, message, kind }) => {
-            useMocks({ patch: { '/api/environments/:team_id/hog_flows/:id/': () => [200, respond(actions)] } })
-            showToasts()
-            logic.actions.setWorkflowValues({ actions })
+        ])(
+            'a manual save of $case says whether steps still need work',
+            async ({ actions, editedWhileSaving, respond, message, kind }) => {
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                useMocks({
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async () => {
+                            await held
+                            return [200, respond(actions)]
+                        },
+                    },
+                })
+                showToasts()
+                logic.actions.setWorkflowValues({ actions })
 
-            await expectLogic(logic, () => {
                 logic.actions.saveWorkflow(logic.values.workflow)
-            })
-                .toDispatchActions(['saveWorkflowSuccess'])
-                .toFinishAllListeners()
+                if (editedWhileSaving) {
+                    logic.actions.setWorkflowValues({ actions: editedWhileSaving })
+                }
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
 
-            expect(await toastShown(message)).toBe(kind)
-            cleanup()
-        })
+                expect(await toastShown(message)).toBe(kind)
+                cleanup()
+            }
+        )
 
         it('keeps edits made while the save request is in flight and saves them next', async () => {
             jest.useFakeTimers()
@@ -1300,6 +1326,18 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasUnsavedChanges).toBe(false)
             expect(logic.values.publishDisabledReason).toBe('Fix the steps with errors first')
             expect(logic.values.discardDisabledReason).toBeUndefined()
+
+            let publishRequests = 0
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/publish/': () => {
+                        publishRequests += 1
+                        return [200, { published: false, confirm_token: 'preview-token', impact: null }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+            expect(publishRequests).toBe(0)
         })
 
         it('still stages content when a queued save undoes the edit the previous save wrote', async () => {
