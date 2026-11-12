@@ -132,7 +132,8 @@ class ListedEmailStatus(LabeledStrEnum):
     SCHEDULED = "scheduled", "Scheduled"
 
 
-_CLICKHOUSE_DATETIME64_RANGE = (datetime(1900, 1, 1, tzinfo=UTC), datetime(2300, 1, 1, tzinfo=UTC))
+_EARLIEST_CLICKHOUSE_TIME = datetime(1900, 1, 1, tzinfo=UTC)
+_LATEST_CLICKHOUSE_TIME_EXCLUSIVE = datetime(2300, 1, 1, tzinfo=UTC)
 
 
 class ScheduledEmailListQuerySerializer(serializers.Serializer):
@@ -156,7 +157,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
             if due_at.tzinfo is None:
                 raise ValueError
             due_at = due_at.astimezone(UTC)
-            if not _CLICKHOUSE_DATETIME64_RANGE[0] <= due_at < _CLICKHOUSE_DATETIME64_RANGE[1]:
+            if not _EARLIEST_CLICKHOUSE_TIME <= due_at < _LATEST_CLICKHOUSE_TIME_EXCLUSIVE:
                 raise ValueError
             return due_at, str(UUID(message_id))
         except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
