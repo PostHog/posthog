@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  type GitlabMergeRequest,
+  getGitlabMergeRequest,
+  parseGitlabMergeRequestUrl,
+  parseGitlabRemoteProject,
+  resolveGitlabClient,
+} from "@posthog/git/gitlab";
 import { parseGithubUrl } from "@posthog/git/utils";
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +33,22 @@ type RunCommand = (
   cwd: string,
   signal: AbortSignal,
 ) => Promise<CommandResult>;
+
+type LookupGitlabMergeRequest = (
+  projectPath: string,
+  iid: number,
+) => Promise<GitlabMergeRequest>;
+
+function defaultLookupGitlabMergeRequest(
+  projectPath: string,
+  iid: number,
+): Promise<GitlabMergeRequest> {
+  const client = resolveGitlabClient();
+  if (!client) {
+    return Promise.reject(new Error("No GitLab token in env (GITLAB_TOKEN)"));
+  }
+  return getGitlabMergeRequest(client, projectPath, iid);
+}
 
 export type ExistingPrCheckoutResult =
   | { status: "already_active"; branch: string }
@@ -73,13 +96,26 @@ export async function checkoutExistingPullRequest({
   repositoryPath,
   prUrl,
   runCommand = defaultRunCommand,
+  lookupGitlabMergeRequest = defaultLookupGitlabMergeRequest,
   deadlineMs = PRE_CHECKOUT_DEADLINE_MS,
 }: {
   repositoryPath: string;
   prUrl: string;
   runCommand?: RunCommand;
+  lookupGitlabMergeRequest?: LookupGitlabMergeRequest;
   deadlineMs?: number;
 }): Promise<ExistingPrCheckoutResult> {
+  const gitlabMr = parseGitlabMergeRequestUrl(prUrl);
+  if (gitlabMr) {
+    return checkoutExistingGitlabMergeRequest({
+      repositoryPath,
+      prUrl,
+      ...gitlabMr,
+      runCommand,
+      lookupGitlabMergeRequest,
+      deadlineMs,
+    });
+  }
   const pr = parsePrUrl(prUrl);
   if (!pr) {
     return {
@@ -184,6 +220,145 @@ export async function checkoutExistingPullRequest({
     clearTimeout(timeout);
     // Ensure no child survives the deadline if we exit early (e.g. the second
     // command failed before the first timed out).
+    controller.abort();
+  }
+}
+
+// A failed fetch can echo the origin URL, which holds the GitLab token.
+function redactUrlCredentials(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\/\/[^@/\s]+@/g, "//***@");
+}
+
+// GitLab runs have no `gh`, so read the MR's source branch over REST and check
+// it out from origin.
+async function checkoutExistingGitlabMergeRequest({
+  repositoryPath,
+  prUrl,
+  projectPath,
+  iid,
+  runCommand,
+  lookupGitlabMergeRequest,
+  deadlineMs,
+}: {
+  repositoryPath: string;
+  prUrl: string;
+  projectPath: string;
+  iid: number;
+  runCommand: RunCommand;
+  lookupGitlabMergeRequest: LookupGitlabMergeRequest;
+  deadlineMs: number;
+}): Promise<ExistingPrCheckoutResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), deadlineMs);
+  const git = (args: string[]): Promise<CommandResult> =>
+    runCommand("git", args, repositoryPath, controller.signal);
+
+  try {
+    const [currentBranchResult, currentHeadResult, originResult, mr] =
+      await Promise.all([
+        git(["branch", "--show-current"]),
+        git(["rev-parse", "HEAD"]),
+        git(["remote", "get-url", "origin"]),
+        lookupGitlabMergeRequest(projectPath, iid),
+      ]);
+    // The origin URL holds the token, so only the parsed path is compared and
+    // the URL never goes into an error.
+    const origin = parseGitlabRemoteProject(originResult.stdout.trim());
+    if (!origin || origin.toLowerCase() !== projectPath.toLowerCase()) {
+      return {
+        status: "failed",
+        error: `Merge request ${prUrl} is not in the workspace repository`,
+      };
+    }
+    // A fork MR's source branch is not on origin, so a fetch of that name
+    // would check out an unrelated branch.
+    if (
+      mr.source_project_id !== null &&
+      mr.target_project_id !== null &&
+      mr.source_project_id !== mr.target_project_id
+    ) {
+      return {
+        status: "failed",
+        error: `Merge request ${prUrl} comes from a fork`,
+      };
+    }
+    const branch = mr.source_branch?.trim();
+    if (!branch || branch.startsWith("-")) {
+      return {
+        status: "failed",
+        error: "Merge request source branch is invalid",
+      };
+    }
+
+    const currentBranch = currentBranchResult.stdout.trim();
+    const currentHead = currentHeadResult.stdout.trim();
+    if (mr.sha && currentBranch === branch && currentHead === mr.sha) {
+      return { status: "already_active", branch };
+    }
+
+    try {
+      // An explicit refspec, because a single-branch clone does not update
+      // origin/<branch> on a plain `git fetch origin <branch>`.
+      await git(["remote", "set-branches", "--add", "origin", branch]);
+      await git([
+        "fetch",
+        "origin",
+        `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
+      const hasLocalBranch = await git([
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `refs/heads/${branch}`,
+      ]).then(
+        () => true,
+        () => false,
+      );
+      const status = await git([
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]);
+      if (status.stdout.trim()) {
+        return {
+          status: "failed",
+          error:
+            "Cannot safely check out a merge request with uncommitted changes",
+        };
+      }
+      try {
+        await git(
+          hasLocalBranch
+            ? ["checkout", branch]
+            : ["checkout", "-b", branch, "--track", `origin/${branch}`],
+        );
+        if (hasLocalBranch) {
+          await git(["merge", "--ff-only", `origin/${branch}`]);
+        }
+      } catch (error) {
+        await restoreRepoState(
+          runCommand,
+          repositoryPath,
+          currentBranch,
+          currentHead,
+        );
+        throw error;
+      }
+    } catch (error) {
+      return {
+        status: "failed",
+        error: redactUrlCredentials(error),
+      };
+    }
+    return { status: "checked_out", branch };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: redactUrlCredentials(error),
+    };
+  } finally {
+    clearTimeout(timeout);
     controller.abort();
   }
 }

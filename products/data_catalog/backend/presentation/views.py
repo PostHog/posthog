@@ -61,6 +61,7 @@ from .serializers import (
     MetricRunResponseSerializer,
     MetricSerializer,
     MetricUsageSerializer,
+    PendingReviewCountsSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
     UsageSnapshotSerializer,
@@ -659,3 +660,18 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if snapshot is None:
             raise NotFound(_NO_USAGE_SCAN)
         return Response(UsageSnapshotSerializer(snapshot).data)
+
+
+class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "data_catalog"
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: PendingReviewCountsSerializer},
+    )
+    def pending_review(self, request: Request, **kwargs) -> Response:
+        """How many items wait in each review queue, counted as the list of that queue shows them to you."""
+        counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
+        return Response(PendingReviewCountsSerializer(counts).data)
