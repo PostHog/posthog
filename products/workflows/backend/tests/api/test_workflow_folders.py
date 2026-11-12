@@ -26,6 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.messaging.backend.facade.templates import get_template_placement
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
@@ -1177,17 +1178,73 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
-    @parameterized.expand([("create", "post"), ("update", "patch")])
-    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(self, _name, method) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    @parameterized.expand(
+        [
+            (
+                "create_in_folder",
+                "post",
+                {"_create_in_folder": "Campaigns", "name": "Synthetic new", "type": "email"},
+                "never",
+            ),
+            ("file_into_folder", "patch", {"_create_in_folder": "Campaigns"}, "never"),
+            ("rename_filed", "patch", {"name": "Synthetic renamed"}, "before"),
+            ("delete_filed", "patch", {"deleted": True}, "before"),
+            ("rename_filed_after_the_first_check", "patch", {"name": "Synthetic renamed"}, "after_the_first_check"),
+            ("delete_filed_after_the_first_check", "patch", {"deleted": True}, "after_the_first_check"),
         ]
-        self.organization.save()
+    )
+    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(
+        self, _name: str, method: str, payload: dict[str, Any], filed: str
+    ) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
         template_id = self.client.post(
             templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
         ).json()["id"]
-        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        if filed != "before":
+            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+
+        def file_tree() -> set[tuple[str, str]]:
+            return set(
+                FileSystem.objects.filter(team=self.team, type__in=["message_template", "folder"]).values_list(
+                    "type", "path"
+                )
+            )
+
+        tree = file_tree()
+        self.assertEqual(any(file_type == "message_template" for file_type, _path in tree), filed == "before")
+        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
+
+        def file_after_the_first_lookup(team_id: int, lookup_id: Any) -> Any:
+            placement = get_template_placement(team_id, lookup_id)
+            if filed == "after_the_first_check" and placement.path is None:
+                FileSystem.objects.create(
+                    team=self.team,
+                    path="Campaigns/Synthetic email",
+                    depth=2,
+                    type="message_template",
+                    ref=str(lookup_id),
+                    created_by=self.user,
+                )
+                tree.update(file_tree())
+            return placement
+
+        url = templates_url if method == "post" else f"{templates_url}{template_id}/"
+        with patch(
+            "products.messaging.backend.presentation.views.message_templates.get_template_placement",
+            side_effect=file_after_the_first_lookup,
+        ):
+            response = getattr(self.client, method)(url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(file_tree(), tree)
+        if filed == "after_the_first_check":
+            self.assertIn(("message_template", "Campaigns/Synthetic email"), tree)
+
+    def _log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
         unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
         member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
@@ -1203,15 +1260,28 @@ class TestWorkflowFolders(APIBaseTest):
         )
         self.client.force_login(member)
 
-        url = templates_url if method == "post" else f"{templates_url}{template_id}/"
-        payload = {
-            "_create_in_folder": "Campaigns",
-            **({"name": "Synthetic new", "type": "email"} if method == "post" else {}),
-        }
-        response = getattr(self.client, method)(url, payload, format="json")
+    @parameterized.expand(
+        [("description_only", {"description": "Changed"}), ("same_name", {"name": "Synthetic email"})]
+    )
+    def test_a_template_save_that_keeps_its_name_leaves_a_renamed_file_alone(
+        self, _name: str, payload: dict[str, Any]
+    ) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template").update(
+            path="Campaigns/Approved copy", depth=2
+        )
+        self._log_in_as_a_workflow_viewer_with_an_unrelated_editor_grant()
 
-        self.assertEqual(response.status_code, 403, response.content)
-        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
+        response = self.client.patch(f"{templates_url}{template_id}/", payload, format="json")
+
+        self.assertIn(response.status_code, (200, 403), response.content)
+        self.assertEqual(
+            list(FileSystem.objects.filter(team=self.team, type="message_template").values_list("path", flat=True)),
+            ["Campaigns/Approved copy"],
+        )
 
     @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
     def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
