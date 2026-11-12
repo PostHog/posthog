@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models import Tag
 from posthog.models.comment import Comment
 
+from products.conversations.backend.cache import get_person_distinct_ids
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -27,7 +28,11 @@ from products.conversations.backend.temporal.intercom_import.activities import (
     _import_conversation_batch_sync,
     _update_job_progress_sync,
 )
-from products.conversations.backend.temporal.intercom_import.client import IntercomNotFoundError, IntercomRateLimitError
+from products.conversations.backend.temporal.intercom_import.client import (
+    IntercomAttachmentTooLargeError,
+    IntercomNotFoundError,
+    IntercomRateLimitError,
+)
 
 M = "products.conversations.backend.temporal.intercom_import.activities"
 
@@ -171,7 +176,9 @@ class TestIntercomImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="101")
         assert ticket.status == Status.OPEN
         assert ticket.priority == Priority.HIGH
-        assert ticket.distinct_id == "jane@example.com"
+        # The unverified email is kept for display and replies but never becomes the access identity.
+        assert ticket.distinct_id == "intercom:contact-1"
+        assert (ticket.email_from, ticket.identity_verified) == ("jane@example.com", False)
         assert ticket.email_subject == "Help with billing"
         assert ticket.anonymous_traits == {"name": "Jane Customer", "email": "jane@example.com"}
         assert ticket.created_at == datetime.fromtimestamp(CREATED_AT, tz=UTC)
@@ -237,7 +244,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         )
 
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="301")
-        assert ticket.distinct_id == "lee@example.com"
+        assert (ticket.distinct_id, ticket.email_from) == ("intercom:contact-7", "lee@example.com")
         assert (self._comments(ticket)[0].item_context or {})["author_type"] == "support"
 
     def test_default_email_channel_attached_and_backfilled_on_rerun(self) -> None:
@@ -395,6 +402,39 @@ class TestIntercomImportBatchActivity(BaseTest):
 
         assert (result.imported, result.failed) == (1, 1)
         assert [a["url"] for a in discard.call_args.args[1]] == ["https://media.posthog.test/712-a"]
+
+    def test_unverified_lead_email_never_becomes_the_widget_access_identity(self) -> None:
+        # A lead typed an email that is also a real user's distinct_id (apps often identify by email).
+        # The widget grants a ticket to any viewer whose distinct_ids contain the ticket's, so the
+        # import must not copy that email into distinct_id.
+        victim_distinct_id = "victim@example.com"
+        lead = {"type": "lead", "id": "lead42", "name": "Attacker", "email": victim_distinct_id}
+
+        self._run_batch([_conversation("731", source_author=lead)])
+
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="731")
+        assert ticket.distinct_id == "intercom:lead42"
+        assert ticket.distinct_id not in get_person_distinct_ids(self.team.id, victim_distinct_id)
+        assert ticket.identity_verified is False
+
+    def test_oversized_streamed_downloads_count_against_the_conversation_budget(self) -> None:
+        conversation = self._attachment_conversation("721", files=3)
+        client = MagicMock()
+        client.fetch_conversation.return_value = conversation
+        client.download_attachment.side_effect = IntercomAttachmentTooLargeError("too big", bytes_read=150)
+
+        with (
+            patch(f"{M}.MAX_ATTACHMENT_BYTES_PER_CONVERSATION", 200),
+            patch(f"{M}.IntercomImportClient", return_value=client),
+            patch(f"{M}.save_file_to_uploaded_media"),
+        ):
+            _import_conversation_batch_sync(
+                ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, conversation_ids=["721"])
+            )
+
+        # 150 bytes streamed per rejected file: the second leaves 50 of 200 spent below zero, so the
+        # third is never downloaded.
+        assert client.download_attachment.call_count == 2
 
 
 class TestIntercomImportJobProgress(BaseTest):

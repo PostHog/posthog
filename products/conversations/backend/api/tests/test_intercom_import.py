@@ -150,13 +150,18 @@ class TestIntercomImportAPI(APIBaseTest):
         job = IntercomImportJob.objects.unscoped().get(team_id=self.team.id)
         self.assertEqual((job.status, job.workflow_id), (IntercomImportJob.Status.COMPLETED, "workflow-id"))
 
-    def test_orphaned_pending_reservation_is_released(self, _mock_validate, mock_start, _mock_flag):
-        orphan = IntercomImportJob.objects.unscoped().create(
+    def _stale_pending_job(self) -> IntercomImportJob:
+        job = IntercomImportJob.objects.unscoped().create(
             team_id=self.team.id, status=IntercomImportJob.Status.PENDING, job_inputs={"region": "us"}
         )
-        IntercomImportJob.objects.unscoped().filter(id=orphan.id).update(
+        IntercomImportJob.objects.unscoped().filter(id=job.id).update(
             created_at=timezone.now() - ORPHANED_PENDING_AFTER - timedelta(minutes=1)
         )
+        return job
+
+    @patch(f"{M}.intercom_import_workflow_exists", new_callable=AsyncMock, return_value=False)
+    def test_orphaned_pending_reservation_is_released(self, _mock_exists, _mock_validate, mock_start, _mock_flag):
+        self._stale_pending_job()
 
         status_response = self.client.get(f"{self.url}status/")
         response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
@@ -164,6 +169,18 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(status_response.json()["status"], "failed")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_start.assert_called_once()
+
+    @patch(f"{M}.intercom_import_workflow_exists", new_callable=AsyncMock, return_value=True)
+    def test_stale_reservation_with_a_live_workflow_is_kept(self, _mock_exists, _mock_validate, mock_start, _mock_flag):
+        # The web process died after Temporal accepted the workflow but before saving workflow_id.
+        job = self._stale_pending_job()
+
+        response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        job.refresh_from_db()
+        self.assertEqual(job.status, IntercomImportJob.Status.PENDING)
+        mock_start.assert_not_called()
 
     def test_recent_pending_reservation_still_blocks_a_second_import(self, _mock_validate, mock_start, _mock_flag):
         IntercomImportJob.objects.unscoped().create(

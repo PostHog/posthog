@@ -31,15 +31,18 @@ from products.conversations.backend.temporal.intercom_import.client import (
     IntercomCredentials,
     validate_intercom_credentials,
 )
-from products.conversations.backend.temporal.intercom_import.starter import start_intercom_import_workflow
+from products.conversations.backend.temporal.intercom_import.starter import (
+    intercom_import_workflow_exists,
+    start_intercom_import_workflow,
+)
 
 logger = structlog.get_logger(__name__)
 
 WORKFLOW_START_FAILED_MESSAGE = "Failed to start the import. Please try again or contact support if it persists."
 ALREADY_RUNNING_MESSAGE = "An Intercom import is already running for this team"
 INTERCOM_IMPORT_FLAG = "product-support-intercom-import"
-# A started workflow moves its job to running within seconds, so a pending job with no workflow
-# this old was orphaned by a web process that died between saving the job and starting Temporal.
+# A started workflow moves its job to running within seconds, so a pending job with no workflow_id
+# this old is a candidate orphan; Temporal is still checked before releasing it.
 ORPHANED_PENDING_AFTER = timedelta(minutes=10)
 
 
@@ -157,16 +160,22 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _release_orphaned_reservations(self) -> None:
         now = timezone.now()
-        IntercomImportJob.objects.filter(
+        stale = IntercomImportJob.objects.filter(
             status=IntercomImportJob.Status.PENDING,
             workflow_id__isnull=True,
             created_at__lt=now - ORPHANED_PENDING_AFTER,
-        ).update(
-            status=IntercomImportJob.Status.FAILED,
-            latest_error=WORKFLOW_START_FAILED_MESSAGE,
-            finished_at=now,
-            updated_at=now,
         )
+        for job in stale:
+            # The web process may have died after Temporal accepted the workflow but before saving
+            # workflow_id, so ask Temporal before releasing a job a live workflow may still own.
+            if asyncio.run(intercom_import_workflow_exists(team_id=job.team_id, job_id=str(job.id))):
+                continue
+            IntercomImportJob.objects.filter(id=job.id, status=IntercomImportJob.Status.PENDING).update(
+                status=IntercomImportJob.Status.FAILED,
+                latest_error=WORKFLOW_START_FAILED_MESSAGE,
+                finished_at=now,
+                updated_at=now,
+            )
 
     def _mark_failed_if_pending(self, job: IntercomImportJob) -> None:
         IntercomImportJob.objects.filter(id=job.id, status=IntercomImportJob.Status.PENDING).update(

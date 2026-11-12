@@ -287,6 +287,7 @@ def _http_error(status_code: int) -> requests.HTTPError:
         pytest.param(IntercomRateLimitError("slow"), True, id="rate_limit"),
         pytest.param(requests.Timeout(), True, id="timeout"),
         pytest.param(requests.ConnectionError(), True, id="connection"),
+        pytest.param(requests.exceptions.ChunkedEncodingError(), True, id="body_interrupted"),
         pytest.param(_http_error(503), True, id="server_error"),
         pytest.param(_http_error(404), False, id="not_found"),
         pytest.param(_http_error(403), False, id="expired_link"),

@@ -250,7 +250,10 @@ def _process_attachments(
             continue
         try:
             raw = client.download_attachment(url, max_bytes=max_bytes)
-        except IntercomAttachmentTooLargeError:
+        except IntercomAttachmentTooLargeError as exc:
+            # The bytes streamed before the cap tripped still count, or repeated oversized files
+            # without an honest Content-Length would bypass the conversation budget.
+            budget.remaining -= exc.bytes_read
             logger.warning(
                 "intercom_import_attachment_too_large", team_id=team.id, file_name=file_name, max_bytes=max_bytes
             )
@@ -369,16 +372,18 @@ def _build_ticket(
 ) -> BuiltTicket:
     conversation_id = str(conversation["id"])
     requester = _resolve_requester(client, conversation)
-    requester_email = requester.email or f"intercom-contact-{requester.contact_id or conversation_id}"
-    # Same access-identity rule as the Zendesk import: use the requester email verbatim, never a
-    # person lookup on the attacker-settable `properties.email`. Imported Intercom tickets are not
-    # part of the widget's email bridge (Intercom leads type their own email unverified).
-    distinct_id = requester_email
+    requester_email = requester.email if "@" in requester.email else ""
+    # Intercom leads type their own email unverified, so the email must never become the widget
+    # access identity: the widget grants a ticket to any viewer whose distinct_ids contain the
+    # ticket's distinct_id, and many apps identify users by email. A namespaced id can't match a
+    # real distinct_id. The email still drives display and replies, and restore-by-email proves
+    # inbox ownership before granting access.
+    distinct_id = f"intercom:{requester.contact_id or conversation_id}"
 
     anonymous_traits: dict[str, str] = {}
     if requester.name:
         anonymous_traits["name"] = requester.name
-    if "@" in requester_email:
+    if requester_email:
         anonymous_traits["email"] = requester_email
 
     source = conversation.get("source") or {}
@@ -392,7 +397,8 @@ def _build_ticket(
         status=map_intercom_state(conversation.get("state")),
         priority=map_intercom_priority(conversation.get("priority")),
         email_subject=subject[:500] or None,
-        email_from=requester_email if "@" in requester_email else None,
+        email_from=requester_email or None,
+        identity_verified=False,
         email_config=default_email_channel,
         anonymous_traits=anonymous_traits,
         intercom_conversation_id=conversation_id,

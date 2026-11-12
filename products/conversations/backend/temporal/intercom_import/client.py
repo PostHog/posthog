@@ -55,6 +55,10 @@ class IntercomRateLimitError(Exception):
 class IntercomAttachmentTooLargeError(Exception):
     """Raised when an attachment exceeds the caller's byte cap, so the caller can skip it."""
 
+    def __init__(self, message: str, *, bytes_read: int = 0) -> None:
+        super().__init__(message)
+        self.bytes_read = bytes_read
+
 
 class IntercomAttachmentDownloadError(Exception):
     """An attachment download failure whose message leaves out the signed URL.
@@ -89,7 +93,16 @@ def is_retryable_error(exc: BaseException) -> bool:
     """True for failures a later attempt can fix: rate limits, timeouts, connection errors, 5xx."""
     if isinstance(exc, IntercomAttachmentDownloadError):
         return exc.retryable
-    if isinstance(exc, IntercomRateLimitError | requests.ConnectionError | requests.Timeout):
+    # ChunkedEncodingError and ContentDecodingError are a connection dropping mid-body; they
+    # subclass RequestException, not ConnectionError.
+    if isinstance(
+        exc,
+        IntercomRateLimitError
+        | requests.ConnectionError
+        | requests.Timeout
+        | requests.exceptions.ChunkedEncodingError
+        | requests.exceptions.ContentDecodingError,
+    ):
         return True
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
         return exc.response.status_code >= 500
@@ -292,7 +305,7 @@ class IntercomImportClient:
                         buffer.extend(chunk)
                         if len(buffer) > max_bytes:
                             raise IntercomAttachmentTooLargeError(
-                                f"Attachment exceeds {max_bytes} bytes while streaming"
+                                f"Attachment exceeds {max_bytes} bytes while streaming", bytes_read=len(buffer)
                             )
                     return bytes(buffer)
         raise ValueError("Too many attachment redirects")
