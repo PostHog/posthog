@@ -28759,6 +28759,134 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    export interface CompositeInput {
+      /**
+         * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
+         * @maxLength 32
+         * @pattern ^[a-z][a-z0-9_]{0,31}$
+         */
+      alias: string;
+      /** Exact immutable version of an ordinary input scorer. */
+      scorer_version_id: string;
+    }
+
+    export interface CompositeConfig {
+      /**
+         * Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; "good" if correct else "bad". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.
+         * @maxLength 1024
+         */
+      expression: string;
+      /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+      inputs: CompositeInput[];
+    }
+
+    /**
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean
+     */
+    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+
+
+    export const ScoreDefinitionKindEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
+    /**
+     * * `gte` - At or above
+     * * `lte` - At or below
+     */
+    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
+
+
+    export const NumericScorePassingRuleSerializerOperatorEnum = {
+      Gte: 'gte',
+      Lte: 'lte',
+    } as const;
+
+    export interface NumericScorePassingRule {
+      /** Pass at or above (gte), or at or below (lte), the threshold.
+       *
+       * * `gte` - At or above
+       * * `lte` - At or below */
+      operator: NumericScorePassingRuleSerializerOperatorEnum;
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    }
+
+    export interface NumericScoreDefinitionConfig {
+      /**
+         * Optional inclusive minimum score.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Optional inclusive maximum score.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional increment step for numeric input, for example 1 or 0.5.
+         * @nullable
+         */
+      step?: number | null;
+      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: NumericScorePassingRule | null;
+    }
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface CompositeInputRead {
+      /** Input name in the formula. */
+      alias: string;
+      /** Pinned immutable input version. */
+      scorer_version_id: string;
+      /** Input scorer definition. */
+      definition_id: string;
+      /** Input scorer name. */
+      name: string;
+      /** Input value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Pinned input version number. */
+      version: number;
+      /** Scoring rules of the pinned input version. */
+      readonly config: ScoreDefinitionConfig;
+      /**
+         * Current input version. Updating requires a new composite version.
+         * @nullable
+         */
+      latest_version_id: string | null;
+      /**
+         * Current input version number.
+         * @nullable
+         */
+      latest_version: number | null;
+    }
+
+    export interface CompositeValidation {
+      /** Expected formula output kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Formula and pinned input versions to validate without saving. */
+      composition: CompositeConfig;
+      /** Output configuration to check literal categories and composite scoring rules. */
+      config?: ScoreDefinitionConfig;
+    }
+
+    export interface CompositeValidationResponse {
+      /** Whether the formula and any supplied output configuration are valid. */
+      valid: boolean;
+    }
+
     export interface ComputeRateCard {
       /** Stable identifier for this rate card. */
       version: string;
@@ -63084,6 +63212,84 @@ export namespace Schemas {
       Recording: 'recording',
     } as const;
 
+    export interface IntercomImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    export type IntercomImportJobRegionEnum = typeof IntercomImportJobRegionEnum[keyof typeof IntercomImportJobRegionEnum];
+
+
+    export const IntercomImportJobRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+      Au: 'au',
+    } as const;
+
+    export interface IntercomImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /** Intercom region used for this import job. */
+      readonly region: IntercomImportJobRegionEnum | null;
+      /** Whether a stored Intercom access token exists for this job (the token is never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of conversations discovered for import. */
+      readonly total_conversations: number;
+      /** Number of conversations processed so far. */
+      readonly processed_conversations: number;
+      /** Number of conversations imported as tickets. */
+      readonly imported_conversations: number;
+      /** Number of conversations skipped because they were already imported. */
+      readonly skipped_conversations: number;
+      /** Number of conversations that failed to import. */
+      readonly failed_conversations: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface IntercomImportStart {
+      /** Region where the Intercom workspace is hosted: us, eu, or au.
+       *
+       * * `us` - United States
+       * * `eu` - Europe
+       * * `au` - Australia */
+      region?: IntercomImportJobRegionEnum;
+      /**
+         * Intercom access token with permission to read conversations and contacts.
+         * @maxLength 500
+         */
+      access_token: string;
+      /**
+         * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface IntercomTicketSignalExtra {
       state: string | null;
       priority: string | null;
@@ -72007,48 +72213,6 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
-    /**
-     * * `gte` - At or above
-     * * `lte` - At or below
-     */
-    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
-
-
-    export const NumericScorePassingRuleSerializerOperatorEnum = {
-      Gte: 'gte',
-      Lte: 'lte',
-    } as const;
-
-    export interface NumericScorePassingRule {
-      /** Pass at or above (gte), or at or below (lte), the threshold.
-       *
-       * * `gte` - At or above
-       * * `lte` - At or below */
-      operator: NumericScorePassingRuleSerializerOperatorEnum;
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    }
-
-    export interface NumericScoreDefinitionConfig {
-      /**
-         * Optional inclusive minimum score.
-         * @nullable
-         */
-      min?: number | null;
-      /**
-         * Optional inclusive maximum score.
-         * @nullable
-         */
-      max?: number | null;
-      /**
-         * Optional increment step for numeric input, for example 1 or 0.5.
-         * @nullable
-         */
-      step?: number | null;
-      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
-      passing_rule?: NumericScorePassingRule | null;
-    }
-
     export interface OAuthRedirectResponse {
       redirect_url: string;
     }
@@ -72633,22 +72797,25 @@ export namespace Schemas {
     }
 
     /**
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean
+     * * `reported` - Reported
+     * * `composite` - Composite
      */
-    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+    export type ScoreDefinitionCalculationEnum = typeof ScoreDefinitionCalculationEnum[keyof typeof ScoreDefinitionCalculationEnum];
 
 
-    export const ScoreDefinitionKindEnum = {
-      Categorical: 'categorical',
-      Numeric: 'numeric',
-      Boolean: 'boolean',
+    export const ScoreDefinitionCalculationEnum = {
+      Reported: 'reported',
+      Composite: 'composite',
     } as const;
 
-    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
-
     export interface OfflineScorerVersionRead {
+      /** Reported or computed from other item scores.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      calculation: ScoreDefinitionCalculationEnum;
+      /** Immutable formula and exact input versions for a composite. */
+      composition: CompositeConfig | null;
       /** Exact immutable scorer-version UUID. */
       id: string;
       /** Stable scorer definition UUID. */
@@ -72685,6 +72852,8 @@ export namespace Schemas {
     }
 
     export interface OfflineScorerSummary {
+      /** Items without a composite request. These are excluded from missing results and pass rates. */
+      not_requested_count: number;
       /** Exact scorer version summarized. */
       scorer: OfflineScorerVersionRead;
       /** All observed experiment items, independent of scorer selection or item pagination. */
@@ -72796,6 +72965,11 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineResultCell {
+      /**
+         * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+         * @nullable
+         */
+      input_result_ids: string[] | null;
       /** Stable result UUID. */
       id: string;
       /** Item evaluated by this result. */
@@ -72953,6 +73127,11 @@ export namespace Schemas {
     }
 
     export interface OfflineResultRead {
+      /**
+         * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+         * @nullable
+         */
+      input_result_ids: string[] | null;
       /** Stable result UUID. */
       id: string;
       /** Item evaluated by this result. */
@@ -77557,6 +77736,17 @@ export namespace Schemas {
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
       readonly kind: ScoreDefinitionKindEnum;
+      /** Whether results are reported by the caller or calculated from other item scores.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      readonly calculation: ScoreDefinitionCalculationEnum;
+      /** Formula and exact input versions for a composite scorer. */
+      readonly composition: CompositeConfig | null;
+      /** Pinned inputs and their latest versions. Empty for reported scorers. */
+      readonly input_scorers: readonly CompositeInputRead[];
+      /** Accessible active composite scorers whose current version depends on a version of this scorer. */
+      readonly dependent_composite_count: number;
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
@@ -80963,6 +81153,11 @@ export namespace Schemas {
       readonly github_issue_number: number | null;
       /** @nullable */
       readonly zendesk_ticket_id: number | null;
+      /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         * @nullable
+         */
+      readonly intercom_conversation_id: string | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -105578,6 +105773,18 @@ export namespace Schemas {
       item_id: string;
       /** Pinned scorer version used by this result. */
       scorer_version_id: string;
+      /** Stored result status, including calculation failures.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /**
+         * Error code for a failed result, otherwise null.
+         * @nullable
+         */
+      error_code: string | null;
     }
 
     export interface ResultSubmission {
@@ -105585,14 +105792,16 @@ export namespace Schemas {
       item_id: string;
       /** Exact UUID of an existing scorer version in this project. */
       scorer_version_id: string;
+      /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+      calculate?: boolean;
       /** Outcome of this scorer execution.
        *
        * * `ok` - OK
        * * `error` - Error
        * * `skipped` - Skipped
        * * `not_applicable` - Not applicable */
-      status: OfflineEvaluationResultStatusEnum;
-      /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+      status?: OfflineEvaluationResultStatusEnum;
+      /** Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true. */
       value?: number | boolean | string[] | null;
       /**
          * Optional stable error code, permitted only for error outcomes.
@@ -108644,6 +108853,13 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+      /** Reported or composite. This cannot be changed after creation.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      calculation?: ScoreDefinitionCalculationEnum;
+      /** Required for composite scorers: expression and exact input versions. */
+      composition?: CompositeConfig | null;
       /**
          * Human-readable scorer name.
          * @maxLength 255
@@ -108672,6 +108888,8 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /** Required for a composite scorer. Creates a new immutable formula and input selection. */
+      composition?: CompositeConfig | null;
       /**
          * Updated compact label, saved with this version.
          * @maxLength 40
@@ -108709,6 +108927,13 @@ export namespace Schemas {
        * * `numeric` - numeric
        * * `boolean` - boolean */
       readonly kind: ScoreDefinitionKindEnum;
+      /** How this scorer's results are produced.
+       *
+       * * `reported` - Reported
+       * * `composite` - Composite */
+      readonly calculation: ScoreDefinitionCalculationEnum;
+      /** Immutable formula and input versions, or null for reported scores. */
+      readonly composition: CompositeConfig | null;
       /** Immutable configuration for this exact version. */
       readonly config: ScoreDefinitionConfig;
       /** Time this version was created. */
@@ -115000,11 +115225,11 @@ export namespace Schemas {
     } as const;
 
     export interface SurfaceMoreWarehouseSuggestions {
-      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+      /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
        *
        * * `models` - Models
        * * `catalog` - Data catalog */
-      surface: WarehouseSuggestionSurfaceEnum;
+      surface?: WarehouseSuggestionSurfaceEnum;
     }
 
     /**
@@ -137200,9 +137425,20 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
+     * Filter reported or composite scorers.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite
+     */
+    calculation?: LlmAnalyticsScoreDefinitionsListCalculation;
+    /**
      * Filter by the creator's user ID.
      */
     created_by?: number;
+    /**
+     * Find current composite scorers that depend on this input scorer.
+     */
+    input_definition_id?: string;
     /**
      * Filter by scorer kind.
      */
@@ -137236,6 +137472,14 @@ export namespace Schemas {
      */
     tags?: string;
     };
+
+    export type LlmAnalyticsScoreDefinitionsListCalculation = typeof LlmAnalyticsScoreDefinitionsListCalculation[keyof typeof LlmAnalyticsScoreDefinitionsListCalculation];
+
+
+    export const LlmAnalyticsScoreDefinitionsListCalculation = {
+      Composite: 'composite',
+      Reported: 'reported',
+    } as const;
 
     export type LlmAnalyticsScoreDefinitionsListTagMatch = typeof LlmAnalyticsScoreDefinitionsListTagMatch[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch];
 
@@ -143840,7 +144084,7 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog

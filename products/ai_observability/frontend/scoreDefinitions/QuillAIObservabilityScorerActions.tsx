@@ -11,12 +11,11 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
-import { ScorerLogicProps, scorerLogic } from './scorerLogic'
+import { scorerLogic } from './scorerLogic'
 
-export function QuillAIObservabilityScorerActions(props: ScorerLogicProps): JSX.Element {
-    const logic = scorerLogic(props)
-    const { definition, isNew, hasChanges, saving } = useValues(logic)
-    const { createVersion, toggleArchive } = useActions(logic)
+export function QuillAIObservabilityScorerActions(): JSX.Element {
+    const { definition, isNew, hasChanges, saving } = useValues(scorerLogic)
+    const { createVersion, toggleArchive } = useActions(scorerLogic)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
         AccessControlLevel.Editor
