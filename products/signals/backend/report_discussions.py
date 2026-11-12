@@ -19,8 +19,14 @@ wrote a summary. The discussion agent writes it, but `set_summary` accepts any c
 the task, and a null-channel discussion task can be controlled by any member. So a summary is
 returned only when the task's creator alone controls it (`creator_controls_alone`) and that creator
 passes `user_can_steer_scouts`. Every other row keeps its report, status, and task id, with a null
-summary. The question itself is never returned: the discussion note already carries it behind the
+summary. An inbox question is never returned: the discussion note already carries it behind the
 full steering gate, including the credential scopes this read cannot recover.
+
+A reply in a report's Slack thread starts a discussion too (`record_slack_report_discussion`), and
+no note carries its question. The tasks facade returns such a task only when its thread is in a
+Slack channel, never a direct message. Its `question` is the person's own message, isolated from the
+thread quoted around it, under the same gate as a summary. A Slack user is verified as a PostHog
+user, and has no credential scopes to check.
 """
 
 from __future__ import annotations
@@ -53,6 +59,7 @@ MAX_RUNS_SCANNED = 1_000
 
 _MAX_TITLE_CHARS = 200
 _MAX_SUMMARY_CHARS = 4_000
+_MAX_QUESTION_CHARS = 4_000
 
 
 class ReportInvolvement(models.TextChoices):
@@ -60,16 +67,23 @@ class ReportInvolvement(models.TextChoices):
     EDITED = "edited"
 
 
+class DiscussionSource(models.TextChoices):
+    INBOX = "inbox"
+    SLACK = "slack"
+
+
 @frozen
 class ReportDiscussion:
     report_id: str
     report_title: str
     involvement: ReportInvolvement
+    source: DiscussionSource
     task_id: str
     created_at: datetime
     active_at: datetime
     status: str | None
     task_summary: str | None
+    question: str | None
 
 
 def list_report_discussions(
@@ -112,26 +126,34 @@ def list_report_discussions(
     tasks = list_team_task_summaries(
         team_id=team.id,
         task_ids=list(report_by_task),
-        origin_products=[TaskOriginProduct.SIGNAL_REPORT],
+        origin_products=[TaskOriginProduct.SIGNAL_REPORT, TaskOriginProduct.SLACK],
         active_after=active_after,
         limit=limit,
     )
-    steering_creators = _creators_who_may_steer(team, (task.created_by_id for task in tasks if task.summary))
+    steering_creators = _creators_who_may_steer(
+        team, (task.created_by_id for task in tasks if task.summary or task.slack_request)
+    )
 
     discussions: list[ReportDiscussion] = []
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
-        summary = task.summary if task.creator_controls_alone and task.created_by_id in steering_creators else None
+        trusted = task.creator_controls_alone and task.created_by_id in steering_creators
+        summary = task.summary if trusted else None
+        question = task.slack_request if trusted else None
         discussions.append(
             ReportDiscussion(
                 report_id=discussion_report_id,
                 report_title=report_titles[discussion_report_id][:_MAX_TITLE_CHARS],
                 involvement=involvement[discussion_report_id],
+                source=DiscussionSource.SLACK
+                if task.origin_product == TaskOriginProduct.SLACK
+                else DiscussionSource.INBOX,
                 task_id=task.task_id,
                 created_at=task.created_at,
                 active_at=task.active_at,
                 status=task.run_status,
                 task_summary=summary[:_MAX_SUMMARY_CHARS] if summary else None,
+                question=question[:_MAX_QUESTION_CHARS] if question else None,
             )
         )
     return discussions

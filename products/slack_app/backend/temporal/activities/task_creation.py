@@ -23,6 +23,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     thread_permalink,
 )
+from products.slack_app.backend.services.slack_task_description import FALLBACK_TASK_PROMPT, THREAD_CONTEXT_TAG
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.task_profiles import REPORT_IMPLEMENTATION, SLACK
 from products.slack_app.backend.temporal.attachments import (
@@ -62,7 +63,7 @@ _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
-_THREAD_CONTEXT_TAG = "slack_thread_context"
+_THREAD_CONTEXT_TAG = THREAD_CONTEXT_TAG
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
@@ -315,7 +316,7 @@ def _build_posthog_code_task_description(
     message inside the block is the request, nobody in it tagged the app, and the
     people quoted are not necessarily in the conversation the reply lands in.
     """
-    prompt = initiator_text.strip() or "Task from Slack"
+    prompt = initiator_text.strip() or FALLBACK_TASK_PROMPT
     has_initiator_text = bool(initiator_text.strip())
 
     thread_author_entry: dict[str, str] | None = None

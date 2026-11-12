@@ -17,6 +17,7 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
+from products.slack_app.backend.services.slack_task_description import request_from_task_description
 from products.slack_app.backend.temporal.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _THREAD_CONTEXT_TAG,
@@ -78,6 +79,34 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
         mentioner_slack_user_id="U_GEORGIY",
     )
     assert out == expected
+
+
+@pytest.mark.parametrize(
+    "initiator_text,thread_messages,expected",
+    [
+        ("is this expected?", [], "is this expected?"),
+        (
+            "is this expected?",
+            [
+                SlackThreadMessage(user="mira", user_id="U_MIRA", text="the report says checkout broke", ts="1.000"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="is this expected?", ts="2.000"),
+            ],
+            "is this expected?",
+        ),
+        # A bare mention leaves the request inside the block, which is the thread, so nothing comes back.
+        (
+            "",
+            [SlackThreadMessage(user="mira", user_id="U_MIRA", text="the report says checkout broke", ts="1.000")],
+            None,
+        ),
+    ],
+)
+def test_request_from_task_description_returns_only_the_requesters_words(initiator_text, thread_messages, expected):
+    description = _build_posthog_code_task_description(
+        initiator_text, thread_messages, "2.000", mentioner_slack_user_id="U_GEORGIY"
+    )
+
+    assert request_from_task_description(description) == expected
 
 
 @pytest.mark.parametrize(

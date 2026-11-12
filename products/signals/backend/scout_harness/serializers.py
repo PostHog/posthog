@@ -60,6 +60,7 @@ from products.signals.backend.report_discussions import (
     DEFAULT_DISCUSSIONS_LIMIT,
     DEFAULT_DISCUSSIONS_SINCE,
     MAX_DISCUSSIONS_LIMIT,
+    DiscussionSource,
     ReportInvolvement,
 )
 from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_REPORT_METRICS
@@ -5008,6 +5009,10 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         choices=ReportInvolvement.choices,
         help_text="`authored` when your scout emitted the report, `edited` when it only edited it.",
     )
+    source = serializers.ChoiceField(
+        choices=DiscussionSource.choices,
+        help_text="`inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.",
+    )
     task_id = serializers.CharField(help_text="The discussion task.")
     created_at = serializers.DateTimeField(help_text="When the discussion started.")
     active_at = serializers.DateTimeField(
@@ -5022,5 +5027,13 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         help_text=(
             "The latest run's summary of the conversation and its outcome. Null when no run has written one yet, "
             "or when the summary could have been written by someone who may not steer scouts on this project."
+        ),
+    )
+    question = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "For a `slack` discussion, the message that started it, in the person's own words. Null when that "
+            "message cannot be separated from the rest of the Slack thread, or when the rule that nulls "
+            "`task_summary` applies. Always null for an `inbox` discussion, because a scout note carried its question."
         ),
     )
