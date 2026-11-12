@@ -34,6 +34,12 @@ export interface RedisPoolConfig {
      * borrowing it. Enough of those and the pool is empty for good.
      */
     acquireTimeoutMillis?: number
+    /**
+     * Destroys a pooled client that still waits for replies when it is borrowed. ioredis keeps a command
+     * that hit commandTimeout queued until a reply arrives, so on a connection that stopped answering
+     * every reuse adds commands that are never released.
+     */
+    discardStalledClients?: boolean
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {

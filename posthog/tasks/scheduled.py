@@ -91,7 +91,7 @@ from products.approvals.backend.tasks import (
     validate_pending_change_requests,
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.email import cleanup_mailgun_domains, flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
@@ -929,6 +929,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Mailgun caps the account's domain count. Free the slots that unused support domains hold.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="45"),
+        cleanup_mailgun_domains.s(),
+        name="cleanup unused conversation mailgun domains",
     )
 
     # Re-drive due Slack ingress receipts. Celery on_commit is only a wake-up hint.
