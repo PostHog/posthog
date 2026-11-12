@@ -3,7 +3,7 @@ import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
-import { currentVersionInfo, updateChecksOff } from '@/upgrade/check'
+import { currentVersionInfo, updateChecksOff } from '@/updates/check'
 
 function sourceLabel(
     source: CredentialSource,

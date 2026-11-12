@@ -7,8 +7,8 @@
 
 import { parseArgs } from 'node:util'
 
-import { manifestUrl } from '../src/upgrade/release-urls'
-import { compareVersions, parseVersion } from '../src/upgrade/version'
+import { manifestUrl } from '../src/updates/release-urls'
+import { compareVersions, parseVersion } from '../src/updates/version'
 
 const { values } = parseArgs({ options: { version: { type: 'string' }, 'manifest-url': { type: 'string' } } })
 const version = values.version && parseVersion(values.version)

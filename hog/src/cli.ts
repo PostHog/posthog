@@ -29,7 +29,7 @@ import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
-import { UpdateCheck, updateChecksOff } from '@/upgrade/check'
+import { UpdateCheck, updateChecksOff } from '@/updates/check'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `

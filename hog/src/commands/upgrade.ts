@@ -6,12 +6,12 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
-import { extractFile } from '@/upgrade/archive'
-import { rememberRelease } from '@/upgrade/check'
-import { detectInstallMethod, type InstallKind, type InstallMethod, upgradeCommand } from '@/upgrade/install-method'
-import { type Artifact, fetchManifest, type Manifest } from '@/upgrade/manifest'
-import { binaryName, targetFor } from '@/upgrade/targets'
-import { isNewer, parseVersion } from '@/upgrade/version'
+import { extractFile } from '@/updates/archive'
+import { rememberRelease } from '@/updates/check'
+import { detectInstallMethod, type InstallKind, type InstallMethod, upgradeCommand } from '@/updates/install-method'
+import { type Artifact, fetchManifest, type Manifest } from '@/updates/manifest'
+import { binaryName, targetFor } from '@/updates/targets'
+import { isNewer, parseVersion } from '@/updates/version'
 
 const VersionOption = z
     .string()

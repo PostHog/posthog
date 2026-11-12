@@ -1,6 +1,6 @@
-import type { Artifact, Manifest } from '../src/upgrade/manifest'
-import { GITHUB_REPOSITORY, RELEASES_URL } from '../src/upgrade/release-urls'
-import { binaryName, npmPackageName, TARGETS, type Target } from '../src/upgrade/targets'
+import type { Artifact, Manifest } from '../src/updates/manifest'
+import { GITHUB_REPOSITORY, RELEASES_URL } from '../src/updates/release-urls'
+import { binaryName, npmPackageName, TARGETS, type Target } from '../src/updates/targets'
 
 export function releaseTag(version: string): string {
     return `hog/v${version}`

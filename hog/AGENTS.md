@@ -13,7 +13,7 @@
 | `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
 | `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                                 |
 | `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
-| `src/upgrade/`        | `hog upgrade` and the update check: the release manifest, how hog was installed, version rules, the daily cache and the setup gate                                                        |
+| `src/updates/`        | `hog upgrade` and the update check: the release manifest, how hog was installed, version rules, the daily cache and the setup gate                                                        |
 | `release/`            | The release scripts the `Release hog` workflow runs (compile, package), `install.sh`, `install.ps1` and the npm launcher. README.md, "Releases", has the flow                             |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
 | `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |

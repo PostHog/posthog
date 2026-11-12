@@ -12,8 +12,8 @@ import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { binaryName, findTarget, TARGETS } from '../src/upgrade/targets'
-import { parseVersion } from '../src/upgrade/version'
+import { binaryName, findTarget, TARGETS } from '../src/updates/targets'
+import { parseVersion } from '../src/updates/version'
 
 const HOG_ROOT = resolve(import.meta.dir, '..')
 const MCP_LIBRARY = resolve(HOG_ROOT, '../services/mcp/dist/cli-library.mjs')

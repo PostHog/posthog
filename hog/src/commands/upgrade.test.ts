@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
-import type { Manifest } from '@/upgrade/manifest'
+import type { Manifest } from '@/updates/manifest'
 
 const STABLE = 'https://releases.posthog.com/hog/stable/manifest.json'
 const AGENT = { CLAUDECODE: '1' }

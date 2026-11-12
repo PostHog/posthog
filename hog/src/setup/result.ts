@@ -1,7 +1,7 @@
 import type { McpAgent } from '@/commands/mcp/clients'
 import type { RegionId } from '@/posthog/host'
 import type { ProjectToken } from '@/posthog/tokens'
-import type { HogVersionInfo } from '@/upgrade/check'
+import type { HogVersionInfo } from '@/updates/check'
 
 import type { WrittenFile } from './agents-md'
 import type { Product, ProductId } from './products'

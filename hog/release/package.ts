@@ -20,9 +20,9 @@ import { chmod, copyFile, cp, mkdir, readFile, rm, stat, writeFile } from 'node:
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import type { Artifact, Manifest } from '../src/upgrade/manifest'
-import { archiveName, binaryName, npmPackageName, TARGETS, type Target } from '../src/upgrade/targets'
-import { parseVersion } from '../src/upgrade/version'
+import type { Artifact, Manifest } from '../src/updates/manifest'
+import { archiveName, binaryName, npmPackageName, TARGETS, type Target } from '../src/updates/targets'
+import { parseVersion } from '../src/updates/version'
 import {
     buildManifest,
     homebrewFormula,

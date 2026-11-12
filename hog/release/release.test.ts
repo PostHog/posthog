@@ -7,8 +7,8 @@ import { join } from 'node:path'
 import { z } from 'zod'
 
 import { readJson } from '../src/testing'
-import type { Artifact } from '../src/upgrade/manifest'
-import { archiveName, TARGETS } from '../src/upgrade/targets'
+import type { Artifact } from '../src/updates/manifest'
+import { archiveName, TARGETS } from '../src/updates/targets'
 import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
