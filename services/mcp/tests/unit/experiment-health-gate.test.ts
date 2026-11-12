@@ -4,6 +4,7 @@ import { ExperimentNotStartedError } from '@/lib/errors'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { getHealthHandler } from '@/tools/experiments/getHealth'
 import { getResultsHandler } from '@/tools/experiments/getResults'
+import { readConfigHealth } from '@/tools/experiments/health'
 import type { Context } from '@/tools/types'
 
 vi.mock('@/lib/posthog/flags', () => ({ isFeatureFlagEnabled: vi.fn() }))
@@ -197,6 +198,16 @@ describe('experiment health gate', () => {
         await expect(getHealthHandler(buildContext(vi.fn(), failedRead, vi.fn()), { id: 7 })).rejects.toThrow(
             'Failed to get experiment health'
         )
+    })
+
+    it('counts a flag check that outlasts the deadline as off', async () => {
+        vi.mocked(isFeatureFlagEnabled).mockReturnValue(new Promise(() => {}))
+        const getHealth = vi.fn()
+
+        const read = await readConfigHealth(buildContext(getHealth, exposureOk, vi.fn()), '42', 7, 10)
+
+        expect(read).toEqual({ health: null, outcome: 'flag_off' })
+        expect(getHealth).not.toHaveBeenCalled()
     })
 
     it('experiment-health-get returns the exposure counts without their health fields', async () => {

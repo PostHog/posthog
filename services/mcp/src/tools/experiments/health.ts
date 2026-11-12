@@ -15,7 +15,7 @@ import type { Context } from '@/tools/types'
 // people who see that panel, so a customer's agent does not report findings the customer cannot see.
 const EXPERIMENT_HEALTH_FINDINGS_FLAG = 'experiment-health-findings'
 
-/** `flag_off` also covers a failed flag check, because then the caller may not be in the flag. */
+/** `flag_off` also covers a failed or late flag check, because then the caller may not be in the flag. */
 export type ConfigHealthOutcome = 'read' | 'flag_off' | 'failed' | 'timed_out'
 
 export type ExposureHealthOutcome = 'read' | 'not_started' | 'failed'
@@ -38,16 +38,28 @@ async function configHealthEnabled(context: Context): Promise<boolean> {
     }
 }
 
+function whenAborted(signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal.aborted) {
+            resolve()
+            return
+        }
+        signal.addEventListener('abort', () => resolve(), { once: true })
+    })
+}
+
 export async function readConfigHealth(
     context: Context,
     projectId: string,
     experimentId: number,
     timeoutMs?: number
 ): Promise<ConfigHealthRead> {
-    if (!(await configHealthEnabled(context))) {
+    const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
+    const gate = configHealthEnabled(context)
+    const enabled = await (signal ? Promise.race([gate, whenAborted(signal).then(() => false)]) : gate)
+    if (!enabled) {
         return { health: null, outcome: 'flag_off' }
     }
-    const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
     const health = await context.api
         .experiments({ projectId })
         .getHealth({ experimentId, signal })

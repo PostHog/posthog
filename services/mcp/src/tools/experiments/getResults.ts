@@ -15,7 +15,7 @@ type Params = z.infer<typeof schema>
 type Result = WithPostHogUrl<ExperimentResultsSummary>
 
 // The results wait for the health read, so a slow read must not hold them. The limit covers the
-// retries too. When it runs out, the response keeps the exposure checks only.
+// flag check and the retries too. When it runs out, the response keeps the exposure checks only.
 const CONFIG_HEALTH_TIMEOUT_MS = 10_000
 
 /**
