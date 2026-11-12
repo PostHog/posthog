@@ -152,7 +152,13 @@ def _admit(
     if spec.admit is None and cap is None:
         return
     hold_cap_lock(team_id, source_kind)
-    if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
+    if (
+        cap is not None
+        and platform_reads.count_configurations(
+            team_id=team_id, source_kind=source_kind.value, alert_kind=PlatformAlertKind(alert_kind)
+        )
+        >= cap
+    ):
         raise PlatformAlertCreateRefused(
             f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."
         )

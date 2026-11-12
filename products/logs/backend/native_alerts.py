@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.api import (
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationView, SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 
@@ -28,9 +29,11 @@ _LOGS: Final = (SourceKind.LOGS.value,)
 
 def native_alert_view(*, team_id: int, alert_id: UUID, lock: bool = False) -> PlatformAlertConfigurationView | None:
     """The team's logs alert with no logs row under `alert_id`, or None. With `lock`, call it inside a
-    transaction."""
+    transaction. A new-pattern alert is not one: it has no condition for the logs API to present."""
     view = get_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=alert_id, lock=lock)
-    return view if view is not None and view.legacy_configuration_id is None else None
+    if view is None or view.legacy_configuration_id is not None or view.alert_kind != PlatformAlertKind.THRESHOLD:
+        return None
+    return view
 
 
 def native_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[tuple[datetime, UUID], ...]:

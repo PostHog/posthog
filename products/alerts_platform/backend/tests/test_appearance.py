@@ -18,7 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SeenIdentity,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import occurrences
+from products.alerts_platform.backend.logic import occurrences, platform_reads
 from products.alerts_platform.backend.logic.appearance import evaluate_appearance_batch
 from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes, slot_of
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
@@ -135,6 +135,13 @@ class TestAppearanceAlerts(BaseTest):
         outcome, deliveries = self._tick(now + timedelta(minutes=1))
         assert [group.grouping_key for group in outcome.groups] == ["fresh"]
         assert len(deliveries) == 1
+
+    def test_a_source_s_own_alert_readers_and_caps_leave_its_appearance_alerts_out(self) -> None:
+        # A source's API presents these as its own alerts, and an appearance config has no condition to present.
+        assert platform_reads.native_configuration_keys(team_id=self.team.id, source_kind=SOURCE.value) == ()
+        assert platform_reads.native_configuration_matches(team_id=self.team.id, source_kind=SOURCE.value) == ()
+        assert platform_reads.enabled_native_configurations(team_ids=[self.team.id], source_kind=SOURCE.value) == ()
+        assert platform_reads.count_configurations(team_id=self.team.id, source_kind=SOURCE.value) == 0
 
     def test_a_late_check_in_quiet_hours_keeps_its_window_for_the_first_check_after_them(self) -> None:
         self.sightings = [_seen("fresh", T0 + timedelta(minutes=10))]

@@ -12,6 +12,7 @@ const DEFAULT_ALERT: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
     name: 'Warehouse sync failures',
     enabled: true,
+    alert_kind: 'threshold',
     source_kind: 'warehouse_source',
     source_config: { source_ids: [], group_by: 'source', email_project_members: true },
     check_interval_minutes: 5,
