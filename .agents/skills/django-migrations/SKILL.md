@@ -25,7 +25,7 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
-   Do not keep the model class to protect the migration graph or other apps' squash migrations. They depend on this app's migration files, which stay, not on its models.
+   Note: other apps' squash migrations depend on this app's migration files, not on its models, so the model class does not need to stay for them.
    **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint with `DropForeignKey` in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
 3. `SafeDropTable` later in a NEW migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.

@@ -250,8 +250,8 @@ Removing a product (`products/<name>/`) is the phased table drop above — once 
 Safe order:
 
 1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `SafeDropTable`). Keep the app in `INSTALLED_APPS` so its migrations still run.
-   Do not keep the model classes to protect the migration graph. Migrations in other apps depend on this app's migration files, not on its models.
    Once the models are out of Django's state, the next migration squash writes an empty initial migration for the app, and no new squash file depends on it.
+   Note: other apps' migrations depend on this app's migration files, not on its models, so the model classes do not need to stay for them.
 2. Remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder only after the drop migration has deployed everywhere and no migration file outside the app names one of its migrations as a dependency.
    Django resolves a dependency by app label and migration name, and loads migrations only from installed apps.
    Each squash writes `schema_addons` files that depend on every app that still had models at that squash. Those references go away only when that squash's files are deleted.
