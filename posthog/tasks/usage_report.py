@@ -1018,7 +1018,10 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     interface_expression, _ = get_property_string_expr(
         "events", "$mcp_interface", "'$mcp_interface'", "properties", use_new_events_schema=False
     )
-    # nosemgrep: clickhouse-fstring-param-audit - property expression comes from an internal helper
+    library_expression, _ = get_property_string_expr(
+        "events", "$lib", "'$lib'", "properties", use_new_events_schema=False
+    )
+    # nosemgrep: clickhouse-fstring-param-audit - property expressions come from internal helpers
     query_template = f"""
         SELECT
             team_id,
@@ -1026,7 +1029,7 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
             uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count,
             uniqExactIf(
                 tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)),
-                {interface_expression} = %(web_mcp_interface)s
+                {interface_expression} = %(web_mcp_interface)s AND {library_expression} = %(web_mcp_lib)s
             ) AS web_mcp_count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
@@ -1054,7 +1057,7 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
         begin=begin,
         end=end,
         query_template=query_template,
-        params={"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "web_mcp_interface": "webmcp"},
+        params={"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "web_mcp_interface": "webmcp", "web_mcp_lib": "web"},
         num_splits=12,
         combine_results_func=combine_mcp_analytics_results,
     )

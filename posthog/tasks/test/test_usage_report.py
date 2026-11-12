@@ -1810,6 +1810,7 @@ class TestQueryUsageReportSQL:
             ("lib_expr", True),
             ("ai_lib_expr", True),
             ("interface_expr", True),
+            ("mcp_lib_expr", True),
         ]
         # 1st _execute_split_query call is the main per-$lib scan; 2nd is the AI sub-SDK rows
         # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
@@ -6527,12 +6528,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
     def test_web_mcp_events_are_filtered_deduplicated_and_reported_per_team(self, materialize_interface: bool) -> None:
         if materialize_interface:
             self.enterContext(materialized("events", "$mcp_interface"))
+            self.enterContext(materialized("events", "$lib"))
         sync_execute("SYSTEM STOP MERGES")
         self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         for lib, event in [
             ("web", "$mcp_tool_call"),
-            ("js", "$mcp_tools_list"),
+            ("web", "$mcp_tools_list"),
+            ("js", "$mcp_tool_call"),
             ("custom-browser", "$mcp_tool_call"),
         ]:
             event_uuid = _create_event(
@@ -6544,7 +6547,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             )
             if lib == "web":
                 _create_event(
-                    event="$mcp_tool_call",
+                    event=event,
                     team=self.team,
                     distinct_id="webmcp_user",
                     event_uuid=event_uuid,
@@ -6577,10 +6580,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         metrics = get_all_event_metrics_in_period(self.begin, self.end)
-        assert dict(metrics["web_mcp_events"]) == {self.team.id: 3, self.analytics_team.id: 1}
+        assert dict(metrics["web_mcp_events"]) == {self.team.id: 2, self.analytics_team.id: 1}
         assert dict(metrics["web_events"])[self.analytics_team.id] == 1
         assert dict(metrics["web_lite_events"]) == {self.team.id: 1}
-        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 4, self.analytics_team.id: 1}
+        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 5, self.analytics_team.id: 1}
         assert dict(metrics["mcp_tools_list_events"]) == {self.team.id: 1}
 
         all_data: dict[str, dict[int, int]] = {
@@ -6590,7 +6593,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         }
         for metric, destination in QUERY_INDEX["all_event_metrics"].multi_keys_mapping.items():
             all_data[destination] = dict(metrics[metric])
-        for team, expected_count in [(self.team, 3), (self.analytics_team, 1)]:
+        for team, expected_count in [(self.team, 2), (self.analytics_team, 1)]:
             report = dataclasses.asdict(_get_team_report(all_data, team))
             assert report["web_mcp_events_count_in_period"] == expected_count
 

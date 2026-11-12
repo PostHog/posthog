@@ -1499,7 +1499,8 @@
   SELECT team_id,
          event,
          uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count,
-         uniqExactIf(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)), replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp') AS web_mcp_count
+         uniqExactIf(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)), replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp'
+                     AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web') AS web_mcp_count
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 23:59:59'
   AND startsWith(event, '$mcp_')
