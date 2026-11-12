@@ -28,6 +28,8 @@ impl CompletedPolls {
         }
     }
 
+    /// Takes only offsets that the ledger has just settled. The ledger fails a
+    /// second settle of an offset, so each offset counts once.
     pub(super) fn record_settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
         if let Some(tracker) = &mut self.tracker {
             tracker.record_settled(topic_partition, offsets);
@@ -81,7 +83,6 @@ impl Tracker {
             return;
         };
         let mut done = Vec::new();
-        // The ledger fails a second settle of an offset, so no offset counts twice.
         for &offset in offsets {
             let Some(share) = shares.share_of(offset).filter(|share| !share.is_settled()) else {
                 continue;
