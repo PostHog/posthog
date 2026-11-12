@@ -539,11 +539,14 @@ def _template_send(
     return TemplateSend(hog_flow_id=template.transactional_hog_flow_id, category=category, marketing=marketing)
 
 
+WORKFLOW_GONE = "This email's workflow no longer exists."
+
+
 def _require_active(team_id: int, hog_flow_id: UUID) -> None:
     try:
         workflow = get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
     except WorkflowNotFound as e:
-        raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
+        raise TransactionalEmailPaused(WORKFLOW_GONE) from e
     if workflow.status != "active":
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
@@ -749,7 +752,10 @@ def _sent_as(kind: MessageCategoryKind) -> Iterator[None]:
 
 
 def _require_marketing_template_step(team_id: int, hog_flow_id: UUID) -> None:
-    message = get_transactional_email_message(team_id=team_id, hog_flow_id=hog_flow_id)
+    try:
+        message = get_transactional_email_message(team_id=team_id, hog_flow_id=hog_flow_id)
+    except WorkflowNotFound as e:
+        raise TransactionalEmailPaused(WORKFLOW_GONE) from e
     if not LIQUID_UNSUBSCRIBE_PLACEHOLDER.search(message.html or message.text):
         raise UnsubscribeLinkRequired(UNSUBSCRIBE_LINK_REQUIRED)
     if message.has_copies:

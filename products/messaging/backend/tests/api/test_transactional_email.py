@@ -539,6 +539,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("marketing_workflow_without_an_unsubscribe_link", "unsubscribe_link_required"),
             ("marketing_workflow_with_cc", "copies_not_allowed"),
             ("marketing_workflow_with_bcc", "copies_not_allowed"),
+            ("marketing_workflow_deleted_mid_send", "transactional_email_paused"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
@@ -573,6 +574,17 @@ class TestTransactionalEmail(APIBaseTest):
             content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
             self._save_template({"message_category": str(self._category().id), "content": content})
             self._edit_workflow_email({case.rsplit("_", 1)[1]: "audit@example.com"})
+        elif case == "marketing_workflow_deleted_mid_send":
+            content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
+            self._save_template({"message_category": str(self._category().id), "content": content})
+            summary = transactional_email.get_workflow_summary
+
+            def deleted_after_the_check(*args: Any, **kwargs: Any) -> Any:
+                found = summary(*args, **kwargs)
+                HogFlow.objects.filter(team=self.team, id=self.hog_flow_id).delete()
+                return found
+
+            self.enterContext(patch.object(transactional_email, "get_workflow_summary", deleted_after_the_check))
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
         elif case == "idempotency_key_with_spaces":
