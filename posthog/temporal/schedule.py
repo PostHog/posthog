@@ -52,10 +52,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.experiments.schedule import (
-    create_experiment_regular_metrics_schedules,
-    create_experiment_saved_metrics_schedules,
-)
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
@@ -119,9 +115,11 @@ from products.error_tracking.backend.facade.temporal import (
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
 )
-from products.experiments.backend.temporal.schedule import (
+from products.experiments.backend.facade.temporal import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
     create_experiment_scheduled_recalculation_schedules,
 )
 from products.growth.backend.temporal.signup_enrichment.schedule import (

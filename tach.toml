@@ -1371,30 +1371,6 @@ from = [
     "products.billing_alerts",
 ]
 
-# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
-# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
-# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.recalculation_metrics.*",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
-]
-from = [
-    "products.experiments",
-]
-
 # streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
 
 [[interfaces]]

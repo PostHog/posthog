@@ -82,10 +82,6 @@ from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
 )
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
-)
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
     WORKFLOWS as EXPORT_WORKFLOWS,
@@ -236,7 +232,7 @@ from products.error_tracking.backend.facade.temporal import (
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
-from products.experiments.backend.temporal import (
+from products.experiments.backend.facade.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
@@ -245,6 +241,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    TIMESERIES_WORKFLOWS as EXPERIMENTS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
