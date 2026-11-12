@@ -120059,6 +120059,16 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.
+     */
+    export type UpdateWebhookInputsRequestInputs = {[key: string]: string};
+
+    export interface UpdateWebhookInputsRequest {
+      /** Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank. */
+      inputs: UpdateWebhookInputsRequestInputs;
+    }
+
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;

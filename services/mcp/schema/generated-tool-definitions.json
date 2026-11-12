@@ -6791,7 +6791,7 @@
         }
     },
     "external-data-sources-create-webhook-create": {
-        "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service, so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.",
+        "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service, so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs. Takes no request body: only the source id.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Create and register a webhook for a source",
@@ -6806,7 +6806,7 @@
         }
     },
     "external-data-sources-delete-webhook-create": {
-        "description": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook.",
+        "description": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook. Fails while any table on the source still has sync_type='webhook' and should_sync=true: the error lists those tables. Switch each of them to another sync type (incremental, full_refresh or append) or disable syncing with external-data-schemas-partial-update first, then call this tool. Takes no request body: only the source id.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Delete a source's webhook",
@@ -6958,7 +6958,7 @@
         }
     },
     "external-data-sources-update-webhook-inputs-create": {
-        "description": "Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret). Fails if no webhook has been created for this source yet — call create-webhook first.",
+        "description": "Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret). Fails if no webhook has been created for this source yet — call create-webhook first. Send the values in an 'inputs' object keyed by webhook field name, for example {\"inputs\": {\"signing_secret\": \"whsec_...\"}}. A required field cannot be set to an empty value.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update webhook inputs (signing secret, etc.)",
