@@ -140,6 +140,7 @@ from products.alerts.backend.facade.platform import (
     hand_over_new_alert,
     moved_alert_check_page,
     moved_alert_fired_checks,
+    moved_alert_settings,
     moved_alert_statuses,
     native_insight_alert_matches,
     native_insight_alert_view,
@@ -167,7 +168,6 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
-from products.alerts.backend.platform_insight_alert import show_copy_settings
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
     DEFAULT_PAGERDUTY_SEVERITY,
@@ -1817,6 +1817,32 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
             alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
 
 
+def _show_copy_settings(alerts: list[AlertConfiguration]) -> None:
+    """Shows each alert the platform owns through a copy with the settings the copy holds, in place.
+    The alerts are only for showing: one saved afterwards would write the copy's settings to its row."""
+    copies = {alert.id: alert for alert in alerts if not alert.has_no_insight_row}
+    if not copies:
+        return
+    for alert_id, settings in moved_alert_settings(team_id=alerts[0].team_id, alert_ids=list(copies)).items():
+        alert = copies[alert_id]
+        for field, value in settings.fields.items():
+            setattr(alert, field, value)
+        alert.schedule_start_time = settings.schedule_start_time
+        if settings.threshold is None:
+            alert.threshold = None
+        elif alert.threshold is None:
+            # Stable across reads, as for an alert with no insight row.
+            alert.threshold = Threshold(
+                id=alert.id,
+                team_id=alert.team_id,
+                insight_id=alert.insight_id,
+                configuration=settings.threshold,
+                created_at=alert.created_at,
+            )
+        else:
+            alert.threshold.configuration = settings.threshold
+
+
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
     """Shows each alert the platform owns as the platform has it, in place: its settings, snooze, state
     and last check. Its own row stops moving once the insight stack stops checking it."""
@@ -1824,7 +1850,7 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
     if not moved:
         return
     # Before the state, which reads the snooze.
-    show_copy_settings(list(moved.values()))
+    _show_copy_settings(list(moved.values()))
     statuses = moved_alert_statuses(
         team_id=next(iter(moved.values())).team_id,
         snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},

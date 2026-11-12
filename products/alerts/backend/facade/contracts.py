@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -235,6 +236,16 @@ class MovedAlertCheckPage:
 
 class MovedAlertHistoryUnavailable(Exception):
     """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
 
 
 class PlatformCannotOwn(ValueError):
