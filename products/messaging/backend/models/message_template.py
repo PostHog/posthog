@@ -1,6 +1,3 @@
-from collections.abc import Collection
-from typing import Any, Self
-
 from django.db import models
 from django.db.models import QuerySet
 
@@ -74,25 +71,6 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
             ref_field="id",
             surface=surface,
         )
-
-    @classmethod
-    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
-        instance = super().from_db(db, field_names, values, **kwargs)
-        instance._stored_name = instance.__dict__.get("name")
-        return instance
-
-    def sync_file_system(self) -> None:
-        # A file can carry a name of its own, and renaming it needs editor access to workflows. A save that
-        # keeps the stored name, such as a description or design edit, must not reset that file name, so it
-        # leaves existing files alone. A rename passes the same access check before the save.
-        keeps_files = (
-            not self.deleted
-            and not isinstance(self._create_in_folder, str)
-            and self.__dict__.get("name") == getattr(self, "_stored_name", None)
-        )
-        if not keeps_files or not self._has_file_system_row(self.team, self.get_file_system_representation()):
-            super().sync_file_system()
-        self._stored_name = self.__dict__.get("name")
 
     def files_new_rows(self) -> bool:
         if self.created_by_id is None:

@@ -79,6 +79,7 @@ import {
 import { newWorkflowFolder } from './newWorkflowFolder'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { hasEditAccess } from './workflowAccess'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -439,6 +440,7 @@ export interface workflowLogicValues {
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
+    isViewOnly: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
     keepsLocalEditsOnExternalEdit: boolean
@@ -3186,6 +3188,7 @@ export interface workflowLogicMeta {
         ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
+        isViewOnly: (workflowUserAccessLevel: AccessControlLevel | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[], selectedScheduleId: string | null) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -4055,6 +4058,10 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): AccessControlLevel | null =>
                 originalWorkflow?.user_access_level ?? null,
+        ],
+        isViewOnly: [
+            (s) => [s.workflowUserAccessLevel],
+            (workflowUserAccessLevel: AccessControlLevel | null): boolean => !hasEditAccess(workflowUserAccessLevel),
         ],
         currentSchedule: [
             (s) => [s.schedules, s.selectedScheduleId],
@@ -5009,12 +5016,15 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         setWorkflowInfo: async ({ workflow }) => {
+            if (values.isViewOnly) {
+                return
+            }
             actions.setWorkflowValues(workflow)
             actions.autoSaveWorkflow()
         },
         setWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
-            if (!action) {
+            if (!action || values.isViewOnly) {
                 return
             }
 
@@ -5071,11 +5081,17 @@ export const workflowLogic = kea<workflowLogicType>([
             captureAiEmailDraft('workflow', request, aiEmailDraft, skipped)
         },
         setWorkflowAction: async ({ actionId, action }) => {
+            if (values.isViewOnly) {
+                return
+            }
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
             actions.autoSaveWorkflow()
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
+            if (values.isViewOnly) {
+                return
+            }
             // Helper method - Replaces all edges related to the action with the new edges
             const actionEdges = values.edgesByActionId[actionId] ?? []
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
@@ -5098,6 +5114,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
+                values.isViewOnly ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||
@@ -5118,7 +5135,16 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+            let createdWorkflow: HogFlow
+            try {
+                createdWorkflow = (await hogFlowsCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    prepareWorkflowDuplicate(workflow) as unknown as Parameters<typeof hogFlowsCreate>[1]
+                )) as unknown as HogFlow
+            } catch {
+                lemonToast.error('Could not duplicate the workflow. Please try again.')
+                return
+            }
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },

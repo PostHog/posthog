@@ -1879,6 +1879,7 @@ class FileSystemSearchTab(BaseModel):
     flag: str | None = None
     href: str
     name: str
+    requiredFlags: list[str] | None = Field(default=None, description="Flags that must all be on to show the tab.")
     searchKeywords: list[str] | None = None
 
 
