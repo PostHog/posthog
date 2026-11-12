@@ -59,6 +59,20 @@ class CitationGap:
         return self.cited_checks / self.checks if self.checks else 0.0
 
 
+class CheckMode(LabeledStrEnum):
+    """How an engine answered: with its web search tool, or from its training data alone."""
+
+    WEB_SEARCH = "web_search", "Web search"
+    NO_SEARCH = "no_search", "No search"
+
+
+class CheckFrequency(LabeledStrEnum):
+    """How often an engine checks each prompt. Weekly checks spread the prompt set over the week."""
+
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+
+
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
@@ -77,10 +91,13 @@ class BrandedSegment(LabeledStrEnum):
 
 @frozen
 class PromptEngineCheck:
-    """The most recent check of one prompt against one answer engine."""
+    """The most recent check of one prompt against one answer engine. A no-search engine never cites,
+    so `mentioned` is the column to read for it."""
 
     engine: str
+    mode: CheckMode
     cited: bool
+    mentioned: bool
     check_failed: bool
     target_best_position: int | None
     search_queries: tuple[str, ...]
@@ -120,6 +137,7 @@ class PromptCheck:
     id: str
     run_id: str
     engine: str
+    mode: CheckMode
     model: str
     created_at: dt.datetime
     cited: bool
@@ -219,7 +237,7 @@ def _rate(part: int, whole: int) -> float | None:
 
 @frozen
 class PromptSetCounts:
-    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+    """Web-search checks across the prompt set in one window, all engines. Rates leave failed checks out."""
 
     checks: int
     failed: int
@@ -428,6 +446,30 @@ class BrandNotFoundError(Exception):
 
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
+
+
+@frozen
+class EngineSetting:
+    """One engine as the project runs it. `available` is false when the deployment cannot run the engine,
+    for example without the API key it needs, and then it never runs whatever `enabled` says."""
+
+    engine: str
+    mode: CheckMode
+    available: bool
+    enabled: bool
+    frequency: CheckFrequency
+
+
+@frozen
+class EngineSettingUpdate:
+    """A partial edit of one engine's setting. None leaves the field as it is."""
+
+    enabled: bool | None = None
+    frequency: CheckFrequency | None = None
+
+
+class EngineNotFoundError(Exception):
+    pass
 
 
 class PromptUpdateError(Exception):

@@ -218,7 +218,6 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Dbt": "scope",
         "Deel": "scope",
         "Develocity": "scope",
-        "DevinAI": "scope",
         "Discourse": "scope",
         "Drata": "scope",
         "Dynatrace": "scope",
