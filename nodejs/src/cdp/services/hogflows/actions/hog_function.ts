@@ -111,14 +111,11 @@ const readWarnings = (resumeResult: unknown): string[] => {
 export const RENDER_TIMEOUT_RETRY_DELAYS_SECONDS = [10, 60, 300]
 
 // Only 'failed' loses the message.
-export const counterHogflowRenderTimeout = new Counter({
+const counterHogflowRenderTimeout = new Counter({
     name: 'cdp_hogflow_render_timeout_total',
     help: 'Workflow steps whose inputs ran out of render time, by outcome.',
     labelNames: ['outcome'],
 })
-for (const outcome of ['retried', 'failed']) {
-    counterHogflowRenderTimeout.labels(outcome).inc(0)
-}
 
 const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
