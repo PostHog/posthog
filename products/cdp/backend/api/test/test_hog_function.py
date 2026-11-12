@@ -778,7 +778,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         fn.refresh_from_db()
+        assert fn.inputs is not None
         assert fn.inputs["email"]["value"]["from"] == {"integrationId": "5"}
+
+    def _email_mapping(self, sender_id: Any) -> dict:
+        return {
+            "name": "Email mapping",
+            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+            "inputs": self._email_inputs(sender_id),
+            "filters": {},
+        }
+
+    @parameterized.expand([("unchanged", "5", status.HTTP_200_OK), ("changed", "6", status.HTTP_400_BAD_REQUEST)])
+    def test_a_destination_mapping_keeps_only_its_unchanged_stored_string_sender_id(
+        self, _name: str, sender_id: str, expected: int
+    ) -> None:
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Destination with an email mapping",
+            type="destination",
+            enabled=False,
+            inputs_schema=[],
+            inputs={},
+            mappings=[self._email_mapping("5")],
+            hog="return event",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={"mappings": [self._email_mapping(sender_id)]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        fn.refresh_from_db()
+        assert fn.mappings is not None
+        assert fn.mappings[0]["inputs"]["email"]["value"]["from"] == {"integrationId": "5"}
 
     def test_a_destination_refuses_a_newly_written_string_sender_id(self) -> None:
         fn = self._create_email_destination("5", enabled=False)

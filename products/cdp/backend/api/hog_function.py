@@ -618,7 +618,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
-        self.context["existing_email_from"] = stored_email_from(instance.inputs if instance else None)
+        stored_mappings = (instance.mappings if instance else None) or []
+        self.context["existing_email_from"] = [
+            *stored_email_from(instance.inputs if instance else None),
+            *(from_value for mapping in stored_mappings for from_value in stored_email_from(mapping.get("inputs"))),
+        ]
         # Uncompilable filters only block saves that leave the function enabled - disabling or
         # deleting must stay possible even when e.g. the team's test account filters have since
         # gained a cohort that real-time filters can't evaluate. Coerce via BooleanField so
