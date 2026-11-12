@@ -1197,12 +1197,11 @@ export class CdpApi {
                 },
                 'hog_flow'
             )
-            // Only the lifecycle and monitoring sinks, which swallow their own produce failures. Flushing
-            // every sink would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
-            await Promise.all([
-                this.invocationResultsService.invocationResultsRowsService.flush(),
-                this.invocationResultsService.monitoringService.flush(),
-            ])
+            // Not awaited, so a stalled metrics produce cannot time out a run that is already queued.
+            void this.invocationResultsService.monitoringService.flush()
+            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
+            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
+            await this.invocationResultsService.invocationResultsRowsService.flush()
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

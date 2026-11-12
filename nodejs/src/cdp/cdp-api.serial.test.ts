@@ -20,6 +20,7 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { APP_METRICS_OUTPUT } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -1850,19 +1851,47 @@ describe('CDP API', () => {
                 await api['invocationResultsService'].monitoringService.flush()
             }
             const versioned = versionedAppSourceId(scheduleHogFlow.id, scheduleHogFlow.version)
-            expect(
-                producedToKafka()
-                    .filter((row) => row.metric_name === 'triggered')
-                    .map((row) => [row.app_source, row.app_source_id, row.count])
-                    .sort()
-            ).toEqual(
-                queueFails
-                    ? []
-                    : [
-                          ['hog_flow', scheduleHogFlow.id, 1],
-                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 1],
-                      ].sort()
+            await waitForExpect(() =>
+                expect(
+                    producedToKafka()
+                        .filter((row) => row.metric_name === 'triggered')
+                        .map((row) => [row.app_source, row.app_source_id, row.count])
+                        .sort()
+                ).toEqual(
+                    queueFails
+                        ? []
+                        : [
+                              ['hog_flow', scheduleHogFlow.id, 1],
+                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 1],
+                          ].sort()
+                )
             )
+        })
+
+        it('answers queued while the triggered metric is still being produced', async () => {
+            const outputs = api['invocationResultsService'].monitoringService['outputs']
+            const queueMessages = outputs.queueMessages.bind(outputs)
+            let releaseMetrics!: () => void
+            const metricsStalled = new Promise<void>((resolve) => (releaseMetrics = resolve))
+            const queueSpy = jest
+                .spyOn(outputs, 'queueMessages')
+                .mockImplementation(async (name, messages) =>
+                    name === APP_METRICS_OUTPUT ? metricsStalled : queueMessages(name, messages)
+                )
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                expect(res.body.status).toEqual('queued')
+            } finally {
+                releaseMetrics()
+                queueSpy.mockRestore()
+            }
         })
 
         it('stamps the run start into the state before the invocation is queued', async () => {
