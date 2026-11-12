@@ -454,6 +454,7 @@ export interface EmailServiceConfig {
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
+    templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
 }
 
@@ -538,6 +539,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private templateTagsTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -565,6 +567,7 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
 
     private utmTaggingFor(
@@ -1484,7 +1487,11 @@ export class EmailService {
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [
                           { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
-                          ...transactionalEmailIdentityTags(params.template ?? result.invocation.hogFunction?.metadata),
+                          ...(this.templateTagsTeams(result.invocation.teamId)
+                              ? transactionalEmailIdentityTags(
+                                    params.template ?? result.invocation.hogFunction?.metadata
+                                )
+                              : []),
                       ]
                     : []),
             ],
