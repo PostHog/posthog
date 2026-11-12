@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("replay_vision", "0149_replay_scanner_sweep_cadence"),
+        ("replay_vision", "0150_replay_scanner_sweep_cadence"),
     ]
 
     operations = [

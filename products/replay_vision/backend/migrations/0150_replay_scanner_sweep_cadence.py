@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0148_squash_2026_11_02_schema_addons"),
+        ("replay_vision", "0149_replay_scanner_disabled_reason"),
     ]
 
     operations = [
