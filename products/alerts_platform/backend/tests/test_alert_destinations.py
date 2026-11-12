@@ -1,5 +1,5 @@
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -11,16 +11,21 @@ from parameterized import parameterized
 from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
     delete_alert_destinations,
+    delete_source_destination_rows,
     list_alert_destinations,
+    list_source_destinations,
+    record_source_destination,
     set_subscriber_destinations,
     subscriber_user_ids_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertDestinationValidationError,
     AlertEventKind,
     DestinationType,
     NewAlertDestination,
+    SourceDestination,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -29,6 +34,14 @@ from products.alerts_platform.backend.models import PlatformAlertConfiguration
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": WEBHOOK_URL})
 FIRING = (AlertEventKind.FIRING,)
+SLACK = cast(
+    AlertDestinationData,
+    {"type": DestinationType.SLACK, "slack_workspace_id": 7, "slack_channel_id": "C1", "slack_channel_name": "a"},
+)
+UNLABELED_SLACK = cast(
+    AlertDestinationData, {key: value for key, value in SLACK.items() if key != "slack_channel_name"}
+)
+EDITED_SLACK = cast(AlertDestinationData, {**UNLABELED_SLACK, "slack_channel_id": "C2"})
 
 
 class TestAlertDestinations(BaseTest):
@@ -197,3 +210,120 @@ class TestAlertDestinations(BaseTest):
         assert deleted == 1
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert list_alert_destinations(team_id=self.team.id, configuration_id=other.id) == (theirs,)
+
+
+class TestSourceDestinations(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.legacy_id = uuid4()
+        self.configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=PlatformAlertOwner.SOURCE,
+            legacy_configuration_id=self.legacy_id,
+        )
+        self.groups: list[AlertDestinationGroup] = []
+
+    def _hog_functions(self, data: AlertDestinationData, count: int = 2) -> tuple[UUID, ...]:
+        ids = tuple(uuid4() for _ in range(count))
+        self.groups.append(AlertDestinationGroup(hog_function_ids=ids, data=data, fully_enabled=True))
+        return ids
+
+    def _record(self, data: AlertDestinationData, hog_function_ids: tuple[UUID, ...]) -> Any:
+        return record_source_destination(
+            team_id=self.team.id,
+            public_id=self.legacy_id,
+            data=data,
+            event_kinds=FIRING,
+            hog_function_ids=hog_function_ids,
+            hog_function_groups=self.groups,
+        )
+
+    def _listed(self) -> tuple[SourceDestination, ...]:
+        return list_source_destinations(team_id=self.team.id, public_id=self.legacy_id, hog_function_groups=self.groups)
+
+    @parameterized.expand(
+        [
+            ("keeps_the_rows_label", UNLABELED_SLACK, SLACK),
+            ("shows_where_an_edited_hog_function_sends", EDITED_SLACK, EDITED_SLACK),
+        ]
+    )
+    def test_a_row_that_copies_its_hog_functions_lists_once_with_both_ids(
+        self, _name: str, live: AlertDestinationData, listed: AlertDestinationData
+    ) -> None:
+        hog_function_ids = self._hog_functions(UNLABELED_SLACK)
+        created = self._record(SLACK, hog_function_ids)
+        self.groups[0] = AlertDestinationGroup(hog_function_ids=hog_function_ids, data=live, fully_enabled=True)
+
+        assert created.legacy_hog_function_ids == hog_function_ids
+        assert self._listed() == (
+            SourceDestination(destination_id=created.id, hog_function_ids=hog_function_ids, data=listed, enabled=True),
+        )
+
+    @parameterized.expand(
+        [
+            ("copies_part_of_the_group", 1),
+            ("copies_none_of_it", 0),
+        ]
+    )
+    def test_a_row_that_duplicates_a_group_it_does_not_copy_is_refused(self, _name: str, copied: int) -> None:
+        hog_function_ids = self._hog_functions(SLACK)
+
+        with pytest.raises(AlertDestinationValidationError):
+            self._record(cast(AlertDestinationData, {**SLACK, "slack_channel_name": "b"}), hog_function_ids[:copied])
+
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    def test_the_list_keeps_groups_no_row_copies_and_rows_whose_hog_functions_are_gone(self) -> None:
+        older = self._hog_functions(WEBHOOK)
+        orphan = self._record(SLACK, (uuid4(),))
+        set_subscriber_destinations(
+            team_id=self.team.id,
+            public_id=self.legacy_id,
+            user_ids=[self.user.id],
+            event_kinds=FIRING,
+            in_app_resource_type="insight",
+            in_app_resource_id="1",
+        )
+
+        assert self._listed() == (
+            SourceDestination(destination_id=None, hog_function_ids=older, data=WEBHOOK, enabled=True),
+            SourceDestination(destination_id=orphan.id, hog_function_ids=(), data=SLACK, enabled=True),
+        )
+
+    def test_a_delete_by_hog_function_or_row_id_returns_the_hog_functions_the_rows_copied(self) -> None:
+        slack = self._hog_functions(SLACK)
+        self._record(SLACK, slack)
+        webhook = self._hog_functions(WEBHOOK)
+        by_id = self._record(WEBHOOK, webhook)
+
+        copied = delete_source_destination_rows(
+            team_id=self.team.id, public_id=self.legacy_id, destination_ids=[by_id.id], hog_function_ids=slack[:1]
+        )
+
+        assert copied == frozenset({*slack, *webhook})
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    @parameterized.expand(
+        [
+            ("no_platform_copy", PlatformAlertOwner.SOURCE, True),
+            ("platform_keeps_the_destinations", PlatformAlertOwner.PLATFORM, False),
+        ]
+    )
+    def test_no_row_is_written_beside_the_hog_functions(self, _name: str, owner: str, unknown_alert: bool) -> None:
+        self.configuration.destinations_owner = owner
+        self.configuration.save()
+
+        created = record_source_destination(
+            team_id=self.team.id,
+            public_id=uuid4() if unknown_alert else self.legacy_id,
+            data=SLACK,
+            event_kinds=FIRING,
+            hog_function_ids=(uuid4(),),
+            hog_function_groups=(),
+        )
+
+        assert created is None
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
