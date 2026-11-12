@@ -203,7 +203,10 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         )
     } else {
         const activity = snapshot.activity
-        const screens = snapshot.topPagesMode === 'screens'
+        // App only lists screens and drops referrers, which app events do not carry. The list's own form guards the
+        // read where the screens job failed and the last pages are still on screen.
+        const appOnly = state === 'app_only'
+        const screens = appOnly && snapshot.topPagesMode === 'screens'
         const kinds = liveBreakdownKinds(snapshot)
         const shownBreakdown = kinds.includes(breakdown) ? breakdown : kinds[0]
         content = (
@@ -239,8 +242,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                         testID="live-top-pages"
                     />
                 )}
-                {/* App events carry no referrer. */}
-                {state === 'app_only' ? null : (
+                {appOnly ? null : (
                     <LiveRankedTable
                         title="Top referrers (last 30 minutes)"
                         columnLabel="Referrer"

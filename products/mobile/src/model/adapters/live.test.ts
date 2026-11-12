@@ -40,6 +40,9 @@ const QUIET: LiveSnapshot = {
     countries: liveBreakdown(counted(), 'countries'),
     events: [],
 }
+function eventRows(event: string): unknown {
+    return { results: [['e1', event, 'person-1', NOW, null, event === '$screen' ? 'Home' : null, null, null]] }
+}
 const APP_ACTIVITY = liveActivity({ results: [[Date.parse(minute('21:14')), 3, 3, 0]] }, NOW)
 const WEB_ACTIVITY = liveActivity({ results: [[Date.parse(minute('21:14')), 3, 3, 5]] }, NOW)
 
@@ -192,7 +195,18 @@ describe('live adapters', () => {
         ['a project that never ingested an event', QUIET, false, 'not_set_up'],
         ['a window where every job answered with nothing', QUIET, true, 'quiet'],
         ['an empty window with a part still unanswered', { ...QUIET, events: null }, true, 'web'],
-        ['events without pageviews, before the screens form', { ...QUIET, activity: APP_ACTIVITY }, true, 'app_only'],
+        [
+            'server events without pageviews or screens',
+            { ...QUIET, activity: APP_ACTIVITY, topPagesMode: 'screens', events: liveEvents(eventRows('$identify')) },
+            true,
+            'web',
+        ],
+        [
+            'screen events, before a screens list',
+            { ...QUIET, activity: APP_ACTIVITY, events: liveEvents(eventRows('$screen')) },
+            true,
+            'app_only',
+        ],
         [
             'events without pageviews, listing screens',
             { ...QUIET, activity: APP_ACTIVITY, topPages: ranked(['Home']), topPagesMode: 'screens' },

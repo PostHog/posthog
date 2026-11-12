@@ -56,7 +56,7 @@ These jobs return counts to the app.
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
-A read sends `paths` or `screens`, never both, as the last read's activity calls for (see [No web traffic](#no-web-traffic)).
+A read sends `paths` or `screens`, never both. That job runs after the others and takes its form from this read's activity (see [No web traffic](#no-web-traffic)).
 The map adds no read: the `geo` answer gives both the Countries breakdown (top six and "Other") and `LiveSnapshot.world`, every country with visitors, which the map and Visitors by country draw.
 
 Two more reads, outside the query budget:
@@ -92,7 +92,7 @@ Back on Live, the focus rule above applies: Live reads at once only when its dat
 Live spends the `live` budget family (`src/api/budget.ts`): 60 requests a minute and 900 an hour, so its polling never empties the Views or replay buckets and theirs never stop Live.
 The other families hold 25% of the published budget. Live polls by design, and at 25% a normal session would stop after about half an hour, so Live holds 75% of the published query budget.
 The buckets refill all the time, so the hourly bucket gets 15 requests back each minute.
-One read is 7 queries, or 8 with the users online count, and one more when the read switches between `paths` and `screens`.
+One read is 7 queries, or 8 with the users online count.
 In the first 10 minutes a focused screen sends up to 16 queries a minute, 1 more than the refill. After that it sends up to 8 a minute, less than the refill.
 So steady polling never empties the hourly bucket, and a focused screen keeps updating for as long as it stays open.
 Visitors by country sends 1 query a read, at most 3 in its first minute, while Live sends none.
@@ -119,25 +119,25 @@ The state comes from the project read and the last snapshot (`liveProjectState` 
 | ------------ | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `not_set_up` | The project read says `ingested_event: false`                                                                             | Status "Not receiving events yet", gray dot, no Pause. The setup card (`live-not-set-up`), then Meanwhile  |
 | `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | Status "Live · waiting for activity", gray dot, Pause stays. The Quiet card (`live-quiet`), then Meanwhile |
-| `app_only`   | The window has events and no pageviews, and the top list is not a list of pages                                           | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                           |
-| `web`        | Anything else, also while parts of the snapshot are missing                                                               | The usual cards                                                                                            |
+| `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                           |
+| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                          |
 
-A project read that fails counts as unknown, so Live shows what the snapshot says.
+A project read that fails counts as unknown, so Live shows what the snapshot says, and reads the project again on the next focus.
+`ingested_event` turns true for anything the project ingests, also logs, traces and metrics. Such a project shows Quiet or its cards, not the setup card.
 
-**Top screens.** A read asks `screens` instead of `paths` when the last read's activity had visitors and no pageviews (`livePathsMode`).
-When this read's activity calls for the other form, as on an app project's first read or when pageviews arrive, the read asks once more in that form before it settles, so the list never shows the wrong form for a whole interval.
+**Top screens.** The top list job runs last in a read. It asks `screens` instead of `paths` when this read's activity has visitors and no pageviews (`livePathsMode`), or the last read's activity when this read's activity job failed. So an app project lists screens from its first read, and no read sends both forms.
 `LiveSnapshot.topPagesMode` says which form `topPages` holds, and rank badges compare rows of one form only.
 
-**Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live fills in the moment someone shows up." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event.
+**Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet.
 
-**Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within seconds."
-"Open setup guide" opens `{host}/project/{id}/onboarding` on the web; in demo mode it is disabled with "Not in the demo". "Open Views" switches to the Views tab.
-Live runs no jobs and no stats reads in this state. It reads the project again on each focus and each return to the foreground, at most once a minute (`PROJECT_RECHECK_MS` in `hooks.ts`), and a pull reads it at once. When `ingested_event` turns true, the normal poller starts. When a later project read fails, Live keeps the last answer.
+**Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within a minute."
+"Open setup guide" opens `{host}/project/{id}/onboarding` on the web, where the person picks the web snippet or an SDK. It is disabled with "Not in the demo" in demo mode, and with "Needs an HTTPS instance" when the host is not HTTPS. "Open Views" switches to the Views tab.
+Live runs no jobs and no stats reads in this state. While the screen is seen, it reads the project again every minute, and on each focus and each return to the foreground, at most once a minute (`PROJECT_RECHECK_MS` in `hooks.ts`). These reads are outside the query budget. A pull reads it at once. When `ingested_event` turns true, the normal poller starts. When a later project read fails, Live keeps the last answer.
 
 **Meanwhile** (`live-meanwhile`): the "Meanwhile" eyebrow and a card with up to two pinned views, in Views order, then "Inbox".
-A pin row shows its icon, name and type (or tile name), and, when Views last read a value for it, the number, change pill and a sparkline. A tap opens the view (`from=pinned`).
-The Inbox row says "N unread" from the inbox list the app last loaded, or "Inbox" alone before that, and switches to the Inbox tab.
-Meanwhile sends no data reads: pin values, automatic pin displays and the unread count come from the cache. When the pin list was never read in the session, it reads the pin list once (`usePins`). With no pins, the card has the Inbox row only.
+A pin row shows its icon, name and type (or tile name), and, when Views last read a value for it, the number, change pill and a sparkline (`usePinGlance`, shared with the Views list). A tap opens the view (`from=live_meanwhile`).
+The Inbox row says "N unread", or "Nothing unread", from the inbox list the app last loaded (`useInboxUnreadCount`), or "Inbox" alone before that, and switches to the Inbox tab.
+Meanwhile sends no data reads: pin values, automatic pin displays and the unread count come from the cache. When the pin list was never read in the session, it reads the pin list once (`usePins`, without the re-read on reconnect). With no pins, the card has the Inbox row only.
 
 ## Visitors by country
 

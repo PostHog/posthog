@@ -1,5 +1,8 @@
 export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries'
 
+/** The device and browser jobs' value for events without the property, such as app events without `$browser`. */
+export const UNKNOWN_BREAKDOWN = 'Unknown'
+
 /** What the top list counts: pageviews by path, or screen views by screen name for a project with app events only. */
 export type LivePathsMode = 'pages' | 'screens'
 

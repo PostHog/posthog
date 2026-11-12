@@ -6,30 +6,44 @@ import { useDataMode } from '@/demo/demoMode'
 import { useDemoInboxQuery } from '@/demo/hooks'
 import type { InboxItem } from '@/model/types'
 
-function unreadCount(items: readonly InboxItem[] | undefined): number | null {
-    return items ? items.filter((item) => !item.read).length : null
+function countUnread(items: readonly InboxItem[]): number {
+    return items.filter((item) => !item.read).length
 }
 
-function savedUnreadCount(saved: SavedInbox): number | null {
-    return unreadCount(saved.items)
+function hasUnread(items: readonly InboxItem[]): boolean {
+    return items.some((item) => !item.read)
+}
+
+function savedUnreadCount(saved: SavedInbox): number {
+    return countUnread(saved.items)
+}
+
+function savedHasUnread(saved: SavedInbox): boolean {
+    return hasUnread(saved.items)
 }
 
 /**
- * Unread reports in the inbox list the app last loaded. It reads the first page the inbox saves in the query cache and
- * never fetches, so it is null until the inbox has loaded once.
+ * A value of the inbox list the app last loaded: the first page the inbox saves in the query cache. It never fetches,
+ * so it is null until the inbox has loaded once. `select` runs on the saved page, so a caller re-renders only when its
+ * value changes; pass a function defined at module level.
  */
-export function useInboxUnreadCount(): number | null {
+function useSavedInbox<T>(select: (saved: SavedInbox) => T, pick: (items: readonly InboxItem[]) => T): T | null {
     const mode = useDataMode()
     const scope = useProjectScope()
     const demo = useDemoInboxQuery()
-    const saved = useQuery({ queryKey: inboxCacheKey(scope), queryFn: skipToken, select: savedUnreadCount })
+    const saved = useQuery({ queryKey: inboxCacheKey(scope), queryFn: skipToken, select })
     if (mode === 'demo') {
-        return unreadCount(demo.data)
+        return demo.data ? pick(demo.data) : null
     }
     return mode === 'live' ? (saved.data ?? null) : null
 }
 
+/** Unread reports in the inbox list the app last loaded, or null until the inbox has loaded once. */
+export function useInboxUnreadCount(): number | null {
+    return useSavedInbox(savedUnreadCount, countUnread)
+}
+
 /** True when that list has an unread report, for the Inbox tab's dot. */
 export function useInboxHasUnread(): boolean {
-    return (useInboxUnreadCount() ?? 0) > 0
+    return useSavedInbox(savedHasUnread, hasUnread) === true
 }

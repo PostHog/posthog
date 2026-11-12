@@ -13,6 +13,7 @@ const ENTRIES: readonly ViewEntry[] = [
     'dashboard',
     'widget',
     'web_analytics',
+    'live_meanwhile',
 ]
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
 

@@ -59,45 +59,81 @@ async function renderFeed(
     return hook
 }
 
-type Traffic = 'none' | 'app'
+/** No events, app events without pageviews, or web traffic. */
+type Traffic = 'none' | 'app' | 'web'
+let traffic: Traffic = 'none'
 
-/** What the server answers for a window with no events, or with app events and no pageviews. */
-function fakeLiveAnswer(query: Record<string, unknown>, traffic: Traffic): unknown {
-    const app = traffic === 'app'
+// The two forms list the same names in opposite order, so a rank badge carried across forms would show.
+const TOP_ROWS: Record<string, unknown[]> = {
+    app$screen: [
+        { breakdown_value: 'Home', data: [2, 1] },
+        { breakdown_value: 'Settings', data: [1] },
+    ],
+    web$pageview: [
+        { breakdown_value: 'Settings', data: [3] },
+        { breakdown_value: 'Home', data: [1] },
+    ],
+}
+
+/** What the server answers for each live query under the current `traffic`. */
+function fakeLiveAnswer(query: Record<string, unknown>): unknown {
     if (query.kind === 'TrendsQuery') {
         const event = (query.series as { event: string }[])[0]?.event
         const breakdown = (query.breakdownFilter as { breakdown: string }).breakdown
-        const screens = app && event === '$screen' && breakdown === '$screen_name'
-        return { results: screens ? [{ breakdown_value: 'Home', data: [2, 1] }] : [] }
+        const byName = breakdown === (event === '$screen' ? '$screen_name' : '$pathname')
+        return { results: byName ? (TOP_ROWS[`${traffic}${event}`] ?? []) : [] }
     }
     const minute = Math.floor(Date.now() / 60_000) * 60_000
-    const counts = (key: string): unknown => ({ results: [[app ? [[key, 3]] : []]] })
+    const counts = (app: string, web: string): unknown => ({
+        results: [[traffic === 'none' ? [] : [[traffic === 'app' ? app : web, 3]]]],
+    })
+    const event = traffic === 'app' ? ['e1', '$screen', 'person-1', Date.now(), null, 'Home', null, null] : null
     switch ((query.tags as { name: string }).name) {
         case 'live_users_pageviews':
-            return { results: app ? [[minute, 3, 3, 0]] : [] }
+            return { results: traffic === 'none' ? [] : [[minute, 3, 3, traffic === 'web' ? 4 : 0]] }
         case 'live_device_breakdown':
-            return counts('Mobile')
+            return counts('Mobile', 'Desktop')
         case 'live_browser_breakdown':
-            return counts('Unknown')
+            return counts('Unknown', 'Chrome')
         case 'live_geo':
-            return counts('US')
+            return counts('US', 'US')
         case 'live_recent_events':
-            return { results: app ? [['e1', '$screen', 'person-1', Date.now(), null, 'Home', null, null]] : [] }
+            return { results: event ? [event] : [] }
         case 'live_users_count':
-            return { results: [[app ? 3 : 0]] }
+            return { results: [[traffic === 'none' ? 0 : 3]] }
         default:
             return { results: [] }
     }
 }
 
 let nextProjectId = 1
+const SELF_HOSTED = 'https://posthog.example.com'
+const CLOUD = 'https://us.posthog.com'
 
-/** A self-hosted project, so users online come from HogQL and every read goes through the fakes. */
-function liveProject(project: LiveProjectApi, traffic: Traffic): void {
+/** A project whose reads go through the fakes. On a self-hosted host, users online come from HogQL. */
+function liveProject(project: LiveProjectApi, start: Traffic, host: string = SELF_HOSTED): void {
     mockMode = 'live'
-    mockScope = { host: 'https://posthog.example.com', projectId: nextProjectId++ }
+    mockScope = { host, projectId: nextProjectId++ }
+    traffic = start
     mockFetchProject.mockResolvedValue(project)
-    mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query, traffic))
+    mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+}
+
+const originalFetch = globalThis.fetch
+
+/** The live events service's `stats` read, answering as it does for a project with no live users. */
+function mockStatsFetch(): jest.Mock {
+    const stats = jest.fn(async () => ({ ok: true, json: async () => ({ error: 'no stats' }) }))
+    globalThis.fetch = stats as unknown as typeof fetch
+    return stats
+}
+
+async function refocus(rerender: (props: unknown) => void): Promise<void> {
+    mockFocused = false
+    rerender({})
+    mockFocused = true
+    rerender({})
+    await advance(0)
 }
 
 function pathsEventsAsked(): string[] {
@@ -119,6 +155,7 @@ describe('useLiveFeed', () => {
 
     afterEach(async () => {
         await cleanupAsync()
+        globalThis.fetch = originalFetch
         clearLiveWorldShare()
         jest.useRealTimers()
         jest.restoreAllMocks()
@@ -301,15 +338,18 @@ describe('useLiveFeed', () => {
         }
     )
 
-    test('a window without events reads as quiet, says so once per focus, and keeps polling', async () => {
-        liveProject({ ingested_event: true }, 'none')
+    test('a window without events reads as quiet, says so once per focus, keeps polling, and pauses stats', async () => {
+        const stats = mockStatsFetch()
+        liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'none', CLOUD)
         const { result, unmount } = await renderFeed()
         await advance(1000)
         expect(result.current.state).toBe('quiet')
 
         const asked = mockFetchQuery.mock.calls.length
+        const statsReads = stats.mock.calls.length
         await advance(30_000)
         expect(mockFetchQuery.mock.calls.length).toBeGreaterThan(asked)
+        expect(stats.mock.calls.length).toBe(statsReads)
         expect(result.current.state).toBe('quiet')
         expect(jest.mocked(track).mock.calls.filter(([event]) => event === 'mobile_live_state_shown')).toEqual([
             ['mobile_live_state_shown', { state: 'quiet' }],
@@ -317,48 +357,84 @@ describe('useLiveFeed', () => {
         unmount()
     })
 
-    test('app events without pageviews list top screens from the first read, then ask for screens alone', async () => {
+    test('app events without pageviews list top screens from the first read, with no pages query', async () => {
         liveProject({ ingested_event: true }, 'app')
         const { result, unmount } = await renderFeed()
         await advance(1000)
         expect(result.current.state).toBe('app_only')
         expect(result.current.snapshot).toMatchObject({
             topPagesMode: 'screens',
-            topPages: [{ label: 'Home', views: 3 }],
+            topPages: [
+                { label: 'Home', views: 3 },
+                { label: 'Settings', views: 1 },
+            ],
         })
-        expect(pathsEventsAsked()).toEqual(['$pageview', '$screen'])
+        expect(pathsEventsAsked()).toEqual(['$screen'])
 
         await advance(30_000)
-        expect(pathsEventsAsked()).toEqual(['$pageview', '$screen', '$screen'])
+        expect(pathsEventsAsked()).toEqual(['$screen', '$screen'])
         unmount()
     })
 
-    test('a project without events runs no live jobs and reads the project again on focus, once a minute at most', async () => {
-        liveProject({ ingested_event: false }, 'none')
+    test('when pageviews arrive, the next read lists pages without rank badges from the screens', async () => {
+        liveProject({ ingested_event: true }, 'app')
+        const { result, unmount } = await renderFeed()
+        await advance(1000)
+        traffic = 'web'
+        await advance(30_000)
+        expect(pathsEventsAsked()).toEqual(['$screen', '$pageview'])
+        expect(result.current.state).toBe('web')
+        expect(result.current.snapshot.topPagesMode).toBe('pages')
+        expect(result.current.snapshot.topPages?.map((row) => [row.label, row.rankDelta])).toEqual([
+            ['Settings', null],
+            ['Home', null],
+        ])
+        unmount()
+    })
+
+    test('a project without events runs no jobs or stats reads and reads the project once a minute while seen', async () => {
+        const stats = mockStatsFetch()
+        liveProject({ ingested_event: false, live_events_token: 'example-live-token' }, 'none', CLOUD)
         const { result, rerender, unmount } = await renderFeed()
         expect(result.current.state).toBe('not_set_up')
-        await advance(5 * 60_000)
-        expect(mockFetchProject).toHaveBeenCalledTimes(1)
+        await advance(3 * 60_000)
+        expect(mockFetchProject).toHaveBeenCalledTimes(4)
         expect(mockFetchQuery).not.toHaveBeenCalled()
+        expect(stats).not.toHaveBeenCalled()
 
-        const refocus = async (): Promise<void> => {
-            mockFocused = false
-            rerender({})
-            mockFocused = true
-            rerender({})
-            await advance(0)
-        }
-        await refocus()
-        expect(mockFetchProject).toHaveBeenCalledTimes(2)
-        await advance(30_000)
-        await refocus()
-        expect(mockFetchProject).toHaveBeenCalledTimes(2)
+        await refocus(rerender)
+        expect(mockFetchProject).toHaveBeenCalledTimes(4)
 
-        mockFetchProject.mockResolvedValue({ ingested_event: true })
-        await advance(30_000)
-        await refocus()
+        mockFetchProject.mockResolvedValue({ ingested_event: true, live_events_token: 'example-live-token' })
+        await advance(60_000)
         await advance(1000)
-        expect(mockFetchProject).toHaveBeenCalledTimes(3)
+        expect(mockFetchProject).toHaveBeenCalledTimes(5)
+        expect(mockFetchQuery).toHaveBeenCalled()
+        expect(result.current.state).toBe('quiet')
+        unmount()
+    })
+
+    test('a failed project re-read keeps Not set up and waits out the minute', async () => {
+        liveProject({ ingested_event: false }, 'none')
+        const { result, rerender, unmount } = await renderFeed()
+        mockFetchProject.mockRejectedValueOnce(new Error('offline'))
+        await advance(60_000)
+        expect(mockFetchProject).toHaveBeenCalledTimes(2)
+        expect(result.current.state).toBe('not_set_up')
+
+        await refocus(rerender)
+        expect(mockFetchProject).toHaveBeenCalledTimes(2)
+        expect(mockFetchQuery).not.toHaveBeenCalled()
+        unmount()
+    })
+
+    test('a pull on Not set up reads the project at once and starts polling when it has an event', async () => {
+        liveProject({ ingested_event: false }, 'none')
+        const { result, unmount } = await renderFeed()
+        mockFetchProject.mockResolvedValue({ ingested_event: true })
+        act(() => result.current.pull())
+        await advance(1000)
+        expect(mockFetchProject).toHaveBeenCalledTimes(2)
         expect(mockFetchQuery).toHaveBeenCalled()
         expect(result.current.state).toBe('quiet')
         unmount()

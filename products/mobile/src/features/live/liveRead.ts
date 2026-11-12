@@ -18,10 +18,11 @@ import type { LiveReadResult } from './liveController'
 
 const TOP_JOB: Record<LivePathsMode, LiveQueryKey> = { pages: 'paths', screens: 'screens' }
 
-/** The web's jobs, the chart's first so a slow read fills the top of the screen first. */
-function jobs(mode: LivePathsMode): LiveQueryKey[] {
-    return ['usersPageviews', TOP_JOB[mode], 'referrer', 'device', 'browser', 'geo', 'recentEvents']
-}
+/**
+ * The web's jobs, the chart's first. The top list (`paths` or `screens`) runs after them, so it can take its form from
+ * this read's activity.
+ */
+const JOBS: readonly LiveQueryKey[] = ['usersPageviews', 'referrer', 'device', 'browser', 'geo', 'recentEvents']
 /** The Views queue's limit, so one read never holds more than two server queries at a time. */
 const CONCURRENCY = 2
 
@@ -78,23 +79,40 @@ function answered(value: unknown): boolean {
  */
 export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadResult<LiveSnapshot>> {
     const { run, previous, now, signal } = input
-    const askedMode = livePathsMode(previous.activity)
-    const keys = input.countUsersOnline ? [...jobs(askedMode), 'usersOnline' as const] : jobs(askedMode)
+    const keys: LiveQueryKey[] = input.countUsersOnline ? [...JOBS, 'usersOnline'] : [...JOBS]
     const options = { window: liveWindow(now), pathCleaning: input.pathCleaning }
+    const ask = (key: LiveQueryKey): Promise<unknown> => run(key, liveQuery(key, options), signal, now)
+    let activityAnswer: Promise<unknown> | null = null
+    let topMode: LivePathsMode = 'pages'
+    const askTop = async (): Promise<unknown> => {
+        // The activity job started first, so it has usually answered by now. When it failed, the last activity decides.
+        const answer = await activityAnswer?.catch(() => undefined)
+        topMode = livePathsMode(answered(answer) ? liveActivity(answer, now) : previous.activity)
+        return ask(TOP_JOB[topMode])
+    }
     const settled = await settleInTurn(
-        keys.map((key) => () => run(key, liveQuery(key, options), signal, now)),
+        [
+            ...keys.map((key) => (): Promise<unknown> => {
+                const answer = ask(key)
+                if (key === 'usersPageviews') {
+                    activityAnswer = answer
+                }
+                return answer
+            }),
+            askTop,
+        ],
         signal
     )
     const answers = new Map<LiveQueryKey, unknown>()
     let failure: unknown = null
-    keys.forEach((key, index) => {
+    for (const [index, key] of [...keys, TOP_JOB[topMode]].entries()) {
         const result = settled[index]
         if (result?.status === 'fulfilled' && answered(result.value)) {
             answers.set(key, result.value)
         } else {
             failure ??= result?.status === 'rejected' ? result.reason : new Error(`The ${key} query did not finish.`)
         }
-    })
+    }
     if (answers.size === 0) {
         throw failure ?? new Error('The live read failed.')
     }
@@ -102,24 +120,6 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const activity = answers.has('usersPageviews')
         ? liveActivity(answers.get('usersPageviews'), now)
         : previous.activity
-    let complete = answers.size === keys.length
-    // The top list asks in the form the last read called for. When this read calls for the other form, as on an app
-    // project's first read, it asks once more in that form, so the list never shows the wrong form for a whole interval.
-    const mode = livePathsMode(activity)
-    if (mode !== askedMode && !signal.aborted) {
-        answers.delete(TOP_JOB[askedMode])
-        try {
-            const answer = await run(TOP_JOB[mode], liveQuery(TOP_JOB[mode], options), signal, now)
-            if (answered(answer)) {
-                answers.set(TOP_JOB[mode], answer)
-            } else {
-                complete = false
-            }
-        } catch {
-            complete = false
-        }
-    }
-    const topMode: LivePathsMode = answers.has('screens') ? 'screens' : 'pages'
     const topAnswer = answers.get(TOP_JOB[topMode])
     const ranked = (counts: Map<string, number>, before: LiveRankedRow[] | null): LiveRankedRow[] => {
         // Shares are of the window's pageviews; without them, of the listed views, so they never read 0%.
@@ -149,7 +149,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
             events: part('recentEvents', liveEvents, previous.events),
             usersOnline: part('usersOnline', liveUsersOnlineFromQuery, previous.usersOnline),
         },
-        complete,
+        complete: answers.size === keys.length + 1,
     }
 }
 

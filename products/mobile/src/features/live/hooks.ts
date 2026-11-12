@@ -119,8 +119,7 @@ function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): 
 function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | null {
     if (mode === 'demo') {
         const state = liveDemoState()
-        const project: LiveProjectInfo | null =
-            state === 'not_set_up' ? { token: null, pathCleaning: false, ingestedEvent: false } : null
+        const project: LiveProjectInfo = { token: null, pathCleaning: false, ingestedEvent: state !== 'not_set_up' }
         return {
             run: async (key, _query, signal, now) => {
                 await sleep(LIVE_DEMO_READ_MS, signal)
@@ -203,7 +202,7 @@ function usePoller<T>({ enabled, read, intervalMs, slowdown, onEvent }: PollerOp
 }
 
 interface StatsUsersOnline {
-    /** True while the live events service answers users online. */
+    /** True when the live events service can count users online for this project, also while its read waits. */
     active: boolean
     /** True once the service cannot answer: another host, no token, or failed reads. The HogQL count stands in. */
     fallback: boolean
@@ -214,32 +213,21 @@ interface StatsUsersOnline {
 
 /**
  * Users online from the live events service on Cloud, every `intervalMs` while the screen is seen and `enabled` is
- * true.
+ * true. `project` is the project read, undefined while it loads, so the HogQL count does not start while the token
+ * loads.
  */
-function useStatsUsersOnline(source: LiveSource | null, intervalMs: number, enabled = true): StatsUsersOnline {
-    // Kept with the source it came from, so a project switch never reads with the last project's token.
-    const [known, setKnown] = useState<{ source: LiveSource; token: string | null } | null>(null)
+function useStatsUsersOnline(
+    source: LiveSource | null,
+    intervalMs: number,
+    project: LiveProjectInfo | null | undefined,
+    enabled = true
+): StatsUsersOnline {
     const [failedFor, setFailedFor] = useState<LiveSource | null>(null)
     const host = source?.statsHost ?? null
-    // Undefined until the project read settles, so the HogQL count does not start while the token loads.
-    const token = known !== null && known.source === source ? known.token : undefined
+    const token = project === undefined ? undefined : (project?.token ?? null)
     const failed = source !== null && failedFor === source
 
-    useEffect(() => {
-        let cancelled = false
-        if (source && host) {
-            void source.project().then((info) => {
-                if (!cancelled) {
-                    setKnown({ source, token: info?.token ?? null })
-                }
-            })
-        }
-        return () => {
-            cancelled = true
-        }
-    }, [source, host])
-
-    const active = enabled && host !== null && typeof token === 'string' && !failed
+    const active = host !== null && typeof token === 'string' && !failed
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!host || !token) {
@@ -250,7 +238,7 @@ function useStatsUsersOnline(source: LiveSource | null, intervalMs: number, enab
         },
         [host, token]
     )
-    const poller = usePoller<number | null>({ enabled: active, read, intervalMs })
+    const poller = usePoller<number | null>({ enabled: active && enabled, read, intervalMs })
     useEffect(() => {
         if (poller.state.failures >= STATS_FAILURES_BEFORE_FALLBACK) {
             setFailedFor(source)
@@ -309,7 +297,8 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
     const mode = useDataMode()
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
-    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS)
+    const project = useLiveProject(source)
+    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS, project.info)
     const readCount = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!source) {
@@ -350,12 +339,12 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
 /** `mobile_live_state_shown` once per focus for each state other than `web`. */
 function useLiveStateShown(state: LiveProjectState | null): void {
     const focused = useIsFocused()
-    const shown = useRef<LiveProjectState | null>(null)
+    const shown = useRef(new Set<LiveProjectState>())
     useEffect(() => {
         if (!focused) {
-            shown.current = null
-        } else if (state && state !== 'web' && state !== shown.current) {
-            shown.current = state
+            shown.current.clear()
+        } else if (state && state !== 'web' && !shown.current.has(state)) {
+            shown.current.add(state)
             trackLiveStateShown({ state })
         }
     }, [focused, state])
@@ -383,8 +372,8 @@ export interface LiveFeed {
  * Polls the live queries while the screen is focused and the app is in the foreground. Mount it only when the session
  * has access, keyed by the session and project identity.
  *
- * A project that has never sent an event runs no live reads. Live reads the project again on focus and foreground, at
- * most once a minute, and starts polling once the project has an event.
+ * A project that has never sent an event runs no live reads. While the screen is seen, Live reads the project again
+ * every minute and on focus and foreground, at most once a minute, and starts polling once the project has an event.
  */
 export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const mode = useDataMode()
@@ -392,21 +381,19 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
     const project = useLiveProject(source)
     const notSetUp = project.info?.ingestedEvent === false
-    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS, !notSetUp)
-    const useStatsRef = useRef(stats.active)
-    useStatsRef.current = stats.active
+    const statsActive = useRef(false)
 
     const read = useCallback(
         async (signal: AbortSignal, previous: LiveSnapshot | null): Promise<LiveReadResult<LiveSnapshot>> => {
             if (!source) {
                 throw new Error('Live has no data source yet.')
             }
-            const project = await source.project()
+            const info = await source.project()
             return readLiveSnapshot({
                 run: source.run,
                 previous: previous ?? EMPTY_LIVE_SNAPSHOT,
-                countUsersOnline: !(source.statsHost !== null && project?.token && useStatsRef.current),
-                pathCleaning: project?.pathCleaning ?? false,
+                countUsersOnline: !(source.statsHost !== null && info?.token && statsActive.current),
+                pathCleaning: info?.pathCleaning ?? false,
                 now: Date.now(),
                 signal,
             })
@@ -427,6 +414,12 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         slowdown: READ_SLOWDOWN,
         onEvent,
     })
+    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
+    const state = source && project.info !== undefined ? liveProjectState(snapshot, project.info) : null
+    useLiveStateShown(state)
+    // Quiet shows no users online, and the 30-second read ends Quiet, so the stats read waits until then.
+    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS, project.info, !notSetUp && state !== 'quiet')
+    statsActive.current = stats.active
 
     const paused = main.state.paused
     useEffect(() => {
@@ -462,16 +455,20 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     }, [errorKind, failing, source])
 
     const { recheck } = project
+    const unknownProject = project.info === null
     const screenActive = main.screenActive
     useEffect(() => {
-        if (notSetUp && screenActive) {
-            void recheck(PROJECT_RECHECK_MS)
+        if (!screenActive || !(notSetUp || unknownProject)) {
+            return undefined
         }
-    }, [notSetUp, screenActive, recheck])
-
-    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
-    const state = source && project.info !== undefined ? liveProjectState(snapshot, project.info) : null
-    useLiveStateShown(state)
+        void recheck(PROJECT_RECHECK_MS)
+        if (!notSetUp) {
+            return undefined
+        }
+        // The first event can land while the screen stays open, so the project is read again every minute too.
+        const timer = setInterval(() => void recheck(PROJECT_RECHECK_MS), PROJECT_RECHECK_MS)
+        return () => clearInterval(timer)
+    }, [notSetUp, unknownProject, screenActive, recheck])
 
     const [pulling, setPulling] = useState(false)
     const pull = useCallback(() => {

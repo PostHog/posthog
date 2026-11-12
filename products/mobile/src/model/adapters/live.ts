@@ -1,18 +1,19 @@
 import type { HogQLResponseApi, LivePathsResponseApi, LiveStatsApi } from '@/api/live'
 import { isRecord } from '@/lib/records'
-import type {
-    LiveActivity,
-    LiveBreakdown,
-    LiveBreakdownKind,
-    LiveBreakdownRow,
-    LiveEventKind,
-    LiveEventRow,
-    LiveMinute,
-    LivePathsMode,
-    LiveProjectState,
-    LiveRankedRow,
-    LiveSnapshot,
-    LiveWorld,
+import {
+    type LiveActivity,
+    type LiveBreakdown,
+    type LiveBreakdownKind,
+    type LiveBreakdownRow,
+    type LiveEventKind,
+    type LiveEventRow,
+    type LiveMinute,
+    type LivePathsMode,
+    type LiveProjectState,
+    type LiveRankedRow,
+    type LiveSnapshot,
+    type LiveWorld,
+    UNKNOWN_BREAKDOWN,
 } from '@/model/live'
 
 import { countryFlag, countryName } from './webAnalyticsBreakdowns'
@@ -24,8 +25,6 @@ export const LIVE_TOP_ROWS = 10
 const BREAKDOWN_TOP_ROWS = 6
 export const DIRECT_REFERRER = '$direct'
 const OTHER = 'Other'
-/** The breakdown jobs' value for events without the property, such as app events without `$browser`. */
-const UNKNOWN = 'Unknown'
 const BREAKDOWN_PLACEHOLDER = '$$_posthog_breakdown_'
 const COUNTRY_CODE = /^[A-Z]{2}$/
 
@@ -250,7 +249,8 @@ export function livePathsMode(activity: LiveActivity | null): LivePathsMode {
 
 /**
  * What the project sends, from the project read and the last snapshot. The window is quiet only when every part has
- * answered with nothing, so a read that is still missing parts keeps the usual cards.
+ * answered with nothing, so a read that is still missing parts keeps the usual cards. App only needs screens, listed or
+ * in the events, because a web project can send server-side events and no pageviews for a while.
  */
 export function liveProjectState(
     snapshot: LiveSnapshot,
@@ -273,12 +273,13 @@ export function liveProjectState(
     if (quiet) {
         return 'quiet'
     }
-    const listsPages = snapshot.topPagesMode === 'pages' && (topPages?.length ?? 0) > 0
-    return activity.pageviews === 0 && (visitors || (events?.length ?? 0) > 0) && !listsPages ? 'app_only' : 'web'
+    const listsScreens = snapshot.topPagesMode === 'screens' && (topPages?.length ?? 0) > 0
+    const sawScreen = events?.some((event) => event.kind === 'screen') ?? false
+    return activity.pageviews === 0 && (listsScreens || sawScreen) ? 'app_only' : 'web'
 }
 
 function onlyUnknown(breakdown: LiveBreakdown | null): boolean {
-    return breakdown?.rows.length === 1 && breakdown.rows[0]?.key === UNKNOWN
+    return breakdown?.rows.length === 1 && breakdown.rows[0]?.key === UNKNOWN_BREAKDOWN
 }
 
 /**

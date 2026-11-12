@@ -1,5 +1,5 @@
 import type { LiveQueryKey } from '@/api/live'
-import type { LiveProjectState } from '@/model/live'
+import { type LiveProjectState, UNKNOWN_BREAKDOWN } from '@/model/live'
 
 // Live demo traffic for hedgebox.net, a fictional file-sharing site. Every id, path and number is invented. A seeded
 // generator writes events up to the moment of each read, and each read answers in the shape of its live query, so demo
@@ -100,8 +100,6 @@ const APP_SCREEN_WEIGHTS: Weights = {
     Upload: 18,
 }
 const APP_DEVICE_WEIGHTS: Weights = { Mobile: 92, Tablet: 8 }
-/** What the breakdown jobs answer for events without `$browser`. */
-const NO_BROWSER = 'Unknown'
 const EVENT_PATHS: Record<string, string> = {
     file_uploaded: '/files',
     share_link_created: '/files/shared',
@@ -391,7 +389,7 @@ export class LiveDemo {
             distinctId: this.uuid(),
             deviceId: this.uuid(),
             device,
-            browser: app ? NO_BROWSER : this.weighted(BROWSER_WEIGHTS[device] ?? BROWSER_WEIGHTS.Desktop ?? {}),
+            browser: app ? UNKNOWN_BREAKDOWN : this.weighted(BROWSER_WEIGHTS[device] ?? BROWSER_WEIGHTS.Desktop ?? {}),
             country: this.weighted(COUNTRY_WEIGHTS),
             referrer: this.weighted(REFERRER_WEIGHTS),
             sessionId: this.random() < 0.82 ? this.uuid() : null,

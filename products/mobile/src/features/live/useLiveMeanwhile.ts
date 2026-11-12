@@ -21,7 +21,7 @@ export interface LiveMeanwhile {
  * and the inbox last read, so this sends no data reads. Only the pin list is read, once, when nothing has read it yet.
  */
 export function useLiveMeanwhile(): LiveMeanwhile {
-    const { pins, displayPrefs } = usePins()
+    const { pins, displayPrefs } = usePins({ refetchOnReconnect: false })
     const automatic = useCachedSmartPinDisplays(pins.data, displayPrefs)
     const shown = useMemo(
         () => resolvePinDisplays((pins.data ?? []).slice(0, MEANWHILE_PINS), displayPrefs, automatic),

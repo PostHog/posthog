@@ -98,7 +98,8 @@ products/mobile/
                           summary, list rows), replayModel (view types), replayLinks (web URLs, `t`), replayAnalytics
         video/            ReplayVideoPlayer (full-screen Watch replay modal), useReplayVideo (find or render the MP4 export,
                           poll it), videoTime (session second to video second)
-      live/               LiveScreen (Web analytics Live, pushed at /views/live or a pinned tab) and its cards,
+      live/               LiveScreen (Web analytics Live: the Home tab, or pushed at /views/live) and its cards,
+                          LiveNoTraffic and LiveMeanwhile (Quiet and Not set up) with useLiveMeanwhile,
                           LiveEventSheet, LiveCountriesScreen (Visitors by country),
                           liveController (polling: focus, app state, Pause, backoff), liveRead (one read of every
                           job, or the geo job alone), hooks (useLiveFeed: data source, pollers, users online fallback;
