@@ -1,4 +1,7 @@
 import dataclasses
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import transaction
@@ -13,6 +16,22 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+_file_system_sync_enabled: ContextVar[bool] = ContextVar("file_system_sync_enabled", default=True)
+
+
+@contextmanager
+def file_system_sync(enabled: bool) -> Iterator[None]:
+    """Turn the save and delete signals' file row writes off for the saves inside the block.
+
+    A view whose caller may change an object but not its file in the tree saves inside
+    `file_system_sync(False)`. The object saves, and its file keeps its name, folder and existence.
+    """
+    token = _file_system_sync_enabled.set(enabled)
+    try:
+        yield
+    finally:
+        _file_system_sync_enabled.reset(token)
 
 
 class FileSystemSyncMixin(Model):
@@ -36,13 +55,16 @@ class FileSystemSyncMixin(Model):
 
         @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            instance.sync_file_system()
+            if _file_system_sync_enabled.get():
+                instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
             from posthog.models.file_system.file_system import delete_file
             from posthog.models.team import Team
 
+            if not _file_system_sync_enabled.get():
+                return
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore

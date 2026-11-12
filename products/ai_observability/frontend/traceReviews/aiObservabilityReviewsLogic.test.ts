@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
+import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { aiObservabilityReviewsLogic } from './aiObservabilityReviewsLogic'
 import { traceReviewsApi } from './traceReviewsApi'
 import { CLIPBOARD_ROW_LIMIT } from './traceReviewsExport'
@@ -63,6 +65,19 @@ describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
         // Stub the initial mount load so afterMount doesn't interfere with our test mocks.
         mockTraceReviewsList.mockResolvedValue({ results: [], count: 0 })
         logic.mount()
+    })
+
+    it('only offers reported scorers in the review filter', async () => {
+        const reported = { id: 'reported', name: 'Quality', calculation: 'reported' } as ScoreDefinitionApi
+        const composite = { id: 'composite', name: 'Overall', calculation: 'composite' } as ScoreDefinitionApi
+        jest.mocked(llmAnalyticsScoreDefinitionsList).mockImplementationOnce(async (_project, params) => {
+            const results = [reported, composite].filter(
+                (scorer) => !params?.calculation || scorer.calculation === params.calculation
+            )
+            return { results, count: results.length, next: null, previous: null }
+        })
+        await expectLogic(logic, () => logic.actions.loadScoreDefinitionOptions()).toFinishAllListeners()
+        expect(logic.values.scoreDefinitionOptions.map((scorer) => scorer.id)).toEqual(['reported'])
     })
 
     it('copies the formatted payload to the clipboard on the happy path', async () => {

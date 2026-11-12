@@ -622,8 +622,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         rows the caller then writes. A row that was moved, retyped or deleted after the caller read it is
         checked as it is now, or is gone from the result. `writes(row)` gives the files each locked row
         becomes, and `new_files` the files the caller creates. The caller must hold a transaction when it
-        passes `rows`. With `skip_denied` the denied files are returned rather than raised, for a caller
-        that writes only the allowed ones.
+        passes `rows`. It also locks the objects behind the rows it checks, the same way, so a save of one
+        of those objects waits until the caller commits. With `skip_denied` the denied files are returned
+        rather than raised, for a caller that writes only the allowed ones and places no object, so it locks
+        no object either.
 
         Nothing here can wait on the flag service. The tree evaluates the flag locally, and a write that files
         an object into a folder gets the service's answer from `resolved_workflows_list_v2` before its
@@ -632,7 +634,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         locked = self._lock_file_rows(rows) if rows is not None else []
         targets = {target for row in locked for target in writes(row) if target is not None}
         targets |= {target for target in new_files if target is not None}
-        denied = self._denied_workflow_files(targets)
+        denied = self._denied_workflow_files(targets, lock_objects=not skip_denied)
         if denied and not skip_denied:
             raise next(iter(denied.values()))
         return locked, set(denied)
@@ -658,7 +660,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if denied:
             raise next(iter(denied.values()))
 
-    def _denied_workflow_files(self, targets: set[WorkflowFileTarget]) -> dict[WorkflowFileTarget, APIException]:
+    def _denied_workflow_files(
+        self, targets: set[WorkflowFileTarget], *, lock_objects: bool = False
+    ) -> dict[WorkflowFileTarget, APIException]:
         denied: dict[WorkflowFileTarget, APIException] = {}
         if not targets:
             return denied
@@ -715,7 +719,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for target in owned:
             refs_by_type.setdefault((target.team_id, target.type), set()).add(target.ref)
         refused = check_file_system_object_changes(
-            FileChangeContext(user=self.request.user, request=self.request), refs_by_type
+            FileChangeContext(user=self.request.user, request=self.request), refs_by_type, lock=lock_objects
         )
         for target in owned:
             if error := refused.get(FileObjectRef(team_id=target.team_id, type=target.type, ref=target.ref)):
@@ -724,10 +728,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         data = serializer.validated_data
-        self._lock_and_authorize_workflow_files(
-            new_files=[_workflow_target(data.get("type"), data.get("ref"), self.team.id, data.get("shortcut"))]
-        )
-        super().perform_create(serializer)
+        with transaction.atomic():
+            self._lock_and_authorize_workflow_files(
+                new_files=[_workflow_target(data.get("type"), data.get("ref"), self.team.id, data.get("shortcut"))]
+            )
+            super().perform_create(serializer)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         instance = cast(FileSystem, serializer.instance)
@@ -1522,7 +1527,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Refuse before anything reads an object's creator or asks the flag service about them, so a refused
         # restore takes the same steps whether or not the object exists. The transaction below checks again.
         for item in items:
-            self._authorize_restore(item)
+            self._authorize_restore(item, lock=False)
         # A restore into a folder files its object again on save, which asks the flag service for the
         # object's creator. Ask it here, before the restore locks the object.
         creator_ids: set[int] = set()
@@ -1538,7 +1543,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             transaction.atomic(),
         ):
             for item in items:
-                self._authorize_restore(item)
+                self._authorize_restore(item, lock=True)
                 try:
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
@@ -1563,14 +1568,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
 
-    def _authorize_restore(self, item: dict[str, Any]) -> None:
+    def _authorize_restore(self, item: dict[str, Any], *, lock: bool) -> None:
         self._ensure_can_restore(item["type"], item["ref"])
         # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell the caller
         # that a deleted object exists under a guessed ref. So it gets the same answer as a ref that names nothing.
+        target = _workflow_target(item["type"], item["ref"], self.team.id, False)
         try:
-            self._lock_and_authorize_workflow_files(
-                new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
-            )
+            if lock:
+                self._lock_and_authorize_workflow_files(new_files=[target])
+            else:
+                self._authorize_workflow_files([target])
         except InsufficientScope:
             raise
         except PermissionDenied:
@@ -1627,9 +1634,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _authorized_unfiled_files(self, files: builtins.list[FileSystem]) -> builtins.list[FileSystem]:
         # Unfiled is a read, so a read-only key reaches it. It still writes rows, so the workflow and template
         # files it would create pass the same check as any other write, and the denied ones stay unfiled.
-        _, denied = self._lock_and_authorize_workflow_files(
-            new_files=[_row_target(file) for file in files], skip_denied=True
-        )
+        denied = self._denied_workflow_files({target for file in files if (target := _row_target(file))})
         return [file for file in files if _row_target(file) not in denied]
 
     def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
