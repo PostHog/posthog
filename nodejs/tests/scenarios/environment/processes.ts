@@ -168,6 +168,11 @@ function readEntry(name: string): ProcEntry | null {
     }
 }
 
+export function processState(pid: number): string | null {
+    const stat = readOptional(path.join(PROC_ROOT, String(pid), 'stat'))
+    return stat === null ? null : stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+}
+
 export function readProcs(): ProcEntry[] {
     return readdirSync(PROC_ROOT)
         .filter((name) => /^\d+$/.test(name))

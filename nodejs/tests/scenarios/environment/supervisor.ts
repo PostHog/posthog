@@ -4,12 +4,14 @@ import { closeSync, openSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
-import { terminate } from './processes'
+import { processState, terminate } from './processes'
 import { Role, RoleSpec } from './roles'
 
 const EXIT_REPORTED_WITHIN_MS = 2000
 
 const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null
+
+const EXITED_STATES = [null, 'Z', 'X']
 
 export type RoleExit = {
     role: Role
@@ -128,17 +130,12 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
 
         async kill(role, withinMs) {
             const child = children.get(role)
-            if (child?.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+            if (child?.pid === undefined || !isRunning(child) || EXITED_STATES.includes(processState(child.pid))) {
                 throw new Error(`${role} is not running`)
             }
             killedByValve.add(child)
             const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
-            try {
-                process.kill(-child.pid, 'SIGKILL')
-            } catch (error) {
-                killedByValve.delete(child)
-                throw error
-            }
+            process.kill(-child.pid, 'SIGKILL')
             const gaveUp = new AbortController()
             const outcome = await Promise.race([
                 exited,
