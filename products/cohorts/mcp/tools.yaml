@@ -203,6 +203,12 @@ tools:
             that returned successfully. Returns a 400 while the cohort's 'is_calculating' is true."
         exclude_params:
             - population_mode
+            - name
+            - description
+            - deleted
+            - filters
+            - is_static
+            - cohort_type
             - groups
             - version
             - pending_version
