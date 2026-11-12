@@ -104,6 +104,11 @@ tools:
         description: >
             Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error.
             Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-delete-data:
         operation: external_data_schemas_delete_data_destroy
         enabled: true
@@ -119,6 +124,11 @@ tools:
             pauses the schedule, so the next scheduled run does not rebuild the table. To sync the table again, set
             should_sync to true with 'external-data-schemas-partial-update', then call 'external-data-schemas-reload'.
             To clear stale or corrupt data and keep syncing on, use 'external-data-schemas-resync' instead.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-destinations-retrieve:
         operation: external_data_schemas_destinations_retrieve
         enabled: true
@@ -133,6 +143,11 @@ tools:
             Read one table's destination override. `inherits_from_source` tells you whether the table follows its
             source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.
         feature_flag: warehouse-multi-destination
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-incremental-fields-create:
         operation: external_data_schemas_incremental_fields_create
         enabled: true
@@ -152,6 +167,11 @@ tools:
             sources the fields come best first: the first has `recommended: true`, and each field's `notes` say whether
             it catches updated rows, is indexed, or can be empty. Prefer the recommended field unless the user picks
             another, and pass the notes on when the user has to choose.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-list:
         operation: external_data_schemas_list
         enabled: true
@@ -206,6 +226,11 @@ tools:
             field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
         exclude_params:
             - drop_history_table
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -219,6 +244,11 @@ tools:
         description: >
             Trigger a sync for a single table schema using its configured sync method (incremental, full refresh,
             append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-resync:
         operation: external_data_schemas_resync_create
         enabled: true
@@ -235,6 +265,11 @@ tools:
             or out of sync. To re-import on a recurring schedule, for example to remove rows deleted at the source from
             an incremental table, set full_refresh_interval_days with 'external-data-schemas-partial-update' instead of
             calling this repeatedly.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-schemas-retrieve:
         operation: external_data_schemas_retrieve
         enabled: true
@@ -250,6 +285,11 @@ tools:
             field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table
             metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the
             last run could not merge on the primary key, and its description lists the resolutions.
+        param_overrides:
+            id:
+                aliases:
+                    - schema_id
+                    - schemaId
     external-data-sources-bulk-update-schemas:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: true
@@ -269,6 +309,11 @@ tools:
             such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
             anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
             Changes take effect on the next sync, not retroactively.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: true
@@ -363,6 +408,11 @@ tools:
             only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response
             and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must
             create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-delete-webhook-create:
         operation: external_data_sources_delete_webhook_create
         enabled: true
@@ -379,6 +429,11 @@ tools:
             are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
             (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
             create-webhook.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-destinations-retrieve:
         operation: external_data_sources_destinations_retrieve
         enabled: true
@@ -395,6 +450,11 @@ tools:
             a list with only the PostHog warehouse can be a default or an explicit choice. An empty list means the
             project has no PostHog warehouse destination yet. Links to paused destinations are not listed.
         feature_flag: warehouse-multi-destination
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-destinations-update:
         operation: external_data_sources_destinations_partial_update
         enabled: true
@@ -414,6 +474,10 @@ tools:
             retrieve returned when it holds only the PostHog warehouse: that turns the default into an explicit link, so
             the source keeps updating its PostHog tables.
         param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
             destination_ids:
                 description: The full list of destination ids for this source, at least one. A destination left out is detached.
         feature_flag: warehouse-multi-destination
@@ -431,6 +495,11 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-list:
         operation: external_data_sources_list
         enabled: true
@@ -467,6 +536,11 @@ tools:
             the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
             rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
             securely in their browser rather than pasting secrets into the chat.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
         enabled: true
@@ -487,6 +561,11 @@ tools:
             - prefix
             - description
             - job_inputs
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-reload:
         operation: external_data_sources_reload_create
         enabled: true
@@ -506,6 +585,11 @@ tools:
             - prefix
             - description
             - job_inputs
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-repair-cdc-create:
         operation: external_data_sources_repair_cdc_create
         enabled: true
@@ -524,6 +608,11 @@ tools:
             gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy
             (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is
             already running. Safe to retry after a failure. Returns {success, schemas_reset}.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true
@@ -543,6 +632,11 @@ tools:
             exclude:
                 - schemas.*.table.columns
                 - schemas.*.available_columns
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
@@ -558,6 +652,11 @@ tools:
             been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to
             be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret).
             Fails if no webhook has been created for this source yet — call create-webhook first.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-webhook-info-retrieve:
         operation: external_data_sources_webhook_info_retrieve
         enabled: true
@@ -574,6 +673,11 @@ tools:
             schema_mapping (external event type → PostHog schema id), and external_status (what the remote service
             reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a webhook
             is healthy and whether the external registration is still valid.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-wizard:
         operation: external_data_sources_wizard_retrieve
         enabled: true
