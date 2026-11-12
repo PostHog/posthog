@@ -9,6 +9,10 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: '20000000-0000-4000-8000-000000000002',
     config: { min: 0, max: 5 },
     created_by: null,
@@ -19,6 +23,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
 }
 
 export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
+    calculation: 'reported',
+    composition: null,
     id: OFFLINE_STORY_DEFINITION.current_version_id!,
     definition_id: OFFLINE_STORY_DEFINITION.id,
     version: 2,
@@ -58,6 +64,8 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
         },
         summary: {
             scorer: {
+                calculation: 'reported',
+                composition: null,
                 id: OFFLINE_STORY_VERSION.id,
                 definition_id: OFFLINE_STORY_DEFINITION.id,
                 version: 2,
@@ -72,6 +80,7 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
             result_count: 97,
             status_counts: { ok: mean === null ? 0 : 92, error: mean === null ? 94 : 2, skipped: 2, not_applicable: 1 },
             missing_result_count: 3,
+            not_requested_count: 0,
             distinct_case_count: 50,
             items_with_case_key_count: 100,
             items_without_case_key_count: 0,

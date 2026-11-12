@@ -1,15 +1,7 @@
-"""HogQL assembly of all workflow runs attributed to a PR, across its commits.
+"""Every workflow run attributed to a PR across all its pushes, newest first.
 
-Unlike ``pr_lifecycle`` (which scopes to the PR's current head SHA), this returns every run attributed
-to the PR — so the detail page can show CI across all of the PR's pushes, grouped by commit. Newest run
-first. Run-level only.
-
-Attribution is the curated ``pr_number``, i.e. the first entry of a run's ``pull_requests``
-association whose base repo is the run's own (see ``views/workflow_runs.py``; the fork network's
-PRs share the head SHA and are skipped). A run that lists this PR only in a later own-repo slot is
-credited to its first such PR instead and won't appear here. That case is uncommon because it needs
-one head commit tied to several of this repo's open PRs, and it's the same deliberate v1
-simplification the rollup uses; it's a friction signal, not billing.
+A run that lists this PR only in a later slot of its ``pull_requests`` association is credited to
+the first PR of this repo in that association, so it does not appear here.
 """
 
 from posthog.hogql import ast
@@ -18,7 +10,6 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowRunD
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._run_detail import RUN_DETAIL_COLUMNS, to_run_detail
 
-# Safety bound: a very churny PR still can't return an unbounded set.
 _LIMIT = 500
 
 _SELECT = f"""

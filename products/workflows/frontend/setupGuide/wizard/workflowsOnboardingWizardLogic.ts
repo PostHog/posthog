@@ -14,6 +14,7 @@ import type { IntegrationType, TeamPublicType, TeamType } from '~/types'
 import { newBroadcastAgentLogic } from '../../Broadcasts/newBroadcastAgentLogic'
 import { PUSH_CHANNELS } from '../../Channels/channelSummary'
 import type { ChannelType } from '../../Channels/MessageChannels'
+import { frequencyCapHoldError } from '../../scenes/settings/frequencyCap'
 import type { HogFlowTemplate } from '../../Workflows/hogflows/types'
 import { newWorkflowLogic } from '../../Workflows/newWorkflowLogic'
 import { workflowTemplatesLogic } from '../../Workflows/templates/workflowTemplatesLogic'
@@ -122,6 +123,9 @@ export interface workflowsOnboardingWizardLogicValues {
     frequencyCapChoice: FrequencyCapChoice | null
     frequencyCapError: string | null
     hasPositioned: boolean
+    holdHoursChoice: {
+        hours: number | null
+    } | null
     initialized: boolean
     isLastStep: boolean
     journeyFirst: boolean
@@ -130,6 +134,7 @@ export interface workflowsOnboardingWizardLogicValues {
     pushEnabled: boolean
     reachChannels: ReachChannel[] | null
     savedFrequencyCap: FrequencyCap
+    savedHoldHours: number | null
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
     sendingRulesDisabledReason: string | null
@@ -137,6 +142,7 @@ export interface workflowsOnboardingWizardLogicValues {
     shownCustomFrequencyCap: FrequencyCap
     shownEngagementEvents: boolean
     shownFrequencyCapChoice: FrequencyCapChoice
+    shownHoldHours: number | null
     startsBlank: boolean
     stepCopy: WizardStepCopy
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
@@ -263,6 +269,9 @@ export interface workflowsOnboardingWizardLogicActions {
     setFrequencyCapChoice: (choice: FrequencyCapChoice) => {
         choice: FrequencyCapChoice
     }
+    setHoldHours: (hours: number | null) => {
+        hours: number | null
+    }
     setStepIndex: (index: number) => {
         index: number
     }
@@ -276,6 +285,7 @@ export interface workflowsOnboardingWizardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
         savedFrequencyCap: (currentTeam: TeamPublicType | TeamType | null) => FrequencyCap
+        savedHoldHours: (currentTeam: TeamPublicType | TeamType | null) => number | null
         shownFrequencyCapChoice: (
             frequencyCapChoice: FrequencyCapChoice | null,
             savedFrequencyCap: FrequencyCap,
@@ -289,9 +299,16 @@ export interface workflowsOnboardingWizardLogicMeta {
             shownFrequencyCapChoice: FrequencyCapChoice,
             shownCustomFrequencyCap: FrequencyCap
         ) => FrequencyCap
+        shownHoldHours: (
+            holdHoursChoice: {
+                hours: number | null
+            } | null,
+            savedHoldHours: number | null
+        ) => number | null
         frequencyCapError: (
             shownFrequencyCapChoice: FrequencyCapChoice,
             shownCustomFrequencyCap: FrequencyCap,
+            shownHoldHours: number | null,
             canEditSendingRules: boolean
         ) => string | null
         shownEngagementEvents: (
@@ -432,6 +449,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         setEngagementEventsChoice: (enabled: boolean) => ({ enabled }),
         setFrequencyCapChoice: (choice: FrequencyCapChoice) => ({ choice }),
         setCustomFrequencyCap: (cap: FrequencyCap) => ({ cap }),
+        setHoldHours: (hours: number | null) => ({ hours }),
         setTemplatesShown: (shown: boolean) => ({ shown }),
         finishWithSuggestion: true,
     }),
@@ -508,6 +526,13 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 setCustomFrequencyCap: (_, { cap }) => cap,
             },
         ],
+        // Wrapped, because a cleared field is null and must still read as a choice over the saved value.
+        holdHoursChoice: [
+            null as { hours: number | null } | null,
+            {
+                setHoldHours: (_, { hours }) => ({ hours }),
+            },
+        ],
         engagementEventsChoice: [
             null as boolean | null,
             {
@@ -535,6 +560,11 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
             }),
         ],
+        savedHoldHours: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): number | null =>
+                currentTeam?.workflows_config?.marketing_frequency_cap_hold_hours ?? null,
+        ],
         // A non-admin cannot save, so the step shows what is saved instead of the defaults.
         shownFrequencyCapChoice: [
             (s) => [s.frequencyCapChoice, s.savedFrequencyCap, s.canEditSendingRules],
@@ -558,16 +588,28 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (shownFrequencyCapChoice: FrequencyCapChoice, shownCustomFrequencyCap: FrequencyCap): FrequencyCap =>
                 chosenFrequencyCap(shownFrequencyCapChoice, shownCustomFrequencyCap),
         ],
+        shownHoldHours: [
+            (s) => [s.holdHoursChoice, s.savedHoldHours],
+            (holdHoursChoice: { hours: number | null } | null, savedHoldHours: number | null): number | null =>
+                holdHoursChoice ? holdHoursChoice.hours : savedHoldHours,
+        ],
         frequencyCapError: [
-            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap, s.canEditSendingRules],
+            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap, s.shownHoldHours, s.canEditSendingRules],
             (
                 shownFrequencyCapChoice: FrequencyCapChoice,
                 shownCustomFrequencyCap: FrequencyCap,
+                shownHoldHours: number | null,
                 canEditSendingRules: boolean
-            ): string | null =>
-                canEditSendingRules && shownFrequencyCapChoice === 'custom'
-                    ? customFrequencyCapError(shownCustomFrequencyCap)
-                    : null,
+            ): string | null => {
+                if (!canEditSendingRules || shownFrequencyCapChoice === 'off') {
+                    return null
+                }
+                return (
+                    (shownFrequencyCapChoice === 'custom' ? customFrequencyCapError(shownCustomFrequencyCap) : null) ??
+                    frequencyCapHoldError(shownHoldHours) ??
+                    null
+                )
+            },
         ],
         shownEngagementEvents: [
             (s) => [s.engagementEventsChoice, s.currentTeam, s.canEditSendingRules],
@@ -851,6 +893,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     ...(step === 'sending-rules'
                         ? {
                               frequency_cap: values.shownFrequencyCapChoice,
+                              frequency_cap_hold_hours:
+                                  values.shownFrequencyCapChoice === 'off' ? null : values.shownHoldHours,
                               engagement_events: values.shownEngagementEvents,
                           }
                         : {}),
@@ -860,10 +904,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                         ? sendingRulesToSave(
                               {
                                   ...values.savedFrequencyCap,
+                                  holdHours: values.savedHoldHours,
                                   engagementEvents:
                                       !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
                               },
                               values.chosenFrequencyCap,
+                              values.shownHoldHours,
                               values.shownEngagementEvents,
                               values.canEditSendingRules
                           )

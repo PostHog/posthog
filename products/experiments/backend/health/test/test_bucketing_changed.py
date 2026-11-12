@@ -12,8 +12,14 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
+from products.experiments.backend.health.checks.bucketing_changed import (
+    bucketing_changed_mid_run,
+    bucketing_changed_rows,
+)
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
 from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
@@ -36,6 +42,7 @@ KEY = BucketingSetting.KEY
 AGGREGATION = BucketingSetting.AGGREGATION
 IDENTIFIER = BucketingSetting.BUCKETING_IDENTIFIER
 CONTINUITY = BucketingSetting.EXPERIENCE_CONTINUITY
+GROUP_TYPE_NAMES = {0: "organizations", 1: "companies"}
 
 Value = str | int | bool | None
 
@@ -49,6 +56,7 @@ def _context(
     variants: list[dict[str, Any]] = EVEN,
     not_checked: FlagHistoryNotCheckedReason | None = None,
     exposed_units: int | None = None,
+    group_type_names: GroupTypeNames = GROUP_TYPE_NAMES,
 ) -> HealthContext:
     bucketing = [
         BucketingChange(
@@ -70,6 +78,7 @@ def _context(
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
             exposed_units_before_last={ExperimentHealthFlagChangeKind.BUCKETING: exposed_units},
+            group_type_names=group_type_names,
         ),
     )
 
@@ -84,7 +93,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
-                f"date to {FIRST_CHANGE}.",
+                f"date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "key_changed_before_4_people",
@@ -101,7 +111,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
-                f"date to {FIRST_CHANGE}.",
+                f"date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "aggregation_changed_before_4_people",
@@ -111,8 +122,8 @@ class TestBucketingChangedMidRun(TestCase):
                     ExperimentHealthFindingSeverity.INFO,
                     "The flag's variant assignment changed after launch",
                 ),
-                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
-                f"hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+                f"The flag changed from matching by users to matching by organizations on {FIRST_CHANGE}. The change "
+                f"came 3 hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -125,7 +136,8 @@ class TestBucketingChangedMidRun(TestCase):
                 "The flag changed from matching by user ID to matching by device ID on September 20, 2026 at 3:04 PM "
                 "CEST. The change came 8 days after the start date. Users whose device ID differs from their user ID got a "
                 f"new variant draw, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or "
-                "move its start date to September 20, 2026 at 3:04 PM CEST.",
+                "move its start date to September 20, 2026 at 3:04 PM CEST."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_changed_with_unknown_exposure",
@@ -138,7 +150,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'On {FIRST_CHANGE}, "Persist flag across authentication steps" was turned off. The change came 3 '
                 "hours after the start date. Users who logged in while it was on no longer keep the variant they got before "
                 f"logging in, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move "
-                f"its start date to {FIRST_CHANGE}.",
+                f"its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_turned_on_after_a_set_back_change",
@@ -154,7 +167,8 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f'On {THIRD_CHANGE}, "Persist flag across authentication steps" was turned on. Users exposed between '
                 "these changes may have switched variants. A sample ratio mismatch or users in more than one variant "
-                f"can come from these changes. Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+                f"can come from these changes. Reset the experiment, or move its start date to {THIRD_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_turned_on",
@@ -176,9 +190,23 @@ class TestBucketingChangedMidRun(TestCase):
                     ExperimentHealthFindingSeverity.WARNING,
                     "The flag's variant assignment changed after launch",
                 ),
-                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. Every user and "
-                "group got a new variant draw, so people exposed before the change may have switched variants. "
-                f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"The flag changed from matching by users to matching by organizations on {FIRST_CHANGE}. Every user "
+                "and group got a new variant draw, so people exposed before the change may have switched variants. "
+                f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
+            ),
+            (
+                "aggregation_changed_between_group_types",
+                _context((AGGREGATION, 0, 1)),
+                (
+                    "aggregation_changed",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f"The flag changed from matching by organizations to matching by companies on {FIRST_CHANGE}. Every "
+                "user and group got a new variant draw, so people exposed before the change may have switched "
+                f"variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "two_settings_name_the_key_first",
@@ -188,7 +216,8 @@ class TestBucketingChangedMidRun(TestCase):
                 'flag across authentication steps" was turned off. The key is an input of the variant draw, so '
                 'every user got a new one. Exposures under "old-key" are no longer in the results, and code that '
                 'still uses "old-key" no longer gets this flag. Reset the experiment, or move its start date to '
-                f"{SECOND_CHANGE}.",
+                f"{SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "set_back_with_exposures_in_between",
@@ -204,7 +233,8 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
                 "People exposed in between got a new variant draw, so they may have switched variants. Move the "
-                f"start date to {SECOND_CHANGE}, or reset the experiment.",
+                f"start date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "set_back_before_4_people",
@@ -278,3 +308,36 @@ class TestBucketingChangedMidRun(TestCase):
     )
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(bucketing_changed_mid_run(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("bucketing_identifier", (IDENTIFIER, "distinct_id", "device_id"), "User ID", "Device ID"),
+            ("group_types", (AGGREGATION, 0, 1), "Organizations", "Companies"),
+            ("deleted_group_type", (AGGREGATION, 0, 2), "Organizations", "Group type 2"),
+        ]
+    )
+    def test_lists_each_change_with_the_setting_as_the_flag_page_names_it(
+        self, _name: str, change: tuple[BucketingSetting, Value, Value], before: str, after: str
+    ) -> None:
+        rows = bucketing_changed_rows(_context(change))
+
+        self.assertEqual(
+            [
+                {
+                    key: row[key]
+                    for key in (
+                        ExperimentHealthValueKey.CHANGED_SETTING,
+                        ExperimentHealthValueKey.BEFORE,
+                        ExperimentHealthValueKey.AFTER,
+                    )
+                }
+                for row in rows
+            ],
+            [
+                {
+                    ExperimentHealthValueKey.CHANGED_SETTING: "Match by",
+                    ExperimentHealthValueKey.BEFORE: before,
+                    ExperimentHealthValueKey.AFTER: after,
+                }
+            ],
+        )

@@ -338,6 +338,8 @@ def run_eval_report_agent(
         session_id=resolved_session_id,
         properties=observability_properties,
         distinct_id=resolved_distinct_id,
+        # The gpt-6 models reject function tools with reasoning on /v1/chat/completions.
+        use_responses_api=True,
     )
 
     system_prompt = build_eval_report_system_prompt(

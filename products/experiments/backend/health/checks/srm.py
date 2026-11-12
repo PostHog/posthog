@@ -21,7 +21,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
-from products.experiments.backend.health.checks.change_wording import suggested_start
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start
 from products.experiments.backend.health.checks.forced_variant import (
     SOME_CONDITIONS_PINNED,
     assigns_nobody_by_split,
@@ -258,7 +258,7 @@ def _after_split_change(
                 _changed_while_exposed(split_changes, unit),
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                *_next_step(ctx, split_changes, unit),
+                *_next_step(ctx, split_changes),
             ]
         ),
         evidence=evidence,
@@ -279,16 +279,13 @@ def _changed_while_exposed(split_changes: "_SplitChanges", unit: str) -> str:
     )
 
 
-def _next_step(ctx: HealthContext, split_changes: "_SplitChanges", unit: str) -> list[str]:
+def _next_step(ctx: HealthContext, split_changes: "_SplitChanges") -> list[str]:
     if split_changes.warning_title is None:
         start_at = suggested_start(split_changes.changes[-1].changed_at, split_changes.team_timezone)
         # A reset also clears the end date and the conclusion, which would undo an ended experiment's decision.
         if ctx.has_ended:
             return [f"Move the start date to {start_at}."]
-        return [
-            f"Move the start date to {start_at}, or reset the experiment. A reset returns it to draft, and once you "
-            f"launch it again, the results count only {unit}s exposed from then on."
-        ]
+        return [f"Move the start date to {start_at}, or reset the experiment.", RESET_EFFECT]
     # The split check doesn't run after the end, so its finding isn't there to follow.
     return [] if ctx.has_ended else [f'Follow the steps in "{split_changes.warning_title}" to fix the results.']
 

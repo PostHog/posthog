@@ -45,7 +45,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
@@ -99,6 +99,7 @@ from products.tasks.backend.constants import (
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
@@ -237,6 +238,7 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
+from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -328,6 +330,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
@@ -1104,13 +1107,16 @@ def _task_detail_to_dto(
         inherited = _inherited_pr_fields(resolved_prior_pr_output)
         if inherited:
             latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
+    description = getattr(task, "_description_preview", None)
+    if description is None:
+        description = task.description
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
         slug=task.slug,
         title=task.title,
         title_manually_set=task.title_manually_set,
-        description=task.description,
+        description=description,
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
@@ -1357,8 +1363,8 @@ def normalize_verified_pull_request_urls_batch(
     rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
     if after is not None:
         rows = rows.filter(id__gt=after)
-    batch = list(rows.values_list("id", "state")[:limit])
-    for run_id, state in batch:
+    batch = list(rows.values_list("id", "task_id", "state")[:limit])
+    for run_id, task_id, state in batch:
         verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
         if normalize_verified_pull_request_urls(verified) == verified:
             continue
@@ -1369,6 +1375,7 @@ def normalize_verified_pull_request_urls_batch(
             )
 
         TaskRun.mutate_state_atomic(run_id, normalize)
+        sync_task_pr_urls(task_id)
     return batch[-1][0] if len(batch) == limit else None
 
 
@@ -2066,6 +2073,15 @@ def collect_task_run_state_metrics(
             with_status=True,
         ),
     )
+
+
+def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in collect_status_mismatches()
+    ]
 
 
 # --- Writes ---
@@ -7555,7 +7571,12 @@ def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[
 
 
 def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+    team_id: int,
+    user_id: int | None,
+    *,
+    filters: dict,
+    bypass_visibility: bool = False,
+    basic: bool = False,
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
@@ -7718,6 +7739,11 @@ def _list_tasks_queryset(
         Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
         Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
+
+    if basic:
+        qs = qs.annotate(_description_preview=Substr("description", 1, TASK_DESCRIPTION_PREVIEW_LENGTH)).defer(
+            "description"
+        )
 
     return qs
 
@@ -8549,7 +8575,10 @@ def create_task(
         enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
-        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+        raise ValidationError(
+            {"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED},
+            code="report_implementation_repository_unresolved",
+        )
 
     if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
         from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
@@ -8557,22 +8586,22 @@ def create_task(
             pilot_repository_integration_id,
         )
 
-        if github_optional_pilot_enabled(team_id):
-            integration_id = (
-                pilot_repository_integration_id(team_id, validated_data["repository"])
-                if validated_data.get("repository")
-                else None
+        integration_id = (
+            pilot_repository_integration_id(team_id, validated_data["repository"])
+            if validated_data.get("repository")
+            else None
+        )
+        repository_integration = (
+            _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+        )
+        if repository_integration is not None:
+            validated_data["github_integration"] = repository_integration
+        elif github_optional_pilot_enabled(team_id):
+            raise ValidationError(
+                {
+                    "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                }
             )
-            pilot_integration = (
-                _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
-            )
-            if pilot_integration is None:
-                raise ValidationError(
-                    {
-                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
-                    }
-                )
-            validated_data["github_integration"] = pilot_integration
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation"):
         if repository := validated_data.get("repository"):

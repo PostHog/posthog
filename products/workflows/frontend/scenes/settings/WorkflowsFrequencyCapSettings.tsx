@@ -9,6 +9,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    FREQUENCY_CAP_HOLD_HELP,
+    FREQUENCY_CAP_HOLD_INFO,
     MAX_FREQUENCY_CAP_HOLD_HOURS,
     MAX_FREQUENCY_CAP_MESSAGES,
     MAX_FREQUENCY_CAP_WINDOW_DAYS,
@@ -100,7 +102,8 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                 <LemonField.Pure
                     className="flex-1 min-w-60"
                     label="Hold capped messages for up to (hours)"
-                    info="A message over the cap waits for the person's next free slot and sends then. If no slot opens in time, it is skipped. Leave empty to skip capped messages right away."
+                    info={FREQUENCY_CAP_HOLD_INFO}
+                    help={FREQUENCY_CAP_HOLD_HELP}
                     htmlFor="workflows-frequency-cap-hold-hours"
                     error={holdHoursError}
                 >

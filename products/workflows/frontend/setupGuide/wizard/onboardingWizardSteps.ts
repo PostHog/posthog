@@ -264,8 +264,9 @@ export function customFrequencyCapError(cap: FrequencyCap): string | null {
 
 /** What the sending rules step saves when the person continues, or null when nothing changes. */
 export function sendingRulesToSave(
-    saved: FrequencyCap & { engagementEvents: boolean },
+    saved: FrequencyCap & { holdHours: number | null; engagementEvents: boolean },
     cap: FrequencyCap,
+    holdHours: number | null,
     engagementEvents: boolean,
     canEdit: boolean
 ): WorkflowsConfig | null {
@@ -274,7 +275,9 @@ export function sendingRulesToSave(
         return null
     }
     const setCap = !sameFrequencyCap(saved, cap)
-    if (!setCap && engagementEvents === saved.engagementEvents) {
+    // The hold field is hidden while the cap is off, so a value left in it is not a choice to save.
+    const setHold = cap.maxMessages !== null && holdHours !== saved.holdHours
+    if (!setCap && !setHold && engagementEvents === saved.engagementEvents) {
         return null
     }
     return {
@@ -285,6 +288,7 @@ export function sendingRulesToSave(
                   marketing_frequency_cap_window_days: cap.windowDays,
               }
             : {}),
+        ...(setHold ? { marketing_frequency_cap_hold_hours: holdHours } : {}),
     }
 }
 

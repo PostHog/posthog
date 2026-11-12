@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from posthog.dataclasses import frozen
 from posthog.integrations.enums import AuthType
+from posthog.integrations.secret_reads import readable_secret
 
 # A value that `find`, `list` and `exists` can compare a config key with. Equality only.
 ConfigValue = str | int | float | bool | None
@@ -68,7 +69,7 @@ class IntegrationRecord(Protocol):
     def display_name(self) -> str: ...
 
     # The decrypted `sensitive_config["access_token"]`. Raises `UndecryptedIntegrationSecretError`
-    # when the stored value cannot be decrypted.
+    # (`posthog.integrations.secret_reads`) when no configured key can decrypt the stored value.
     @property
     def access_token(self) -> str | None: ...
 
@@ -78,9 +79,14 @@ class IntegrationRecord(Protocol):
     def can_be_managed_by_creator(self, user_id: int | None) -> bool: ...
 
 
+# Kinds that hold the creator's personal credentials, so the creator can manage them without admin access.
+# A literal, not `POSTHOG_CONNECT_KIND`: `posthog.models.integration.oauth` imports this module.
+CREATOR_MANAGED_KINDS = frozenset({"google-calendar", "posthog"})
+
+
 def creator_can_manage(kind: str, created_by_id: int | None, user_id: int | None) -> bool:
     """True when the user who created the row can manage it without admin access."""
-    return user_id is not None and kind == "google-calendar" and created_by_id == user_id
+    return user_id is not None and kind in CREATOR_MANAGED_KINDS and created_by_id == user_id
 
 
 @frozen
@@ -110,11 +116,20 @@ class FrozenIntegrationRecord:
 
     @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return self._readable_secret("access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return self._readable_secret("refresh_token")
+
+    def _readable_secret(self, field_name: str) -> str | None:
+        return readable_secret(
+            kind=self.kind,
+            id=self.id,
+            team_id=self.team_id,
+            field_name=field_name,
+            value=self.sensitive_config.get(field_name),
+        )
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool:
         return creator_can_manage(self.kind, self.created_by_id, user_id)
@@ -188,6 +203,26 @@ class CrossTeamFilter:
         object.__setattr__(self, "where_in", {key: tuple(values) for key, values in self.where_in.items()})
         if self.limit is not None and self.limit < 1:
             raise ValueError("limit must be 1 or more")
+
+
+@frozen
+class UpdatedRows:
+    """The rows that `update_where` selected, after the write, oldest first, and the ids of the rows it changed."""
+
+    records: tuple[IntegrationRecord, ...]
+    changed_ids: frozenset[int]
+
+
+@frozen
+class RepositoryCache:
+    """The list of GitHub repositories that a row caches, and when it was fetched.
+
+    The SDK reads it apart from the row, because the list can be large and most reads do not need it.
+    """
+
+    repositories: list[dict[str, Any]] | None
+    # None when the list was never fetched, or when a write marked it stale.
+    updated_at: datetime | None
 
 
 @frozen

@@ -122,11 +122,12 @@ describe('onboardingWizardSteps', () => {
         expect(customFrequencyCapError(cap) !== null).toBe(blocked)
     })
 
-    const saved = { ...unset, engagementEvents: false }
+    const saved = { ...unset, holdHours: null, engagementEvents: false }
+    const savedCustom = { maxMessages: 3, windowDays: 5, holdHours: 24, engagementEvents: true }
     test.each<[string, Parameters<typeof sendingRulesToSave>, ReturnType<typeof sendingRulesToSave>]>([
         [
             'a new setup saves the recommended cap and engagement events',
-            [saved, { maxMessages: 1, windowDays: 2 }, true, true],
+            [saved, { maxMessages: 1, windowDays: 2 }, null, true, true],
             {
                 capture_workflows_engagement_events: true,
                 marketing_frequency_cap_max_messages: 1,
@@ -135,19 +136,24 @@ describe('onboardingWizardSteps', () => {
         ],
         [
             'an unchanged custom cap is not saved again',
-            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, { maxMessages: 3, windowDays: 5 }, true, true],
+            [savedCustom, { maxMessages: 3, windowDays: 5 }, 24, true, true],
             null,
         ],
         [
-            'no cap clears a saved cap',
-            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, unset, true, true],
+            'a changed hold time is saved on its own',
+            [savedCustom, { maxMessages: 3, windowDays: 5 }, null, true, true],
+            { capture_workflows_engagement_events: true, marketing_frequency_cap_hold_hours: null },
+        ],
+        [
+            'no cap clears a saved cap and ignores the hidden hold field',
+            [savedCustom, unset, 48, true, true],
             {
                 capture_workflows_engagement_events: true,
                 marketing_frequency_cap_max_messages: null,
                 marketing_frequency_cap_window_days: null,
             },
         ],
-        ['a non-admin saves nothing', [saved, { maxMessages: 1, windowDays: 2 }, true, false], null],
+        ['a non-admin saves nothing', [saved, { maxMessages: 1, windowDays: 2 }, 48, true, false], null],
     ])('%s', (_, args, expected) => {
         expect(sendingRulesToSave(...args)).toEqual(expected)
     })

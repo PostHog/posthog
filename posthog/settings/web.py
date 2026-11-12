@@ -84,6 +84,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.release.backend.apps.ReleaseConfig",
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
@@ -185,6 +186,9 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
     "posthog.after_response.AfterResponseMiddleware",
+    # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
+    # so the build skew counter sees the status of each API response the client receives.
+    "posthog.client_build_middleware.ClientBuildSkewMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -1034,6 +1038,9 @@ TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20
 # way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+# Self-hosted installs turn this off: only the cloud billing task reads and deletes the request
+# counters, so elsewhere they grow in Redis forever. The Rust feature flags service reads the same variable.
+FLAGS_BILLING_COUNTERS_ENABLED = get_from_env("FLAGS_BILLING_COUNTERS_ENABLED", True, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -1475,8 +1482,8 @@ DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
-# makes it a hard ceiling on what one user can spend in a day.
+# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
+# spent. The limit is approximate, because cost that settles after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
