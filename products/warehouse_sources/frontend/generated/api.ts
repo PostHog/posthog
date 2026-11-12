@@ -14,6 +14,7 @@ import type {
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
     CdcEnableResponseApi,
+    CdcPrerequisitesRequestApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
     CreateWebhookResponseApi,
@@ -72,6 +73,7 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
@@ -878,14 +880,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -899,14 +898,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1200,7 +1196,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1209,7 +1205,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }
@@ -1264,11 +1260,14 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
  */
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
+    cdcPrerequisitesRequestApi: CdcPrerequisitesRequestApi,
     options?: RequestInit
 ): Promise<CdcPrerequisitesResponseApi> => {
     return apiMutator<CdcPrerequisitesResponseApi>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cdcPrerequisitesRequestApi),
     })
 }
 
@@ -1297,7 +1296,8 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
  * The link opens a minimal connect page rendering the source's full connection form — OAuth options
  * included — with no table selection and no source creation. The user authenticates in their browser,
  * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
- * credential id to data-warehouse-source-setup.
+ * credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+ * id in the payload of a source update instead.
  */
 export const externalDataSourcesConnectLinkRetrieve = async (
     projectId: string,

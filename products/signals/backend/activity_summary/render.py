@@ -28,7 +28,7 @@ from posthog.dataclasses import frozen
 RENDER_VERSION = 13
 # Summaries below this rebuild at once, others age in. Raise it only when old summaries must not stay served,
 # for example when a filter fix removes content they must not keep.
-MIN_RENDER_VERSION = 13
+MIN_RENDER_VERSION = 12
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7

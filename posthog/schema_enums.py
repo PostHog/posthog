@@ -1991,6 +1991,7 @@ class IntegrationKind(StrEnum):
     STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
