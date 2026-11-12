@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { z } from 'zod'
 
+import { ApiClient } from '@/api/client'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import type { Context } from '@/tools/types'
 
 describe('Generated email template tools', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
     const toolSchema = (name: string): z.ZodType => GENERATED_TOOL_MAP[name]!().schema
     const templateId = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
     const design = {
@@ -68,17 +73,22 @@ describe('Generated email template tools', () => {
         [true, 'omitted', {}],
         [false, 'false', { basic: false }],
     ])('workflows-list-email-templates sends basic=%s when the input has it %s', async (sent, _case, input) => {
-        const request = vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        const fetch = vi
+            .fn()
+            .mockResolvedValue(
+                new Response(JSON.stringify({ count: 0, next: null, previous: null, results: [] }), { status: 200 })
+            )
+        vi.stubGlobal('fetch', fetch)
         const context = {
-            api: { request, getProjectBaseUrl: () => 'https://example.com/project/42' },
+            api: new ApiClient({ apiToken: 'token', baseUrl: 'https://example.com' }),
             stateManager: { getProjectId: async () => '42' },
         } as unknown as Context
         const tool = GENERATED_TOOL_MAP['workflows-list-email-templates']!()
 
         await tool.handler(context, tool.schema.parse(input))
 
-        expect(request).toHaveBeenCalledWith(
-            expect.objectContaining({ query: expect.objectContaining({ basic: sent }) })
-        )
+        const url = new URL(fetch.mock.calls[0]![0] as string)
+        expect(url.pathname).toBe('/api/projects/42/messaging_templates/')
+        expect(url.searchParams.get('basic')).toBe(String(sent))
     })
 })
