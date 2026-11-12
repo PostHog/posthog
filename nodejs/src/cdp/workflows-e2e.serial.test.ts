@@ -1856,6 +1856,67 @@ describe('Workflows E2E (postgres-v2)', () => {
                 }, 10000)
                 expect(mockFetch).not.toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
             })
+
+            // Parks a wait, then moves it to a queue no worker reads, so a wake shows up as `scheduled` alone.
+            const parkOutOfReach = async (): Promise<string> => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                    max_wait_duration: '5m',
+                })
+                mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personRow({ email: 'test@posthog.com' })])
+                await triggerWorkflow(createGlobals())
+                await expectParked()
+                const [job] = await queryCyclotronJobs()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET queue_name = 'out_of_reach' WHERE id = $1`, [
+                    job.id,
+                ])
+                return job.id
+            }
+            const isDue = async (id: string): Promise<boolean> =>
+                (await cyclotronPool.query(`SELECT scheduled <= now() AS due FROM cyclotron_jobs WHERE id = $1`, [id]))
+                    .rows[0].due
+
+            it.each([
+                ['wakes a run that parked on its wait before the signal landed', false, true],
+                ['keeps a wait that is retrying a failed cohort lookup on its backoff', true, false],
+            ])('%s', async (_name, cohortRetry, due) => {
+                const id = await parkOutOfReach()
+                if (cohortRetry) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET state = convert_to(jsonb_set(convert_from(state, 'UTF8')::jsonb,
+                             '{state,currentAction,cohortLookupAttempts}', '1')::text, 'UTF8') WHERE id = $1`,
+                        [id]
+                    )
+                }
+
+                await (matcher as any).signalHeldJobs([{ id, waitActionIds: ['wait_condition'] }])
+
+                expect(await isDue(id)).toBe(due)
+            })
+
+            it('signals a held run once, however many matching updates arrive', async () => {
+                const id = await parkOutOfReach()
+                await cyclotronPool.query(
+                    `UPDATE cyclotron_jobs SET status = 'running', last_transition = now(), scheduled = now() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+                const scheduledOf = async (): Promise<string> =>
+                    (await cyclotronPool.query(`SELECT scheduled::text AS s FROM cyclotron_jobs WHERE id = $1`, [id]))
+                        .rows[0].s
+
+                await (matcher as any).signalHeldJobs([{ id, waitActionIds: ['wait_condition'] }])
+                const first = await scheduledOf()
+                await (matcher as any).signalHeldJobs([{ id, waitActionIds: ['wait_condition'] }])
+
+                expect(await scheduledOf()).toBe(first)
+                const row = (
+                    await cyclotronPool.query(
+                        `SELECT scheduled > last_transition AS signaled FROM cyclotron_jobs WHERE id = $1`,
+                        [id]
+                    )
+                ).rows[0]
+                expect(row.signaled).toBe(true)
+            })
         })
 
         // Wait conditions authored as HogQL expressions must be woken by the streams, not only by the

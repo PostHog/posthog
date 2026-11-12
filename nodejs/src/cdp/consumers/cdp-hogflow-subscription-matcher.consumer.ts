@@ -35,6 +35,7 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { decodeJobState } from '../services/cyclotron-v2/job-codec'
 import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
 import {
     hasEventOrActionTarget,
@@ -547,18 +548,31 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
-            await client.query(`SELECT id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [
-                sorted.map((s) => s.id),
-            ])
+            const waitsById = new Map(sorted.map((s) => [s.id, s.waitActionIds]))
+            const locked = await client.query(
+                `SELECT id, status, action_id, state, scheduled <= last_transition AS unsignaled
+                 FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+                [sorted.map((s) => s.id)]
+            )
+            const running: string[] = []
+            const parked: string[] = []
+            for (const row of locked.rows) {
+                if (row.status === 'running' && row.unsignaled) {
+                    running.push(row.id)
+                } else if (
+                    row.status === 'available' &&
+                    waitsById.get(row.id)?.includes(row.action_id) &&
+                    !decodeJobState(row).state?.currentAction?.cohortLookupAttempts
+                ) {
+                    parked.push(row.id)
+                }
+            }
             // clock_timestamp(), not NOW(): this transaction can start before the dequeue it has to land after.
             const result = await client.query(
-                `UPDATE cyclotron_jobs cj
-                 SET scheduled = CASE WHEN cj.status = 'running' THEN clock_timestamp() ELSE LEAST(cj.scheduled, NOW()) END
-                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS waits) u
-                 WHERE cj.id = u.id
-                   AND ((cj.status = 'running' AND cj.scheduled <= cj.last_transition)
-                       OR (cj.status = 'available' AND u.waits ? cj.action_id))`,
-                [sorted.map((s) => s.id), sorted.map((s) => JSON.stringify(s.waitActionIds))]
+                `UPDATE cyclotron_jobs
+                 SET scheduled = CASE WHEN id = ANY($1::uuid[]) THEN clock_timestamp() ELSE LEAST(scheduled, NOW()) END
+                 WHERE id = ANY($1::uuid[]) OR id = ANY($2::uuid[])`,
+                [running, parked]
             )
             await client.query('COMMIT')
             counterHogflowMatcherHeldJobsSignaled.inc(result.rowCount ?? 0)
