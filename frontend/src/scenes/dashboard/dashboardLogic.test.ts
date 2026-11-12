@@ -1267,6 +1267,7 @@ describe('dashboardLogic', () => {
                     ])
 
                     const leftShortIds = leftTiles.map((tile) => tile.insight.short_id)
+                    const totalBeforeSwitch = logic.values.refreshMetrics.total
                     if (returnBeforeAbortsSettle) {
                         logic.actions.selectTileGroupTab('group-target')
                         refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
@@ -1317,6 +1318,8 @@ describe('dashboardLogic', () => {
                         expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
                     }
                     expect(logic.values.waitingTileRefresh).toBeNull()
+                    // Each tab switch must not count a cancelled tile into "X out of Y" a second time.
+                    expect(logic.values.refreshMetrics.total).toEqual(totalBeforeSwitch + 1)
 
                     // A hidden browser tab pauses disposables and reruns them on return, so a finished one must not stay.
                     await expectLogic(logic).delay(20).toFinishAllListeners()
