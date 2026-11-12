@@ -587,24 +587,23 @@ class HealthContext:
     archived: bool
     team_timezone: str
     flag: FlagState | None
-    # Whether the reader may read the flag's recorded calls, by `flag_calls_readable`. When False, the four fields
-    # that follow are None.
+    # Whether the reader may read the flag's recorded calls, by `flag_calls_readable`. When False, the `flag_called*`
+    # fields and `flag_last_called_at` are None.
     can_read_flag_calls: bool
-    # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, when PostHog can't
-    # record the calls of this organization's flags, or when the reader can't read the calls.
+    # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
+    # record the calls of this organization's flags.
     flag_called: bool | None
     # Whether PostHog has recorded a call of the flag between launch and the end, or until now while the experiment
     # runs. A flag that served an earlier experiment can carry only calls from before launch, so `flag_called` doesn't
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
-    # end, when PostHog can't record the calls of this organization's flags, or when the reader can't read the calls.
+    # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
     # Whether PostHog has recorded a call of the flag after the end and in the last ENDED_FLAG_QUIET_PERIOD, so that
     # one stray call doesn't count as a flag that is still read. False only once that period after the end is over.
-    # None before the end, when the experiment has no flag, before that period is over without a call, when PostHog
-    # can't record the calls of this organization's flags, or when the reader can't read the calls.
+    # None before the end, when the experiment has no flag, before that period is over without a call, or when
+    # PostHog can't record the calls of this organization's flags.
     flag_called_after_end: bool | None
-    # The flag's latest recorded call. None when the experiment has no flag, when the flag has no recorded call, or
-    # when the reader can't read the calls.
+    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
     flag_last_called_at: datetime | None
     # The other non-deleted experiments on the flag.
     other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
@@ -1124,7 +1123,6 @@ def _configured_baseline_variant_key(stats_config: object) -> str | None:
 
 
 def flag_calls_readable(reader_access: ExperimentHealthReaderAccess) -> bool:
-    """Whether the reader may read the flag's recorded calls."""
     # `last_called_at` and whether a flag was called come from the flag's `$feature_flag_called` events, which name
     # the flag in `$feature_flag`. A reader gets them only when they could query those events themselves.
     return reader_access.can_query_events and "$feature_flag" not in reader_access.denied_event_properties

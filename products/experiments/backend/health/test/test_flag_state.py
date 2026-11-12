@@ -546,7 +546,7 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
             ("a_reader_who_cant_read_the_calls", True, "ended_flag_calls_unknown", False),
         ]
     )
-    def test_reads_the_other_experiments_on_the_flag(
+    def test_reads_the_flag_and_its_other_experiments(
         self, _name: str, other_deleted: bool, expected: str | CheckSkip, can_read_flag_calls: bool = True
     ) -> None:
         flag = FeatureFlag.objects.create(
