@@ -14,11 +14,13 @@ import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
 import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
@@ -36,6 +38,7 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 // Counted from the message's creation, so a later reschedule cannot extend it.
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
+const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
 // A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
@@ -108,11 +111,28 @@ export type TransactionalSendsDeps = {
     emailSuppression: EmailSuppressionService
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
+    attachmentUploads: AttachmentUploads
+}
+
+export type SendFiles = {
+    shape: FilesWorkflowShape | null
+    sizeMessageBodies: (
+        invocation: CyclotronJobInvocationHogFlow,
+        emailStep: EmailStep,
+        deadline: AbortSignal
+    ) => Promise<MessageBodySizing>
+    deadline: AbortSignal
 }
 
 export type TransactionalSendResult =
-    | { outcome: 'queued' | 'replayed'; invocationId: string; scheduledAt: string | null }
+    | {
+          outcome: 'queued' | 'replayed'
+          invocationId: string
+          scheduledAt: string | null
+          replyFields: Record<string, number>
+      }
     | { outcome: TransactionalSendRefusal }
+    | { refused: SendRefusal | { status: 400; body: Extract<FilesWorkflowShape, { refused: unknown }>['refused'] } }
 
 export class TransactionalSends {
     constructor(private readonly deps: TransactionalSendsDeps) {}
@@ -121,7 +141,8 @@ export class TransactionalSends {
         team: Team,
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
-        stages: TransactionalEmailStageTimer
+        stages: TransactionalEmailStageTimer,
+        files: SendFiles
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send } = request
@@ -130,6 +151,12 @@ export class TransactionalSends {
         stages.start('build')
         const invocation = this.buildInvocation(team, hogFlow, request, send)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
+        const releaseKey = async (): Promise<void> => {
+            if (idempotencyKey) {
+                stages.start('idempotency')
+                await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+            }
+        }
         if (idempotencyKey) {
             // Checked before the quota, so a retry of a send that went out gets its answer even
             // when the team has hit its quota since.
@@ -142,6 +169,7 @@ export class TransactionalSends {
                         outcome: 'replayed',
                         invocationId: reservation.invocationId,
                         scheduledAt: reservation.scheduledAt ?? null,
+                        replyFields: { ...NO_ATTACHMENTS, ...reservation.replayFields },
                     }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
@@ -159,18 +187,48 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
+        const latestDueAt = scheduledAt
+            ? new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
+            : undefined
         const statusAt = new Date()
+        const { shape } = files
+        if (shape && 'refused' in shape) {
+            await releaseKey()
+            return { refused: { status: 400, body: shape.refused } }
+        }
+        let attachmentTotals = NO_ATTACHMENTS
         try {
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
                 : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
-                if (idempotencyKey) {
-                    stages.start('idempotency')
-                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                }
+                await releaseKey()
                 return { outcome: refusal }
+            }
+            if (send?.attachments?.length && shape) {
+                stages.start('attachments')
+                const accepted = await this.deps.attachmentUploads.acceptSend(
+                    team.id,
+                    send.attachments.map((ref) => ({
+                        sha256: ref.sha256,
+                        filename: ref.filename,
+                        contentType: ref.content_type,
+                        contentId: ref.content_id,
+                    })),
+                    (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
+                    files.deadline,
+                    latestDueAt
+                )
+                if ('refused' in accepted) {
+                    await releaseKey()
+                    return { refused: accepted.refused }
+                }
+                invocation.state.send = { ...invocation.state.send!, attachments: accepted.accepted.files }
+                attachmentTotals = {
+                    attachment_count: accepted.accepted.files.length,
+                    attachment_bytes: accepted.accepted.attachmentBytes,
+                }
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
@@ -184,10 +242,7 @@ export class TransactionalSends {
             cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
         } catch (error) {
             // Nothing was queued, so the caller's retry with the same key must be able to send.
-            if (idempotencyKey) {
-                stages.start('idempotency')
-                await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-            }
+            await releaseKey()
             throw error
         }
         if (idempotencyKey) {
@@ -197,8 +252,9 @@ export class TransactionalSends {
                 idempotencyKey,
                 fingerprint,
                 invocation.id,
+                attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS) : undefined
+                latestDueAt
             )
         }
         stages.start('metrics_flush')
@@ -215,7 +271,12 @@ export class TransactionalSends {
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
 
-        return { outcome: 'queued', invocationId: invocation.id, scheduledAt: scheduledAt?.toISOString() ?? null }
+        return {
+            outcome: 'queued',
+            invocationId: invocation.id,
+            scheduledAt: scheduledAt?.toISOString() ?? null,
+            replyFields: attachmentTotals,
+        }
     }
 
     private buildInvocation(
@@ -253,7 +314,8 @@ export class TransactionalSends {
 
         const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
         if (send) {
-            invocation.state.send = send
+            const { attachments: _references, ...queuedSend } = send
+            invocation.state.send = queuedSend
         }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.

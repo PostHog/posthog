@@ -323,7 +323,7 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
 
 // Nobody approves anything in CI. Agents pass, because they hand the link to a person.
 export function refuseInCi(ctx: Context, command: string, hint: string): void {
-    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
+    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.isCI) {
         throw new HogError(
             'login_needs_a_person',
             `${command} needs a person to approve it in a browser, so it does not run in CI.`,

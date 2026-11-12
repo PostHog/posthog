@@ -260,11 +260,32 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
+    },
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    summary: `${reportTabReports[0].summary}\n\n## Solution\n\nValidate each recipient before the form sends the invitation request. Show a field error for an empty email address.`,
+                }}
+            />
         </Frame>
     ),
+}
+
+export const ReportImplementButtonInHeader: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+export const ReportViewTaskButtonInHeader: Story = {
+    ...ReportImplementButtonInHeader,
+    decorators: [],
 }
 
 export const ReportWithoutCodeAccess: Story = {

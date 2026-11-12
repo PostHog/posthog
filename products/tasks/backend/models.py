@@ -32,6 +32,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
+from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -343,15 +344,17 @@ class ChannelMembership(TeamScopedRootMixin):
 def clear_channel_repositories_on_github_integration_delete(
     sender: type[Integration], instance: Integration, **kwargs: Any
 ) -> None:
-    if instance.kind != Integration.IntegrationKind.GITHUB:
+    # The SDK calls the integration hook itself. This receiver is for the deletes that do not use the SDK.
+    if instance.kind != Integration.IntegrationKind.GITHUB or sdk_runs_hooks():
         return
+    clear_channel_repositories_of_github_integration(instance.team_id, instance.id)
 
+
+def clear_channel_repositories_of_github_integration(team_id: int, integration_id: int) -> None:
     affected = list(
-        Channel.objects.for_team(instance.team_id)
-        .filter(github_integration_id=instance.id)
-        .values_list("id", "repositories")
+        Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).values_list("id", "repositories")
     )
-    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+    Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).update(
         github_integration=None,
         repositories=[],
     )
@@ -362,13 +365,13 @@ def clear_channel_repositories_on_github_integration_delete(
     from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
 
     capture_repository_config_changed(
-        team=instance.team,
+        team=Team.objects.get(id=team_id),
         user_id=None,
         subject="space",
         trigger="github_integration_disconnected",
         previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
         repositories=[],
-        previous_integration_id=instance.id,
+        previous_integration_id=integration_id,
         integration_id=None,
         affected_space_count=len(affected),
     )

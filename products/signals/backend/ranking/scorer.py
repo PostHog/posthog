@@ -18,11 +18,17 @@ read once per call and only when a model needs it. The sweep rescores a report w
 the manifest changes, not when its priority changes, so a priority edited in the inbox after scoring
 keeps the old score until the next vector. The summary workflow writes the first priority judgment
 before the rewrite that re-embeds the report, so a newborn's score normally sees that judgment.
+
+A call that persists also records the facts of each report it scores (`report_facts.py`), read once
+per call, so training can later read the values the sweep saw. No model reads them yet. A failed
+facts read costs only the facts events: the scores still persist.
 """
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
+
+from django.conf import settings
 
 import numpy as np
 import pandas as pd
@@ -49,6 +55,7 @@ from products.signals.backend.ranking.model_store import (
     load_project_vectors,
     load_serving_set,
 )
+from products.signals.backend.ranking.report_facts import ReportFacts, read_report_facts
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
@@ -144,6 +151,16 @@ def _state_rows(team_id: int, report_ids: Sequence[str], columns: set[str]) -> p
         priorities = latest_report_priorities(team_id, report_ids)
         rows[PRIORITY_COLUMN] = [priorities.get(report_id) for report_id in report_ids]
     return rows
+
+
+def _report_facts(team_id: int, report_ids: Sequence[str]) -> Mapping[str, ReportFacts]:
+    if not settings.INBOX_RANKING_RECORD_REPORT_FACTS or not report_ids:
+        return {}
+    try:
+        return read_report_facts(team_id, report_ids)
+    except Exception:
+        logger.warning("inbox_ranking_report_facts_unreadable", team_id=team_id, reports=len(report_ids), exc_info=True)
+        return {}
 
 
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
@@ -316,10 +333,12 @@ def score_reports(
         outcomes.append(ReportScoringOutcome(report_id=report_id, score=score, reason=None))
 
     if persist:
+        scores = [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score]
         persist_scores(
             team_id,
-            [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score],
+            scores,
             capture=capture,
             served_override=serving.served_override,
+            facts=_report_facts(team_id, [report_id for report_id, _ in scores]),
         )
     return outcomes

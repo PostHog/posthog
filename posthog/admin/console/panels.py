@@ -112,9 +112,15 @@ def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, un
 
 
 class OperationHandler(Protocol):
-    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response."""
+    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response.
 
-    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
+    It may return a `Page` instead, which the console shows once as the result, for example a password that
+    staff must copy now in a `Secret` block.
+    """
+
+    def __call__(
+        self, request: "HttpRequest", obj: "Model", form: forms.Form | None
+    ) -> "HttpResponse | Page | None": ...
 
 
 class RecordPreviewHandler(Protocol):
@@ -168,6 +174,11 @@ class Panel:
     title: ClassVar[str]
     owner: ClassVar[Owner]
     danger: ClassVar[bool] = False
+    # A page sorts its panels by order, then by title. Core panels set an order below the default, so they lead.
+    order: ClassVar[int] = 100
+    # Every operation key that operations() can return, in any state. An old URL can point at an operation form only
+    # on a panel that declares its keys, and the console refuses to show an operation whose key is not declared.
+    operation_keys: ClassVar[frozenset[str] | None] = None
 
     def facts(self, obj: "Model") -> list[Fact]:
         return []

@@ -2,12 +2,6 @@ import type { HighlightExperimentResultApi } from 'products/today/frontend/gener
 
 import type { TodayTone } from './todayTone'
 
-export const EXPERIMENT_PIN_REASON = "Experiments can't be pinned"
-
-export function isExperimentKey(key: string): boolean {
-    return key.startsWith('experiment:')
-}
-
 export function experimentLiftDecimals(lift: number): number {
     const size = Math.abs(lift)
     return size < 1 ? 2 : size < 10 ? 1 : 0

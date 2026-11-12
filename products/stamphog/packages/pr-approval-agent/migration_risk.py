@@ -1,4 +1,4 @@
-"""Decide whether migrations in a PR are safe enough to bypass the deny-list.
+"""Decide whether migrations in a PR are safe enough to bypass the `migrations` deny category.
 
 Reads the `Migration risk` GitHub check run posted on the head commit by CI.
 That check is a generic CI feature — humans see it in the PR UI and any tool
@@ -20,7 +20,8 @@ an earlier commit can't be read here by construction.
 Bypass scoping: the analyzer only covers Django migrations and embeds the
 exact list of analyzed file paths in the summary as a `<!-- stamphog:v1 [...] -->`
 marker. Stamphog scopes its bypass to the intersection of (analyzed paths) and
-(PR diff). Files in directories that share the `migrations/` name but are
+(PR diff), keeps only Django migration files, and lifts only the `migrations`
+category for them. Files in directories that share the `migrations/` name but are
 managed by other systems (ClickHouse, async migrations, RBAC scripts) never
 appear in the analyzer's list and so always fall through to the deny-list.
 """
@@ -30,6 +31,8 @@ import json
 from pathlib import Path
 
 CHECK_NAME = "Migration risk"
+# The tests-posthog App, whose token the analyzer job mints to publish the check.
+PUBLISHER_APP_ID = 2492437
 
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\[[^\]]*\])\s*-->")
 
@@ -49,8 +52,7 @@ def safe_migration_files(check_runs: list[dict], pr_file_paths: list[str]) -> se
     if not analyzed:
         return set()
 
-    pr_paths = set(pr_file_paths)
-    safe = analyzed & pr_paths
+    safe = {path for path in analyzed & set(pr_file_paths) if _is_migration_file(path)}
     # Pair each analyzed migration with its sibling max_migration.txt — the
     # bumped marker file is part of the same logical change and would
     # otherwise still trigger the deny-list. Only siblings of analyzed files
@@ -96,11 +98,18 @@ def _analyzed_paths_from_check(check_run: dict) -> set[str]:
 
 
 def _latest_completed(check_runs: list[dict], name: str) -> dict | None:
-    """Pick the most recent completed run for `name`, tolerating duplicates from re-runs."""
-    completed = [cr for cr in check_runs if cr.get("name") == name and cr.get("status") == "completed"]
+    """Pick the most recent completed run for `name` from the publisher App, tolerating duplicates from re-runs."""
+    completed = [
+        cr
+        for cr in check_runs
+        if cr.get("name") == name
+        and (cr.get("app") or {}).get("id") == PUBLISHER_APP_ID
+        and cr.get("status") == "completed"
+    ]
     if not completed:
         return None
-    return max(completed, key=lambda cr: cr.get("completed_at") or "")
+    # The publisher sets `completed_at`, so only the id, which GitHub assigns in creation order, orders runs.
+    return max(completed, key=lambda cr: cr.get("id") or 0)
 
 
 def _is_migration_file(path: str) -> bool:

@@ -59,6 +59,7 @@ class TestYouTubeAnalyticsSource:
         """Stand in for the DB-backed integration and its OAuth refresh."""
         oauth = mock.MagicMock()
         oauth.access_token_expired.return_value = expired
+        oauth.refresh_access_token.return_value = integration
         return (
             mock.patch.object(YouTubeAnalyticsSource, "get_oauth_integration", return_value=integration),
             mock.patch(f"{MODULE}.OauthIntegration", return_value=oauth),
