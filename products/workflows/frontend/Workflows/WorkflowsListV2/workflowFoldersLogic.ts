@@ -3,6 +3,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     listeners,
@@ -31,6 +32,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
+import { newWorkflowLogic } from '../newWorkflowLogic'
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetFilter, FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
@@ -98,6 +100,9 @@ export interface workflowFoldersLogicActions {
     setValue: (value: FacetSearchValue) => {
         value: FacetSearchValue
     } // workflowsListV2Logic
+    setListFolder: (folder: string | null) => {
+        folder: string | null
+    } // newWorkflowLogic
     loadBrowser: (_: void) => void
     loadBrowserFailure: (
         error: string,
@@ -510,7 +515,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             // Same id the shared project tree sends, so the unfiled backfill runs for the open environment.
             ['currentTeamId'],
         ],
-        actions: [workflowsListV2Logic, ['setValue']],
+        actions: [workflowsListV2Logic, ['setValue'], newWorkflowLogic, ['setListFolder']],
     }),
     actions({
         setFolderJumpSearch: (search: string) => ({ search }),
@@ -1040,6 +1045,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         },
     })),
     subscriptions(({ actions, cache, values }) => ({
+        currentFolder: (folder: string | null) => actions.setListFolder(folder),
         folders: (folders: Record<string, FileSystemEntry[]>) => {
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
             const goneFolders = forgetUnlisted(cache, folders, present, values.folderStates)
@@ -1057,5 +1063,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     afterMount(({ actions, values }) => {
         actions.revealFolder(values.currentFolder)
         actions.loadBrowser()
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.setListFolder(null)
     }),
 ])
