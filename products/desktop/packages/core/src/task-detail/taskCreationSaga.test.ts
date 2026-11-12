@@ -1126,6 +1126,42 @@ describe("TaskCreationSaga", () => {
     );
   });
 
+  it("creates a GitLab task with its integration and never touches a warm run", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+    const saga = makeSaga({
+      createTask: createTaskMock,
+      createTaskRun: createTaskRunMock,
+      startTaskRun: vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() })),
+    });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repository: "acme/platform/api",
+      workspaceMode: "cloud",
+      branch: null,
+      githubIntegrationId: 7,
+      githubUserIntegrationId: "user-integration-123",
+      repositoryIntegrationId: 42,
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockHost.takeWarmTaskLease).not.toHaveBeenCalled();
+    const body = createTaskMock.mock.calls[0][0];
+    expect(body).toMatchObject({
+      repository: "acme/platform/api",
+      repository_integration: 42,
+      github_integration: undefined,
+      github_user_integration: undefined,
+      pending_user_message: undefined,
+    });
+    // Without `branch` the backend cannot activate a warm run at create time.
+    expect(body.branch).toBeUndefined();
+    expect(createTaskRunMock).toHaveBeenCalled();
+  });
+
   it("uses user authorship for signal report cloud task creation", async () => {
     const createdTask = createTask({ origin_product: "signal_report" });
     const startedTask = createTask({
