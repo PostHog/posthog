@@ -23,6 +23,12 @@ export function printDiagnostics(out: Output, source: string, diagnostics: Diagn
         { label: 'warning', style: 'yellow', items: diagnostics.warnings ?? [] },
         { label: 'notice', style: 'cyan', items: diagnostics.notices ?? [] },
     ]
+    const errors = diagnostics.errors?.length ?? 0
+    const summary = groups.map((group) => plural(group.items.length, group.label)).join(', ')
+    out.report(
+        errors === 0 ? { result: `Query is valid (${summary})` } : { status: 'failed', result: `Query has ${summary}` }
+    )
+
     const chars = Array.from(source)
     for (const group of groups) {
         for (const item of group.items) {
@@ -38,9 +44,6 @@ export function printDiagnostics(out: Output, source: string, diagnostics: Diagn
             out.line(`  ${pad}${out.style('^'.repeat(Math.max(1, Bun.stringWidth(printable(marked)))), group.style)}`)
         }
     }
-    const errors = diagnostics.errors?.length ?? 0
-    const summary = groups.map((group) => plural(group.items.length, group.label)).join(', ')
-    out.line(errors === 0 ? out.style(`Query is valid (${summary})`, 'green') : out.style(summary, 'red'))
 }
 
 // Tabs become spaces so the caret line stays aligned with the source line.

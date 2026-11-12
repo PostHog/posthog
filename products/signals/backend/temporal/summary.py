@@ -4,7 +4,7 @@ import json
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -289,6 +289,19 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
 
 RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
 RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def summary_execution_timeout(debounce_seconds: int = 0) -> timedelta:
+    """The `execution_timeout` of a summary workflow that waits `debounce_seconds` before it researches.
+
+    The hour covers the research work. The other terms cover the workflow's own sleeps, which the hour
+    was never sized for: the research debounce at entry, the implementation buffer at settle, and the
+    waits between sandbox retries. A run that loops through several buffers can still outlive this.
+    It is a backstop, and the report stays READY and re-promotes.
+    """
+    return (
+        timedelta(hours=1, seconds=debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS) + RESEARCH_SANDBOX_RETRY_BUDGET
+    )
 
 
 def _is_research_sandbox_unavailable(error: BaseException) -> bool:
@@ -983,6 +996,22 @@ async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsIn
     return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
+def revert_report_to_candidate(team_id: int, report_id: str, *, started_before: datetime | None = None) -> bool:
+    """Move an IN_PROGRESS report back to CANDIDATE under a row lock. Returns whether the report moved.
+
+    With `started_before`, the report moves only if its current run started before that time. A caller
+    that decided from an earlier read therefore leaves alone a run that started after that read.
+    """
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        if report.status != SignalReport.Status.IN_PROGRESS:
+            return False
+        if started_before is not None and (report.last_run_at is None or report.last_run_at >= started_before):
+            return False
+        report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
+    return True
+
+
 @dataclass
 class RevertReportToCandidateInput:
     team_id: int
@@ -996,16 +1025,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     """Return a report paused mid-run by the quota gate from in_progress to candidate, so the next
     matching signal re-promotes it (no promotion rule ever picks up an in_progress report).
     """
-
-    @transaction.atomic
-    def do_update() -> None:
-        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-        if report.status != SignalReport.Status.IN_PROGRESS:
-            return
-        updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        report.save(update_fields=updated_fields)
-
-    await database_sync_to_async(do_update, thread_sensitive=False)()
+    await database_sync_to_async(revert_report_to_candidate, thread_sensitive=False)(input.team_id, input.report_id)
     logger.info(
         "Reverted quota-paused report to candidate",
         report_id=input.report_id,

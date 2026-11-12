@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import RegexValidator
 from django.db import models
 
@@ -115,6 +116,25 @@ class Metric(
         max_length=128, blank=True, help_text="Model that generated the metric, if AI-authored."
     )
     reasoning = models.TextField(blank=True, help_text="AI author's reasoning, surfaced as review context.")
+
+    # Written by the embedding task with a queryset update, so no save, activity log, or updated_at bump.
+    embedding = ArrayField(
+        models.FloatField(),
+        null=True,
+        blank=True,
+        help_text="Vector of the metric's search text, for semantic catalog search.",
+    )
+    # db_default keeps inserts from the previous release working while the migration rolls out.
+    embedding_model = models.CharField(
+        max_length=64, blank=True, default="", db_default="", help_text="Model that produced the embedding."
+    )
+    embedding_text_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Hash of the text the embedding was made from, to skip unchanged text.",
+    )
 
     class Meta:
         constraints = [
