@@ -43,6 +43,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LateImageResult,
     LegacyEventEmission,
+    MessageDetail,
     MessageImage,
     MessageLink,
     NewAlertDestination,
@@ -988,7 +989,10 @@ class TestDeliveryPath(APIBaseTest):
 
         _, message = RecordingTransport.sends[0]
         assert message.labels["severity"] == "critical"
-        assert message.links[0] == MessageLink(label="Runbook", url="https://runbooks.example.com/api")
+        assert message.rule_details == (
+            MessageDetail(label="severity", value="critical"),
+            MessageDetail(label="runbook_url", value="https://runbooks.example.com/api"),
+        )
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(

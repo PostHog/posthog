@@ -68,30 +68,17 @@ class TestPagerDutyBody(SimpleTestCase):
             },
         }
 
-    @parameterized.expand(
-        [
-            ("rule_wins_over_the_destination", "info", "info"),
-            ("value_pagerduty_does_not_know", "sev1", "critical"),
-            ("result_label_cannot_downgrade", None, "critical"),
-        ]
-    )
-    def test_a_rule_severity_and_runbook_reach_the_incident(
-        self, _name: str, severity: str | None, expected: str
-    ) -> None:
-        label = severity or "info"
+    def test_a_rule_entry_shows_in_the_details_but_cannot_replace_a_platform_one(self) -> None:
         message = replace(
             _message(IncidentAction.TRIGGER),
-            labels={"severity": label},
-            severity=severity,
-            annotations={"runbook_url": "https://runbooks.example.com/api", "description": "Payments fail."},
+            rule_details=(MessageDetail(label="team", value="payments"), MessageDetail(label="Value", value="0")),
         )
 
-        body = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.CRITICAL)
+        details = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.ERROR)["payload"][
+            "custom_details"
+        ]
 
-        assert body["payload"]["severity"] == expected
-        assert body["links"] == [{"href": "https://runbooks.example.com/api", "text": "Runbook"}]
-        assert body["payload"]["custom_details"]["description"] == "Payments fail."
-        assert body["payload"]["custom_details"]["labels"] == {"severity": label}
+        assert (details["team"], details["Value"]) == ("payments", "312")
 
     def test_a_resolve_addresses_the_incident_its_trigger_opened(self) -> None:
         def key(action: IncidentAction, **transition: Any) -> str:

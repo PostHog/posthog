@@ -231,41 +231,21 @@ class TestAlertMessage:
 
         assert message.details == (MessageDetail(label="Value", value="300"),)
 
-    @pytest.mark.parametrize(
-        "kind,headline,context,description",
-        [
-            (AlertEventKind.FIRING, "checkout errors over limit", "Log alert 'API errors' is firing", "Payments fail."),
-            (
-                AlertEventKind.RESOLVED,
-                "checkout errors over limit",
-                "Log alert 'API errors' is resolved",
-                "Payments fail.",
-            ),
-            (AlertEventKind.ERRORED, "Log alert 'API errors' could not be checked", None, None),
-        ],
-    )
-    def test_a_rule_summary_speaks_for_a_breach_but_not_for_a_failed_check(
-        self, kind: AlertEventKind, headline: str, context: str | None, description: str | None
-    ) -> None:
+    def test_a_rule_adds_its_labels_and_annotations_as_a_list_and_leaves_the_platform_text_alone(self) -> None:
         rule = RuleMetadata(
-            labels={"service": "checkout", "team": "payments", "severity": "warning"},
-            annotations={"summary": "{{ $labels.service }} errors over limit", "description": "Payments fail."},
+            labels={"team": "payments", "service": "checkout"},
+            annotations={"summary": "{{ $labels.service }} errors over limit", "runbook_url": "https://r.example.com"},
         )
-        transition = _transition(kind, labels={"service": "web", "env": "prod"}, error_message="Query is too expensive")
+        transition = _transition(AlertEventKind.FIRING, labels={"service": "web", "env": "prod"})
 
         message = _build(_announcement(rule=rule), transition)
+        plain = _build(_announcement(), transition)
 
-        assert message.headline == headline
-        assert (message.context[0] if message.context else None) == context
-        assert message.description == description
-        assert message.labels == {"service": "checkout", "env": "prod", "team": "payments", "severity": "warning"}
-        assert message.details[:2] == (
-            MessageDetail(label="Severity", value="warning"),
-            MessageDetail(label="Team", value="payments"),
+        assert message.rule_details == (
+            MessageDetail(label="service", value="checkout"),
+            MessageDetail(label="team", value="payments"),
+            MessageDetail(label="runbook_url", value="https://r.example.com"),
+            MessageDetail(label="summary", value="checkout errors over limit"),
         )
-        assert message.severity == "warning"
-
-    def test_a_result_label_cannot_set_the_severity(self) -> None:
-        message = _build(_announcement(), _transition(AlertEventKind.FIRING, labels={"severity": "info"}))
-
-        assert (message.labels["severity"], message.severity) == ("info", None)
+        assert message.labels == {"service": "checkout", "env": "prod", "team": "payments"}
+        assert (message.headline, message.details, message.links) == (plain.headline, plain.details, plain.links)

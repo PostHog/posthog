@@ -24,14 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceKind,
 )
-from products.alerts_platform.backend.logic.rule_metadata import (
-    DESCRIPTION_ANNOTATION,
-    SEVERITY_LABEL,
-    SUMMARY_ANNOTATION,
-    TEAM_LABEL,
-    links,
-    render_annotations,
-)
+from products.alerts_platform.backend.logic.rule_metadata import render_annotations
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.FIRING: "{kind} alert '{name}' is firing",
@@ -51,9 +44,6 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
 }
 
 UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
-_BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
-_SHOWN_RULE_LABELS: Final = ((SEVERITY_LABEL, "Severity"), (TEAM_LABEL, "Team"))
-RULE_DETAIL_LABELS: Final = frozenset(label for _, label in _SHOWN_RULE_LABELS)
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
@@ -99,11 +89,12 @@ class AlertMessage:
     source_incident_key: str | None = None
     # The project the alert belongs to, which a reader with alerts in several projects needs.
     project: MessageLink | None = None
+    # The group's labels with the rule's over them, and the rule's annotations with templates filled in.
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
-    platform_headline: str | None = None
-    # From the rule alone. A query result also carries labels, and those must not change how urgent the alert is.
-    severity: str | None = None
+    # The rule's labels, then its annotations, each by name. Kept apart from `details`, so a rule
+    # entry can never stand in for a fact the platform measured.
+    rule_details: tuple[MessageDetail, ...] = ()
 
     @property
     def title(self) -> str:
@@ -111,19 +102,14 @@ class AlertMessage:
         return f"{self.symbol} {self.headline}"
 
     @property
-    def description(self) -> str | None:
-        return self.annotations.get(DESCRIPTION_ANNOTATION)
-
-    @property
-    def rule_links(self) -> tuple[MessageLink, ...]:
-        return links(self.annotations)
+    def all_details(self) -> tuple[MessageDetail, ...]:
+        return (*self.details, *self.rule_details)
 
     @property
     def links(self) -> tuple[MessageLink, ...]:
-        """The links the alert's author set, then the source's data, because that is where a responder starts."""
+        """The source's data first, because that is where a responder starts."""
         view_alert = MessageLink(label="View alert", url=self.alert_url)
-        data = (self.data_link,) if self.data_link is not None else ()
-        return (*self.rule_links, *data, view_alert)
+        return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
 
 
 def transition_delivery_key(message: AlertMessage) -> str:
@@ -225,15 +211,6 @@ def build_message(
         details = list(description.details)
     else:
         details = list(description.details or _breach_details(transition))
-    rule_labels = announcement.rule.labels
-    details = [
-        *(
-            MessageDetail(label=label, value=rule_labels[name])
-            for name, label in _SHOWN_RULE_LABELS
-            if name in rule_labels
-        ),
-        *details,
-    ]
     if overflowed:
         untracked = pluralize(overflowed, "more group")
         if announcement.overflow_is_lower_bound:
@@ -246,16 +223,8 @@ def build_message(
         )
     labels = {**transition.labels, **announcement.rule.labels}
     annotations = render_annotations(announcement.rule.annotations, labels=labels, value=transition.value)
-    platform_headline = headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name)
-    context = description.context
-    if kind not in _BREACH_KINDS:
-        annotations.pop(SUMMARY_ANNOTATION, None)
-        annotations.pop(DESCRIPTION_ANNOTATION, None)
-    summary = annotations.get(SUMMARY_ANNOTATION)
-    if summary is not None:
-        context = (platform_headline, *context)
     return AlertMessage(
-        headline=summary or platform_headline,
+        headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
         details=tuple(details),
         configuration_id=announcement.configuration_id,
@@ -263,7 +232,7 @@ def build_message(
         source=announcement.source,
         alert_url=source_alert_url or alert_url(project_id, announcement.configuration_id),
         transition=transition,
-        context=context,
+        context=description.context,
         data_link=description.data_link,
         image=resolve_image(announcement.source, team_id=team_id, transition=transition),
         slack_elements=description.slack_elements,
@@ -272,6 +241,9 @@ def build_message(
         project=project,
         labels=labels,
         annotations=annotations,
-        platform_headline=platform_headline if summary is not None else None,
-        severity=rule_labels.get(SEVERITY_LABEL),
+        rule_details=tuple(
+            MessageDetail(label=name, value=value)
+            for entries in (announcement.rule.labels, annotations)
+            for name, value in sorted(entries.items())
+        ),
     )

@@ -2,12 +2,9 @@ import pytest
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.facade.contracts import MessageLink
 from products.alerts_platform.backend.logic.rule_metadata import (
-    MAX_LINK_URL_CHARS,
     MAX_RULE_LABELS,
     InvalidRuleMetadata,
-    links,
     render_annotations,
     validate_annotations,
     validate_labels,
@@ -75,11 +72,6 @@ def test_a_link_may_not_template_its_site(_name: str, value: str) -> None:
         validate_annotations({"runbook_url": value}, {"team"})
 
 
-def test_a_link_may_not_take_the_name_of_a_platform_link() -> None:
-    with pytest.raises(InvalidRuleMetadata):
-        validate_annotations({"view_alert_url": "https://example.com/login"}, {"team"})
-
-
 @parameterized.expand(
     [
         ("label", "summary", "{{ $labels.service }} is down", "checkout is down"),
@@ -112,24 +104,3 @@ def test_an_annotation_renders_from_its_group(_name: str, name: str, template: s
     )
 
     assert rendered.get(name) == expected
-
-
-def test_links_come_from_url_annotations_with_the_runbook_first() -> None:
-    annotations = {
-        "summary": "API errors",
-        "alert_dashboard_url": "https://grafana.example.com/d/1",
-        "too_long_url": "https://example.com/" + "q" * MAX_LINK_URL_CHARS,
-        "view_alert_url": "https://example.com/stored-before-names-were-checked",
-        **{f"extra_{index}_url": f"https://example.com/{index}" for index in range(10)},
-        "runbook_url": "https://runbooks.example.com/api",
-    }
-
-    found = links(annotations)
-
-    assert found[:2] == (
-        MessageLink(label="Runbook", url="https://runbooks.example.com/api"),
-        MessageLink(label="Alert dashboard", url="https://grafana.example.com/d/1"),
-    )
-    assert len(found) == 5
-    assert all(len(link.url) <= MAX_LINK_URL_CHARS for link in found)
-    assert "View alert" not in {link.label for link in found}

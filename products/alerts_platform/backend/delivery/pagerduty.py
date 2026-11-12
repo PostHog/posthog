@@ -86,18 +86,16 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
     transition = message.transition
     body["client"] = "PostHog"
     body["client_url"] = message.alert_url
-    links = [*message.rule_links, *((message.data_link,) if message.data_link is not None else ())]
-    if links:
-        body["links"] = [{"href": link.url, "text": link.label} for link in links]
+    if message.data_link is not None:
+        body["links"] = [{"href": message.data_link.url, "text": message.data_link.label}]
     body["payload"] = {
         "summary": message.headline[:_MAX_SUMMARY_LENGTH],
         "source": SOURCE,
-        "severity": _severity(message, severity).value,
+        "severity": severity.value,
         "timestamp": rfc3339(transition.occurred_at),
         "custom_details": {
-            **{detail.label: detail.value for detail in message.details},
-            **({"description": message.description} if message.description else {}),
-            **({"labels": message.labels} if message.labels else {}),
+            # The platform's details come last, so a rule entry with the same name cannot replace one.
+            **{detail.label: detail.value for detail in (*message.rule_details, *message.details)},
             "delivered_by": SOURCE,
             "configuration_id": message.configuration_id,
         },
@@ -108,13 +106,6 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
 # Every destination posts to the same endpoint, which answers a bad routing key and a malformed
 # event both with 400. Only the routing key is the owner's to fix.
 _OWNER_REFUSALS: Final = {400: b"invalid routing key"}
-
-
-def _severity(message: AlertMessage, configured: PagerDutySeverity) -> PagerDutySeverity:
-    try:
-        return PagerDutySeverity(message.severity or configured)
-    except ValueError:
-        return configured
 
 
 class PagerDutyTransport:

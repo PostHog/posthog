@@ -93,8 +93,7 @@ class TestAlertmanagerBody(SimpleTestCase):
 
     def test_a_rule_speaks_through_labels_and_annotations_beside_the_platform_text(self) -> None:
         message = alert_message(
-            headline="checkout errors over limit",
-            platform_headline="API errors is firing",
+            headline="API errors is firing",
             details=(MessageDetail(label="Value", value="312"),),
             labels={"service": "checkout", "severity": "critical", "alertname": "spoofed"},
             annotations={

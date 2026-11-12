@@ -39,14 +39,7 @@ _NOTIFICATION_TYPES: Final[dict[AlertEventKind, NotificationType]] = {
 
 
 def body_for(message: AlertMessage) -> str:
-    return "; ".join(
-        [
-            *([message.description] if message.description else []),
-            *(f"{detail.label}: {detail.value}" for detail in message.details),
-            *message.context,
-            *(f"{link.label}: {link.url}" for link in message.rule_links),
-        ]
-    )
+    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.all_details), *message.context])
 
 
 class InAppTransport:
@@ -80,7 +73,7 @@ class InAppTransport:
                 NotificationData(
                     team_id=team_id,
                     notification_type=notification_type,
-                    priority=Priority.CRITICAL if message.severity == "critical" else Priority.NORMAL,
+                    priority=Priority.NORMAL,
                     title=title,
                     body=body,
                     target_type=TargetType.USER,

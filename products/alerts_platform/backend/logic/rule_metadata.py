@@ -15,7 +15,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import MessageLink
 from products.alerts_platform.backend.facade.grouping import UNSTORABLE, encoded_length
 
 logger = structlog.get_logger(__name__)
@@ -38,17 +37,7 @@ _MAX_ANNOTATION_VALUE_BYTES: Final = 4096
 _NAME_PATTERN: Final = r"[a-zA-Z_][a-zA-Z0-9_]*"
 _NAME: Final = re2.compile(_NAME_PATTERN)
 _RESERVED_PREFIX: Final = "posthog_"
-_PLATFORM_LINK_PREFIX: Final = "view_"
 _RESERVED_LABELS: Final = frozenset({"alertname"})
-
-SUMMARY_ANNOTATION: Final = "summary"
-DESCRIPTION_ANNOTATION: Final = "description"
-RUNBOOK_ANNOTATION: Final = "runbook_url"
-SEVERITY_LABEL: Final = "severity"
-TEAM_LABEL: Final = "team"
-# Slack refuses an actions block with more than 25 buttons, and a message adds its own after these.
-MAX_LINK_URL_CHARS: Final = 2000
-_MAX_RULE_LINKS: Final = 5
 
 _LABEL_REFERENCE: Final = re2.compile(rf"\s*\$labels\.({_NAME_PATTERN})\s*")
 _VALUE_REFERENCE: Final = re2.compile(r"\s*\$value\s*")
@@ -84,11 +73,6 @@ def validate_annotations(annotations: Mapping[str, str], known_labels: Collectio
                     f"Annotation `{name}` uses `$labels.{reference}`, which is not a grouping key or a label of this alert."
                 )
         if name.endswith("_url"):
-            if name.startswith(_PLATFORM_LINK_PREFIX):
-                # Every link PostHog adds reads "View ...", so a rule link named like one could pass for it.
-                raise InvalidRuleMetadata(
-                    f"Annotation `{name}` starts with `{_PLATFORM_LINK_PREFIX}`, which PostHog uses for its own links."
-                )
             _check_link(name, value)
 
 
@@ -116,25 +100,6 @@ def render_annotations(
         except InvalidRuleMetadata:
             logger.warning("alerts_platform.annotation_not_rendered", annotation=name)
     return rendered
-
-
-def links(annotations: Mapping[str, str]) -> tuple[MessageLink, ...]:
-    """One link per `*_url` annotation, the runbook first, because that is where a responder starts.
-
-    A link too long for every provider to send is left out, and so is any past the first few. A
-    provider refuses the whole message when one button breaks its limits, which would lose the alert.
-    """
-    found = [
-        MessageLink(label=_link_label(name), url=url)
-        for name, url in annotations.items()
-        if name.endswith("_url") and not name.startswith(_PLATFORM_LINK_PREFIX) and len(url) <= MAX_LINK_URL_CHARS
-    ]
-    found.sort(key=lambda link: link.label != _link_label(RUNBOOK_ANNOTATION))
-    return tuple(found[:_MAX_RULE_LINKS])
-
-
-def _link_label(name: str) -> str:
-    return name.removesuffix("_url").replace("_", " ").strip().capitalize() or "Link"
 
 
 def _render(name: str, template: str, labels: Mapping[str, str], value: float | None) -> str:

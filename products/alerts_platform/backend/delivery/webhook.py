@@ -41,21 +41,19 @@ def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
 
 
 def _annotations(message: AlertMessage) -> dict[str, str]:
-    platform = {"posthog_summary": message.platform_headline or message.headline}
+    platform = {"summary": message.headline}
     if message.details:
-        platform["posthog_description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
-    annotations = {"summary": platform["posthog_summary"]}
-    if "posthog_description" in platform:
-        annotations["description"] = platform["posthog_description"]
+        platform["description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
     facts: dict[str, str] = {}
     if message.transition.value is not None:
         facts["value"] = f"{message.transition.value:g}"
     if message.transition.error_message:
         facts["error"] = message.transition.error_message
-    # A rule may replace the summary and the description, but not the value the check measured or
-    # the error that stopped it. No rule can set the reserved prefix, so the platform's own text
-    # always survives the merge.
-    return {**annotations, **message.annotations, **facts, **platform}
+    # A rule may set its own summary and description, as an Alertmanager receiver expects, but not
+    # the value the check measured or the error that stopped it. No rule can set the reserved
+    # prefix, so the platform's own text always survives the merge.
+    reserved = {f"posthog_{name}": text for name, text in platform.items()}
+    return {**platform, **message.annotations, **facts, **reserved}
 
 
 def alertmanager_body(message: AlertMessage) -> dict[str, Any]:

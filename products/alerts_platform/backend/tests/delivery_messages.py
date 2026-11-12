@@ -54,7 +54,7 @@ def alert_message(
     image: MessageImage | None = None,
     labels: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
-    platform_headline: str | None = None,
+    rule_details: tuple[MessageDetail, ...] = (),
 ) -> AlertMessage:
     transition = transition or announced_transition()
     return AlertMessage(
@@ -72,7 +72,7 @@ def alert_message(
         incident_action=incident_action,
         labels=transition.labels if labels is None else labels,
         annotations=annotations or {},
-        platform_headline=platform_headline,
+        rule_details=rule_details,
     )
 
 
