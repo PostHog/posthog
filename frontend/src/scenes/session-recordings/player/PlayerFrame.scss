@@ -24,11 +24,9 @@
         position: absolute;
         filter: blur(40px) saturate(1.2) brightness(0.85);
         opacity: 0;
-        transition: opacity 600ms ease-in-out;
-        will-change: opacity;
 
-        @media (prefers-reduced-motion: reduce) {
-            transition: none;
+        &--hidden {
+            visibility: hidden;
         }
     }
 

@@ -21,6 +21,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
@@ -972,12 +974,31 @@ class TestOutputUnit(SimpleTestCase):
             ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
             ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
             ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+            (
+                "unitless_seconds_histogram_quantile",
+                "",
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                "s",
+                "latency_seconds",
+            ),
+            ("unitless_bytes_histogram_quantile", "", MetricAggregation.HISTOGRAM_QUANTILE, None, "By", "size_bytes"),
+            ("ingested_unit_wins_over_name", "ms", MetricAggregation.HISTOGRAM_QUANTILE, None, "ms", "latency_seconds"),
+            (
+                "disagreeing_units_ignore_name",
+                None,
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                None,
+                "latency_seconds",
+            ),
+            ("unitless_seconds_gauge_average", "", MetricAggregation.AVG, None, None, "start_time_seconds"),
         ]
     )
-    def test_output_unit(self, _name, ingested, aggregation, range_function, expected):
+    def test_output_unit(self, _name, ingested, aggregation, range_function, expected, metric_name="m1"):
         quantile = 0.5 if aggregation.needs_quantile else None
         clause = MetricQueryClause(
-            name="a", metric_name="m1", aggregation=aggregation, range_function=range_function, quantile=quantile
+            name="a", metric_name=metric_name, aggregation=aggregation, range_function=range_function, quantile=quantile
         )
         self.assertEqual(_output_unit(ingested, clause), expected)
 
@@ -1248,6 +1269,62 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual({s["labels"]["env"] for s in results}, {"prod", "dev"})
+
+    @parameterized.expand(
+        [
+            # The app reads every series, so a browser session keeps the all-zero one.
+            ("app_keeps_every_series", False, {}, {"dev", "prod", "idle"}, None, None),
+            ("mcp_drops_all_zero_series", True, {}, {"dev", "prod"}, 1, None),
+            ("mcp_can_keep_all_zero_series", True, {"dropEmptySeries": False}, {"dev", "prod", "idle"}, None, None),
+            ("limit_keeps_the_largest", False, {"limit": 1}, {"dev"}, None, 2),
+            ("mcp_limit_counts_after_dropping", True, {"limit": 1}, {"dev"}, 1, 1),
+        ]
+    )
+    def test_group_by_via_api_trims_series(
+        self,
+        _name: str,
+        via_mcp: bool,
+        options: dict[str, Any],
+        expected_envs: set[str],
+        omitted_empty: int | None,
+        omitted_by_limit: int | None,
+    ) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 0.0)],
+            labels={"env": "idle"},
+        )
+        headers: dict[str, str] = {}
+        if via_mcp:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}", "user-agent": "posthog/mcp-server"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": [{"key": "env"}],
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                    **options,
+                }
+            },
+            content_type="application/json",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual({s["labels"]["env"] for s in body["results"]}, expected_envs)
+        self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
+        self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
 
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):

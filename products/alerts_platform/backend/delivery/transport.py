@@ -39,6 +39,14 @@ class DestinationMisconfigured(DeliveryError):
     """
 
 
+class DestinationRefused(DestinationMisconfigured):
+    """An HTTP destination rejected the request itself, so every retry and every later message fails the same way.
+
+    Only a 4xx answer the destination's owner can fix counts, and never 408 or 429, which a later
+    attempt can get past. A 4xx that rejects the body PostHog built is PostHog's fix, not the owner's.
+    """
+
+
 class DeliveryTransport(Protocol):
     provider: str
 

@@ -1563,6 +1563,8 @@ export interface InboxOnboardingDraftApi {
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
+    /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
+    setup_default_skills?: string[]
     /** Whether the current user can receive an in-app notification when this investigation finishes. */
     first_report_completion_notification?: boolean
     /**
@@ -1906,6 +1908,13 @@ export interface ReportMetricListApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -1956,6 +1965,11 @@ export interface ReportMetricListApi {
      * @nullable
      */
     minimum_data_points?: number | null
+    /**
+     * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+     * @nullable
+     */
+    readonly interval: string | null
 }
 
 /**
@@ -2404,6 +2418,179 @@ export interface ReportPlanApi {
     readonly steps: readonly ReportPlanStepApi[]
 }
 
+/**
+ * * `not_on_track` - Not on track
+ * * `on_track` - On track
+ * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
+ * * `final_check_only` - Final check only
+ * * `window_ended` - Window ended
+ */
+export type MonitoringSummaryStateEnumApi =
+    (typeof MonitoringSummaryStateEnumApi)[keyof typeof MonitoringSummaryStateEnumApi]
+
+export const MonitoringSummaryStateEnumApi = {
+    NotOnTrack: 'not_on_track',
+    OnTrack: 'on_track',
+    AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
+    FinalCheckOnly: 'final_check_only',
+    WindowEnded: 'window_ended',
+} as const
+
+export type CheckComparisonOperatorEnumApi =
+    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
+
+export const CheckComparisonOperatorEnumApi = {
+    Lte: 'lte',
+    Gte: 'gte',
+    Between: 'between',
+} as const
+
+export interface CheckThresholdBoundsApi {
+    lower: number
+    upper: number
+}
+
+/**
+ * What the measured value must satisfy for the check to pass.
+ *
+ * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+ * would need a second comparison engine for a distinction a soak window does not make, so they are
+ * not offered: "stays at or below 10 a day" is the same expectation.
+ */
+export interface CheckComparisonApi {
+    /** `lte`, `gte`, or `between`. */
+    operator: CheckComparisonOperatorEnumApi
+    /** The bound for `lte` and `gte`; unused by `between`. */
+    value?: number | null
+    /** The inclusive range for `between`; unused by `lte` and `gte`. */
+    bounds?: CheckThresholdBoundsApi | null
+}
+
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
+export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
+
+export const ThresholdScalingEnumApi = {
+    Linear: 'linear',
+    Fixed: 'fixed',
+} as const
+
+export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
+    /**
+     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+     * @maximum 527040
+     * @exclusiveMinimum 0
+     */
+    reference_period_minutes: number
+    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+    threshold_scaling: ThresholdScalingEnumApi
+    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+    baseline_period_minutes?: number | null
+}
+
+export interface MonitoringReadingApi {
+    /** When this interim reading was measured. */
+    measured_at: string
+    /**
+     * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    matches: boolean | null
+    /**
+     * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    observed_value: number | null
+    /**
+     * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+     * @nullable
+     */
+    threshold: number | null
+}
+
+export interface MonitoringLeadCheckApi {
+    /** The follow-up check this summary is drawn from. */
+    check_id: string
+    /** The check's short label. */
+    title: string
+    /**
+     * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+     * @nullable
+     */
+    metric_id: string | null
+    /** What the measured value means, when the check names it.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    metric_kind: ReportMetricKindEnumApi | null
+    /** How to format measured values, matching a report metric's `value_format`.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format: ValueFormatEnumApi | null
+    /**
+     * Optional value suffix, such as `users`.
+     * @nullable
+     */
+    unit: string | null
+    /** What the measured value must satisfy over the reference period. */
+    readonly comparison: CheckComparisonApi
+    /** The target's reference period and whether it scales with elapsed time. */
+    readonly monitoring: MonitoringMetricConfigApi
+    /**
+     * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+     * @nullable
+     */
+    baseline_value: number | null
+    /** End of this check's observation window. */
+    ends_at: string
+    /**
+     * When the next interim reading is scheduled, if one falls inside the window.
+     * @nullable
+     */
+    next_measurement_at: string | null
+    /** Interim readings in this Monitoring period, oldest first. */
+    readings: MonitoringReadingApi[]
+}
+
+export interface ReportMonitoringSummaryApi {
+    /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+     *
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended */
+    state: MonitoringSummaryStateEnumApi
+    /** When this Monitoring period started. */
+    started_at: string
+    /** When the last open check's observation window ends. */
+    ends_at: string
+    /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+    lead_check: MonitoringLeadCheckApi | null
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -2522,6 +2709,8 @@ export interface SignalReportListApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -2547,15 +2736,17 @@ export interface SignalReportListApi {
      */
     readonly inbox_merge_key: number | null
     /**
-     * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * The tier your personal ranking gave this report, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_tier: string | null
     /**
-     * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * Why your personal ranking put this report where it is, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_reason: string | null
+    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+    readonly monitoring_summary: ReportMonitoringSummaryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -2566,12 +2757,12 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model, or personal when a stored personal ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
     /**
-     * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+     * The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
      * @nullable
      */
     ranking_id?: string | null
@@ -2795,7 +2986,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
      * @nullable
      */
     repository?: string | null
@@ -2977,6 +3168,13 @@ export interface ReportMetricApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -3149,6 +3347,8 @@ export interface SignalReportApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -5714,6 +5914,7 @@ export interface ReportSpendApi {
  * * `potential` - potential
  * * `resolved` - resolved
  * * `monitoring` - monitoring
+ * * `ready` - ready
  */
 export type SignalReportStateEnumApi = (typeof SignalReportStateEnumApi)[keyof typeof SignalReportStateEnumApi]
 
@@ -5722,6 +5923,7 @@ export const SignalReportStateEnumApi = {
     Potential: 'potential',
     Resolved: 'resolved',
     Monitoring: 'monitoring',
+    Ready: 'ready',
 } as const
 
 /**
@@ -5756,12 +5958,13 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
-     * * `monitoring` - monitoring */
+     * * `monitoring` - monitoring
+     * * `ready` - ready */
     state: SignalReportStateEnumApi
     /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
@@ -6056,66 +6259,6 @@ export const SignalReportCheckStatusEnumApi = {
     Expired: 'expired',
     Cancelled: 'cancelled',
 } as const
-
-export type MonitoringMetricConfigPurposeEnumApi =
-    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
-
-export const MonitoringMetricConfigPurposeEnumApi = {
-    Expectation: 'expectation',
-    MinimumEvidence: 'minimum_evidence',
-} as const
-
-export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
-
-export const ThresholdScalingEnumApi = {
-    Linear: 'linear',
-    Fixed: 'fixed',
-} as const
-
-export interface MonitoringMetricConfigApi {
-    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
-    purpose?: MonitoringMetricConfigPurposeEnumApi
-    /**
-     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
-     * @maximum 527040
-     * @exclusiveMinimum 0
-     */
-    reference_period_minutes: number
-    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
-    threshold_scaling: ThresholdScalingEnumApi
-    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
-    baseline_period_minutes?: number | null
-}
-
-export type CheckComparisonOperatorEnumApi =
-    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
-
-export const CheckComparisonOperatorEnumApi = {
-    Lte: 'lte',
-    Gte: 'gte',
-    Between: 'between',
-} as const
-
-export interface CheckThresholdBoundsApi {
-    lower: number
-    upper: number
-}
-
-/**
- * What the measured value must satisfy for the check to pass.
- *
- * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
- * would need a second comparison engine for a distinction a soak window does not make, so they are
- * not offered: "stays at or below 10 a day" is the same expectation.
- */
-export interface CheckComparisonApi {
-    /** `lte`, `gte`, or `between`. */
-    operator: CheckComparisonOperatorEnumApi
-    /** The bound for `lte` and `gte`; unused by `between`. */
-    value?: number | null
-    /** The inclusive range for `between`; unused by `lte` and `gte`. */
-    bounds?: CheckThresholdBoundsApi | null
-}
 
 /**
  * How to draw this measurement; copied from a referenced metric.
@@ -6508,12 +6651,13 @@ export interface SignalReportCheckReplacementApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
-     * * `monitoring` - monitoring */
+     * * `monitoring` - monitoring
+     * * `ready` - ready */
     state: SignalReportStateEnumApi
     /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
@@ -10331,6 +10475,12 @@ export interface EditReportRequestApi {
      */
     source_issues?: SourceIssueWriteApi[]
     /**
+     * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+     * @maxItems 5
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
@@ -10389,6 +10539,8 @@ export interface EditReportResponseApi {
     links_appended: number
     /** How many source issues this edit added that the report did not name yet; 0 if none. */
     source_issues_appended: number
+    /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+    pull_requests_linked: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -11773,7 +11925,7 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
-     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     * For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
      */
     ranking_id?: string
     /**
@@ -11801,7 +11953,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -11813,7 +11965,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**
@@ -11841,7 +11993,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }

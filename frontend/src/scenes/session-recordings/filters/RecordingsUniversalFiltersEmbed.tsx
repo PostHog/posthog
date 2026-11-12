@@ -45,6 +45,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { hasPageFilter } from 'scenes/session-recordings/utils'
 
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -65,8 +66,10 @@ import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSa
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
+    accountFilterTestAccountsStorage,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
+    withSessionReplayListPatch,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
@@ -613,6 +616,8 @@ export const ReplayFiltersTab = ({
         sessionRecordingSavedFiltersLogic
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+    const { uiConfiguration } = useValues(uiCustomizationLogic)
+    const { updateUiConfiguration } = useActions(uiCustomizationLogic)
     const applyFilters = applySavedFilter ?? setFilters
 
     useEffect(() => {
@@ -766,11 +771,18 @@ export const ReplayFiltersTab = ({
                         <TestAccountFilter
                             size="small"
                             filters={filters}
-                            onChange={(testFilters) =>
+                            onChange={(testFilters) => {
                                 setFilters({
                                     filter_test_accounts: testFilters.filter_test_accounts,
                                 })
-                            }
+                                const filterTestAccounts = !!testFilters.filter_test_accounts
+                                accountFilterTestAccountsStorage.set(filterTestAccounts)
+                                updateUiConfiguration(
+                                    withSessionReplayListPatch(uiConfiguration, {
+                                        filter_test_accounts: filterTestAccounts,
+                                    })
+                                )
+                            }}
                         />
                     )}
                 </div>

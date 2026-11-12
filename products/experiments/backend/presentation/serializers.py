@@ -10,6 +10,7 @@ import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -61,6 +62,7 @@ from products.experiments.backend.facade.contracts import (
     HealthExposureInputsStatus,
     RunningTimeMode,
 )
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
@@ -723,8 +725,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), "
             "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
-            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
-            "breakdowns and sequential testing are not supported), or "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
@@ -1722,6 +1723,12 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
 class MetricRecalculationResultSerializer(serializers.Serializer):
     """One metric's recalculated result row, read back from ExperimentMetricResult."""
 
+    configuration_status = serializers.ChoiceField(
+        choices=ExperimentResultConfigurationStatus.choices,
+        read_only=True,
+        help_text="Whether this result uses current settings, earlier settings, or settings that were not recorded.",
+    )
+
     metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
     status = serializers.ChoiceField(
         choices=["pending", "completed", "failed"],
@@ -1738,6 +1745,63 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
     )
+
+
+class ExperimentTimeseriesResultsStatus(models.TextChoices):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
+    """Day-by-day results of one metric under the experiment's current settings."""
+
+    experiment_id = serializers.IntegerField(help_text="Experiment id.")
+    metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
+    status = serializers.ChoiceField(
+        choices=ExperimentTimeseriesResultsStatus.choices,
+        help_text=(
+            "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
+            "and some failed, 'pending' when no day was calculated yet."
+        ),
+    )
+    timeseries = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        help_text=(
+            "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
+            "date to the end date or today. Null for a day without a completed result."
+        ),
+    )
+    configuration_by_day = serializers.DictField(
+        child=serializers.ChoiceField(choices=ExperimentResultConfigurationStatus.choices),
+        help_text="Configuration provenance for each stored day: current, previous, or unknown.",
+    )
+    computed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent day's result was computed, or null."
+    )
+    created_at = serializers.DateTimeField(help_text="When the oldest stored day was written.")
+    updated_at = serializers.DateTimeField(help_text="When the newest stored day was last written.")
+    recalculation_status = serializers.CharField(
+        allow_null=True,
+        help_text="'pending' or 'in_progress' while a backfill of this series runs, otherwise null.",
+    )
+    recalculation_created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the running backfill was requested, or null."
+    )
+    formatted_results = serializers.CharField(
+        help_text="The series as a compact text table, one row per day, for language model consumers."
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # A declared `errors` attribute would shadow `Serializer.errors`.
+        fields = super().get_fields()
+        fields["errors"] = serializers.DictField(
+            child=serializers.CharField(),
+            allow_null=True,
+            help_text="Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.",
+        )
+        return fields
 
 
 class RecalculateMetricsRequestSerializer(serializers.Serializer):
@@ -1782,13 +1846,14 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
     completed_metrics = serializers.IntegerField(
         read_only=True,
-        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+        help_text="Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored)",
     )
     failed_metrics = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
-            "that never made it to a result row"
+            "Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors "
+            "entry. A metric that fails keeps its earlier completed result, so it can count here and still have a "
+            "completed row in results. The error of a rejected run counts only for a metric without a row"
         ),
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
@@ -1840,7 +1905,10 @@ class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculatio
         many=True,
         read_only=True,
         required=False,
-        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+        help_text=(
+            "Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier "
+            "completed result at the same window stays here and the failure is in metric_errors"
+        ),
     )
     rows_read = serializers.IntegerField(
         required=False,
@@ -1878,6 +1946,14 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
         help_text=(
             "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
             "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
+    )
+    exceeds_recalculation_age_limit = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the experiment started too long ago for its metrics to be recalculated. A recalculation "
+            "request then returns a rejected run with the recalculation_window_too_long error, and the saved "
+            "results stay as they are"
         ),
     )
 
@@ -3497,7 +3573,8 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
-            "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
+            "'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or "
+            "'too_many_conditions'. Null when they were."
         ),
     )
     start_date = serializers.DateTimeField(

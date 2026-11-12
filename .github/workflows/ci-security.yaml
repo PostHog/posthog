@@ -695,6 +695,11 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /products/desktop/
+                      /.gitignore
+                      /.semgrepignore
+                  sparse-checkout-cone-mode: false
 
             - name: Run Semgrep (desktop, universal security packs)
               run: |

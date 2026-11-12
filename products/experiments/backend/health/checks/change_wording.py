@@ -11,6 +11,12 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.split_changes import format_change_time
 
 SECONDS_PER_DAY = 24 * 60 * 60
+# Every finding that recommends a reset follows it with this, because the word doesn't say that a reset returns the
+# experiment to draft.
+RESET_EFFECT = (
+    "A reset returns the experiment to draft, and once you launch it again, the results count only exposures from "
+    "then on."
+)
 
 
 def suggested_start(changed_at: datetime, team_timezone: str) -> str:
@@ -42,7 +48,7 @@ def the_change(change_count: int, determiner: Literal["the", "this"]) -> str:
 def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
     match reason:
         case FlagHistoryNotCheckedReason.EXPOSURE_FILTERS:
-            return "the exposure criteria filter by properties"
+            return "the exposure criteria use a filter that this check can't apply"
         case FlagHistoryNotCheckedReason.EXPOSURE_ACTION:
             return "exposures come from an action"
         case FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA:

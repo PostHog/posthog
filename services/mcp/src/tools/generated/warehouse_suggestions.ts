@@ -211,6 +211,7 @@ const warehouseSuggestionsList = (): ToolBase<
                 offset: params.offset,
                 status: params.status,
                 subject_id: params.subject_id,
+                surface: params.surface,
             },
         })
         const filtered = {
@@ -253,7 +254,10 @@ const warehouseSuggestionsResume = (): ToolBase<
     },
 })
 
-const WarehouseSuggestionsStatusSchema = () => z.object({})
+const WarehouseSuggestionsStatusSchema = () => {
+    const WarehouseSuggestionsStatusRetrieveQueryParams = orvalSchemas.WarehouseSuggestionsStatusRetrieveQueryParams()
+    return WarehouseSuggestionsStatusRetrieveQueryParams
+}
 
 const warehouseSuggestionsStatus = (): ToolBase<
     ReturnType<typeof WarehouseSuggestionsStatusSchema>,
@@ -261,11 +265,14 @@ const warehouseSuggestionsStatus = (): ToolBase<
 > => ({
     name: 'warehouse-suggestions-status',
     schema: WarehouseSuggestionsStatusSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WarehouseSuggestionStatus>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/status/`,
+            query: {
+                surface: params.surface,
+            },
         })
         return result
     },

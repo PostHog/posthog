@@ -11,6 +11,8 @@ export const ProjectIdSchema = z
     .union([z.string(), z.int()], { error: PROJECT_ID_ERROR })
     .transform(String)
     .pipe(z.string().regex(/^\d+$/, { error: PROJECT_ID_ERROR }))
+    // Without leading zeros, so "02" and "2" name the same login.
+    .transform((id) => id.replace(/^0+(?=\d)/, ''))
     .brand<'ProjectId'>()
 
 export type ProjectId = z.output<typeof ProjectIdSchema>

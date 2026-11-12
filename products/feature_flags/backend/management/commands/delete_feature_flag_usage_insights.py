@@ -27,8 +27,8 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import friendly_time
 
 from products.alerts.backend.facade.api import insight_ids_with_alerts
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import TilePlacement
 from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_DESCRIPTION_PREFIX,
     USAGE_DASHBOARD_NAME_PREFIX,
@@ -92,6 +92,14 @@ _CANDIDATE_FIELDS = tuple(f.name for f in fields(_Candidate))
 def _candidate_rows(insights: QuerySet[Insight]) -> QuerySet[Insight, dict[str, Any]]:
     """Narrow an insight queryset to `_Candidate` values, keyed so each row splats into `_Candidate(**row)`."""
     return insights.annotate(organization_id=F("team__organization_id")).values(*_CANDIDATE_FIELDS)
+
+
+def _insight_ids_on(placements: list[TilePlacement], *, dashboard_ids: set[int]) -> set[int]:
+    return {
+        placement.insight_id
+        for placement in placements
+        if placement.insight_id is not None and placement.dashboard_id in dashboard_ids
+    }
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -272,8 +280,8 @@ class Command(BaseCommand):
         `_keep_ids` cannot see these: a dashboard's SharingConfiguration and Subscription rows carry
         no insight id.
         """
-        tiles = list(DashboardTile.objects.filter(insight_id__in=insight_ids).values_list("insight_id", "dashboard_id"))
-        dashboard_ids = {dashboard_id for _, dashboard_id in tiles}
+        placements = dashboards_api.live_tile_placements(insight_ids=insight_ids)
+        dashboard_ids = {placement.dashboard_id for placement in placements}
         if not dashboard_ids:
             return set()
         in_use = set(
@@ -282,7 +290,7 @@ class Command(BaseCommand):
             )
         )
         in_use |= dashboard_ids_with_subscriptions(dashboard_ids)
-        return {insight_id for insight_id, dashboard_id in tiles if dashboard_id in in_use}
+        return _insight_ids_on(placements, dashboard_ids=in_use)
 
     def _deletable(self, candidates: list[_Candidate]) -> list[_Candidate]:
         """Candidates with no keep signal, truncated to what --limit still allows. Records the kept count."""
@@ -303,7 +311,7 @@ class Command(BaseCommand):
         """
         insight_ids = [i.id for i in insights]
         Insight.objects_including_soft_deleted.filter(id__in=insight_ids).update(deleted=True, last_modified_at=now())
-        DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
+        dashboards_api.hide_tiles_for_insights(insight_ids)
         self._prune_file_system_rows(insights)
 
         entries: list[LogActivityEntry] = []
@@ -348,20 +356,18 @@ class Command(BaseCommand):
         FileSystem.objects.filter(surface, tree_refs, type="insight").delete()
         FileSystemShortcut.objects.filter(surface, tree_refs, type="insight").delete()
 
-    def _emptied_usage_dashboards(self, dashboard_ids: set[int], deleted_insight_ids: set[int]) -> set[int]:
-        """Of these dashboards, the ones this delete leaves with no live tiles.
+    def _emptied_usage_dashboards(self, live_tiles: list[TilePlacement], deleted_insight_ids: set[int]) -> set[int]:
+        """Of the dashboards these live tiles sit on, the ones this delete leaves with no live tiles.
 
         Only dashboards that still had a tile going in can be emptied by us, so a dashboard that was
         already tile-less is left alone rather than counted as this run's work.
         """
         had_tiles: set[int] = set()
         keeps_a_tile: set[int] = set()
-        for dashboard_id, insight_id in DashboardTile.objects.filter(dashboard_id__in=dashboard_ids).values_list(
-            "dashboard_id", "insight_id"
-        ):
-            had_tiles.add(dashboard_id)
-            if insight_id not in deleted_insight_ids:
-                keeps_a_tile.add(dashboard_id)
+        for tile in live_tiles:
+            had_tiles.add(tile.dashboard_id)
+            if tile.insight_id not in deleted_insight_ids:
+                keeps_a_tile.add(tile.dashboard_id)
         return had_tiles - keeps_a_tile
 
     def _unlink_usage_dashboards(self, emptied: set[int]) -> None:
@@ -413,15 +419,15 @@ class Command(BaseCommand):
             last_id = flag_batch[-1][0]
             dashboard_ids = {dash_id for _, dash_id in flag_batch}
 
-            # Live tiles (default manager excludes deleted tiles and deleted dashboards) on these dashboards.
-            live_tiles = DashboardTile.objects.filter(dashboard_id__in=dashboard_ids, insight__isnull=False)
-            classified = Insight.objects.filter(_classifier_q(), id__in=live_tiles.values("insight_id"))
+            live_tiles = dashboards_api.live_tile_placements(dashboard_ids=dashboard_ids)
+            tile_insight_ids = {tile.insight_id for tile in live_tiles if tile.insight_id is not None}
+            classified = Insight.objects.filter(_classifier_q(), id__in=tile_insight_ids)
             if self.options.team_id is not None:
                 classified = classified.filter(team_id=self.options.team_id)
             classified = classified.order_by("id")
             deletable = self._deletable([_Candidate(**row) for row in _candidate_rows(classified)])
 
-            emptied = self._emptied_usage_dashboards(dashboard_ids, {c.id for c in deletable})
+            emptied = self._emptied_usage_dashboards(live_tiles, {c.id for c in deletable})
             if self.options.dry_run:
                 if emptied:
                     self._unlink_usage_dashboards(emptied)
@@ -446,20 +452,9 @@ class Command(BaseCommand):
         # pass exists for dashboards with no flag row at all (hard-deleted rows, see
         # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
         # ones whose dashboard was deleted outright stay out of scope.
-        generated_dashboards = Dashboard.objects.filter(
-            creation_mode="template",
-            name__startswith=USAGE_DASHBOARD_NAME_PREFIX,
-            description__startswith=USAGE_DASHBOARD_DESCRIPTION_PREFIX,
-        )
         # Requiring the generator's marker keeps rows an edit has already disqualified out of the scan
         # entirely. `_keep_ids` would spare them anyway, so this only saves fetching them.
-        insights = Insight.objects.filter(
-            _classifier_q(),
-            is_sample=True,
-            id__in=DashboardTile.objects.filter(dashboard_id__in=generated_dashboards.values("id")).values(
-                "insight_id"
-            ),
-        )
+        insights = Insight.objects.filter(_classifier_q(), is_sample=True)
         if self.options.team_id is not None:
             insights = insights.filter(team_id=self.options.team_id)
         insight_rows = _candidate_rows(insights.order_by("id"))
@@ -472,14 +467,22 @@ class Command(BaseCommand):
                 break
             last_id = batch[-1].id
 
-            # Drop any still reachable from a flag's usage dashboard, since pass 1 owns those.
-            reachable = set(
-                DashboardTile.objects.filter(
-                    insight_id__in=[c.id for c in batch],
-                    dashboard_id__in=self._usage_dashboard_flags().values("usage_dashboard_id"),
-                ).values_list("insight_id", flat=True)
+            on_generated_dashboards = dashboards_api.insight_ids_on_template_dashboards(
+                insight_ids=[c.id for c in batch],
+                name_prefix=USAGE_DASHBOARD_NAME_PREFIX,
+                description_prefix=USAGE_DASHBOARD_DESCRIPTION_PREFIX,
             )
-            deletable = self._deletable([c for c in batch if c.id not in reachable])
+            generated = [c for c in batch if c.id in on_generated_dashboards]
+
+            # Drop any still reachable from a flag's usage dashboard, since pass 1 owns those.
+            live_tiles = dashboards_api.live_tile_placements(insight_ids=[c.id for c in generated])
+            flag_dashboard_ids = set(
+                self._usage_dashboard_flags()
+                .filter(usage_dashboard_id__in={tile.dashboard_id for tile in live_tiles})
+                .values_list("usage_dashboard_id", flat=True)
+            )
+            reachable = _insight_ids_on(live_tiles, dashboard_ids=flag_dashboard_ids)
+            deletable = self._deletable([c for c in generated if c.id not in reachable])
 
             if deletable and not self.options.dry_run:
                 with transaction.atomic():

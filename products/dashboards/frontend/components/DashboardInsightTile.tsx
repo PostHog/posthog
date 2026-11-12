@@ -6,7 +6,6 @@ import type { HTMLAttributes, ReactNode } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { InsightCard, InsightCardProps } from 'lib/components/Cards/InsightCard/InsightCard'
 import { InsightVisualizationSkeleton } from 'lib/components/Cards/InsightCard/InsightVisualizationSkeleton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -23,7 +22,12 @@ import { cropInsightToZoom } from '../zoomPreview'
 import { queueDashboardInsightMount } from './dashboardInsightMountQueue'
 import { type MountedTileHandle, trackMountedDashboardTile } from './dashboardMountedTiles'
 
-type DashboardInsightTileProps = InsightCardProps &
+// Dashboard tiles are always draggable for editors, so InsightCard's edit-mode entry props
+// (still used by cross-project dashboards) do not apply here.
+type DashboardInsightTileProps = Omit<
+    InsightCardProps,
+    'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge' | 'onDragHandleMouseDown'
+> &
     Pick<HTMLAttributes<HTMLDivElement>, 'onMouseDown' | 'onMouseUp' | 'onTouchStart' | 'onTouchEnd'> & {
         tile: DashboardTile
         decorations: ReactNode
@@ -40,8 +44,6 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         children,
         decorations,
         showResizeHandles,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
         onMouseDown,
         onMouseUp,
         onTouchStart,
@@ -58,7 +60,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         setTileOverride,
         zoomDateRange,
     } = useActions(dashboardLogic)
-    const { zoomPreview, layoutEditMode } = useValues(dashboardLogic)
+    const { zoomPreview } = useValues(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
     const [keepMountedForOverlay, setKeepMountedForOverlay] = useState(false)
@@ -128,10 +130,9 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     const overrides = tile.filters_overrides
     // A tile with its own dates ignores the dashboard's, so zooming it would change every tile but this one.
     const tileOwnsDates = !!(overrides?.date_from || overrides?.date_to || overrides?.ignoreDashboardFilters)
-    // Off while editing the layout, where a drag on the tile moves it rather than selecting a range.
     const onDateRangeZoom = useMemo(
         () =>
-            cardProps.placement === DashboardPlacement.Dashboard && !layoutEditMode && !tileOwnsDates
+            cardProps.placement === DashboardPlacement.Dashboard && !tileOwnsDates
                 ? (dateFrom: string, dateTo: string): void =>
                       zoomDateRange(
                           dateFrom,
@@ -140,7 +141,7 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
                           zoomQueryKind
                       )
                 : undefined,
-        [cardProps.placement, layoutEditMode, tileOwnsDates, zoomInterval, zoomQueryKind, zoomDateRange]
+        [cardProps.placement, tileOwnsDates, zoomInterval, zoomQueryKind, zoomDateRange]
     )
     const displayedInsight = useMemo(() => {
         const dateRange = isInsightVizNode(insight.query) ? insight.query.source.dateRange : undefined
@@ -185,9 +186,6 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
                 </div>
             )}
             {showResizeHandles && <DashboardResizeHandles />}
-            {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
-                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-            )}
             {children}
         </div>
     )

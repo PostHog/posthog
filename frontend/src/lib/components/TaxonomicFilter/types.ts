@@ -47,8 +47,24 @@ export interface QuickFilterItem {
     isContainsShortcut?: boolean
 }
 
+export interface HiddenEventStandIn {
+    _type: 'hidden_event_stand_in'
+    name: string
+    value: string
+}
+
+export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
+
+function hasItemType(item: unknown, type: string): boolean {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === type
+}
+
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
-    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+    return hasItemType(item, 'quick_filter')
+}
+
+export function isHiddenEventStandIn(item: unknown): item is HiddenEventStandIn {
+    return hasItemType(item, 'hidden_event_stand_in')
 }
 
 export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
@@ -152,6 +168,16 @@ export interface TaxonomicFilterProps {
      * return nothing once the data moves.
      */
     includeHiddenEvents?: boolean
+    /**
+     * A search that reaches the second word of a hidden event's name or label offers a stand-in row for it.
+     * The event's own row stays out of the search results, whatever `includeHiddenEvents` says.
+     * Recent and pinned rows still follow `includeHiddenEvents`.
+     * Picking the stand-in commits the event's name.
+     * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
+     * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that
+     * drops out of searches once it is 30 days stale.
+     */
+    offerHiddenEventStandIns?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -298,6 +324,7 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    hiddenEventStandIns?: (searchQuery: string) => HiddenEventStandIn[]
     /**
      * Pre-fetch the first page (empty-query) once, cache it, and filter
      * subsequent typed queries client-side via Fuse rather than firing a
@@ -474,3 +501,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+    | HiddenEventStandIn

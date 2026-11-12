@@ -1359,6 +1359,18 @@ describe('SesWebhookHandler', () => {
 
             expect(result.emailStatusUpdates).toEqual(expected)
         })
+
+        it.each([
+            ['a transactional email', {}, true],
+            ['an email from a workflow step', { tags: baseMail.tags }, undefined],
+        ])('marks the event of %s as transactional', async (_desc, mailOverrides, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
+        })
     })
 
     describe('security: TopicArn allowlist + signed-code gate', () => {

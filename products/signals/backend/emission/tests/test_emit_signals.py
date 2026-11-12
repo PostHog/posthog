@@ -21,6 +21,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import StringDatabaseField
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Team
@@ -58,8 +59,11 @@ from products.signals.backend.emission.pipeline import (
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.models import (
     SignalEmissionRecord,
+    SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition,
     SignalReport,
     SignalReportArtefact,
     SignalSpend,
@@ -137,6 +141,34 @@ def _make_output(
 
 
 class TestQueryNewRecords:
+    def test_drained_fetch_resumes_after_the_last_row_and_reports_where_it_stopped(self):
+        config = _make_config(max_records=2, cursor_id_field="id")
+        mock_result = MagicMock()
+        mock_result.columns = ["id", "description", "__signal_window_position", "__signal_window_position_id"]
+        mock_result.results = [(1, "a", 1767225600000, "1"), (2, "b", 1767225600000, "2")]
+        context: dict[str, Any] = {
+            "table_name": "test_table",
+            "last_synced_at": "2025-01-01T00:00:00+00:00",
+            "resume_after_id": "0",
+            "extra": {},
+            "drain_window": True,
+        }
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                records = data_warehouse_record_fetcher(team=MagicMock(), config=config, context=context)
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "(created_at = {last_synced_at} AND toString(id) > {resume_after_id})" in query_arg
+        assert "ORDER BY created_at ASC, toString(id) ASC" in query_arg
+        assert mock_parse.call_args.kwargs["placeholders"]["resume_after_id"] == ast.Constant(value="0")
+        assert records == [{"id": 1, "description": "a"}, {"id": 2, "description": "b"}]
+        assert (context["window_end"], context["window_end_id"], context["window_capped"]) == (
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "2",
+            True,
+        )
+
     def test_continuous_sync_uses_partition_field_and_placeholders(self):
         config = _make_config(partition_field="updated_at")
         mock_result = MagicMock()
@@ -336,6 +368,75 @@ class TestQueryNewRecords:
                     config=config,
                     context={"table_name": "test_table", "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
                 )
+
+
+@pytest.mark.django_db
+def test_saved_filter_applies_before_the_limit_and_drops_malformed_rows() -> None:
+    source = SignalFilterSourceDefinition.objects.create(
+        source_product="test_product", source_type="test", adapter_kind="warehouse"
+    )
+    SignalFilterCatalogVersion.objects.create(
+        source=source,
+        version=1,
+        bundle={
+            "schema_version": 1,
+            "fields": [
+                {
+                    "name": "label_names",
+                    "type": "array<string>",
+                    "description": "Names of the record's labels.",
+                    "binding": {
+                        "kind": "json_array_map",
+                        "column": "labels",
+                        "array_path": ["nodes"],
+                        "value_path": ["name"],
+                    },
+                    "missing_value": "empty_array",
+                    "malformed_value": "error",
+                }
+            ],
+            "starter_expressions": [],
+        },
+    )
+    database = MagicMock()
+    database.get_table.return_value = MagicMock(
+        fields={"id": StringDatabaseField(name="id"), "labels": StringDatabaseField(name="labels")}
+    )
+    mock_result = MagicMock()
+    mock_result.columns = ["id", "description", "__signal_filter_malformed"]
+    mock_result.results = [(1, "kept", 0), (2, "malformed labels", 1)]
+    saved = {"expression": "NOT has(label_names, 'internal')", "catalog_version": 1}
+
+    with (
+        patch(f"{FETCHER_MODULE_PATH}.Database.create_for", return_value=database),
+        patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_execute,
+    ):
+        records = data_warehouse_record_fetcher(
+            team=MagicMock(pk=1),
+            config=_make_config(max_records=10),
+            context={
+                "table_name": "issues",
+                "extra": {"source_type": "Linear", "schema_name": "issues"},
+                "source_config": {"hogql_filter": saved},
+            },
+        )
+
+    assert records == [{"id": 1, "description": "kept"}]
+    query = mock_execute.call_args.kwargs["query"]
+    assert isinstance(query.limit, ast.Constant) and query.limit.value == 10
+    assert isinstance(query.where.exprs[-1], ast.Or)
+    assert query.select[-1].alias == "__signal_filter_malformed"
+    assert mock_execute.call_args.kwargs["context"].database is database
+
+
+def test_unreadable_saved_filter_stops_the_fetch() -> None:
+    with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query") as mock_execute, pytest.raises(FilterValidationError):
+        data_warehouse_record_fetcher(
+            team=MagicMock(pk=1),
+            config=_make_config(),
+            context={"table_name": "issues", "extra": {}, "source_config": {"hogql_filter": "true"}},
+        )
+    mock_execute.assert_not_called()
 
 
 class TestBuildEmitterOutputs:
@@ -1615,6 +1716,7 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
             patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
@@ -1652,6 +1754,7 @@ class TestEmitActivitySourceConfigThreading:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
+            patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
             patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
             patch(
                 f"{ACTIVITY_MODULE_PATH}.afetch_source_config",

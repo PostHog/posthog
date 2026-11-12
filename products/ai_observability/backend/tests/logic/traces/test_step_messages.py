@@ -101,6 +101,7 @@ def test_pairs_tool_results_with_their_calls_instead_of_repeating_them_as_messag
         ("integer_that_would_lose_digits", '{"invoice_id":1234567890123456789}'),
         ("decimal_that_would_lose_digits", '{"amount":123456789012345.6789}'),
         ("number_that_overflows_to_null", '{"value":1e309}'),
+        ("exponent_past_the_int_digit_limit", '{"value":1e-' + "1" * 5000 + "}"),
     ]
 )
 def test_keeps_a_tool_result_that_would_not_survive_parsing_as_its_exact_text(_name, content):

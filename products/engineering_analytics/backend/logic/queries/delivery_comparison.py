@@ -1,8 +1,6 @@
 """Curated query: an author's ready-to-merge medians next to their team's and the repository's.
 
-The merged pull requests come from the delivery summary's own read, so all three populations share one
-definition with the summary figures. The team population is the team's members' pull requests, which is
-what a github_team delivery scope reads too.
+The team population is the pull requests of the team's members, the same as a github_team delivery scope.
 """
 
 from dataclasses import replace
@@ -36,12 +34,10 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 
 # The census runs daily, so a few days always find its latest run.
 _CENSUS_LOOKBACK = timedelta(days=3)
-# Below this many other authors who contribute a value, the median is one or two pull requests wearing a
-# team's label (SPEC §2). A noise floor, not a privacy floor: the population holds one value per merged pull
-# request, and each of those times already shows on its own pull request page.
+# A noise floor, not a privacy floor (SPEC §2): with fewer other contributing authors, the team median is
+# one or two pull requests.
 MIN_OTHER_TEAM_AUTHORS = 2
 
-# Every team the author is in, with all of its members.
 _AUTHOR_TEAMS_SELECT = f"""
     SELECT team_slug, groupUniqArray(member_handle) AS members
     FROM __MEMBERS_SOURCE__ AS m
@@ -52,7 +48,6 @@ _AUTHOR_TEAMS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Per team: the author's pull requests that asked it to review in the window.
 _WINDOW_REQUESTS_SELECT = f"""
     SELECT team_slug, uniq(pr_number) AS prs
     FROM __REQUESTS_SOURCE__ AS rr
@@ -62,8 +57,7 @@ _WINDOW_REQUESTS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# The teams the pull request in focus asked to review, when the author wrote it. A long-lived pull request
-# asked them before the window, so this read has no scan floor.
+# A long-lived pull request asked its reviewers before the window, so this read has no scan floor.
 _FOCUS_REQUESTS_SELECT = f"""
     SELECT DISTINCT team_slug
     FROM __REQUESTS_SOURCE__ AS rr

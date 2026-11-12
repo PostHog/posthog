@@ -20,22 +20,17 @@ def _member_row(member_id: int, login: str, team_slug: str, role: str) -> dict:
 
 
 class TestGitHubTeamRoster(_WarehouseMixin, ClickhouseTestMixin, BaseTest):
-    """The roster read end to end over a real warehouse table, with no PR/CI endpoints seeded."""
-
     def test_reads_the_roster_from_a_source_that_syncs_membership_alone(self) -> None:
-        # Guards the HogQL and the narrow resolver together: the read runs without pull_requests /
-        # workflow_runs, lowercases the login, and carries the role. A break here is invisible,
-        # because the caller degrades to "not synced" rather than raising.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
             [
                 _member_row(1, "Boss", "team-desktop", "maintainer"),
                 _member_row(2, "plain", "team-desktop", "member"),
-                # A per-repo sync of an org-scoped endpoint lands this membership twice: it must
-                # collapse to one row without demoting the maintainer.
+                # A per-repo sync of an org-scoped endpoint lands a membership twice. The read must
+                # return one row and keep the maintainer role.
                 _member_row(5, "boss", "team-desktop", "member"),
-                # Rows GitHub can land that reach no reader: no login to match, no team to file under.
+                # GitHub can land a row with no login or no team.
                 _member_row(3, "", "team-desktop", "member"),
                 _member_row(4, "nobody", "", "member"),
             ],

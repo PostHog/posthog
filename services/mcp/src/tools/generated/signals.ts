@@ -1892,6 +1892,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.source_issues !== undefined) {
             body['source_issues'] = params.source_issues
         }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3388,6 +3391,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.source_issues !== undefined) {
             body['source_issues'] = params.source_issues
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags

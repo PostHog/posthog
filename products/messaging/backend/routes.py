@@ -2,6 +2,7 @@ from django.urls import URLPattern, re_path
 
 from posthog.api.routing import RouterRegistry
 
+from products.messaging.backend.presentation.views.attachment_uploads import MessagingAttachmentsViewSet
 from products.messaging.backend.presentation.views.message_categories import MessageCategoryViewSet
 from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
@@ -42,6 +43,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"messaging_suppressions", MessageSuppressionViewSet, "project_messaging_suppressions", ["team_id"]
     )
     routers.projects.register(r"messaging/send", MessagingSendViewSet, "project_messaging_send", ["team_id"])
+    routers.projects.register(
+        r"messaging/attachments", MessagingAttachmentsViewSet, "project_messaging_attachments", ["team_id"]
+    )
     routers.projects.register(
         r"messaging_provider_imports", ProviderImportViewSet, "project_messaging_provider_imports", ["team_id"]
     )

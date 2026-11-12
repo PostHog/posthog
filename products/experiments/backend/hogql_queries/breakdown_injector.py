@@ -1,4 +1,4 @@
-"""Breakdown column injection for experiment metric queries (funnel, mean, ratio, retention)."""
+"""Breakdown column injection for experiment metric queries (funnel, mean, ratio, retention, quantile)."""
 
 from typing import Union, cast
 
@@ -19,6 +19,12 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
 from products.product_analytics.backend.facade.queries import get_properties_chain
+
+
+def _cte_select(query: ast.SelectQuery, name: str) -> ast.SelectQuery:
+    cte = query.ctes[name] if query.ctes else None
+    assert isinstance(cte, ast.CTE) and isinstance(cte.expr, ast.SelectQuery)
+    return cte.expr
 
 
 class BreakdownInjector:
@@ -402,3 +408,56 @@ class BreakdownInjector:
             query.group_by = []
         for alias in aliases:
             query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+    def inject_quantile_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Breakdowns come from exposures. variant_quantiles then holds one quantile per variant and breakdown,
+        and entity_stats compares each event with the quantile of its own breakdown. The final SELECT groups
+        by the breakdown of the exposure, so that an exposed entity without events still counts in its group.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        variant_events = _cte_select(query, "variant_events")
+        for alias in aliases:
+            variant_events.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])))
+
+        variant_quantiles = _cte_select(query, "variant_quantiles")
+        if variant_quantiles.group_by is None:
+            variant_quantiles.group_by = []
+        for alias in aliases:
+            variant_quantiles.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["variant_events", alias])))
+            variant_quantiles.group_by.append(ast.Field(chain=["variant_events", alias]))
+
+        join_expr = _cte_select(query, "entity_stats").select_from
+        while join_expr is not None and not (
+            isinstance(join_expr.table, ast.Field) and join_expr.table.chain == ["variant_quantiles"]
+        ):
+            join_expr = join_expr.next_join
+        assert join_expr is not None and join_expr.constraint is not None
+        join_expr.constraint.expr = ast.And(
+            exprs=[
+                join_expr.constraint.expr,
+                *(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["variant_quantiles", alias]),
+                        right=ast.Field(chain=["variant_events", alias]),
+                    )
+                    for alias in aliases
+                ),
+            ]
+        )
+
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])),
+            )
+
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["exposures", alias]))

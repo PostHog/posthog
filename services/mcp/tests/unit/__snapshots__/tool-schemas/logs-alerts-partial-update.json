@@ -2951,6 +2951,16 @@
             "description": "A UUID string identifying this logs alert configuration.",
             "type": "string"
         },
+        "labels": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "name": {
             "description": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
             "maxLength": 255,
