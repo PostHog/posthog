@@ -195,6 +195,28 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
+              }
+            | {
                   cohort_id: number | null
                   transition: 'entered' | 'left'
                   type: 'cohort'
@@ -517,6 +539,28 @@ export interface stepWaitUntilTimeWindowLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   filters: {

@@ -1103,6 +1103,7 @@ export function DataTable({
                             )}
                         </>
                     )}
+                    {context?.dataTableBelowToolbar}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
