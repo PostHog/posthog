@@ -598,6 +598,16 @@ class TestWorkflowFolders(APIBaseTest):
             ("unfiled_by_editor", "unfiled", "editor", 200, True),
             ("unfiled_by_viewer", "unfiled", "viewer", 200, False),
             ("unfiled_by_read_only_key", "unfiled", "read_only_key", 200, False),
+            ("refless_rename_by_owner", "refless_rename", "owner", 200, True),
+            (
+                "refless_rename_by_key_without_workflow_scope",
+                "refless_rename",
+                "key_without_workflow_scope",
+                403,
+                False,
+            ),
+            ("refless_move_by_owner", "refless_move", "owner", 200, True),
+            ("refless_move_by_key_without_workflow_scope", "refless_move", "key_without_workflow_scope", 403, False),
         ]
     )
     def test_every_template_file_write_needs_access_to_change_the_template(
@@ -642,6 +652,12 @@ class TestWorkflowFolders(APIBaseTest):
             self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
         if path == "unfiled":
             FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        refless = FileSystem.objects.create(
+            team=self.team, path="Refless email", depth=1, type="message_template", ref=""
+        )
+        if path.startswith("refless"):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
         requests: dict[str, tuple[str, str, dict | None]] = {
             "file": ("post", "", {"path": "Placed/Guarded email", "type": "message_template", "ref": template_id}),
             "shortcut": (
@@ -668,6 +684,8 @@ class TestWorkflowFolders(APIBaseTest):
                 {"items": [{"type": "message_template", "ref": template_id, "path": "Restored/Guarded email"}]},
             ),
             "unfiled": ("get", "unfiled/?type=message_template", None),
+            "refless_rename": ("patch", f"{refless.id}/", {"path": "Renamed/Refless email"}),
+            "refless_move": ("post", f"{refless.id}/move/", {"new_path": "Moved/Refless email"}),
         }
         headers: dict[str, str] = {}
         if "key" in actor:
@@ -677,7 +695,7 @@ class TestWorkflowFolders(APIBaseTest):
             }[actor]
             headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"
             self.client.logout()
-        else:
+        elif actor != "owner":
             member = User.objects.create_and_join(self.organization, f"{actor}@example.com", "invented-password")
             membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
             create_access_control(

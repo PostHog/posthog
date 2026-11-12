@@ -474,10 +474,15 @@ class WorkflowFileTarget:
 def _workflow_target(
     entry_type: Optional[str], ref: Optional[str], team_id: int, shortcut: Optional[bool]
 ) -> WorkflowFileTarget | None:
-    if entry_type not in WORKFLOW_FILE_SYSTEM_TYPES or not ref:
+    if entry_type not in WORKFLOW_FILE_SYSTEM_TYPES:
         return None
+    # A row with no ref still needs workflow access to change. Its empty ref names no object, so its access
+    # resolves at resource level.
     return WorkflowFileTarget(
-        type=entry_type, ref=canonical_file_system_ref(entry_type, ref), team_id=team_id, shortcut=bool(shortcut)
+        type=entry_type,
+        ref=canonical_file_system_ref(entry_type, ref) if ref else "",
+        team_id=team_id,
+        shortcut=bool(shortcut),
     )
 
 
@@ -671,16 +676,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 group = [target for target in ordered if target.shortcut is shortcut and target not in denied]
                 missing = set(
                     entries_missing_access_level(
-                        [(target.type, target.ref, target.team_id) for target in group],
+                        [(target.type, target.ref, target.team_id) for target in group if target.ref],
                         self.user_access_control,
                         self.team.project_id,
                         level,
                     )
                 )
                 for target in group:
-                    if (target.type, target.ref) in missing:
+                    if (target.type, target.ref) in missing or (
+                        not target.ref
+                        and not self.user_access_control.check_access_level_for_resource(
+                            file_system_resource(target.type), required_level=level
+                        )
+                    ):
                         denied[target] = PermissionDenied(message)
-        owned = [target for target in ordered if not target.shortcut and target not in denied]
+        owned = [target for target in ordered if not target.shortcut and target.ref and target not in denied]
         refs_by_type: dict[tuple[int, str], set[str]] = {}
         for target in owned:
             refs_by_type.setdefault((target.team_id, target.type), set()).add(target.ref)
