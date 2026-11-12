@@ -33,7 +33,7 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -819,7 +819,7 @@ def redis_celery_queue_depth() -> None:
             )
 
             for queue in CeleryQueue:
-                llen = get_client().llen(queue.value)
+                llen = get_celery_broker_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
     except:

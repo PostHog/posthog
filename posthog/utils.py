@@ -60,7 +60,7 @@ from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallba
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.stable_chunks import stable_chunks_for_request
@@ -1770,7 +1770,7 @@ def get_redis_info() -> Mapping[str, Any]:
 
 
 def get_redis_queue_depth() -> int:
-    return get_client().llen("celery")
+    return get_celery_broker_client().llen("celery")
 
 
 def get_instance_realm() -> str:
