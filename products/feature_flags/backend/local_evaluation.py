@@ -645,8 +645,6 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         )
         .order_by("team_id", "key")
     )
-    # The ids come from a second read, so they can include experiment writes newer than the flags. Each such
-    # write also rebuilds the team's cache through the `experiment_changed` receiver when it commits.
     live_experiment_flag_ids = flag_ids_with_live_experiment(
         [flag.pk for flag in all_flags], using=DATABASE_FOR_LOCAL_EVALUATION
     )

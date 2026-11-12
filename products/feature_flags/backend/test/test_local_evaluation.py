@@ -22,7 +22,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -41,6 +41,7 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 from products.surveys.backend.models import Survey
 
 
@@ -431,28 +432,13 @@ class TestLocalEvaluationSignals(BaseTest):
         assert flag_definitions_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
 
-    @parameterized.expand(["create", "update", "soft_delete", "delete"])
+    @parameterized.expand(EXPERIMENT_CHANGES)
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="exp-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        if action == "create":
-            mock_task.reset_mock()
-            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-        else:
-            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-            mock_task.reset_mock()
-            if action == "update":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Renamed experiment")
-            elif action == "soft_delete":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
-            else:
-                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
+        change = seed_experiment_change(action, team=self.team, user=self.user)
+        mock_task.reset_mock()
+        change()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
@@ -1320,8 +1306,7 @@ class TestLocalEvaluationBatch(BaseTest):
         )
 
         with self.assertNumQueries(4):
-            # Group type mappings use personhog; SQL only loads team config, surveys, eligible flags, and the flag
-            # ids that have a live experiment.
+            # Group type mappings use personhog; SQL loads team config, surveys, eligible flags and their experiments.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}

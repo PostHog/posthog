@@ -238,8 +238,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
-    # Cache projection: whether the flag backs an experiment. Set from one bulk read of
-    # the experiment flag ids (or read from cache) to avoid a per-flag experiment lookup.
+    # Cache projection: whether the flag backs an experiment, set in bulk to avoid a per-flag experiment lookup.
     _has_experiment: Optional[bool] = None
 
     # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one

@@ -34,7 +34,7 @@ from posthog.models import Team
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     KAFKA_ROUTING_FLAG,
@@ -65,6 +65,7 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -956,31 +957,13 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @parameterized.expand(["create", "update", "soft_delete", "delete"])
+    @parameterized.expand(EXPERIMENT_CHANGES)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
-        # Creating, soft-deleting, or hard-deleting an experiment invalidates the linked
-        # flag's team cache so has_experiment refreshes.
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="exp-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        if action == "create":
-            # Reset first so we assert on the experiment-create signal, not the flag-create one.
-            mock_task.reset_mock()
-            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-        else:
-            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-            mock_task.reset_mock()
-            if action == "update":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Renamed experiment")
-            elif action == "soft_delete":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
-            else:
-                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
+        change = seed_experiment_change(action, team=self.team, user=self.user)
+        mock_task.reset_mock()
+        change()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 

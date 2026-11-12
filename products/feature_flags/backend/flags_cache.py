@@ -577,8 +577,6 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         )
     )
     all_flags = list(flag_queryset)
-    # The ids come from a second read, so they can include experiment writes newer than the flags. Each such
-    # write also rebuilds the team's cache through the `experiment_changed_flags_cache` receiver when it commits.
     live_experiment_flag_ids = flag_ids_with_live_experiment([flag.pk for flag in all_flags], using=flag_queryset.db)
 
     # Transfer aggregated tag names to model instances
