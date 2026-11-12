@@ -189,6 +189,37 @@ class CdcStatusSerializer(serializers.Serializer):
     )
 
 
+def parse_cdc_tuning(
+    data: Any, *, current_warning: Any = None, current_critical: Any = None
+) -> tuple[dict[str, Any], str | None]:
+    """Validate the CDC tuning fields in a request body.
+
+    Returns the validated fields that were present, or an error message. A threshold that is
+    absent is checked against the current value, so the warning stays below the critical one.
+    """
+    tuning: dict[str, Any] = {}
+
+    if "cdc_auto_drop_slot" in data:
+        tuning["cdc_auto_drop_slot"] = bool(data["cdc_auto_drop_slot"])
+
+    for field in ("cdc_lag_warning_threshold_mb", "cdc_lag_critical_threshold_mb"):
+        if field in data:
+            try:
+                value = int(data[field])
+            except (TypeError, ValueError):
+                return {}, f"{field} must be an integer."
+            if value < 1:
+                return {}, f"{field} must be >= 1."
+            tuning[field] = value
+
+    warn = tuning.get("cdc_lag_warning_threshold_mb", current_warning)
+    crit = tuning.get("cdc_lag_critical_threshold_mb", current_critical)
+    if warn is not None and crit is not None and int(warn) >= int(crit):
+        return {}, "Warning threshold must be less than critical threshold."
+
+    return tuning, None
+
+
 class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
     def _setup_cdc_resources(
         self, adapter: CDCSourceAdapter, source_model: ExternalDataSource, payload: dict
@@ -460,6 +491,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
             )
 
+        tuning, tuning_error = parse_cdc_tuning(
+            request.data,
+            current_warning=DEFAULT_LAG_WARNING_THRESHOLD_MB,
+            current_critical=DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+        )
+        if tuning_error is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": tuning_error})
+        payload = {**request.data, **tuning}
+
         # Validate prerequisites server-side — never trust a client-only check.
         schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
@@ -468,7 +508,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                setup=request.data,
+                setup=payload,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
@@ -491,7 +531,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "CDC prerequisites not met.", "errors": prereq_errors},
             )
 
-        cdc_error = self._setup_cdc_resources(adapter, instance, request.data)
+        cdc_error = self._setup_cdc_resources(adapter, instance, payload)
         if cdc_error is not None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -890,34 +930,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         job_inputs = SourceInputsStore.load_settings(instance)
-        updates: dict[str, Any] = {}
-
-        if "cdc_auto_drop_slot" in request.data:
-            updates["cdc_auto_drop_slot"] = bool(request.data["cdc_auto_drop_slot"])
-
-        for field in ("cdc_lag_warning_threshold_mb", "cdc_lag_critical_threshold_mb"):
-            if field in request.data:
-                try:
-                    value = int(request.data[field])
-                except (TypeError, ValueError):
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": f"{field} must be an integer."},
-                    )
-                if value < 1:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": f"{field} must be >= 1."},
-                    )
-                updates[field] = value
-
-        warn = updates.get("cdc_lag_warning_threshold_mb", job_inputs.get("cdc_lag_warning_threshold_mb"))
-        crit = updates.get("cdc_lag_critical_threshold_mb", job_inputs.get("cdc_lag_critical_threshold_mb"))
-        if warn is not None and crit is not None and int(warn) >= int(crit):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Warning threshold must be less than critical threshold."},
-            )
+        updates, tuning_error = parse_cdc_tuning(
+            request.data,
+            current_warning=job_inputs.get("cdc_lag_warning_threshold_mb"),
+            current_critical=job_inputs.get("cdc_lag_critical_threshold_mb"),
+        )
+        if tuning_error is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": tuning_error})
 
         if not updates:
             return Response(status=status.HTTP_200_OK, data={"success": True, "unchanged": True})
