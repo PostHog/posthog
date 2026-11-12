@@ -249,6 +249,14 @@ class TestWorkflowFolders(APIBaseTest):
             ("unlink_by_viewer", "unlink", "viewer", 403, False),
             ("folder_delete_by_editor", "folder_delete", "editor", 204, True),
             ("folder_delete_by_viewer", "folder_delete", "viewer", 403, False),
+            ("shortcut_folder_delete_by_viewer", "shortcut_folder_delete", "viewer", 204, True),
+            (
+                "shortcut_folder_delete_by_key_without_workflow_scope",
+                "shortcut_folder_delete",
+                "key_without_workflow_scope",
+                403,
+                False,
+            ),
             ("delete_by_editor", "delete", "editor", 200, True),
             ("delete_by_viewer", "delete", "viewer", 403, False),
             ("restore_by_editor", "restore", "editor", 200, True),
@@ -284,6 +292,16 @@ class TestWorkflowFolders(APIBaseTest):
             team=self.team, path="Starred email", depth=1, type="message_template", ref=template_id, shortcut=True
         )
         plain = FileSystem.objects.create(team=self.team, path="Plain", depth=1, type="folder")
+        starred = FileSystem.objects.create(team=self.team, path="Starred", depth=1, type="folder")
+        if path == "shortcut_folder_delete":
+            FileSystem.objects.create(
+                team=self.team,
+                path="Starred/Guarded email",
+                depth=2,
+                type="message_template",
+                ref=template_id,
+                shortcut=True,
+            )
         if path == "delete":
             copy.delete()
         if path == "restore":
@@ -306,6 +324,7 @@ class TestWorkflowFolders(APIBaseTest):
             "folder_link": ("post", f"{inbox.id}/link/", {"new_path": "Linked"}),
             "unlink": ("delete", f"{entry.id}/", None),
             "folder_delete": ("delete", f"{inbox.id}/?recursive=true", None),
+            "shortcut_folder_delete": ("delete", f"{starred.id}/?recursive=true", None),
             "delete": ("delete", f"{entry.id}/", None),
             "restore": (
                 "post",

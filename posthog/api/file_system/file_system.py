@@ -1254,6 +1254,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
         entries_to_check: list[FileSystem] = []
+        shortcuts_to_check: list[FileSystem] = []
 
         while stack:
             current = stack.pop()
@@ -1263,6 +1264,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             seen.add(key)
 
             if current.shortcut:
+                shortcuts_to_check.append(current)
                 continue
 
             if current.type == "folder":
@@ -1278,7 +1280,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             entries_to_check.append(current)
 
-        if not entries_to_check:
+        if not entries_to_check and not shortcuts_to_check:
             return {}
 
         ids_to_remove = {entry.id for entry in entries_to_check}
@@ -1312,7 +1314,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
 
             objects_to_delete: builtins.list[tuple[str, str, int]] = []
-            reaches_backing_object: dict[CheckedRow, bool] = {}
+            reaches_backing_object: dict[CheckedRow, bool] = dict.fromkeys(map(_checked_row, shortcuts_to_check), False)
 
             # Sorted so concurrent requests whose cascades overlap on more than one object always
             # acquire the per-object locks in the same order - locking in traversal order (DFS over
@@ -1376,10 +1378,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             and entries_missing_access_level(other_objects, self.user_access_control, self.team.project_id, "editor")
         ):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
-        # The sibling locks above already hold every row with a ref, so this lock waits only on ref-less rows.
+        # The sibling locks above already hold every non-shortcut row with a ref, so this lock waits only on
+        # ref-less rows and shortcuts.
         # A row that was retargeted or deleted before its lock drops out of the map, and the delete leaves it.
         locked, _ = self._lock_and_authorize_workflow_files(
-            Q(pk__in=ids_to_remove),
+            Q(pk__in=ids_to_remove | {row.id for row in shortcuts_to_check}),
             new_files=[
                 _workflow_target(file_type, ref, team_id, False) for file_type, ref, team_id in objects_to_delete
             ],
@@ -1392,8 +1395,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ) -> builtins.list[dict[str, Any]]:
         deleted_objects: list[dict[str, Any]] = []
 
+        # A workflow shortcut that arrived after _ensure_can_delete was never authorized, so it stays.
         if entry.shortcut:
-            entry.delete()
+            if _row_target(entry) is None or _checked_row(entry) in reaches_backing_object:
+                entry.delete()
             return deleted_objects
 
         if entry.type == "folder":
