@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import {
+    aeoBrandsList,
     aeoPromptsChecks,
     aeoPromptsPartialUpdate,
     aeoPromptsRetrieve,
@@ -18,6 +19,7 @@ import {
     aeoPromptsVersions,
 } from 'products/web_analytics/frontend/generated/api'
 import type {
+    AEOBrandApi,
     AEOPromptApi,
     AEOPromptCheckApi,
     AEOPromptStatsApi,
@@ -25,6 +27,7 @@ import type {
     PaginatedAEOPromptCheckListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AnswerBrand, AnswerMentions, answerMentions } from './answerMentions'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
@@ -48,6 +51,9 @@ import {
 import { promptEditPatch, sortEngines } from './utils'
 import { type AnswerOutcomeChart, answerOutcomeChart } from './visibilityChart'
 
+// Confirmed competitors are a short, reviewed list; this only bounds a catalog that grew unexpectedly.
+const MAX_HIGHLIGHTED_COMPETITORS = 100
+
 export type PromptReportTab = 'overview' | 'answers' | 'sources' | 'sentiment' | 'searches' | 'history'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
@@ -58,12 +64,16 @@ export type ContentAutopilotPromptDetailError = 'not_found' | 'failed'
 export interface contentAutopilotPromptDetailLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     activeEngine: string | null
+    answerBrands: AnswerBrand[]
     archiveConfirming: boolean
     checks: PaginatedAEOPromptCheckListApi | null
     checksFailed: boolean
     checksLoading: boolean
     checksPage: number
     citationsQuery: DataTableNode | null
+    competitorBrands: AEOBrandApi[] | null
+    competitorBrandsFailed: boolean
+    competitorBrandsLoading: boolean
     consensusMatrix: PromptConsensusMatrix | null
     detailError: ContentAutopilotPromptDetailError | null
     engines: string[]
@@ -85,6 +95,7 @@ export interface contentAutopilotPromptDetailLogicValues {
     selectedEngine: string | null
     sentimentQuery: DataVisualizationNode | null
     sentimentSummary: PromptSentimentSummary | null
+    shownAnswerMentions: AnswerMentions | null
     shownCheck: AEOPromptCheckApi | null
     sourcesQuery: DataTableNode | null
     stats: AEOPromptStatsApi | null
@@ -214,6 +225,21 @@ export interface contentAutopilotPromptDetailLogicActions {
         versions: AEOPromptVersionApi[]
         payload?: string
     }
+    loadCompetitorBrands: () => any
+    loadCompetitorBrandsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCompetitorBrandsSuccess: (
+        competitorBrands: AEOBrandApi[],
+        payload?: any
+    ) => {
+        competitorBrands: AEOBrandApi[]
+        payload?: any
+    }
     openPromptDetail: (promptId: string) => {
         promptId: string
     }
@@ -272,6 +298,11 @@ export interface contentAutopilotPromptDetailLogicMeta {
             activeEngine: string | null,
             latestChecks: Record<string, AEOPromptCheckApi>
         ) => AEOPromptCheckApi | null
+        answerBrands: (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null) => AnswerBrand[]
+        shownAnswerMentions: (
+            shownCheck: AEOPromptCheckApi | null,
+            answerBrands: AnswerBrand[]
+        ) => AnswerMentions | null
         lastCheckedAt: (stats: AEOPromptStatsApi | null) => string | null
         reportKpis: (stats: AEOPromptStatsApi | null) => PromptReportKpis | null
         consensusMatrix: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptConsensusMatrix | null
@@ -364,6 +395,20 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 },
             },
         ],
+        // Null until the catalog answers, so "no competitors" never shows while it loads or after it fails.
+        competitorBrands: [
+            null as AEOBrandApi[] | null,
+            {
+                loadCompetitorBrands: async () => {
+                    const page = await aeoBrandsList(String(values.currentTeamIdStrict), {
+                        kind: 'competitor',
+                        status: 'confirmed',
+                        limit: MAX_HIGHLIGHTED_COMPETITORS,
+                    })
+                    return page.results
+                },
+            },
+        ],
         latestChecks: [
             {} as Record<string, AEOPromptCheckApi>,
             {
@@ -401,6 +446,13 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         ],
     })),
     reducers({
+        competitorBrandsFailed: [
+            false,
+            {
+                loadCompetitorBrands: () => false,
+                loadCompetitorBrandsFailure: () => true,
+            },
+        ],
         promptId: [
             null as string | null,
             {
@@ -543,6 +595,34 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             ): AEOPromptCheckApi | null =>
                 selectedCheck ?? (activeEngine ? (latestChecks[activeEngine] ?? null) : null),
         ],
+        answerBrands: [
+            (s) => [s.stats, s.competitorBrands],
+            (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null): AnswerBrand[] => [
+                // Own brand first, so a word both could claim highlights as ours.
+                ...(stats?.brand_names.length
+                    ? [{ key: 'own', name: stats.brand_names[0], domain: null, isOwn: true, terms: stats.brand_names }]
+                    : []),
+                ...(competitorBrands ?? []).map((brand) => ({
+                    key: brand.id,
+                    name: brand.name || brand.domain,
+                    domain: brand.domain,
+                    isOwn: false,
+                    terms: [brand.name, brand.domain, ...brand.aliases].filter(Boolean),
+                })),
+            ],
+        ],
+        shownAnswerMentions: [
+            (s) => [s.shownCheck, s.answerBrands],
+            (shownCheck: AEOPromptCheckApi | null, answerBrands: AnswerBrand[]): AnswerMentions | null =>
+                shownCheck && !shownCheck.check_failed
+                    ? answerMentions(
+                          shownCheck.answer_text ?? '',
+                          answerBrands,
+                          shownCheck.cited_urls,
+                          shownCheck.cited
+                      )
+                    : null,
+        ],
         lastCheckedAt: [
             (s) => [s.stats],
             (stats: AEOPromptStatsApi | null): string | null =>
@@ -615,6 +695,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             actions.loadAeoPrompt(promptId)
             actions.loadAeoPromptStats(promptId)
             actions.loadAeoPromptChecks()
+            actions.loadCompetitorBrands()
         },
         loadAeoPromptStatsSuccess: ({ stats, payload: promptId }) => {
             // Stats from a prompt the user already left must not drive the next prompt's answers.
