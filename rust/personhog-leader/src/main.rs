@@ -177,15 +177,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
         256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
     ];
+    const PG_LOAD_AGE_BUCKETS_SECONDS: &[f64] = &[
+        60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
+        7776000.0, 31536000.0,
+    ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
     // to bucket edges. Overridden per metric so seconds-scale histograms
     // keep the cheap default ladder.
-    const PG_LOAD_AGE_BUCKETS_SECONDS: &[f64] = &[
-        60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
-        7776000.0, 31536000.0,
-    ];
     let metrics_router = setup_metrics_routes_with_overrides(
         health_router,
         &[
