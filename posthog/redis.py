@@ -1,4 +1,6 @@
 # flake8: noqa
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 import asyncio
@@ -171,6 +173,16 @@ def get_async_client(redis_url: Optional[str] = None):
             pool_map[redis_url] = client
 
         return client
+
+
+@contextmanager
+def TEST_redis_down(redis_url: Optional[str] = None) -> Iterator[None]:
+    server = _get_test_fake_server(redis_url or settings.REDIS_URL)
+    server.connected = False
+    try:
+        yield
+    finally:
+        server.connected = True
 
 
 def TEST_clear_clients():

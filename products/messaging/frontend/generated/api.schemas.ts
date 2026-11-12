@@ -119,6 +119,27 @@ export interface EmailStatusApi {
     reason: string | null
 }
 
+export interface RescheduleEmailApi {
+    /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`, kept to the millisecond. At most 30 days after the email was sent. A time that already passed sends it now. */
+    scheduled_at: string
+}
+
+export interface RescheduledEmailApi {
+    /** The `message_id` of the moved email. */
+    id: string
+    /** Always `scheduled`. An email moved to now keeps this status until it goes out. */
+    status: string
+    /** When the email goes out. For a time that already passed, this is the time of the move. */
+    scheduled_at: string
+}
+
+export interface CanceledEmailApi {
+    /** The `message_id` of the canceled email. */
+    id: string
+    /** Always `canceled`. */
+    status: string
+}
+
 /**
  * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
  */

@@ -1,6 +1,9 @@
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
+
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -57,6 +60,17 @@ def validate_pipeline_address(address: str) -> None:
 def _extension_as_windows_saves_it(filename: str) -> str | None:
     _, dot, extension = filename.rstrip(". ").rpartition(".")
     return extension.lower() if dot else None
+
+
+class ScheduledAtField(serializers.DateTimeField):
+    default_error_messages = {
+        "no_offset": "Add a timezone offset to the time, such as `Z` or `+02:00`, so PostHog knows when to send it."
+    }
+
+    def enforce_timezone(self, value: datetime) -> datetime:
+        if timezone.is_naive(value):
+            self.fail("no_offset")
+        return super().enforce_timezone(value)
 
 
 @extend_schema_field(

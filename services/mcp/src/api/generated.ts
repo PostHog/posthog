@@ -23662,6 +23662,13 @@ export namespace Schemas {
       check_id: string;
     }
 
+    export interface CanceledEmail {
+      /** The `message_id` of the canceled email. */
+      id: string;
+      /** Always `canceled`. */
+      status: string;
+    }
+
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -105691,6 +105698,20 @@ export namespace Schemas {
          * @maxItems 100
          */
       repos: string[];
+    }
+
+    export interface RescheduleEmail {
+      /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`, kept to the millisecond. At most 30 days after the email was sent. A time that already passed sends it now. */
+      scheduled_at: string;
+    }
+
+    export interface RescheduledEmail {
+      /** The `message_id` of the moved email. */
+      id: string;
+      /** Always `scheduled`. An email moved to now keeps this status until it goes out. */
+      status: string;
+      /** When the email goes out. For a time that already passed, this is the time of the move. */
+      scheduled_at: string;
     }
 
     export interface RescoreRequest {

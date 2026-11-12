@@ -2,7 +2,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
-from datetime import datetime, timedelta
 from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
@@ -13,7 +12,6 @@ from django.core.exceptions import (
 )
 from django.core.validators import validate_email
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -101,6 +99,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AddressListField,
     AttachmentListField,
     EmailTrackingField,
+    ScheduledAtField,
     attachment_size,
     field_not_accepted_refusal,
     refused_attachment,
@@ -117,6 +116,7 @@ from products.messaging.backend.presentation.views.serializers import DesignOper
 from products.messaging.backend.presentation.views.transactional_email_access import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     email_from_code_enabled,
+    lead_time_bucket,
     require_email_from_code,
     require_scheduled_sends,
     require_transactional_email_api,
@@ -514,17 +514,6 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
                 }
             )
         return data
-
-
-class ScheduledAtField(serializers.DateTimeField):
-    default_error_messages = {
-        "no_offset": "Add a timezone offset to the time, such as `Z` or `+02:00`, so PostHog knows when to send it."
-    }
-
-    def enforce_timezone(self, value: datetime) -> datetime:
-        if timezone.is_naive(value):
-            self.fail("no_offset")
-        return super().enforce_timezone(value)
 
 
 CODE_SEND_FIELDS = (
@@ -1494,27 +1483,14 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         )
 
 
-LEAD_TIME_BUCKETS = (
-    (timedelta(hours=1), "under_1h"),
-    (timedelta(days=1), "1h_to_24h"),
-    (timedelta(days=3), "1d_to_3d"),
-    (timedelta(days=7), "3d_to_7d"),
-    (timedelta(days=30), "7d_to_30d"),
-)
-
-
 def _lead_time(request: Any) -> dict[str, Any]:
     if not hasattr(request, "validated_data"):
         asked = "scheduled_at" in _sent_fields(request.data)
         return (
             {"scheduled": None, "lead_time_bucket": None} if asked else {"scheduled": False, "lead_time_bucket": "now"}
         )
-    scheduled_at = request.validated_data.get("scheduled_at")
-    lead_time = scheduled_at - timezone.now() if scheduled_at else timedelta(0)
-    if lead_time <= timedelta(0):
-        return {"scheduled": False, "lead_time_bucket": "now"}
-    bucket = next((bucket for limit, bucket in LEAD_TIME_BUCKETS if lead_time <= limit), "over_30d")
-    return {"scheduled": True, "lead_time_bucket": bucket}
+    bucket = lead_time_bucket(request.validated_data.get("scheduled_at"))
+    return {"scheduled": bucket != "now", "lead_time_bucket": bucket}
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:

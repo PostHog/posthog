@@ -1,6 +1,7 @@
 """Transactional email: a template made sendable over the API, backed by a workflow that runs once per send."""
 
 from products.messaging.backend.facade.contracts import (
+    AlreadySending,
     AttachmentNotUploaded,
     AttachmentsRefused,
     AttachmentUploadRequest,
@@ -10,7 +11,9 @@ from products.messaging.backend.facade.contracts import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailCanceled,
     EmailDeliveryStatus,
+    EmailNotFound,
     EmailSendStatus,
     EmailStatus,
     EmailTracking,
@@ -21,9 +24,11 @@ from products.messaging.backend.facade.contracts import (
     PresentAttachment,
     QueuedEmail,
     QueuedEmailStatus,
+    RescheduleTooFar,
     TransactionalEmailError,
     UploadQuotaExceeded,
 )
+from products.messaging.backend.services.scheduled_emails import cancel_email, reschedule_email
 from products.messaging.backend.services.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
@@ -45,6 +50,12 @@ from products.messaging.backend.services.transactional_email import (
 from products.messaging.backend.services.transactional_email_status import get_email_status
 
 __all__ = [
+    "AlreadySending",
+    "EmailCanceled",
+    "EmailNotFound",
+    "RescheduleTooFar",
+    "cancel_email",
+    "reschedule_email",
     "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",

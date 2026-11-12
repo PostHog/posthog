@@ -38,6 +38,18 @@ export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Change when an email goes out, before PostHog starts sending it, by the `message_id` that the send returned. A time that already passed sends it now. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Move a scheduled email
+ */
+export const MessagingEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scheduled_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`, kept to the millisecond. At most 30 days after the email was sent. A time that already passed sends it now.'
+        ),
+})
+
+/**
  * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
  * @summary Set a recipient's topic preferences
  */

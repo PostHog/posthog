@@ -212,6 +212,26 @@ class InvalidScheduledAt(TransactionalEmailError):
     fix = "Pick a time within 30 days. To send later than that, send the email again closer to the time."
 
 
+class RescheduleTooFar(InvalidScheduledAt):
+    fix = "Pick a time within 30 days. To send later than that, cancel this email and send it again closer to the time."
+
+
+class EmailNotFound(TransactionalEmailError):
+    code = "not_found"
+
+
+class AlreadySending(TransactionalEmailError):
+    code = "already_sending"
+    why = "PostHog has started sending this email."
+    fix = "It can no longer be canceled or moved. Read its status to see the outcome."
+
+
+class EmailCanceled(TransactionalEmailError):
+    code = "canceled"
+    why = "This email was canceled."
+    fix = "Send it again with a new send call."
+
+
 @frozen
 class EmailTracking:
     opens: bool = True

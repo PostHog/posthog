@@ -34,6 +34,7 @@ class PosthogJwtAudience(Enum):
     WORKFLOWS_MANUAL_RUN = "posthog:workflows:manual_run"
     WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
     WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = "posthog:workflows:send_transactional_email"
+    WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL = "posthog:workflows:manage_transactional_email"
     WORKFLOWS_RESUME_BATCH = "posthog:workflows:resume_batch"
     CREDENTIALS_SERVICE = "posthog:credentials_service"
     CREDENTIALS_SERVICE_INTEGRATIONS = "posthog:credentials_service:integrations"
