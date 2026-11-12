@@ -1953,6 +1953,12 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
     for (const file of readers) {
         assert.equal(computeTargets([file], context).includes(vendorLane), true, file)
     }
+    // The SDK and the plugin root import core, so they also keep the product
+    // lane that core PRs overlap.
+    for (const file of readers.slice(0, 2)) {
+        assert.equal(computeTargets([file], context).includes('py:product:warehouse_sources'), true, file)
+    }
+    assert.equal(allKnownTargets(context).includes(vendorLane), true)
     for (const file of ['posthog/models/user.py', 'products/alpha/backend/api.py']) {
         assert.equal(computeTargets([file], context).includes(vendorLane), false, file)
     }

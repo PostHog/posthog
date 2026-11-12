@@ -93,9 +93,13 @@
 //      imports. In its own lane, the queue run holds only vendor changes, and the
 //      warehouse sources job in ci-python.yml narrows it to the changed vendors.
 //
-//      ACCEPTED RISK: a core PR that changes what the SDK returns and a vendor PR
-//      that depends on the old behavior merge in parallel, and neither queue run
-//      held both. The core PR's own queue run tests every vendor already on
+//      ACCEPTED RISK: two kinds of change can break a vendor, or be broken by
+//      one, without sharing its lane. The first is a posthog/, common/ or other
+//      product change that alters what the SDK returns. The second is code that
+//      loads every vendor at runtime through the source registry, with no import
+//      edge, such as a product test that checks each vendor's catalog entry.
+//      Either PR can merge in parallel with a vendor PR, and then no queue run
+//      held both. The other PR's own queue run tests every vendor already on
 //      master, so the gap is the new vendor code only. The hourly master run of
 //      the full vendor suite is the net for it.
 //
