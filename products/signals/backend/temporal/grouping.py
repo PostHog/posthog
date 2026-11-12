@@ -43,7 +43,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import forks_recurrence
-from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.report_merge import merge_survivor, signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
@@ -913,7 +913,12 @@ async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSigna
 
 
 def _emit_signal_document(
-    input: AssignAndEmitSignalInput, *, report_id: str, spend: Optional[SignalSpendSummary], timestamp: datetime
+    input: AssignAndEmitSignalInput,
+    *,
+    report_id: str,
+    spend: Optional[SignalSpendSummary],
+    timestamp: datetime,
+    deleted: bool = False,
 ) -> None:
     metadata = {
         "source_product": input.source_product,
@@ -927,6 +932,8 @@ def _emit_signal_document(
         "remediation": input.remediation,
         "match_metadata": asdict(input.match_result.match_metadata),
     }
+    if deleted:
+        metadata["deleted"] = True
     emit_embedding_request(
         content=input.description,
         team_id=input.team_id,
@@ -943,13 +950,19 @@ def _emit_signal_document(
 def _replay_assignment(
     input: AssignAndEmitSignalInput, record: SignalGroupingRecord, spend: Optional[SignalSpendSummary]
 ) -> AssignAndEmitDbResult:
-    report = SignalReport.objects.get(id=record.report_id, team_id=input.team_id)
+    report = SignalReport.objects.select_for_update().get(id=record.report_id, team_id=input.team_id)
+    report = merge_survivor(report, lock=True)
     report_id = str(report.id)
-    _emit_signal_document(input, report_id=report_id, spend=spend, timestamp=record.emitted_at)
+    _emit_signal_document(
+        input,
+        report_id=report_id,
+        spend=spend,
+        timestamp=record.emitted_at,
+        deleted=report.status == SignalReport.Status.DELETED,
+    )
     return AssignAndEmitDbResult(
         report_id=report_id,
-        # Research spawns only after the ClickHouse wait, so a failed attempt's promotion never started.
-        promoted=report.status == SignalReport.Status.CANDIDATE and str(report.triggering_signal_id) == input.signal_id,
+        promoted=report.status == SignalReport.Status.CANDIDATE,
         triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
         timestamp=record.emitted_at,
         matched_deleted_report=False,

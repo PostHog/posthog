@@ -4,6 +4,7 @@ from contextlib import suppress
 from datetime import timedelta
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -17,7 +18,11 @@ from products.signals.backend.temporal.grouping import (
     GenerateEmbeddingOutput,
     SignalGroupingCompletion,
 )
-from products.signals.backend.temporal.grouping_v2 import MAX_BATCH_ATTEMPTS, TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.grouping_v2 import (
+    MAX_BATCH_ATTEMPTS,
+    CollectedBatch,
+    TeamSignalGroupingV2Workflow,
+)
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ReadSignalsFromS3Input,
@@ -97,6 +102,10 @@ async def test_failed_batch_retries_until_attempt_limit(
     async def fake_embedding(_input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
         raise ApplicationError("Embedding worker returned 403", type="HTTPStatusError", non_retryable=True)
 
+    @activity.defn(name="assigned_signal_ids_activity")
+    async def fake_assigned(_signals: list[EmitSignalInputs]) -> list[str]:
+        return []
+
     @activity.defn(name="capture_signal_dropped_activity")
     async def fake_capture(input: CaptureSignalDroppedInput) -> None:
         drops.append((input.stage, input.source_id, input.attempt))
@@ -112,7 +121,15 @@ async def test_failed_batch_retries_until_attempt_limit(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[TeamSignalGroupingV2Workflow],
-            activities=[fake_consent, fake_discard, fake_read, fake_embedding, fake_capture, fake_complete],
+            activities=[
+                fake_consent,
+                fake_discard,
+                fake_read,
+                fake_embedding,
+                fake_assigned,
+                fake_capture,
+                fake_complete,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -153,3 +170,32 @@ async def test_failed_batch_retries_until_attempt_limit(
     assert len(read_keys) == expected_reads
     assert completed_signal_ids == all_signal_ids
     assert discarded_keys == []
+
+
+@pytest.mark.asyncio
+async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_retry() -> None:
+    workflow = TeamSignalGroupingV2Workflow()
+    workflow._failed_rounds_by_batch_key = {"batch-a": MAX_BATCH_ATTEMPTS, "batch-b": MAX_BATCH_ATTEMPTS}
+    collected = CollectedBatch(
+        signals=[BATCHES["batch-a"][0], BATCHES["batch-b"][0]],
+        object_keys=["batch-a", "batch-b"],
+        attempts=[MAX_BATCH_ATTEMPTS, MAX_BATCH_ATTEMPTS],
+        signal_object_keys=["batch-a", "batch-b"],
+    )
+    with (
+        patch("products.signals.backend.temporal.grouping_v2.workflow.patched", return_value=True),
+        patch("products.signals.backend.temporal.grouping_v2.workflow.logger"),
+        patch(
+            "products.signals.backend.temporal.grouping_v2.workflow.execute_activity",
+            new=AsyncMock(return_value=[BATCHES["batch-a"][0].signal_id]),
+        ),
+        patch("products.signals.backend.temporal.grouping_v2.capture_signal_dropped", new=AsyncMock()),
+        patch("products.signals.backend.temporal.grouping_v2._complete_signal_batch", new=AsyncMock()) as complete,
+    ):
+        retry_keys = await workflow._drop_exhausted_batches(
+            TeamSignalGroupingV2Input(team_id=1), collected, RuntimeError("ClickHouse wait failed")
+        )
+
+    assert retry_keys == ["batch-a"]
+    complete.assert_awaited_once_with([BATCHES["batch-b"][0]], {})
+    assert workflow._failed_rounds_by_batch_key == {"batch-a": MAX_BATCH_ATTEMPTS}

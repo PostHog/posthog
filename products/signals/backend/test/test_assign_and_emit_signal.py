@@ -1750,3 +1750,49 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source
     await database_sync_to_async(pending.refresh_from_db)()
     assert pending.finalized_at == finalized_at
     assert pending.billing_exempt is exempt
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_replay_preserves_deleted_report_metadata(ateam, patch_side_effects):
+    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.READY)
+    signal = _build_input(ateam.id, _existing_match(str(report.id)))
+    await assign_and_emit_signal_activity(signal)
+    report.status = SignalReport.Status.DELETED
+    await database_sync_to_async(report.save)(update_fields=["status"])
+
+    await assign_and_emit_signal_activity(signal)
+
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["deleted"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_replay_follows_merge_and_recovers_candidate(ateam, patch_side_effects):
+    source = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.READY)
+    signal = _build_input(ateam.id, _existing_match(str(source.id)))
+    await assign_and_emit_signal_activity(signal)
+    survivor = await SignalReport.objects.acreate(
+        team=ateam, status=SignalReport.Status.CANDIDATE, triggering_signal_id=uuid.uuid4()
+    )
+    source.status = SignalReport.Status.SUPPRESSED
+    await database_sync_to_async(source.save)(update_fields=["status"])
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(source.id),
+        content=Dismissal(reason=MERGE_DISMISSAL_REASON),
+        attribution=ArtefactAttribution.system(),
+    )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(source.id),
+        content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    result = await assign_and_emit_signal_activity(signal)
+
+    assert result.report_id == str(survivor.id)
+    assert result.promoted is True
+    assert result.triggering_signal_id == str(survivor.triggering_signal_id)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["report_id"] == str(survivor.id)

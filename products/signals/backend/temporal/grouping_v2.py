@@ -20,6 +20,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.models import SignalGroupingRecord
 from products.signals.backend.spend import complete_signal_pipeline
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -98,6 +99,22 @@ async def discard_signal_batches_activity(object_keys: list[str]) -> None:
                     signal_id=signal.signal_id,
                     billing_exempt=system_source_exempt(signal.source_product),
                 )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def assigned_signal_ids_activity(signals: list[EmitSignalInputs]) -> list[str]:
+    if not signals:
+        return []
+    team_id = signals[0].team_id
+    signal_ids = [signal.signal_id for signal in signals if signal.signal_id and signal.team_id == team_id]
+    records = await database_sync_to_async(list)(
+        SignalGroupingRecord.objects.for_team(team_id)
+        .filter(signal_id__in=signal_ids)
+        .values_list("signal_id", flat=True)
+    )
+    return [str(signal_id) for signal_id in records]
 
 
 @temporalio.workflow.defn(name="team-signal-grouping-v2")
@@ -316,6 +333,34 @@ class TeamSignalGroupingV2Workflow:
             )
             if key in exhausted_keys
         ]
+        if workflow.patched("grouping-v2-retain-assigned-batches-v1"):
+            assigned_ids = {
+                str(signal_id)
+                for signal_id in await workflow.execute_activity(
+                    assigned_signal_ids_activity,
+                    [signal for signal, _ in dropped],
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                    ),
+                )
+            }
+            retained_keys = {
+                key
+                for signal, key in zip(collected.signals, collected.signal_object_keys, strict=True)
+                if signal.signal_id in assigned_ids
+            }
+            exhausted_keys = [key for key in exhausted_keys if key not in retained_keys]
+            dropped = [
+                (signal, attempt)
+                for signal, attempt, key in zip(
+                    collected.signals, collected.attempts, collected.signal_object_keys, strict=True
+                )
+                if key in exhausted_keys
+            ]
+            if not exhausted_keys:
+                return collected.object_keys
+
         workflow.logger.warning(
             "signals_grouping_batch_dropped",
             extra={
