@@ -30,6 +30,7 @@ from ..facade.contracts import (
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
+    ReportPageEvidence,
     SignalPreview,
     SignalView,
 )
@@ -206,6 +207,16 @@ class ReportPageSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ReportPage
+
+
+class ReportPageEvidenceSerializer(DataclassSerializer):
+    evidence = SignalViewSerializer(
+        many=True,
+        help_text="Every signal the report page counts as evidence, newest first, one per source object. Taken from the report's newest 100 signals.",
+    )
+
+    class Meta:
+        dataclass = ReportPageEvidence
 
 
 class KeyClausesQuerySerializer(serializers.Serializer):

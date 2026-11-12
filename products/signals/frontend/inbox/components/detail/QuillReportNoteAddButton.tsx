@@ -6,12 +6,14 @@ export function QuillReportNoteAddButton({ onClick }: { onClick: () => void }): 
         <Button
             size="sm"
             variant="link-muted"
-            className="-mx-2 self-start"
+            className="QuillReportNoteAdd -mx-2 self-start"
             onClick={onClick}
             aria-label="Add a note about this report"
             data-attr="inbox-report-note-box"
         >
-            <IconPlus />
+            <span className="QuillReportNoteAdd__plus" aria-hidden>
+                <IconPlus />
+            </span>
             Add a note
         </Button>
     )

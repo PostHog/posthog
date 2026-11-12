@@ -3,6 +3,10 @@ import { ReactNode, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+
+import { QuillDetailLine, QuillDetailSection } from './QuillDetailSection'
+
 interface DetailSectionProps {
     icon: ReactNode
     title: string
@@ -18,6 +22,7 @@ interface DetailSectionProps {
     summary?: ReactNode | ((open: boolean) => ReactNode)
     /** Interactive controls rendered outside the collapse toggle so they stay independently clickable. */
     rightSlot?: ReactNode
+    line?: QuillDetailLine | null
     children: ReactNode
     /** When set, the header toggles the body open/closed. */
     collapsible?: boolean
@@ -41,15 +46,30 @@ export function DetailSection({
     meta,
     summary,
     rightSlot,
+    line,
     children,
     collapsible = false,
     defaultCollapsed = false,
     onToggleCollapsed,
 }: DetailSectionProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(defaultCollapsed)
+    const quillSurface = useQuillSurface()
     const open = !collapsible || !collapsed
     const renderedMeta = typeof meta === 'function' ? meta(open) : meta
     const renderedSummary = typeof summary === 'function' ? summary(open) : summary
+
+    if (quillSurface) {
+        return (
+            <QuillDetailSection
+                title={title}
+                line={line ?? { text: typeof meta === 'function' ? meta(false) : meta }}
+                rightSlot={rightSlot}
+                onToggleCollapsed={onToggleCollapsed}
+            >
+                {children}
+            </QuillDetailSection>
+        )
+    }
 
     const toggle = (): void => {
         const next = !collapsed

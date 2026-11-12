@@ -17,6 +17,7 @@ import type {
     PulsePinsApi,
     ReportKeyClausesApi,
     ReportPageApi,
+    ReportPageEvidenceApi,
     SetHiddenPulseNumbersApi,
     TodayHighlightsRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
@@ -145,6 +146,25 @@ export const todayPulsePinsHiddenUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setHiddenPulseNumbersApi),
+    })
+}
+
+export const getTodayReportsEvidenceRetrieveUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/today/reports/${reportId}/evidence/`
+}
+
+/**
+ * Every signal a report's page counts as evidence, where the page itself shows only the first few. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well.
+ * @summary List a report's evidence
+ */
+export const todayReportsEvidenceRetrieve = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<ReportPageEvidenceApi> => {
+    return apiMutator<ReportPageEvidenceApi>(getTodayReportsEvidenceRetrieveUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
     })
 }
 

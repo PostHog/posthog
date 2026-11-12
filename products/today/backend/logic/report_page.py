@@ -85,6 +85,12 @@ def report_page(page: signals.ReportPageSource) -> contracts.ReportPage:
     )
 
 
+def report_evidence(page: signals.ReportPageSource) -> contracts.ReportPageEvidence:
+    return contracts.ReportPageEvidence(
+        evidence=[evidence.signal_view(signal) for signal in evidence.all_evidence(page.signals)]
+    )
+
+
 def page_source(*, team: Team, report_id: str) -> signals.ReportPageSource | None:
     if not samples.is_sample_id(report_id):
         return signals.report_page_source(team=team, report_id=report_id)

@@ -34,6 +34,7 @@ from .serializers import (
     KeyClausesQuerySerializer,
     PulsePinsSerializer,
     ReportKeyClausesSerializer,
+    ReportPageEvidenceSerializer,
     ReportPageSerializer,
     SetHiddenPulseNumbersSerializer,
 )
@@ -200,6 +201,27 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if page is None:
             raise NotFound()
         return Response(ReportPageSerializer(page).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=ReportPageEvidenceSerializer)},
+        summary="List a report's evidence",
+        description="Every signal a report's page counts as evidence, where the page itself shows only the first few. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/evidence",
+        required_scopes=["today:read", "inbox:read"],
+    )
+    def report_evidence(self, request: Request, report_id: str, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        self._check_report_access(user)
+        evidence = api.report_evidence(team=self.team, report_id=report_id)
+        if evidence is None:
+            raise NotFound()
+        return Response(ReportPageEvidenceSerializer(evidence).data)
 
     @validated_request(
         query_serializer=KeyClausesQuerySerializer,

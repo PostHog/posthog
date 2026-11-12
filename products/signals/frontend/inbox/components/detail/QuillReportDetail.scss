@@ -1,0 +1,106 @@
+// Doubled so these rules win over the button's own hover and open states, which have the same specificity.
+.QuillReportFact.QuillReportFact {
+    padding: 2px 6px;
+    margin: -2px -6px;
+    font-weight: inherit;
+    color: inherit;
+    text-decoration: none;
+    border-radius: 5px;
+
+    &:hover,
+    &[aria-expanded='true'],
+    &[data-popup-open] {
+        color: var(--today-ink);
+        background: var(--today-soft);
+        box-shadow: none;
+    }
+
+    &.TodayRow__label[data-tone='risk'] {
+        font-weight: 500;
+        color: var(--today-risk);
+    }
+}
+
+// A dot on the avatar marks a claim that the person's agent holds for them.
+.QuillReportOwner__agent {
+    position: relative;
+    display: inline-flex;
+
+    &::after {
+        position: absolute;
+        right: -3px;
+        bottom: -3px;
+        width: 9px;
+        height: 9px;
+        content: '';
+        background: var(--primary);
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px var(--today-paper);
+    }
+}
+
+.QuillReportNoteAdd__plus {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    margin-right: 2px;
+    border: 1px dashed var(--today-line);
+    border-radius: 50%;
+
+    svg {
+        width: 12px;
+        height: 12px;
+    }
+}
+
+.QuillDetailSection__row {
+    display: grid;
+    flex: 1;
+    grid-template-columns: 132px minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: center;
+    min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: 1px;
+    }
+}
+
+.QuillDetailSection__name {
+    font-weight: 500;
+    color: var(--today-ink);
+}
+
+.QuillDetailSection__line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    @container main-content (max-width: 600px) {
+        white-space: normal;
+    }
+}
+
+.QuillDetailSection__line--risk {
+    font-weight: 500;
+    color: var(--today-risk);
+}
+
+.QuillDetailSection__pip {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-right: 4px;
+    background: var(--today-risk);
+    border-radius: 50%;
+}
+
+.QuillDetailSection__body {
+    padding: 4px 8px 12px 30px;
+
+    @container main-content (max-width: 600px) {
+        padding-left: 8px;
+    }
+}

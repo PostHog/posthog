@@ -46,6 +46,10 @@ def _unique_by(signals: list[SignalInput], key: Callable[[SignalInput], str]) ->
     return unique
 
 
+def all_evidence(signals: list[SignalInput]) -> list[SignalInput]:
+    return _unique_by(newest_first(signals), _evidence_item)
+
+
 def pick_evidence(signals: list[SignalInput], count: int = _SHOWN_EVIDENCE) -> list[SignalInput]:
     unique = _unique_by(newest_first(signals), _evidence_item)
     leads = _unique_by(unique, lambda signal: signal.source_product)

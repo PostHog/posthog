@@ -24,10 +24,11 @@ export function QuillReportNoteRow({
 }): JSX.Element {
     return (
         <div className="flex gap-2.5">
-            <ProfilePicture user={note.created_by ?? { first_name: author }} size="md" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <Text size="xs" variant="muted" render={<div />} className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium text-foreground">{author}</span>
+            <ProfilePicture user={note.created_by ?? { first_name: author }} size="sm" className="mt-0.5" />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <Text size="sm" variant="muted" render={<div />} className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold text-foreground">{author}</span>
+                    <span aria-hidden>·</span>
                     <TZLabel time={note.created_at} />
                     {scoutNote && (
                         <>

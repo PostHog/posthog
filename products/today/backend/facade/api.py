@@ -44,6 +44,11 @@ def report_page(*, team: Team, report_id: str) -> contracts.ReportPage | None:
     return report_pages.report_page(source) if source is not None else None
 
 
+def report_evidence(*, team: Team, report_id: str) -> contracts.ReportPageEvidence | None:
+    source = report_pages.page_source(team=team, report_id=report_id)
+    return report_pages.report_evidence(source) if source is not None else None
+
+
 def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contracts.FigureMark] | None:
     page = signals.report_page_source(team=team, report_id=report_id)
     if page is None:

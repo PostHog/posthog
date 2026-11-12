@@ -5,7 +5,9 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
+import { resolveRunVariant } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
+import { reportRunsLine } from './reportDetailLines'
 import { ReportTaskRow } from './ReportTaskRow'
 
 /**
@@ -36,7 +38,15 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <DetailSection icon={<IconTerminal />} title="Runs" collapsible defaultCollapsed>
+        <DetailSection
+            icon={<IconTerminal />}
+            title="Runs"
+            line={{
+                text: reportRunsLine(reportTasks.map((entry) => resolveRunVariant(entry.task.latest_run?.status))),
+            }}
+            collapsible
+            defaultCollapsed
+        >
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <ReportTaskRow

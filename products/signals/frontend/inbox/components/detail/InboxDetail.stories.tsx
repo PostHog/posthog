@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { ReportPlanApi } from 'products/signals/frontend/generated/api.schemas'
-import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
+import type { ReportPageApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import {
     makeReport,
@@ -456,20 +456,67 @@ export const ActivityNotes: Story = {
     ),
 }
 
+function evidenceSignal(index: number, source: string, headline: string, lead: string): SignalViewApi {
+    return {
+        signal_id: `quill-evidence-${index}`,
+        source_product: source,
+        source_type: 'issue',
+        source_id: `quill-source-${index}`,
+        content: lead,
+        timestamp: `2026-08-${29 - index}T09:00:00Z`,
+        extra: {},
+        headline,
+        lead,
+        meta: '',
+        cited: null,
+        recording: null,
+        link: null,
+        preview: { hint: 'Read more', code: [], block: [], text: lead, facts: [], link: null, link_label: '' },
+    }
+}
+
+const quillEvidence: SignalViewApi[] = [
+    evidenceSignal(
+        0,
+        'error_tracking',
+        'The invite request returns 500 for a recipient row without an email address',
+        'First seen on August 29. The error is in the handler that validates the recipient list.'
+    ),
+    evidenceSignal(
+        1,
+        'session_replay',
+        '4 people sent the invite form 3 times and then left the page',
+        'Each person saw a general error message after each attempt.'
+    ),
+    evidenceSignal(
+        2,
+        'logs',
+        'The invite handler logged a missing email address for 212 requests',
+        'The log line names the row index of the recipient without an email address.'
+    ),
+    evidenceSignal(
+        3,
+        'error_tracking',
+        'The same error occurs when a person pastes a list with an empty line',
+        'An empty line in a pasted list makes a recipient row without an email address.'
+    ),
+]
+
 const quillReportPage: ReportPageApi = {
     lead: 'The invite form accepts a recipient row without an email address, so the request fails after submit.',
     proposal: 'Validate each recipient row before submit, and show the error next to the row that fails.',
     impact_sentence: '',
     named_pull_request: null,
     solution_names_pull_request: false,
-    evidence: [],
-    source_count: 0,
+    evidence: quillEvidence.slice(0, 3),
+    source_count: 12,
     impact_numbers: [],
     last_seen: null,
 }
 
 const quillReport: SignalReport = {
     ...reportTabReports[0],
+    source_products: ['error_tracking', 'session_replay'],
     scout_name: 'signals-scout-checkout',
     assignee: {
         claim_id: '019e64b8-0000-7000-8000-000000000098',
@@ -489,6 +536,7 @@ const quillReportMocks = mswDecorator({
         '/api/projects/:id/signals/reports/available_reviewers/': () => [200, mockReviewers],
         '/api/projects/:id/signals/reports/:reportId/': () => [200, quillReport],
         '/api/projects/:id/today/reports/:reportId/page/': () => [200, quillReportPage],
+        '/api/projects/:id/today/reports/:reportId/evidence/': () => [200, { evidence: quillEvidence }],
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
             const artefacts = mockArtefacts(req.params.reportId as string)
             const results = [...artefacts.results.filter((artefact) => artefact.type !== 'task_run'), ...noteArtefacts]

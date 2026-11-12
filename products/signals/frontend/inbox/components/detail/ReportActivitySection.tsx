@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { IconClockRewind } from '@posthog/icons'
 
+import { TZLabel } from 'lib/components/TZLabel'
+
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { ArtefactLogList } from './ArtefactLogList'
@@ -27,6 +29,11 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
         return null
     }
 
+    const latestAt = artefacts.reduce(
+        (latest, artefact) => (artefact.created_at > latest ? artefact.created_at : latest),
+        artefacts[0].created_at
+    )
+
     // The logic already resolved the research/implementation tasks; hand them to the `task_run` rows
     // so they don't re-fetch the same tasks the Runs section just loaded.
     const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
@@ -38,6 +45,14 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
             title="Activity"
             collapsible
             defaultCollapsed
+            line={{
+                text: (
+                    <>
+                        <span>{`${artefacts.length} ${artefacts.length === 1 ? 'event' : 'events'} · Latest`}</span>
+                        <TZLabel time={latestAt} />
+                    </>
+                ),
+            }}
             meta={
                 <span className="text-xs text-tertiary tabular-nums">
                     {artefacts.length} {artefacts.length === 1 ? 'entry' : 'entries'}

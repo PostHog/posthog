@@ -5,6 +5,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { DetailSection } from './DetailSection'
+import type { QuillDetailLine } from './QuillDetailSection'
 import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewersList } from './SuggestedReviewersList'
 
@@ -14,17 +15,20 @@ export function SuggestedReviewersSectionView({
     onRemove,
     addControl,
     claim,
+    line,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[], removal?: ReviewerRemoval) => void
     addControl: ReactNode
     claim?: ReviewerClaim
+    line?: QuillDetailLine
 }): JSX.Element {
     return (
         <DetailSection
             icon={<IconPeople />}
             title="Suggested reviewers"
+            line={line}
             collapsible
             afterTitle={
                 <Tooltip title="PostHog uses these suggestions to route the report. Add reviewers on the pull request to request a GitHub review.">

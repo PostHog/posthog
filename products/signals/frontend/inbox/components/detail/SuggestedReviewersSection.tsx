@@ -5,17 +5,27 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
+import { reportOwnerKind, reportOwnerLabel } from '../../utils/reportFacts'
+import { QuillReviewersLine } from './QuillReviewersLine'
 import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reportClaimant, isReportClaimable, claimSaving } =
-        useValues(logic)
+    const {
+        displayReviewers,
+        isUpdatingReviewers,
+        reportArtefacts,
+        reportClaimant,
+        isReportClaimable,
+        claimSaving,
+        report: currentReport,
+    } = useValues(logic)
     const { updateReviewers, setReportClaimed } = useActions(logic)
     const { user } = useValues(userLogic)
 
@@ -50,6 +60,19 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                 claimable: isReportClaimable,
                 saving: claimSaving,
                 onSetClaimed: setReportClaimed,
+            }}
+            line={{
+                name: 'Reviewers',
+                text: (
+                    <QuillReviewersLine
+                        owner={reportOwnerLabel(
+                            reportOwnerKind(currentReport ?? report, user?.uuid ?? null),
+                            reportClaimant ? fullNameOrEmail(reportClaimant) : null
+                        )}
+                        claimant={reportClaimant}
+                        reviewers={baseReviewers}
+                    />
+                ),
             }}
             addControl={
                 <LemonDropdown

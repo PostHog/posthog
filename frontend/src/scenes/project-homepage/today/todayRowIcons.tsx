@@ -55,6 +55,8 @@ const SOURCE_ICONS: Record<string, TodayRowIcon> = {
     rage: REPLAY,
 }
 
+const MAX_REPORT_ICONS = 3
+
 function sourceIcon(source: string | null | undefined): TodayRowIcon {
     const style = sourceStyle(source)
     const colored = style.color.startsWith('var(--color-product-')
@@ -63,6 +65,11 @@ function sourceIcon(source: string | null | undefined): TodayRowIcon {
 
 export function reportIcon(report: Pick<SignalReport, 'source_products'>): TodayRowIcon {
     return sourceIcon(report.source_products?.[0])
+}
+
+export function reportIcons(report: Pick<SignalReport, 'source_products'>): TodayRowIcon[] {
+    const sources = report.source_products?.length ? report.source_products : [undefined]
+    return [...new Set(sources)].slice(0, MAX_REPORT_ICONS).map(sourceIcon)
 }
 
 export function highlightIcon(item: Pick<HighlightItemApi, 'source' | 'product'>): TodayRowIcon {
