@@ -29,6 +29,7 @@ export type ContentAutopilotWorkspaceTab =
     | 'rankings'
     | 'traffic'
     | 'prompts'
+    | 'keywords'
     | 'opportunities'
     | 'drafts'
     | 'settings'

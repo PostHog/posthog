@@ -59,6 +59,20 @@ class CitationGap:
         return self.cited_checks / self.checks if self.checks else 0.0
 
 
+class CheckMode(LabeledStrEnum):
+    """How an engine answered: with its web search tool, or from its training data alone."""
+
+    WEB_SEARCH = "web_search", "Web search"
+    NO_SEARCH = "no_search", "No search"
+
+
+class CheckFrequency(LabeledStrEnum):
+    """How often an engine checks each prompt. Weekly checks spread the prompt set over the week."""
+
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+
+
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
@@ -77,10 +91,13 @@ class BrandedSegment(LabeledStrEnum):
 
 @frozen
 class PromptEngineCheck:
-    """The most recent check of one prompt against one answer engine."""
+    """The most recent check of one prompt against one answer engine. A no-search engine never cites,
+    so `mentioned` is the column to read for it."""
 
     engine: str
+    mode: CheckMode
     cited: bool
+    mentioned: bool
     check_failed: bool
     target_best_position: int | None
     search_queries: tuple[str, ...]
@@ -120,6 +137,7 @@ class PromptCheck:
     id: str
     run_id: str
     engine: str
+    mode: CheckMode
     model: str
     created_at: dt.datetime
     cited: bool
@@ -219,7 +237,7 @@ def _rate(part: int, whole: int) -> float | None:
 
 @frozen
 class PromptSetCounts:
-    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+    """Web-search checks across the prompt set in one window, all engines. Rates leave failed checks out."""
 
     checks: int
     failed: int
@@ -358,6 +376,8 @@ class PromptNotFoundError(Exception):
 
 
 BRAND_NAME_MAX_LENGTH = 200
+KEYWORD_MAX_LENGTH = 100
+MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
 
 
@@ -426,6 +446,30 @@ class BrandNotFoundError(Exception):
 
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
+
+
+@frozen
+class EngineSetting:
+    """One engine as the project runs it. `available` is false when the deployment cannot run the engine,
+    for example without the API key it needs, and then it never runs whatever `enabled` says."""
+
+    engine: str
+    mode: CheckMode
+    available: bool
+    enabled: bool
+    frequency: CheckFrequency
+
+
+@frozen
+class EngineSettingUpdate:
+    """A partial edit of one engine's setting. None leaves the field as it is."""
+
+    enabled: bool | None = None
+    frequency: CheckFrequency | None = None
+
+
+class EngineNotFoundError(Exception):
+    pass
 
 
 class PromptUpdateError(Exception):
@@ -555,6 +599,102 @@ class PromptSetRankings:
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+MAX_KEYWORD_MODIFIERS = 50
+MAX_MODIFIER_EXAMPLES = 3
+
+
+@frozen
+class Keyword:
+    id: str
+    keyword: str
+    created_at: dt.datetime
+
+
+@frozen
+class KeywordCreateResult:
+    created: int
+    skipped: int
+
+
+class KeywordNotFoundError(Exception):
+    pass
+
+
+class KeywordLimitError(Exception):
+    """The request would take the project past its keyword cap. The message is safe to show the user."""
+
+
+@frozen
+class KeywordReportRow:
+    """How one keyword shows up across the answered checks in the window. Each rate is None when its
+    denominator is zero."""
+
+    keyword: str
+    prompts: int
+    prompt_checks: int
+    prompt_mention_rate: float | None
+    prompt_cited_rate: float | None
+    searched_checks: int
+    searched_rate: float | None
+    searched_cited_rate: float | None
+    answer_checks: int
+    answer_rate: float | None
+    uses_per_answer: float | None
+    answer_mention_rate: float | None
+    avg_citation_position: float | None
+    median_first_mention_depth: float | None
+
+
+@frozen
+class KeywordReport:
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    brand_names: tuple[str, ...]
+    keywords: tuple[KeywordReportRow, ...]
+
+
+class ModifierKind(LabeledStrEnum):
+    FRESHNESS = "freshness", "Freshness"
+    PRICING = "pricing", "Pricing"
+    COMPARISON = "comparison", "Comparison"
+    DOCS = "docs", "Docs"
+    SITE = "site", "Site"
+    COMPETITOR = "competitor", "Competitor"
+    OTHER = "other", "Other"
+
+
+@frozen
+class ModifierEngineCount:
+    engine: str
+    answers: int
+
+
+@frozen
+class KeywordModifier:
+    """A word or two-word phrase the engines searched for that the prompt did not contain."""
+
+    term: str
+    kind: ModifierKind
+    answers: int
+    share: float
+    cited_rate: float | None
+    engines: tuple[ModifierEngineCount, ...]
+    example_searches: tuple[str, ...]
+
+
+@frozen
+class KeywordModifierReport:
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    keyword: str | None
+    answers: int
+    baseline_cited_rate: float | None
+    modifiers: tuple[KeywordModifier, ...]
 
 
 @frozen
