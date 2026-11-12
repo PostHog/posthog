@@ -607,7 +607,7 @@ HighLevel,,,,,,high-level
 Hightouch,api_key,,,,,hightouch
 Hitpay,api_key platform_api_key environment,,,,,hitpay
 Hivebrite,,,,,,hivebrite
-Holded,,,,,,holded
+Holded,api_key,,,,,holded
 Honeybadger,api_key,,,,,honeybadger
 Honeycomb,api_key region,,,,,honeycomb
 Hookdeck,api_key,,,,,hookdeck
