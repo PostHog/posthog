@@ -2,6 +2,8 @@ import './CardMeta.scss'
 
 import clsx from 'clsx'
 
+import { Text } from '@posthog/quill'
+
 import { InsightColor } from '~/types'
 
 import { QuillCardMoreMenu } from './QuillCardMoreMenu'
@@ -51,7 +53,17 @@ export function QuillCardMeta({
                 )}
                 <div className="CardMeta__main">
                     <div className="CardMeta__top">
-                        <div className="CardMeta__heading">{topHeading}</div>
+                        <div className="CardMeta__heading">
+                            <Text
+                                size="xxs"
+                                variant="muted"
+                                weight="semibold"
+                                className="font-sans uppercase tracking-wider"
+                                render={<div />}
+                            >
+                                {topHeading}
+                            </Text>
+                        </div>
                         {!headerStatus && controls}
                     </div>
                     {content}

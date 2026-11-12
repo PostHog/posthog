@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { IconClock, IconWarning } from '@posthog/icons'
-import { Badge, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Badge, Heading, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -36,7 +36,7 @@ export function QuillInsightMetaContent({
     const hasTitleIndicator = !!(infoPopover || dataRetentionWarning || queryScanTooltip || warehouseSyncTooltip)
     const titleContent = (
         <>
-            <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
+            <span className={clsx('text-foreground', hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -55,9 +55,14 @@ export function QuillInsightMetaContent({
 
     return (
         <>
-            <h4
-                data-attr="insight-card-title"
-                className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
+            <Heading
+                size="sm"
+                render={
+                    <h4
+                        data-attr="insight-card-title"
+                        className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
+                    />
+                }
             >
                 {link ? (
                     <LinkPrimitive to={link} className="max-w-full truncate hover:underline">
@@ -90,11 +95,13 @@ export function QuillInsightMetaContent({
                     </TitleIndicator>
                 )}
                 {infoPopover}
-            </h4>
+            </Heading>
             {showDescription !== false && !!description && (
-                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                    {description}
-                </LemonMarkdown>
+                <Text size="xs" variant="muted" render={<div />}>
+                    <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                        {description}
+                    </LemonMarkdown>
+                </Text>
             )}
         </>
     )

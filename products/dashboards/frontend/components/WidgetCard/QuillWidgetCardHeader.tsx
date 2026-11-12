@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { Spinner } from '@posthog/quill'
+import { Heading, Spinner, Text } from '@posthog/quill'
 
 import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -33,7 +33,7 @@ export function QuillWidgetCardHeader({
     const displayTitle = title || defaultTitle || 'Untitled'
     const titleContent = (
         <>
-            <span className="truncate text-primary">{displayTitle}</span>
+            <span className="truncate text-foreground">{displayTitle}</span>
             {loading && (
                 <span className="ml-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-accent">
                     <Spinner />
@@ -50,11 +50,16 @@ export function QuillWidgetCardHeader({
             menuItems={menuItems}
             content={
                 <>
-                    <h4
-                        title={displayTitle}
-                        data-attr="widget-card-title"
-                        data-slot="widget-card-header-title"
-                        className={clsx(titleHref && 'inline-flex items-center overflow-visible')}
+                    <Heading
+                        size="sm"
+                        render={
+                            <h4
+                                title={displayTitle}
+                                data-attr="widget-card-title"
+                                data-slot="widget-card-header-title"
+                                className={clsx(titleHref && 'inline-flex items-center overflow-visible')}
+                            />
+                        }
                     >
                         {titleHref ? (
                             <LinkPrimitive to={titleHref} className="max-w-full truncate hover:underline">
@@ -63,8 +68,12 @@ export function QuillWidgetCardHeader({
                         ) : (
                             titleContent
                         )}
-                    </h4>
-                    <WidgetCardHeaderDescription description={description} showDescription={showDescription} compact />
+                    </Heading>
+                    {showDescription !== false && !!description && (
+                        <Text size="xs" variant="muted" render={<div />}>
+                            <WidgetCardHeaderDescription description={description} compact />
+                        </Text>
+                    )}
                 </>
             }
         />
