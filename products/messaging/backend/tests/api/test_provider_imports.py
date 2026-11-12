@@ -46,19 +46,27 @@ class TestProviderImportsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_cohort_write", ["hog_flow:write"], 403),
-            ("with_cohort_write", ["hog_flow:write", "cohort:write"], 400),
+            ("without_cohort_write", ["hog_flow:write"], ["automations"], 403),
+            ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], 400),
+            ("full_access_key", ["*"], ["automations"], 400),
+            ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], 400),
         ]
     )
     def test_importing_automations_with_a_key_needs_cohort_write(
-        self, _mock_client_class: MagicMock, start_workflow: MagicMock, _name: str, scopes: list[str], expected: int
+        self,
+        _mock_client_class: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        scopes: list[str],
+        steps: list[str],
+        expected: int,
     ) -> None:
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
         response = self.client.post(
             self._url(),
-            {"provider": "resend", "steps": ["automations"], "api_key": "re_key"},
+            {"provider": "resend", "steps": steps, "api_key": "re_key"},
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
 

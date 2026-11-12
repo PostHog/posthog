@@ -5,7 +5,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
-from products.workflows.backend.services.customerio_import.translator import _EXIT_ID, TRIGGER_ID
+from products.workflows.backend.services.customerio_import.translator import (
+    _EXIT_ID,
+    _MAX_DELAY_SECONDS,
+    TRIGGER_ID,
+    _duration,
+)
 from products.workflows.backend.services.resend_import.translator import (
     SegmentCohort,
     TranslationContext,
@@ -43,9 +48,12 @@ class TestResendAutomationTranslation(SimpleTestCase):
             ("single_quotes_are_kept", "It's", '{{ "It\'s" }}', False),
             ("both_quotes_keep_a_note", 'It\'s "here"', "{{ variables.NAME }}", True),
             ("entity_keeps_a_note", "Tom &amp; Ann", "{{ variables.NAME }}", True),
+            ("null_keeps_a_note", None, "{{ variables.NAME }}", True),
+            ("object_keeps_a_note", {"a": 1}, "{{ variables.NAME }}", True),
+            ("list_keeps_a_note", ["a"], "{{ variables.NAME }}", True),
         ]
     )
-    def test_static_variable_values(self, _name: str, value: str, subject: str, noted: bool) -> None:
+    def test_static_variable_values(self, _name: str, value: Any, subject: str, noted: bool) -> None:
         step = {"key": "send", "type": "send_email", "config": {"template": {"id": "t1", "variables": {"NAME": value}}}}
         translated = translate_automation(
             _automation([step], [{"from": "start", "to": "send"}]), {"t1": _email("{{ variables.NAME }}")}
@@ -340,6 +348,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             ),
             ("equals_null_means_missing", _rule("a", "eq"), [[("a", "is_not_set", None)]]),
             ("starts_with", _rule("a", "starts_with", "x.y"), [[("a", "regex", "^x\\.y")]]),
+            ("contact_only_field_is_left_out", {**_rule("x", "eq", True), "field": "contact.unsubscribed"}, [[]]),
         ]
     )
     def test_condition_rules_keep_their_logic(
@@ -379,16 +388,38 @@ class TestResendAutomationTranslation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("compares_two_properties", "condition", "eq", "contact.plan", "properties.a = person.properties.plan", ""),
+            (
+                "compares_two_properties",
+                "condition",
+                "eq",
+                "contact.plan",
+                "person.properties.plan IS NOT NULL AND properties.a = person.properties.plan",
+                "",
+            ),
+            (
+                "not_equal_keeps_its_operator",
+                "condition",
+                "neq",
+                "contact.plan",
+                "person.properties.plan IS NOT NULL AND properties.a != person.properties.plan",
+                "",
+            ),
             (
                 "numbers_compare_as_numbers",
                 "condition",
                 "gt",
                 "event.b",
-                "toFloat(properties.a) > toFloat(properties.b)",
+                "toFloat(properties.b) IS NOT NULL AND toFloat(properties.a) > toFloat(properties.b)",
                 "",
             ),
-            ("wait_can_read_the_contact", "wait", "eq", "contact.plan", "properties.a = person.properties.plan", ""),
+            (
+                "wait_can_read_the_contact",
+                "wait",
+                "eq",
+                "contact.plan",
+                "person.properties.plan IS NOT NULL AND properties.a = person.properties.plan",
+                "",
+            ),
             ("wait_cannot_read_the_trigger_event", "wait", "eq", "event.b", None, "can't read that first event"),
             ("other_operators_keep_a_note", "condition", "contains", "event.b", None, "can only compare"),
         ]
@@ -415,7 +446,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             else config["events"][0]["filters"]["events"][0]["properties"]
         )
         if expression:
-            assert properties[0]["type"] == "hogql" and expression in properties[0]["key"]
+            assert properties == [{"key": expression, "type": "hogql"}]
         else:
             assert properties == []
             assert any(note in item.message for item in translated.notes)
@@ -439,6 +470,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             subject="s",
             html="<p>{{ variables.FIRST_NAME }} {{ variables.CODE }}</p>",
             contact_variables=("FIRST_NAME",),
+            sender_notes=("hello@example.com isn't a PostHog sender yet.",),
         )
         step = {
             "key": "send",
@@ -447,7 +479,6 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 "template": {"id": "t1", "variables": {"CODE": True}},
                 "subject": "ignored",
                 "from": "Team <team@example.com>",
-                "reply_to": ["{{x}}@example.com", "b@example.com"],
             },
         }
         override = ImportedStepEmail(
@@ -456,6 +487,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
             from_email="team@example.com",
             from_name="Team",
             sender_integration_id=9,
+            reply_to="b@example.com",
         )
         translated = translate_automation(
             _automation([step], [{"from": "start", "to": "send"}]),
@@ -469,7 +501,16 @@ class TestResendAutomationTranslation(SimpleTestCase):
         assert value["subject"] == "Hi {{ person.properties.last_name }}"
         assert value["html"] == '<p>{{ person.properties.first_name }} {{ "true" }}</p>'
         assert value["from"] == {"integrationId": 9, "email": "team@example.com", "name": "Team"}
-        assert value["replyTo"] == '{{ "{{" }}x}}@example.com, b@example.com'
+        assert value["replyTo"] == "b@example.com"
+        assert not any("isn't a PostHog sender" in note.message for note in translated.notes)
+
+    def test_a_delay_longer_than_posthog_allows_is_shortened(self) -> None:
+        step = {"key": "d", "type": "delay", "config": {"duration": "60 weeks"}}
+        translated = translate_automation(_automation([step], [{"from": "start", "to": "d"}]), {})
+
+        action = next(action for action in translated.workflow["actions"] if action["id"] == "d")
+        assert action["config"]["delay_duration"] == _duration(_MAX_DELAY_SECONDS)
+        assert any("this time was shortened" in note.message for note in translated.notes)
 
     def test_a_second_path_from_a_step_is_named(self) -> None:
         steps = [{"key": key, "type": "delay", "config": {"duration": "1 hour"}} for key in ("d", "e", "f")]

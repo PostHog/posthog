@@ -409,7 +409,8 @@
           "config": {
             "first_name": {
               "var": "event.first_name"
-            }
+            },
+            "unsubscribed": true
           }
         }
       ],

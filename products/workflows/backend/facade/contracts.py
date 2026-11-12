@@ -1136,6 +1136,8 @@ class ImportedEmail:
     notes: tuple[str, ...] = ()
     # Variables the tool fills from the contact by itself, when a step doesn't set them.
     contact_variables: tuple[str, ...] = ()
+    # What to review about the sender, which doesn't apply when a step sets its own.
+    sender_notes: tuple[str, ...] = ()
 
 
 @frozen
@@ -1147,13 +1149,14 @@ class ImportedStepEmail:
     from_email: str = ""
     from_name: str = ""
     sender_integration_id: int | None = None
+    reply_to: str = ""
     notes: tuple[str, ...] = ()
 
 
 @frozen
 class ProviderAutomationResult:
-    # `created`, `skipped` when an earlier import of it exists, or `failed`.
-    status: str
+    # `skipped` when an earlier import of it still has its workflow.
+    status: Literal["created", "skipped", "failed"]
     workflow_id: str | None
     notes: tuple[str, ...]
 

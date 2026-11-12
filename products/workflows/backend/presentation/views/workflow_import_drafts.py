@@ -498,23 +498,15 @@ def import_campaign(
 
 
 def save_provider_draft(
-    team_id: int, user_id: int | None, translated: TranslatedWorkflow, source: WorkflowImportSource
+    team: Team,
+    user: User,
+    translated: TranslatedWorkflow,
+    source: WorkflowImportSource,
+    *,
+    record_id: UUID | None,
 ) -> ProviderAutomationResult:
-    """Saves one translated automation as a new draft. An earlier import of it stays as it is, edits included."""
-    team = Team.objects.get(id=team_id)
-    user = User.objects.filter(id=user_id).first()
+    """Saves one translated automation as a new draft. `record_id` is the earlier import whose draft was deleted."""
     notes = tuple(note.message for note in translated.notes)
-    if user is None:
-        return ProviderAutomationResult(
-            status="failed", workflow_id=None, notes=("The person who started this import no longer exists.",)
-        )
-    previous = previous_import(team, translated.source_id, source)
-    if previous.record_id is not None:
-        return ProviderAutomationResult(
-            status="skipped",
-            workflow_id=str(previous.hog_flow_id) if previous.hog_flow_id else None,
-            notes=("You imported this automation before, so PostHog left it as it is.",),
-        )
     # Someone finishes the draft in the editor, so a step with a note can still be missing an input.
     validated, errors = _validated_draft(team, translated.workflow, None, EventSource.WEB)
     if validated is None:
@@ -527,7 +519,7 @@ def save_provider_draft(
             record_import(
                 team=team,
                 user=user,
-                record_id=None,
+                record_id=record_id,
                 source_id=translated.source_id,
                 name=translated.name,
                 hog_flow_id=workflow_id,

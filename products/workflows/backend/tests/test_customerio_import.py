@@ -1087,6 +1087,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         [
             ("templates not a container", {"templates": "invalid"}),
             ("campaign id too long", {"campaign_id": "9" * 201}),
+            ("resend source", {"source": "resend"}),
         ]
     )
     def test_rejects_malformed_campaigns_before_saving(self, _name: str, change: dict[str, Any]) -> None:
@@ -1095,7 +1096,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         entry: dict[str, Any] = {"campaign": campaign, "actions": source.actions}
         if "templates" in change:
             entry["templates"] = change["templates"]
-        body = {"source": "customerio", "campaigns": [entry]}
+        body = {"source": change.get("source", "customerio"), "campaigns": [entry]}
         response = self._post(body)
 
         assert response.status_code == 400

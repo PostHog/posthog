@@ -669,17 +669,13 @@ def _save_automations(
                 automation,
                 emails,
                 step_emails=_step_emails(automation, senders),
-                segments=segments,
+                segments={segment_id: segments[segment_id] for segment_id in _segment_references(automation)},
             )
-            counts[{"created": "created", "skipped": "already_present"}.get(result.status, "failed")] += 1
+            counts["already_present" if result.status == "skipped" else result.status] += 1
             items.append(
                 ImportItem(
                     label=str(automation.get("name") or automation.get("id")),
-                    status="created"
-                    if result.status == "created"
-                    else "skipped"
-                    if result.status == "skipped"
-                    else "failed",
+                    status=result.status,
                     url=f"/workflows/{result.workflow_id}/workflow" if result.workflow_id else None,
                     notes=result.notes,
                 )
@@ -697,11 +693,12 @@ def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationR
         html=converted.html,
         text=converted.text,
         from_email=address,
-        from_name=literal_liquid(display_name),
+        from_name=sender.get("name", literal_liquid(display_name)),
         sender_integration_id=sender.get("integrationId"),
         reply_to=email.get("replyTo", ""),
-        notes=(*converted.notes, *sender_notes),
+        notes=converted.notes,
         contact_variables=converted.contact_variables,
+        sender_notes=sender_notes,
     )
 
 
@@ -712,7 +709,7 @@ def _step_emails(automation: dict[str, Any], senders: Mapping[str, IntegrationRe
         config = step.get("config") if isinstance(step, dict) else None
         if not isinstance(config, dict) or step.get("type") != "send_email":
             continue
-        if config.get("subject") or config.get("from"):
+        if config.get("subject") or config.get("from") or config.get("reply_to"):
             overrides[str(step.get("key"))] = _step_email(config, senders)
     return overrides
 
@@ -725,6 +722,7 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
             f"PostHog can't convert {', '.join(subject.unsupported_tags)} in this step's subject, so it appears as "
             "plain text. Rewrite it in Liquid."
         )
+    reply_to = config.get("reply_to")
     display_name, address = parseaddr(str(config.get("from") or ""))
     sender = senders.get(address.lower()) if address else None
     if address and sender is None:
@@ -739,6 +737,7 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
         from_email=address,
         from_name=literal_liquid(display_name) or (str(sender.config.get("name") or "") if sender else ""),
         sender_integration_id=sender.id if sender else None,
+        reply_to=literal_liquid(", ".join(map(str, reply_to)) if isinstance(reply_to, list) else str(reply_to or "")),
         notes=tuple(notes),
     )
 

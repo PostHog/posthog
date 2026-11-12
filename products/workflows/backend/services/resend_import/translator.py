@@ -20,6 +20,7 @@ from products.workflows.backend.facade.contracts import ImportedEmail, ImportedS
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.services.customerio_import.translator import (
     _EXIT_ID,
+    _MAX_DELAY_SECONDS,
     _MAX_WAIT_SECONDS,
     TRIGGER_ID,
     _duration,
@@ -187,9 +188,8 @@ class _Builder:
             case "send_email":
                 return [self._email(key, str(step.get("key")), config, base)]
             case "delay":
-                return [
-                    {**base, "type": "delay", "config": {"delay_duration": self._duration(key, config, "duration")}}
-                ]
+                duration = self._duration(key, config, "duration", cap=_MAX_DELAY_SECONDS)
+                return [{**base, "type": "delay", "config": {"delay_duration": duration}}]
             case "condition":
                 return [{**base, "type": "conditional_branch", "config": {"conditions": self._conditions(key, config)}}]
             case "wait_for_event":
@@ -403,16 +403,16 @@ class _Builder:
                 value["text"] = imported.text
             for note in imported.notes:
                 self.note(NoteLevel.NEEDS_INPUT, note, key)
+            if not override.from_email:
+                for note in imported.sender_notes:
+                    self.note(NoteLevel.NEEDS_INPUT, note, key)
         if override.subject:
             value["subject"] = override.subject
         for field_name in ("subject", "html", "text"):
             if field_name in value:
                 value[field_name] = self._with_variables(key, value[field_name], variables, contact_variables)
-        reply_to = config.get("reply_to")
-        if reply_to:
-            value["replyTo"] = _literal_liquid(
-                ", ".join(str(item) for item in reply_to) if isinstance(reply_to, list) else str(reply_to)
-            )
+        if override.reply_to:
+            value["replyTo"] = override.reply_to
         if override.from_email:
             value["from"] = _sender(override.from_email, override.from_name, override.sender_integration_id)
         for note in override.notes:
@@ -449,7 +449,7 @@ class _Builder:
         reference = source.get("var") if isinstance(source, dict) else None
         if reference is None:
             text = json.dumps(source) if isinstance(source, bool) else str(source)
-            literal = _liquid_literal(text)
+            literal = None if source is None or isinstance(source, (dict, list)) else _liquid_literal(text)
             if literal is None:
                 self.note(
                     NoteLevel.NEEDS_INPUT, f"PostHog can't keep the value of {name} as written. Add it again.", key
@@ -696,11 +696,6 @@ class _Builder:
 
 _LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _LIQUID_STRING = re.compile(r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')")
-
-
-def _literal_liquid(text: str) -> str:
-    # The email is rendered as Liquid, so a header value from Resend must not run as a tag.
-    return re.sub(r"\{\{|\{%", lambda match: f'{{{{ "{match.group(0)}" }}}}', text)
 
 
 def _fill_variable(text: str, name: str, replacement: str) -> str:
