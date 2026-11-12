@@ -117,6 +117,49 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    /**
+     * * `web_search` - Web search
+     * * `no_search` - No search
+     */
+    export type CheckModeEnum = typeof CheckModeEnum[keyof typeof CheckModeEnum];
+
+
+    export const CheckModeEnum = {
+      WebSearch: 'web_search',
+      NoSearch: 'no_search',
+    } as const;
+
+    /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     */
+    export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
+
+
+    export const CheckFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+    } as const;
+
+    export interface AEOEngineSetting {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+      engine: string;
+      /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+      available: boolean;
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled: boolean;
+      /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency: CheckFrequencyEnum;
+    }
+
     export interface AEOKeyword {
       /** Keyword id. */
       id: string;
@@ -144,7 +187,7 @@ export namespace Schemas {
     }
 
     export interface AEOModifierEngineCount {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers from this engine whose searches used the modifier. */
       answers: number;
@@ -297,10 +340,17 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineCheck {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
-      /** Whether the answer cited a URL on one of the target domains. */
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
       cited: boolean;
+      /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+      mentioned: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
       /**
@@ -417,8 +467,13 @@ export namespace Schemas {
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
       run_id: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
       /** Engine model that answered. */
       model: string;
       /** When the check ran. */
@@ -470,7 +525,7 @@ export namespace Schemas {
     export interface AEOPromptDailyEngineStats {
       /** Day, in the project's timezone. */
       date: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks on this engine that day, failed ones included. */
       checks: number;
@@ -488,7 +543,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineDomainShare {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** One of the most cited domains across all engines in the window. */
       domain: string;
@@ -499,7 +554,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineSentiment {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers in the last 30 days whose brand sentences read positive. */
       positive: number;
@@ -522,7 +577,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly mention_rate: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks of the prompt on this engine, failed ones included. */
       checks: number;
@@ -628,7 +683,7 @@ export namespace Schemas {
          * @nullable
          */
       avg_position: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
     }
 
@@ -709,6 +764,8 @@ export namespace Schemas {
       previous: AEOPromptSetCounts;
       /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
       engines: AEOPromptSetEngineCounts[];
+      /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+      daily: AEOPromptDailyEngineStats[];
       /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
       topics: AEOPromptSetTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
@@ -36899,6 +36956,28 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    /**
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification
+     */
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+
+
+    export const DestinationTypeEnum = {
+      Slack: 'slack',
+      Discord: 'discord',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+      Email: 'email',
+      InApp: 'in_app',
+    } as const;
+
     export interface DetectableEffectCheckpoint {
       /** The week mark, in whole weeks since launch. */
       weeks_since_launch: number;
@@ -60785,6 +60864,11 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
+    export interface ImportAllResponse {
+      /** How many releases the import created. */
+      created_count: number;
+    }
+
     /**
      * * `customerio` - Customer.io
      */
@@ -70485,6 +70569,101 @@ export namespace Schemas {
       next_measurement_at: string | null;
     }
 
+    export interface MonitoringReading {
+      /** When this interim reading was measured. */
+      measured_at: string;
+      /**
+         * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      matches: boolean | null;
+      /**
+         * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+         * @nullable
+         */
+      observed_value: number | null;
+      /**
+         * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+         * @nullable
+         */
+      threshold: number | null;
+    }
+
+    export interface MonitoringLeadCheck {
+      /** The follow-up check this summary is drawn from. */
+      check_id: string;
+      /** The check's short label. */
+      title: string;
+      /**
+         * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+         * @nullable
+         */
+      metric_id: string | null;
+      /** What the measured value means, when the check names it.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      metric_kind: ReportMetricKindEnum | null;
+      /** How to format measured values, matching a report metric's `value_format`.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format: ValueFormatEnum | null;
+      /**
+         * Optional value suffix, such as `users`.
+         * @nullable
+         */
+      unit: string | null;
+      /** What the measured value must satisfy over the reference period. */
+      readonly comparison: CheckComparison;
+      /** The target's reference period and whether it scales with elapsed time. */
+      readonly monitoring: MonitoringMetricConfig;
+      /**
+         * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /** End of this check's observation window. */
+      ends_at: string;
+      /**
+         * When the next interim reading is scheduled, if one falls inside the window.
+         * @nullable
+         */
+      next_measurement_at: string | null;
+      /** Interim readings in this Monitoring period, oldest first. */
+      readings: MonitoringReading[];
+    }
+
+    /**
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended
+     */
+    export type MonitoringSummaryStateEnum = typeof MonitoringSummaryStateEnum[keyof typeof MonitoringSummaryStateEnum];
+
+
+    export const MonitoringSummaryStateEnum = {
+      NotOnTrack: 'not_on_track',
+      OnTrack: 'on_track',
+      AwaitingReading: 'awaiting_reading',
+      ReadingsHidden: 'readings_hidden',
+      FinalCheckOnly: 'final_check_only',
+      WindowEnded: 'window_ended',
+    } as const;
+
     export interface MonitoringUnresolvedSignalExtra {
       /** Original Closed report whose implementation remains unverified. */
       report_id: string;
@@ -75632,6 +75811,23 @@ export namespace Schemas {
       readonly labels: PlatformAlertLabels;
     }
 
+    export interface PlatformAlertStateInterval {
+      /** Interval start, inclusive. */
+      start: string;
+      /** Interval end, exclusive. */
+      end: string;
+      /** The whole alert's state during the interval.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      state: BillingAlertConfigurationStateEnum;
+      /** Whether the alert was enabled during the interval. */
+      enabled: boolean;
+    }
+
     /**
      * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
      */
@@ -75730,6 +75926,22 @@ export namespace Schemas {
       readonly labels: PlatformAlertConfigurationLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       readonly annotations: PlatformAlertConfigurationAnnotations;
+      /** Who created the alert. Null when it was created by a system or the user is gone. Set on reads of the list and of one alert. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last checked. Null when it has not been checked, or when its check history could not be read.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * Error from the alert's last check in the past day, or null when that check succeeded.
+         * @nullable
+         */
+      readonly last_error_message: string | null;
+      /** The whole alert's state over the past 24 hours, oldest first. Each interval holds one state and one enabled setting. Empty on a create or an edit. */
+      readonly state_timeline: readonly PlatformAlertStateInterval[];
+      /** Types of the alert's enabled notification destinations, such as slack. Empty when it has none. */
+      readonly destination_types: readonly DestinationTypeEnum[];
     }
 
     export interface PaginatedPlatformAlertConfigurationList {
@@ -77707,6 +77919,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -77757,6 +77976,11 @@ export namespace Schemas {
          * @nullable
          */
       minimum_data_points?: number | null;
+      /**
+         * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+         * @nullable
+         */
+      readonly interval: string | null;
     }
 
     /**
@@ -78191,6 +78415,24 @@ export namespace Schemas {
       readonly steps: readonly ReportPlanStep[];
     }
 
+    export interface ReportMonitoringSummary {
+      /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+       *
+       * * `not_on_track` - Not on track
+       * * `on_track` - On track
+       * * `awaiting_reading` - Awaiting first reading
+       * * `readings_hidden` - Readings hidden
+       * * `final_check_only` - Final check only
+       * * `window_ended` - Window ended */
+      state: MonitoringSummaryStateEnum;
+      /** When this Monitoring period started. */
+      started_at: string;
+      /** When the last open check's observation window ends. */
+      ends_at: string;
+      /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+      lead_check: MonitoringLeadCheck | null;
+    }
+
     export interface SignalReportList {
       readonly id: string;
       /** @nullable */
@@ -78345,6 +78587,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly personal_reason: string | null;
+      /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+      readonly monitoring_summary: ReportMonitoringSummary | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -78593,7 +78837,7 @@ export namespace Schemas {
       readonly scope: RoutingScopeEnum | null;
       /** The head commit the record is for. It can be older than the pull request head. */
       readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       readonly trigger: string;
       /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
       readonly claim_expired: boolean;
@@ -78853,7 +79097,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -83168,6 +83412,16 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       aliases?: string[];
+    }
+
+    export interface PatchedAEOEngineSettingUpdateRequest {
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled?: boolean;
+      /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency?: CheckFrequencyEnum;
     }
 
     export interface PatchedAEOPromptUpdateRequest {
@@ -93218,12 +93472,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 
@@ -95095,6 +95353,78 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    /**
+     * The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change.
+     */
+    export type PlatformAlertEventCondition = { [key: string]: unknown };
+
+    /**
+     * * `check` - Check
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `reset` - Reset
+     * * `config_change` - Config change
+     */
+    export type PlatformAlertEventKindEnum = typeof PlatformAlertEventKindEnum[keyof typeof PlatformAlertEventKindEnum];
+
+
+    export const PlatformAlertEventKindEnum = {
+      Check: 'check',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      Reset: 'reset',
+      ConfigChange: 'config_change',
+    } as const;
+
+    export interface PlatformAlertEvent {
+      /** When it happened. */
+      occurred_at: string;
+      /** check for a check that moved the alert's state or failed, else the change a person made.
+       *
+       * * `check` - Check
+       * * `enable` - Enable
+       * * `disable` - Disable
+       * * `snooze` - Snooze
+       * * `unsnooze` - Unsnooze
+       * * `reset` - Reset
+       * * `config_change` - Config change */
+      kind: PlatformAlertEventKindEnum;
+      /** The alert's state before it.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      previous_state: BillingAlertConfigurationStateEnum;
+      /** The alert's state after it.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      state: BillingAlertConfigurationStateEnum;
+      /**
+         * What a check measured. Null for a change, or a check that measured nothing.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * Why a check failed. Null otherwise.
+         * @nullable
+         */
+      error_message: string | null;
+      /** Key of the group a check moved, as the grouping_key of the alert's instances. Empty for a change, or for an alert that does not group. */
+      grouping_key: string;
+      /** The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change. */
+      condition: PlatformAlertEventCondition;
+    }
+
     export interface PlatformAlertGroupSnooze {
       /**
          * Key of the group to snooze, as the grouping_key of one of the alert's instances.
@@ -95103,6 +95433,14 @@ export namespace Schemas {
       grouping_key: string;
       /**
          * Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+         * @nullable
+         */
+      snooze_until: string | null;
+    }
+
+    export interface PlatformAlertSnooze {
+      /**
+         * Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked.
          * @nullable
          */
       snooze_until: string | null;
@@ -103534,6 +103872,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -110471,6 +110816,61 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export interface ServiceUsage {
+      /** Log records stored in the window. */
+      log_records: number;
+      /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+      log_bytes: number;
+      /** Spans of every kind stored in the window. */
+      spans: number;
+      /** Metric data points stored in the window. */
+      metric_points: number;
+      /** Distinct metric series with at least one point in the window. */
+      metric_series: number;
+      /** The service.name resource attribute. */
+      service_name: string;
+    }
+
+    export interface UsageValues {
+      /** Log records stored in the window. */
+      log_records: number;
+      /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+      log_bytes: number;
+      /** Spans of every kind stored in the window. */
+      spans: number;
+      /** Metric data points stored in the window. */
+      metric_points: number;
+      /** Distinct metric series with at least one point in the window. */
+      metric_series: number;
+    }
+
+    /**
+     * * `logs` - Logs
+     * * `traces` - Traces
+     * * `metrics` - Metrics
+     */
+    export type UsageSignalEnum = typeof UsageSignalEnum[keyof typeof UsageSignalEnum];
+
+
+    export const UsageSignalEnum = {
+      Logs: 'logs',
+      Traces: 'traces',
+      Metrics: 'metrics',
+    } as const;
+
+    export interface ServiceUsageResponse {
+      /** One row per service across logs, traces, and metrics, largest logs size first. */
+      results: ServiceUsage[];
+      /** Totals for the whole window, including services past the row limit. */
+      totals: UsageValues;
+      /** Signals that failed to load. Their values are 0 in every row and in the totals. */
+      unavailable_signals: UsageSignalEnum[];
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface ServicesHealthResponse {
       /** One row per service, worst status first. */
       results: ServiceHealth[];
@@ -110984,6 +111384,7 @@ export namespace Schemas {
      * * `potential` - potential
      * * `resolved` - resolved
      * * `monitoring` - monitoring
+     * * `ready` - ready
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -110993,15 +111394,17 @@ export namespace Schemas {
       Potential: 'potential',
       Resolved: 'resolved',
       Monitoring: 'monitoring',
+      Ready: 'ready',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved
-       * * `monitoring` - monitoring */
+       * * `monitoring` - monitoring
+       * * `ready` - ready */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -111462,12 +111865,13 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved
-       * * `monitoring` - monitoring */
+       * * `monitoring` - monitoring
+       * * `ready` - ready */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -113741,7 +114145,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -122868,12 +123272,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 
@@ -124445,6 +124853,18 @@ export namespace Schemas {
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
+      /**
+         * Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.
+         * @nullable
+         */
+      dropEmptySeries?: boolean | null;
+      /**
+         * Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.
+         * @minimum 1
+         * @maximum 100
+         * @nullable
+         */
+      limit?: number | null;
     }
 
     export interface _MetricQueryCount {
@@ -124471,6 +124891,10 @@ export namespace Schemas {
       results: _MetricSeries[];
       /** Set only when the query returned no points: what to check before querying again. */
       hint?: string;
+      /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
+      omitted_empty_series?: number;
+      /** Number of series left out by 'limit'. Set only when it left some out. */
+      omitted_by_limit?: number;
     }
 
     export interface _MetricSamplesBody {
@@ -128569,6 +128993,17 @@ export namespace Schemas {
      * @maxLength 200
      */
     environment?: string;
+    };
+
+    export type ApmUsageListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -138259,6 +138694,10 @@ export namespace Schemas {
 
     export type PlatformAlertsListParams = {
     /**
+     * Only alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
      * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
      */
     legacy_configuration_id?: string;
@@ -138271,6 +138710,39 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
+     *
+     * * `logs` - Logs
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
+     * * `traces` - Traces
+     * @minLength 1
+     */
+    source_kind?: PlatformAlertsListSourceKind;
+    };
+
+    export type PlatformAlertsListSourceKind = typeof PlatformAlertsListSourceKind[keyof typeof PlatformAlertsListSourceKind];
+
+
+    export const PlatformAlertsListSourceKind = {
+      Logs: 'logs',
+      Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
+      Traces: 'traces',
+    } as const;
+
+    export type PlatformAlertsEventsListParams = {
+    /**
+     * Most events to return, newest first. Up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
     };
 
     export type PluginConfigsLogsListParams = {
