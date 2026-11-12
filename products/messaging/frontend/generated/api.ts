@@ -15,6 +15,8 @@ import type {
     AttachmentUploadsResponseApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkAddSuppressionsRequestApi,
+    BulkAddSuppressionsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
     CodeEmailApi,
@@ -804,6 +806,27 @@ export const messagingSuppressionsAddSuppressionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addSuppressionRequestApi),
+    })
+}
+
+export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_add_suppressions/`
+}
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreate = async (
+    projectId: string,
+    bulkAddSuppressionsRequestApi: BulkAddSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddSuppressionsResultApi> => {
+    return apiMutator<BulkAddSuppressionsResultApi>(getMessagingSuppressionsBulkAddSuppressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddSuppressionsRequestApi),
     })
 }
 

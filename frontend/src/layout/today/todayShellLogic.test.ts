@@ -244,6 +244,7 @@ describe('todayShellLogic', () => {
 
     test.each([
         ['/project/1/dashboard', 'products'],
+        ['/project/1/sql', 'products'],
         ['/project/1/support/tickets', 'products'],
         ['/project/1/persons', 'products'],
         ['/project/1/cohorts', 'products'],
@@ -255,6 +256,22 @@ describe('todayShellLogic', () => {
         logic.mount()
 
         logic.actions.pickPane('products')
+        router.actions.push('/project/1/airplane')
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/replay/home', 'analytics'],
+        ['/project/1/replay/0193a2b4-recording', 'analytics'],
+        ['/project/1/heatmaps', 'analytics'],
+        ['/project/1/sql', 'analytics'],
+        ['/project/1/feature-flags', 'products'],
+    ])('%s opened while the Analytics pane is open shows the %s pane', (pathname, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane('analytics')
         router.actions.push('/project/1/airplane')
         router.actions.push(pathname)
         expect(logic.values.activePane).toBe(pane)
