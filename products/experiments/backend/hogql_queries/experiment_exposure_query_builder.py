@@ -19,6 +19,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     exposure_event_name_filter,
 )
+from products.growth.backend.facade.sdks import sdk_library_names
 
 
 class ExposureSegmentDimension(StrEnum):
@@ -101,8 +102,15 @@ class ExposureQueryBuilder:
             return None
         return self.maturity.condition(first_exposure_time, self.maturity_window_seconds)
 
-    def timeseries_query(self) -> ast.SelectQuery:
-        """Daily exposure counts per variant. Each entity counts once, on its first exposure day."""
+    def timeseries_query(self, with_library: bool = False) -> ast.SelectQuery:
+        """Daily exposure counts per variant. Each entity counts once, on its first exposure day.
+
+        With `with_library` and without an activation, the `exposed_by_library` column counts the entities of each row
+        by the SDK library (`$lib`) of their first exposure, as a (libraries, counts) pair of arrays. A library outside
+        PostHog's own SDKs counts under BREAKDOWN_OTHER_STRING_LABEL, and a missing one under
+        BREAKDOWN_NULL_STRING_LABEL.
+        """
+        with_library = with_library and self.context.activation_config is None
         query = parse_select(
             """
             WITH first_exposures AS ({first_exposures_select})
@@ -117,11 +125,19 @@ class ExposureQueryBuilder:
             ORDER BY first_exposures.day ASC
             """,
             placeholders={
-                "first_exposures_select": self._build_first_exposures_day_select(),
+                "first_exposures_select": self._build_first_exposures_day_select(with_library=with_library),
             },
         )
 
         assert isinstance(query, ast.SelectQuery)
+        if with_library:
+            # The library is a column of the same scan, so it costs no second read of the events.
+            query.select.append(
+                ast.Alias(
+                    alias="exposed_by_library",
+                    expr=parse_expr("sumMap([first_exposures.library], [1])"),
+                )
+            )
         return query
 
     def segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
@@ -238,8 +254,9 @@ class ExposureQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _build_first_exposures_day_select(self) -> ast.SelectQuery:
-        """Per-entity (entity_id, variant, day-of-first-exposure) select feeding the timeseries."""
+    def _build_first_exposures_day_select(self, with_library: bool = False) -> ast.SelectQuery:
+        """Per-entity (entity_id, variant, day-of-first-exposure) select feeding the timeseries. `with_library` adds the
+        library of the first exposure, as segments_query reads it, and applies only without an activation."""
         if self.context.activation_config is not None:
             query = parse_select(
                 """
@@ -278,6 +295,28 @@ class ExposureQueryBuilder:
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+        if with_library and self.context.activation_config is None:
+            [(_, library_expr)] = BreakdownInjector(
+                [Breakdown(property="$lib", type=MultipleBreakdownType.EVENT)]
+            ).build_breakdown_exprs()
+            # Any sender can set `$lib`, so the column keeps only the names of PostHog's own SDKs. That bounds the
+            # distinct values before any grouping, however many values the events carry.
+            query.select.append(
+                ast.Alias(
+                    alias="library",
+                    expr=parse_expr(
+                        "argMin(multiIf({library} IN {sdk_libraries}, {library}, {library} = {no_library}, {library}, {other_library}), timestamp)",
+                        placeholders={
+                            "library": library_expr,
+                            "sdk_libraries": ast.Tuple(
+                                exprs=[ast.Constant(value=name) for name in sdk_library_names()]
+                            ),
+                            "no_library": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            "other_library": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                        },
+                    ),
+                )
+            )
         return query
 
     def _build_precomputed_entity_id_expr(self) -> ast.Expr:

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>IP address blocked - PostHog</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta charset="utf-8">
+        <style>
+            :root { color-scheme: light dark; }
+            body {
+                margin: 0;
+                padding: 2rem;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                line-height: 1.5;
+                background: Canvas;
+                color: CanvasText;
+            }
+            main { max-width: 36rem; margin: 10vh auto; }
+            h1 { font-size: 1.5rem; }
+            nav { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+            button { font: inherit; cursor: pointer; padding: 0.375rem 0.75rem; }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Your IP address is blocked</h1>
+            <p>{{ detail }}</p>
+            <p>If your organization uses a VPN, connect to it and try again.</p>
+            <nav aria-label="Recovery options">
+                <a href="{{ retry_url }}" data-attr="ip-restrictions-retry">Try again</a>
+                <form method="post" action="/logout">
+                    {% csrf_token %}
+                    <button type="submit" data-attr="ip-restrictions-logout">Log out</button>
+                </form>
+            </nav>
+        </main>
+    </body>
+</html>

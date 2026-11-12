@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconPlus, IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
@@ -23,6 +23,7 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -30,6 +31,7 @@ import {
     TaxonomicFilterValue,
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
+import { QuillTaxonomicPopover } from 'lib/components/TaxonomicPopover/QuillTaxonomicPopover'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
@@ -41,7 +43,7 @@ import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilt
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
+import { FILTER_ROW_FRAME_CLASSES, QUILL_FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
 import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
@@ -147,6 +149,7 @@ export function TaxonomicPropertyFilter({
     const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const quillSurface = useQuillSurface()
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -306,7 +309,44 @@ export function TaxonomicPropertyFilter({
         )
     )
 
-    const editablePicker = (
+    const pickerLabel = filterContent ?? (addText || 'Add filter')
+    const pickerTooltip = (
+        <>
+            {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+            {flagKey && (
+                <div className="mt-2">
+                    <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                </div>
+            )}
+            {addFilterDocLink && (
+                <>
+                    <br />
+                    <Link to={addFilterDocLink} target="_blank">
+                        Read the docs
+                    </Link>
+                </>
+            )}
+        </>
+    )
+
+    const editablePicker = quillSurface ? (
+        <QuillTaxonomicPopover
+            buttonProps={{
+                type: 'secondary',
+                icon: !valuePresent ? <IconPlus /> : undefined,
+                className: 'justify-start',
+                'data-attr': 'property-select-toggle-' + index,
+            }}
+            open={dropdownOpen}
+            onOpenChange={(open) => (open ? openDropdown() : closeDropdown())}
+            label={pickerLabel}
+            tooltip={pickerTooltip}
+            showChevron={false}
+            placement="bottom-start"
+        >
+            {taxonomicFilter}
+        </QuillTaxonomicPopover>
+    ) : (
         <LemonDropdown
             overlay={taxonomicFilter}
             placement="bottom-start"
@@ -321,26 +361,9 @@ export function TaxonomicPropertyFilter({
                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                 size={size}
                 truncate={true}
-                tooltip={
-                    <>
-                        {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
-                        {flagKey && (
-                            <div className="mt-2">
-                                <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
-                            </div>
-                        )}
-                        {addFilterDocLink && (
-                            <>
-                                <br />
-                                <Link to={addFilterDocLink} target="_blank">
-                                    Read the docs
-                                </Link>
-                            </>
-                        )}
-                    </>
-                }
+                tooltip={pickerTooltip}
             >
-                {filterContent ?? (addText || 'Add filter')}
+                {pickerLabel}
             </LemonButton>
         </LemonDropdown>
     )
@@ -373,7 +396,9 @@ export function TaxonomicPropertyFilter({
                         className={clsx(
                             'TaxonomicPropertyFilter__row-items',
                             { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
-                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                            framedRows &&
+                                filter?.key &&
+                                (quillSurface ? QUILL_FILTER_ROW_FRAME_CLASSES : FILTER_ROW_FRAME_CLASSES)
                         )}
                     >
                         {showOperatorValueSelect &&

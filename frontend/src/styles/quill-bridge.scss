@@ -131,6 +131,11 @@
     [data-quill] .bg-muted {
         background-color: var(--muted) !important;
     }
+
+    [data-quill].bg-muted\/30,
+    [data-quill] .bg-muted\/30 {
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent) !important;
+    }
 }
 
 [data-quill].bg-popover,

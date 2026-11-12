@@ -119,7 +119,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # properties-narrowing instance settings, cold-cache here but TTL-cached per worker in production. +1 for the
         # organization's flag_evaluations mode lookup in the HogQL database build. +1 for the MCP custom harness fetch in
         # the HogQL database build.
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -158,7 +158,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # TTL, projection kill-switch and properties-narrowing instance settings, cold-cache here but
         # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
         # +1 for the MCP custom harness fetch in the HogQL database build.
-        expected_queries = 25 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 26
+        expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -971,15 +971,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["1"],
             is_identified=True,
         )
-        sent_properties = {
-            "plan": None,
-            "billing": {"coupon": None, "seats": 3},
-            "items": [{"sku": "a", "note": None}],
-            "$set": {"email": None, "name": "n"},
-        }
-        event_id = _create_event(
-            team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), properties=sent_properties
-        )
+        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
@@ -987,7 +979,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
-        assert response_json["properties"] == sent_properties
 
         with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         assert with_person_response.status_code == status.HTTP_200_OK

@@ -1,11 +1,3 @@
-"""Delivery orchestration: a scope's delivery summary, its pull request timelines, and an author's
-comparison with their team.
-
-The summary and the timelines take one scope (see ``delivery_scope``) and compare it with the
-repository. The author page is the first caller; a team page reads the same summary with a GitHub
-team, and a pull request page reads one timeline and the comparison.
-"""
-
 from products.engineering_analytics.backend.facade.contracts import (
     DeliveryComparison,
     DeliveryScopeKind,

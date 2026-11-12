@@ -716,6 +716,10 @@ export interface AnomalySearchResponseApi {
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
+    /** Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not follow the requested range, and it counts scores written before scoring was turned off. */
+    scored_days: number
+    /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
+    scored_history_ready: boolean
     /** The applied start of the range, in the project timezone. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
@@ -765,6 +769,12 @@ export const AutonomyPriorityEnumApi = {
     P4: 'P4',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 export interface SignalTeamConfigApi {
     readonly id: string
     /**
@@ -779,6 +789,14 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /** Minimum report priority for the project's team Slack channel. P0 is highest. Null includes all reports, including reports without a priority. A set threshold excludes reports without a priority. Personal notification settings are separate.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    default_slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     /**
      * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
      * @nullable
@@ -1545,6 +1563,8 @@ export interface InboxOnboardingDraftApi {
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
+    /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
+    setup_default_skills?: string[]
     /** Whether the current user can receive an in-app notification when this investigation finishes. */
     first_report_completion_notification?: boolean
     /**
@@ -1888,6 +1908,13 @@ export interface ReportMetricListApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -1938,6 +1965,11 @@ export interface ReportMetricListApi {
      * @nullable
      */
     minimum_data_points?: number | null
+    /**
+     * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+     * @nullable
+     */
+    readonly interval: string | null
 }
 
 /**
@@ -2386,6 +2418,179 @@ export interface ReportPlanApi {
     readonly steps: readonly ReportPlanStepApi[]
 }
 
+/**
+ * * `not_on_track` - Not on track
+ * * `on_track` - On track
+ * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
+ * * `final_check_only` - Final check only
+ * * `window_ended` - Window ended
+ */
+export type MonitoringSummaryStateEnumApi =
+    (typeof MonitoringSummaryStateEnumApi)[keyof typeof MonitoringSummaryStateEnumApi]
+
+export const MonitoringSummaryStateEnumApi = {
+    NotOnTrack: 'not_on_track',
+    OnTrack: 'on_track',
+    AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
+    FinalCheckOnly: 'final_check_only',
+    WindowEnded: 'window_ended',
+} as const
+
+export type CheckComparisonOperatorEnumApi =
+    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
+
+export const CheckComparisonOperatorEnumApi = {
+    Lte: 'lte',
+    Gte: 'gte',
+    Between: 'between',
+} as const
+
+export interface CheckThresholdBoundsApi {
+    lower: number
+    upper: number
+}
+
+/**
+ * What the measured value must satisfy for the check to pass.
+ *
+ * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+ * would need a second comparison engine for a distinction a soak window does not make, so they are
+ * not offered: "stays at or below 10 a day" is the same expectation.
+ */
+export interface CheckComparisonApi {
+    /** `lte`, `gte`, or `between`. */
+    operator: CheckComparisonOperatorEnumApi
+    /** The bound for `lte` and `gte`; unused by `between`. */
+    value?: number | null
+    /** The inclusive range for `between`; unused by `lte` and `gte`. */
+    bounds?: CheckThresholdBoundsApi | null
+}
+
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
+export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
+
+export const ThresholdScalingEnumApi = {
+    Linear: 'linear',
+    Fixed: 'fixed',
+} as const
+
+export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
+    /**
+     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+     * @maximum 527040
+     * @exclusiveMinimum 0
+     */
+    reference_period_minutes: number
+    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+    threshold_scaling: ThresholdScalingEnumApi
+    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+    baseline_period_minutes?: number | null
+}
+
+export interface MonitoringReadingApi {
+    /** When this interim reading was measured. */
+    measured_at: string
+    /**
+     * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    matches: boolean | null
+    /**
+     * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    observed_value: number | null
+    /**
+     * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+     * @nullable
+     */
+    threshold: number | null
+}
+
+export interface MonitoringLeadCheckApi {
+    /** The follow-up check this summary is drawn from. */
+    check_id: string
+    /** The check's short label. */
+    title: string
+    /**
+     * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+     * @nullable
+     */
+    metric_id: string | null
+    /** What the measured value means, when the check names it.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    metric_kind: ReportMetricKindEnumApi | null
+    /** How to format measured values, matching a report metric's `value_format`.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format: ValueFormatEnumApi | null
+    /**
+     * Optional value suffix, such as `users`.
+     * @nullable
+     */
+    unit: string | null
+    /** What the measured value must satisfy over the reference period. */
+    readonly comparison: CheckComparisonApi
+    /** The target's reference period and whether it scales with elapsed time. */
+    readonly monitoring: MonitoringMetricConfigApi
+    /**
+     * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+     * @nullable
+     */
+    baseline_value: number | null
+    /** End of this check's observation window. */
+    ends_at: string
+    /**
+     * When the next interim reading is scheduled, if one falls inside the window.
+     * @nullable
+     */
+    next_measurement_at: string | null
+    /** Interim readings in this Monitoring period, oldest first. */
+    readings: MonitoringReadingApi[]
+}
+
+export interface ReportMonitoringSummaryApi {
+    /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+     *
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended */
+    state: MonitoringSummaryStateEnumApi
+    /** When this Monitoring period started. */
+    started_at: string
+    /** When the last open check's observation window ends. */
+    ends_at: string
+    /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+    lead_check: MonitoringLeadCheckApi | null
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -2504,6 +2709,8 @@ export interface SignalReportListApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -2529,15 +2736,17 @@ export interface SignalReportListApi {
      */
     readonly inbox_merge_key: number | null
     /**
-     * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * The tier your personal ranking gave this report, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_tier: string | null
     /**
-     * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * Why your personal ranking put this report where it is, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_reason: string | null
+    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+    readonly monitoring_summary: ReportMonitoringSummaryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -2548,12 +2757,12 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model, or personal when a stored personal ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
     /**
-     * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+     * The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
      * @nullable
      */
     ranking_id?: string | null
@@ -2564,6 +2773,8 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_pill?: boolean | null
+    /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+    source_metadata_available?: boolean
 }
 
 /**
@@ -2775,7 +2986,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
      * @nullable
      */
     repository?: string | null
@@ -2836,6 +3047,47 @@ export interface EmitReportRequestApi {
     idempotency_key?: string | null
 }
 
+/**
+ * * `repair` - repair
+ * * `hint` - hint
+ */
+export type ReportQualityHintSeverityEnumApi =
+    (typeof ReportQualityHintSeverityEnumApi)[keyof typeof ReportQualityHintSeverityEnumApi]
+
+export const ReportQualityHintSeverityEnumApi = {
+    Repair: 'repair',
+    Hint: 'hint',
+} as const
+
+/**
+ * * `title` - title
+ * * `summary` - summary
+ */
+export type ReportQualityHintFieldEnumApi =
+    (typeof ReportQualityHintFieldEnumApi)[keyof typeof ReportQualityHintFieldEnumApi]
+
+export const ReportQualityHintFieldEnumApi = {
+    Title: 'title',
+    Summary: 'summary',
+} as const
+
+export interface ReportQualityHintApi {
+    /** Stable id of the quality check, e.g. `literal_newline_escapes`. */
+    check_id: string
+    /** `repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.
+     *
+     * * `repair` - repair
+     * * `hint` - hint */
+    severity: ReportQualityHintSeverityEnumApi
+    /** The field the check matched.
+     *
+     * * `title` - title
+     * * `summary` - summary */
+    field: ReportQualityHintFieldEnumApi
+    /** What the check found and what to do next time. */
+    message: string
+}
+
 export interface EmitReportResponseApi {
     /**
      * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
@@ -2866,6 +3118,8 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
 }
 
 /**
@@ -2914,6 +3168,13 @@ export interface ReportMetricApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -3086,6 +3347,8 @@ export interface SignalReportApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -5651,6 +5914,7 @@ export interface ReportSpendApi {
  * * `potential` - potential
  * * `resolved` - resolved
  * * `monitoring` - monitoring
+ * * `ready` - ready
  */
 export type SignalReportStateEnumApi = (typeof SignalReportStateEnumApi)[keyof typeof SignalReportStateEnumApi]
 
@@ -5659,6 +5923,7 @@ export const SignalReportStateEnumApi = {
     Potential: 'potential',
     Resolved: 'resolved',
     Monitoring: 'monitoring',
+    Ready: 'ready',
 } as const
 
 /**
@@ -5693,12 +5958,13 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
-     * * `monitoring` - monitoring */
+     * * `monitoring` - monitoring
+     * * `ready` - ready */
     state: SignalReportStateEnumApi
     /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
@@ -5993,66 +6259,6 @@ export const SignalReportCheckStatusEnumApi = {
     Expired: 'expired',
     Cancelled: 'cancelled',
 } as const
-
-export type MonitoringMetricConfigPurposeEnumApi =
-    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
-
-export const MonitoringMetricConfigPurposeEnumApi = {
-    Expectation: 'expectation',
-    MinimumEvidence: 'minimum_evidence',
-} as const
-
-export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
-
-export const ThresholdScalingEnumApi = {
-    Linear: 'linear',
-    Fixed: 'fixed',
-} as const
-
-export interface MonitoringMetricConfigApi {
-    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
-    purpose?: MonitoringMetricConfigPurposeEnumApi
-    /**
-     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
-     * @maximum 527040
-     * @exclusiveMinimum 0
-     */
-    reference_period_minutes: number
-    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
-    threshold_scaling: ThresholdScalingEnumApi
-    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
-    baseline_period_minutes?: number | null
-}
-
-export type CheckComparisonOperatorEnumApi =
-    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
-
-export const CheckComparisonOperatorEnumApi = {
-    Lte: 'lte',
-    Gte: 'gte',
-    Between: 'between',
-} as const
-
-export interface CheckThresholdBoundsApi {
-    lower: number
-    upper: number
-}
-
-/**
- * What the measured value must satisfy for the check to pass.
- *
- * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
- * would need a second comparison engine for a distinction a soak window does not make, so they are
- * not offered: "stays at or below 10 a day" is the same expectation.
- */
-export interface CheckComparisonApi {
-    /** `lte`, `gte`, or `between`. */
-    operator: CheckComparisonOperatorEnumApi
-    /** The bound for `lte` and `gte`; unused by `between`. */
-    value?: number | null
-    /** The inclusive range for `between`; unused by `lte` and `gte`. */
-    bounds?: CheckThresholdBoundsApi | null
-}
 
 /**
  * How to draw this measurement; copied from a referenced metric.
@@ -6445,12 +6651,13 @@ export interface SignalReportCheckReplacementApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. Reopening is refused for other statuses and for refunded reports.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
-     * * `monitoring` - monitoring */
+     * * `monitoring` - monitoring
+     * * `ready` - ready */
     state: SignalReportStateEnumApi
     /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
@@ -6890,6 +7097,74 @@ export interface SignalReportRefundSummaryResponseApi {
     quota_limited: boolean
 }
 
+/**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ */
+export type ReportMatchKindEnumApi = (typeof ReportMatchKindEnumApi)[keyof typeof ReportMatchKindEnumApi]
+
+export const ReportMatchKindEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+} as const
+
+export interface SignalReportSearchHitApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /**
+     * The report title.
+     * @nullable
+     */
+    title: string | null
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** When the report last changed. */
+    updated_at: string
+    /** A short excerpt of the summary, around the first query word it holds, or the summary's opening when it holds none. */
+    summary_snippet: string
+    /**
+     * The reason code from the latest dismissal of the report, or null.
+     * @nullable
+     */
+    dismissal_reason: string | null
+    /**
+     * The note a person wrote with the latest dismissal, or null.
+     * @nullable
+     */
+    dismissal_note: string | null
+    /** How the report matched: `keyword`, `semantic`, or both. */
+    match_kinds: ReportMatchKindEnumApi[]
+    /** The reciprocal rank fusion score. Higher is a better match. Compare it only within one response. */
+    score: number
+}
+
+export interface SignalReportSearchResponseApi {
+    /** The matching reports, best match first. */
+    results: SignalReportSearchHitApi[]
+    /** False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose semantic search failed. */
+    semantic_available: boolean
+}
+
 export interface SignalReportSectionCountsApi {
     /** Ready reports with an implementation pull request. */
     pull_requests: number
@@ -7283,12 +7558,6 @@ export const RoleAtOrganizationEnumApi = {
     Other: 'other',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 /**
  * @nullable
  */
@@ -7335,6 +7604,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `no_output` - No output
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
+ * * `trial_scout_limit` - Free trial scout limit
  * * `retired` - Retired
  * * `background_removed` - Background removed
  */
@@ -7345,6 +7615,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
+    TrialScoutLimit: 'trial_scout_limit',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
 } as const
@@ -7429,6 +7700,7 @@ export interface SignalScoutConfigApi {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
@@ -10203,6 +10475,12 @@ export interface EditReportRequestApi {
      */
     source_issues?: SourceIssueWriteApi[]
     /**
+     * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+     * @maxItems 5
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
@@ -10261,6 +10539,8 @@ export interface EditReportResponseApi {
     links_appended: number
     /** How many source issues this edit added that the report did not name yet; 0 if none. */
     source_issues_appended: number
+    /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+    pull_requests_linked: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -10300,6 +10580,8 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
 }
@@ -10822,7 +11104,7 @@ export interface FleetFindingsSummaryApi {
  */
 export interface RememberRequestApi {
     /**
-     * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
+     * Short stable ID for what you're tracking, e.g. `noise:<fingerprint>`; max 300 chars, the note goes in `content`. Unique per team; re-using a key overwrites the entry. Never embed a date, timestamp, or run id (that mints a new row every run). For run state, use one fixed key and keep the timestamp in `content`.
      * @maxLength 300
      */
     key: string
@@ -10914,7 +11196,7 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10928,7 +11210,7 @@ export interface SignalSourceConfigApi {
     source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
     config?: SignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: SignalSourceConfigApiConfigSet
@@ -10950,7 +11232,7 @@ export interface PaginatedSignalSourceConfigListApi {
 }
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10964,7 +11246,7 @@ export interface PatchedSignalSourceConfigApi {
     source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
     config?: PatchedSignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: PatchedSignalSourceConfigApiConfigSet
@@ -10974,6 +11256,72 @@ export interface PatchedSignalSourceConfigApi {
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
     readonly status?: SignalSourceSyncStatusEnumApi | null
+}
+
+export interface AlertPatternPreviewRequestApi {
+    /**
+     * Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.
+     * @maxItems 100
+     * @items.maxLength 1000
+     */
+    alert_allow_patterns?: string[]
+    /**
+     * Block patterns to try, as they would be saved in `config.alert_block_patterns`.
+     * @maxItems 100
+     * @items.maxLength 1000
+     */
+    alert_block_patterns?: string[]
+}
+
+/**
+ * * `passed` - passed
+ * * `blocked` - blocked
+ * * `not_allowed` - not_allowed
+ */
+export type AlertPatternPreviewOutcomeEnumApi =
+    (typeof AlertPatternPreviewOutcomeEnumApi)[keyof typeof AlertPatternPreviewOutcomeEnumApi]
+
+export const AlertPatternPreviewOutcomeEnumApi = {
+    Passed: 'passed',
+    Blocked: 'blocked',
+    NotAllowed: 'not_allowed',
+} as const
+
+export interface AlertPatternPreviewAlertApi {
+    /** The alert's id. */
+    id: string
+    /** The alert's name. Empty when the alert has no name. */
+    name: string
+    /**
+     * The insight's name, or its derived name when it has none.
+     * @nullable
+     */
+    insight_name: string | null
+    /** Short id of the insight the alert watches. */
+    insight_short_id: string
+    /** `passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and `not_allowed` when allow patterns are set and it matches none of them.
+     *
+     * * `passed` - passed
+     * * `blocked` - blocked
+     * * `not_allowed` - not_allowed */
+    outcome: AlertPatternPreviewOutcomeEnumApi
+}
+
+export interface AlertPatternPreviewResponseApi {
+    /**
+     * Why the allow patterns could not be saved, or null when they are valid.
+     * @nullable
+     */
+    alert_allow_patterns_error: string | null
+    /**
+     * Why the block patterns could not be saved, or null when they are valid.
+     * @nullable
+     */
+    alert_block_patterns_error: string | null
+    /** The project's enabled alerts on insights you can view, newest first, each with what the patterns do to it. Empty while either pattern list has an error. */
+    alerts: AlertPatternPreviewAlertApi[]
+    /** True when the project has more enabled alerts than `alerts` lists. */
+    has_more: boolean
 }
 
 export interface SourceSpendApi {
@@ -11008,6 +11356,94 @@ export interface SpendOverviewApi {
     scouts: ScoutSpendApi[]
     /** Total scout run usage in the period. */
     scout_spend: SpendAmountApi
+}
+
+/**
+ * * `not_claimed` - Not claimed
+ * * `active` - Active
+ * * `exhausted` - Exhausted
+ */
+export type TrialGrantStatusEnumApi = (typeof TrialGrantStatusEnumApi)[keyof typeof TrialGrantStatusEnumApi]
+
+export const TrialGrantStatusEnumApi = {
+    NotClaimed: 'not_claimed',
+    Active: 'active',
+    Exhausted: 'exhausted',
+} as const
+
+/**
+ * * `continue_paid` - Continue under existing paid authorization
+ * * `add_payment_method` - Add a payment method
+ * * `increase_limit` - Increase the Self-driving spending limit
+ * * `enable_self_driving` - Enable paid Self-driving
+ * * `unavailable` - Billing status unavailable
+ */
+export type TrialContinuationEnumApi = (typeof TrialContinuationEnumApi)[keyof typeof TrialContinuationEnumApi]
+
+export const TrialContinuationEnumApi = {
+    ContinuePaid: 'continue_paid',
+    AddPaymentMethod: 'add_payment_method',
+    IncreaseLimit: 'increase_limit',
+    EnableSelfDriving: 'enable_self_driving',
+    Unavailable: 'unavailable',
+} as const
+
+export interface SelfDrivingTrialStatusApi {
+    /** Whether the one-time trial rollout is enabled for this organization. */
+    enabled: boolean
+    /** Whether the current rollout check succeeded. */
+    flag_confirmed: boolean
+    /** Effective trial policy version. */
+    policy_version: number
+    /** Whether the legacy reports-only trial still prevents implementation for this project. */
+    legacy_pr_restricted: boolean
+    /** Whether the current Self-driving plan has no recurring free allowance. */
+    billing_ready: boolean
+    /** Whether this project can explicitly claim its lifetime grant. */
+    eligible: boolean
+    /** Whether the current user has project-management permission to activate. */
+    can_activate: boolean
+    /** Unclaimed lifetime project grants in the organization. */
+    organization_grants_remaining: number
+    /**
+     * Lifetime project grant, shared with its environments.
+     * @nullable
+     */
+    grant_id: string | null
+    /** The project's lifetime trial state.
+     *
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted */
+    grant_status: TrialGrantStatusEnumApi
+    /** Why the trial completed: cost_limit or report_limit. */
+    exhaustion_reason: string
+    /** Qualifying reports delivered since the claim, including hidden or deleted reports. */
+    reports_delivered: number
+    /** Admitted reports that have not yet qualified as delivered. */
+    reports_in_progress: number
+    /** Report limit for admitting new work; accepted pipelines may finish beyond it. */
+    report_limit: number
+    /** One-time allowance in millionths of a US dollar. */
+    allowance_microusd: number
+    /** Settled and known running costs, capped at the trial allowance. */
+    used_microusd: number
+    /** Whether the shared trial and billing limits block new work. */
+    new_work_paused: boolean
+    /** Enabled scouts across this project's environments. */
+    enabled_scouts: number
+    /** Maximum enabled scouts during the trial. */
+    scout_limit: number
+    /** On activation, all but the three oldest enabled scouts pause. */
+    scouts_to_pause: number
+    /** What happens to new work after the trial.
+     *
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable */
+    paid_continuation: TrialContinuationEnumApi
 }
 
 export interface MonthlySourceUsageApi {
@@ -11489,7 +11925,7 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
-     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     * For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
      */
     ranking_id?: string
     /**
@@ -11517,7 +11953,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -11529,7 +11965,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**
@@ -11557,7 +11993,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
@@ -11692,6 +12128,52 @@ export type SignalsReportsPrCiStatusesParams = {
      */
     report_ids: string
 }
+
+export type SignalsReportsSearchParams = {
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.
+     */
+    include_unlisted?: boolean
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /**
+     * What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    query: string
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsReportsSearchSearchMode
+    /**
+     * Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type SignalsReportsSearchSearchMode =
+    (typeof SignalsReportsSearchSearchMode)[keyof typeof SignalsReportsSearchSearchMode]
+
+export const SignalsReportsSearchSearchMode = {
+    Hybrid: 'hybrid',
+    Semantic: 'semantic',
+    Keyword: 'keyword',
+} as const
 
 export type SignalsReportsSectionCountsRetrieveParams = {
     /**

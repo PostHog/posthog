@@ -41,8 +41,10 @@ def record_quota_check_failed_open() -> None:
     quota.record_quota_check_failed_open()
 
 
-def self_driving_free_trial_enabled(team: "Team") -> bool:
-    return free_trial.self_driving_free_trial_enabled(team)
+def self_driving_free_trial_enabled(
+    team: "Team", *, admitted_report_id: str | None = None, enabled: bool | None = None
+) -> bool:
+    return free_trial.self_driving_free_trial_enabled(team, admitted_report_id=admitted_report_id, enabled=enabled)
 
 
 def capture_signal_report_free_trial_paused(team: "Team", *, report_id: str | None, stage: str) -> None:

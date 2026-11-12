@@ -81,7 +81,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
             label="Google Cloud Storage",
             caption=source_caption("a Google Cloud Storage bucket"),
             iconPath="/static/services/google-cloud-storage.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

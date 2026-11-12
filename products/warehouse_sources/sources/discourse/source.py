@@ -132,6 +132,9 @@ The user activity table is fetched once per member, so it takes longer to sync t
         return {
             "403 Client Error": "Your Discourse API key or username is invalid, or does not have permission to access this resource. Please check the key and username and reconnect.",
             "invalid_access": "Your Discourse API key or username is invalid, or does not have permission to access this resource. Please check the key and username and reconnect.",
+            # Discourse hides admin routes from non-admins with a 404, and a URL that is not a forum
+            # answers 404 everywhere, so neither clears on a retry.
+            "404 Client Error": "Discourse couldn't find this table's data. Check that the instance URL is your forum's address and that the API username is an admin, then reconnect.",
         }
 
     def get_schemas(

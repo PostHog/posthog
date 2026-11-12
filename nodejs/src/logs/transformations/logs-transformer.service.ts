@@ -111,8 +111,8 @@ interface FunctionAggregates {
     errorLogs: LogEntry[]
 }
 
-const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
-const ATTR_TRANSFORMATIONS_SKIPPED = '$transformations_skipped'
+const ATTR_TRANSFORMATIONS_FAILED = 'posthog.transformations_failed'
+const ATTR_TRANSFORMATIONS_SKIPPED = 'posthog.transformations_skipped'
 
 /**
  * Runs a team's enabled log transformations over the records of one Kafka message,

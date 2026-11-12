@@ -236,7 +236,9 @@ pub fn override_timestamp_with_past_limit(
     }
 }
 
-/// `override_timestamp` plus the `$originalTimestamp` attribute the consumer reads back; every intake
+pub const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "posthog.original_timestamp";
+
+/// `override_timestamp` plus the `ORIGINAL_TIMESTAMP_ATTRIBUTE` the consumer reads back; every intake
 /// goes through here so the attribute name and format stay one contract.
 pub(crate) fn apply_timestamp_override(
     raw: DateTime<Utc>,
@@ -252,7 +254,10 @@ pub(crate) fn apply_timestamp_override_with_past_limit(
 ) -> (DateTime<Utc>, bool) {
     let (timestamp, original) = override_timestamp_with_past_limit(raw, max_past);
     if let Some(original) = original {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
     (timestamp, original.is_some())
 }

@@ -9,6 +9,7 @@ import { INBOX_RANKING_SCORES } from '../../filterOptions'
 import { captureInboxRankingDetailsViewed } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
 import { RankingPillLifts, rankingPillLifts } from '../../utils/reportOrdering'
+import { PersonalRankingHoverCard } from './PersonalRankingHoverCard'
 import { formatRankingLift, RankingStrength, rankingStrength } from './rankingFormat'
 import { RankingHoverCard, RankingStatusTag } from './ReportCardRankingTag'
 
@@ -21,25 +22,47 @@ const STRENGTH_VALUE_CLASSES: Record<RankingStrength, string> = {
 }
 
 /**
- * The three ranking scores in funnel order, in the card's meta row on the Recommended sort. The chip
- * stays neutral and each value takes the color of its own strength. A stale or unscored report keeps
- * the muted tag that the score sorts show.
+ * The three ranking scores in funnel order, in the card's meta row on the Recommended and Personalized
+ * sorts. The chip stays neutral and each value takes the color of its own strength. A stale or unscored
+ * report keeps the muted tag that the score sorts show. On the Personalized sort the hover card leads
+ * with the report's place on the user's own list.
  */
-export function ReportCardRankingPill({ report }: { report: SignalReport }): JSX.Element {
+export function ReportCardRankingPill({
+    report,
+    personalSort = false,
+}: {
+    report: SignalReport
+    personalSort?: boolean
+}): JSX.Element {
     const isStaff = useValues(userLogic).user?.is_staff ?? false
     const lifts = rankingPillLifts(report)
     const state = lifts ? 'scored' : report.ranking?.status === 'stale' ? 'stale' : 'unscored'
+    const personalTier = personalSort ? (report.personal_tier ?? null) : null
     // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
     const onOpen = useCallback(
-        (): void => captureInboxRankingDetailsViewed({ report, surface: 'pill', head: null, state, strength: null }),
-        [report, state]
+        (): void =>
+            captureInboxRankingDetailsViewed({
+                report,
+                surface: 'pill',
+                head: null,
+                state,
+                strength: null,
+                personalTier,
+            }),
+        [report, state, personalTier]
     )
     if (!lifts || !report.ranking) {
         return <RankingStatusTag state={state === 'stale' ? 'stale' : 'unscored'} onOpen={onOpen} />
     }
     return (
         <Tooltip
-            title={<RankingHoverCard ranking={report.ranking} active={null} isStaff={isStaff} />}
+            title={
+                personalSort ? (
+                    <PersonalRankingHoverCard report={report} ranking={report.ranking} isStaff={isStaff} />
+                ) : (
+                    <RankingHoverCard ranking={report.ranking} active={null} isStaff={isStaff} />
+                )
+            }
             onOpen={onOpen}
             openOnClick
         >

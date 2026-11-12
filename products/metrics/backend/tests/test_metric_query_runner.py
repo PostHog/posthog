@@ -21,6 +21,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
@@ -299,13 +301,13 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)
         bucket = anchor - dt.timedelta(minutes=5)
-        # Ingestion excludes `$originalTimestamp` from series identity.
+        # Ingestion excludes `posthog.original_timestamp` from series identity.
         for index, value in enumerate((1.0, 2.0, 3.0)):
             seed_metric(
                 team_id=self.team.id,
                 metric_name="m_skewed",
                 points=[(bucket + dt.timedelta(seconds=10 * index), value)],
-                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+                labels={"pod": "a", "posthog.original_timestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
             )
 
         runner = self.runner_class(
@@ -539,7 +541,7 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
             query_type="AttributeFieldTest",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
         )
         if not response.results:
             return None
@@ -972,12 +974,31 @@ class TestOutputUnit(SimpleTestCase):
             ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
             ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
             ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+            (
+                "unitless_seconds_histogram_quantile",
+                "",
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                "s",
+                "latency_seconds",
+            ),
+            ("unitless_bytes_histogram_quantile", "", MetricAggregation.HISTOGRAM_QUANTILE, None, "By", "size_bytes"),
+            ("ingested_unit_wins_over_name", "ms", MetricAggregation.HISTOGRAM_QUANTILE, None, "ms", "latency_seconds"),
+            (
+                "disagreeing_units_ignore_name",
+                None,
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                None,
+                "latency_seconds",
+            ),
+            ("unitless_seconds_gauge_average", "", MetricAggregation.AVG, None, None, "start_time_seconds"),
         ]
     )
-    def test_output_unit(self, _name, ingested, aggregation, range_function, expected):
+    def test_output_unit(self, _name, ingested, aggregation, range_function, expected, metric_name="m1"):
         quantile = 0.5 if aggregation.needs_quantile else None
         clause = MetricQueryClause(
-            name="a", metric_name="m1", aggregation=aggregation, range_function=range_function, quantile=quantile
+            name="a", metric_name=metric_name, aggregation=aggregation, range_function=range_function, quantile=quantile
         )
         self.assertEqual(_output_unit(ingested, clause), expected)
 
@@ -1249,6 +1270,62 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         results = response.json()["results"]
         self.assertEqual({s["labels"]["env"] for s in results}, {"prod", "dev"})
 
+    @parameterized.expand(
+        [
+            # The app reads every series, so a browser session keeps the all-zero one.
+            ("app_keeps_every_series", False, {}, {"dev", "prod", "idle"}, None, None),
+            ("mcp_drops_all_zero_series", True, {}, {"dev", "prod"}, 1, None),
+            ("mcp_can_keep_all_zero_series", True, {"dropEmptySeries": False}, {"dev", "prod", "idle"}, None, None),
+            ("limit_keeps_the_largest", False, {"limit": 1}, {"dev"}, None, 2),
+            ("mcp_limit_counts_after_dropping", True, {"limit": 1}, {"dev"}, 1, 1),
+        ]
+    )
+    def test_group_by_via_api_trims_series(
+        self,
+        _name: str,
+        via_mcp: bool,
+        options: dict[str, Any],
+        expected_envs: set[str],
+        omitted_empty: int | None,
+        omitted_by_limit: int | None,
+    ) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 0.0)],
+            labels={"env": "idle"},
+        )
+        headers: dict[str, str] = {}
+        if via_mcp:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}", "user-agent": "posthog/mcp-server"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": [{"key": "env"}],
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                    **options,
+                }
+            },
+            content_type="application/json",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual({s["labels"]["env"] for s in body["results"]}, expected_envs)
+        self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
+        self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
+
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
             series = self._run()
@@ -1350,14 +1427,15 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(earliest, self.anchor)
 
     def test_bucket_with_no_computable_increase_is_dropped_not_zero(self):
-        # The predecessor is outside the lookback. Return a gap, not zero.
+        # The predecessor is outside the lookback, and the counter is too large to have just started.
+        # Return a gap, not zero.
         start = self.anchor - dt.timedelta(minutes=self.anchor.minute % 5)
         self._seed_counter(
             [
-                (start - dt.timedelta(minutes=10), 100.0),
-                (start, 200.0),
-                (start + dt.timedelta(minutes=10), 300.0),
-                (start + dt.timedelta(minutes=20), 400.0),
+                (start - dt.timedelta(minutes=10), 10_000.0),
+                (start, 10_100.0),
+                (start + dt.timedelta(minutes=10), 10_200.0),
+                (start + dt.timedelta(minutes=20), 10_300.0),
             ]
         )
         rows = self._run(
@@ -1383,8 +1461,8 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
     def test_counter_reset_counts_post_reset_value(self):
         self._seed_counter(
             [
-                (self.anchor + dt.timedelta(seconds=0), 10.0),
-                (self.anchor + dt.timedelta(seconds=15), 20.0),
+                (self.anchor + dt.timedelta(seconds=0), 1_000.0),
+                (self.anchor + dt.timedelta(seconds=15), 1_010.0),
                 (self.anchor + dt.timedelta(seconds=30), 5.0),
                 (self.anchor + dt.timedelta(seconds=45), 15.0),
             ]
@@ -1392,6 +1470,50 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("increase")
         # The reset contributes its post-reset value.
         self.assertEqual([row["value"] for row in rows], [25.0])
+
+    @parameterized.expand(
+        [
+            # A pod that served one request and was scraped until it went away: the counter starts at 1.
+            ("one_request_then_flat", [1.0, 1.0, 1.0], 1.0),
+            ("new_series_keeps_counting", [2.0, 5.0, 9.0], 9.0),
+            # A lone sample has no next delta, so it counts only when it is small.
+            ("lone_small_sample", [3.0], 3.0),
+        ]
+    )
+    def test_new_series_counts_its_first_value_from_zero(self, _name: str, values: list[float], expected: float):
+        # A counter that appears inside the range started there, as on a new pod. PromQL counts it from zero.
+        self._seed_counter(
+            [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)]
+        )
+        rows = self._run("increase")
+        self.assertEqual(sum(row["value"] for row in rows), expected)
+
+    def test_short_lived_series_add_up_like_promql(self):
+        # Each pod's counter appears with the requests it served before its first scrape.
+        for pod, values in {"a": [1.0, 1.0], "b": [2.0, 3.0], "c": [1.0, 4.0]}.items():
+            self._seed_counter(
+                [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)],
+                labels={"pod": pod},
+            )
+        rows = self._run("increase")
+        self.assertEqual(sum(row["value"] for row in rows), 1.0 + 3.0 + 4.0)
+
+    @parameterized.expand(
+        [
+            ("keeps_counting", [1_000_000.0, 1_000_010.0, 1_000_020.0], 20.0),
+            # The reset after the first sample must not read as a delta of a million.
+            ("resets_next", [1_000_000.0, 5.0, 15.0], 15.0),
+        ]
+    )
+    def test_large_first_value_is_a_counter_seen_late_not_a_new_series(
+        self, _name: str, values: list[float], expected: float
+    ):
+        # A process that counted long before ingestion started must not add its whole history.
+        self._seed_counter(
+            [(self.anchor + dt.timedelta(seconds=15 * index), value) for index, value in enumerate(values)]
+        )
+        rows = self._run("increase")
+        self.assertEqual(sum(row["value"] for row in rows), expected)
 
     @parameterized.expand(
         [
@@ -1455,7 +1577,8 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             resource_labels={"k8s.pod.name": "web-2"},
         )
         rows = self._run("increase")
-        self.assertEqual([row["value"] for row in rows], [15.0])
+        # web-1 adds 10. web-2 is a new counter, so its first 5 counts from zero, and then it adds 5.
+        self.assertEqual([row["value"] for row in rows], [20.0])
 
     def test_rate_composes_with_group_by(self):
         self._seed_counter(
@@ -1639,15 +1762,23 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_merge_onto_one_layout(self):
+    @parameterized.expand(
+        [
+            ("two_series", {"resource_labels": {"k8s.pod.name": "other"}}),
+            # One series changes its buckets inside one hour. The merge must keep each point on its own layout.
+            ("one_series_after_merge", {}),
+        ]
+    )
+    def test_mismatched_bounds_merge_onto_one_layout(self, _name, second_series_labels):
         # Two endpoints with their own buckets chart together instead of failing.
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
             [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
-            resource_labels={"k8s.pod.name": "other"},
+            **second_series_labels,
         )
+        sync_execute("OPTIMIZE TABLE metrics4_samples FINAL")
         rows = self._run(0.75)
         self.assertEqual(len(rows), 1)
         # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].

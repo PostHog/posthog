@@ -100,7 +100,8 @@ export class HogFlowFunctionsService {
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
+        signal?: AbortSignal
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -121,23 +122,34 @@ export class HogFlowFunctionsService {
             },
         }
 
-        const functionState = invocation.state.currentAction?.hogFunctionState ?? {
-            globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-                hogFunction,
-                globalsWithSource,
-                undefined,
-                {
-                    appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
-                    instanceId: invocation.state.currentAction?.id,
-                }
-            ),
-            timings: [],
-            attempts: 0,
-            actionId: invocation.state.currentAction?.id,
-            actionStepCount: invocation.state.actionStepCount,
-            customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
-            rerunAttempts: invocation.state.rerunAttempts,
-        }
+        const savedState = invocation.state.currentAction?.hogFunctionState
+        const functionState = savedState
+            ? {
+                  ...savedState,
+                  renderedWorkflowVersion: savedState.renderedWorkflowVersion ?? invocation.hogFlow.version,
+              }
+            : {
+                  globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                      hogFunction,
+                      globalsWithSource,
+                      undefined,
+                      {
+                          appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
+                          instanceId: invocation.state.currentAction?.id,
+                          workflowId: invocation.hogFlow.id,
+                          invocationId: invocation.id,
+                          workflowVersion: invocation.hogFlow.version,
+                      },
+                      signal
+                  ),
+                  timings: [],
+                  attempts: 0,
+                  actionId: invocation.state.currentAction?.id,
+                  actionStepCount: invocation.state.actionStepCount,
+                  customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
+                  rerunAttempts: invocation.state.rerunAttempts,
+                  renderedWorkflowVersion: invocation.hogFlow.version,
+              }
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,

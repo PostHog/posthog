@@ -287,10 +287,11 @@ class WorkflowsEmailError(Exception):
     SDK sends instead. `status_code` is None when no response came back.
     """
 
-    def __init__(self, message: str, *, code: str, status_code: int | None = None) -> None:
+    def __init__(self, message: str, *, code: str, status_code: int | None = None, attr: str | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+        self.attr = attr
 
 
 # Waits between worker attempts of an HTTP send that failed with one of the errors below. Customer.io no longer sends
@@ -417,11 +418,12 @@ def _queue_workflows_email(
 
     if response.status_code != 202:
         try:
-            code = response.json().get("code") or "api_error"
+            error_body = response.json()
+            code, attr = error_body.get("code") or "api_error", error_body.get("attr")
         except ValueError:
-            code = "api_error"
+            code, attr = "api_error", None
         raise WorkflowsEmailError(
-            f"{response.status_code} - {response.text}", code=code, status_code=response.status_code
+            f"{response.status_code} - {response.text}", code=code, status_code=response.status_code, attr=attr
         )
     try:
         body = response.json()
@@ -513,7 +515,7 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
         capture(
             distinct_id=dest.get("distinct_id") or dest["raw_email"],
             event=event,
-            properties={"recipient_email": dest["raw_email"], **properties},
+            properties={"recipient_email": dest["raw_email"], **properties, "$update_person_last_seen_at": False},
         )
     except Exception as analytics_err:
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
@@ -538,7 +540,9 @@ def _send_one(
             _pin_to_workflows(idempotency_key, workflows_template_id)
             return "workflows", response
         except WorkflowsEmailError as err:
-            if err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES:
+            if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
+                err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
+            ):
                 # The send API replays an idempotency key before it checks the recipient, so this refusal also
                 # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
                 # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
@@ -567,7 +571,7 @@ def _send_via_http(
     template_name: str,
     properties: dict,
     will_retry: bool = True,
-) -> None:
+) -> list[str]:
     """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
@@ -575,12 +579,13 @@ def _send_via_http(
     if not current_task or current_task.request.is_eager:
         # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
         # so the global client delivers in the background. ScopedCapture keeps the cloud-only guard.
-        _send_via_http_batch(ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry)
-        return
+        return _send_via_http_batch(
+            ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry
+        )
 
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
+        return _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
 
 
 def _send_via_http_batch(
@@ -590,10 +595,10 @@ def _send_via_http_batch(
     template_name: str,
     properties: dict,
     will_retry: bool = True,
-) -> None:
+) -> list[str]:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
-    undeliverable_count = 0
+    undeliverable: list[str] = []
     dest: dict[str, str] | None = None
     try:
         for dest in to:
@@ -611,7 +616,7 @@ def _send_via_http_batch(
                 if sent is None:
                     # sent_at stays unset, so raise_if_delivery_rejected tells a synchronous caller nothing went out.
                     EMAIL_SEND_COUNTER.labels(outcome="undeliverable", transport="http").inc()
-                    undeliverable_count += 1
+                    undeliverable.append(dest["raw_email"])
                     continue
                 provider, provider_response = sent
 
@@ -656,14 +661,18 @@ def _send_via_http_batch(
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
-        unsent_count = len(to) - already_sent_count - sent_count - undeliverable_count
-        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
+        unsent_count = len(to) - already_sent_count - sent_count - len(undeliverable)
+        # An earlier attempt with this key is still queueing the email, so only a last attempt is a failed send.
+        in_flight = isinstance(err, WorkflowsEmailError) and err.code == "idempotency_key_in_flight"
+        if not (in_flight and retrying):
+            EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
         if not retrying:
             EMAIL_SEND_DROPPED_COUNTER.labels(transport="http").inc(unsent_count)
         if retryable:
             # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
             # sending a second one, and recipients already marked sent are skipped.
             raise
+    return undeliverable
 
 
 def _send_via_smtp(
@@ -771,6 +780,10 @@ def _send_via_smtp(
 
 class EmailDeliveryError(Exception):
     """A synchronous send returned without the provider accepting the email."""
+
+
+class EmailRecipientUndeliverableError(Exception):
+    """The provider refused the address as undeliverable, such as after a hard bounce, so no email went out."""
 
 
 def was_email_delivered(campaign_key: str, email: str) -> bool:
@@ -914,10 +927,10 @@ def _send_email_now(
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
-) -> None:
+) -> list[str]:
     if use_http and is_http_email_service_available():
         try:
-            _send_via_http(
+            return _send_via_http(
                 to=to,
                 campaign_key=campaign_key,
                 template_name=template_name,
@@ -951,6 +964,7 @@ def _send_email_now(
                     "properties": properties,
                 }
             )
+            return []
     elif is_smtp_email_service_available():
         _send_via_smtp(
             to=to,
@@ -961,6 +975,7 @@ def _send_email_now(
             headers=headers,
             reply_to=reply_to,
         )
+        return []
     else:
         raise Exception("Email is not enabled in this instance.")
 
@@ -1021,8 +1036,12 @@ class EmailMessage:
         email = email_override or user.email
         self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
-    def send(self, send_async: bool = True, *, retry: bool = True) -> None:
-        """Synchronous callers can disable eager retries to own transport failure handling."""
+    def send(self, send_async: bool = True, *, retry: bool = True) -> list[str]:
+        """Synchronous callers can disable eager retries to own transport failure handling.
+
+        Returns the addresses the provider refused as undeliverable. Only a synchronous send learns them, so an
+        asynchronous send returns an empty list.
+        """
         if not self.to:
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
@@ -1041,19 +1060,20 @@ class EmailMessage:
 
         if send_async:
             _send_email.apply_async(kwargs=kwargs)
-        elif retry:
+            return []
+        if retry:
             # Celery runs eager retries at once, so each Workflows timeout would hold the request for another 10s.
-            _send_email.apply(kwargs={**kwargs, "retry_in_worker": True})
-        else:
-            _send_email_now(
-                campaign_key=self.campaign_key,
-                to=self.to,
-                subject=self.subject,
-                headers=self.headers,
-                txt_body=self.txt_body,
-                html_body=self.html_body,
-                template_name=self.template_name,
-                reply_to=self.reply_to,
-                use_http=self.use_http,
-                properties=self.properties,
-            )
+            outcome = _send_email.apply(kwargs={**kwargs, "retry_in_worker": True})
+            return outcome.result if outcome.successful() else []
+        return _send_email_now(
+            campaign_key=self.campaign_key,
+            to=self.to,
+            subject=self.subject,
+            headers=self.headers,
+            txt_body=self.txt_body,
+            html_body=self.html_body,
+            template_name=self.template_name,
+            reply_to=self.reply_to,
+            use_http=self.use_http,
+            properties=self.properties,
+        )

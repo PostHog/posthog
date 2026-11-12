@@ -4,8 +4,7 @@ import { PostHogApiError } from '@/lib/errors'
 import { ExplainChartSaveInputSchema } from '@/schema/tool-inputs'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
 
-import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
-import { storySeriesLabel } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
+import { storedExplanation } from 'products/product_analytics/mcp/apps/explainChart/storedExplanation'
 
 import { buildExplanation } from './explainChart'
 
@@ -21,24 +20,6 @@ type Result = {
 
 const NOT_LINKABLE =
     'This chart has no saved insight that shows the explanation beside it, so there is no link. Give the findings in text.'
-
-// The page builds PostHog links from the query or insight id, so only GitHub links are stored.
-function storedExplanation(data: ExplainChartData): ExplainChartData {
-    return {
-        ...data,
-        results: data.results.map((result, index) =>
-            index === data.seriesIndex
-                ? { ...result, label: storySeriesLabel(result.label) }
-                : { label: storySeriesLabel(result.label) }
-        ),
-        chapters: data.chapters.map((chapter) => ({
-            ...chapter,
-            evidence: chapter.evidence.map((item) =>
-                item.query || item.insightShortId ? { ...item, url: null } : item
-            ),
-        })),
-    }
-}
 
 function isNotFound(error: unknown): boolean {
     return error instanceof PostHogApiError && error.status === 404

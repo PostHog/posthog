@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
@@ -2309,6 +2310,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     permission_classes: list = []
     authentication_classes = [SessionAuthentication]
     throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+    _ip_restrictions_use_view_scope = True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         state_token = request.query_params.get("state")
@@ -2456,7 +2458,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             # FOR UPDATE on the nullable side of an outer join, so scope the lock with `of=`.
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
-                .select_related("installation", "template")
+                .select_related("installation__team", "installation__user", "template")
                 .filter(ownership_filter, **state_filters)
                 .first()
             )
@@ -2474,6 +2476,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 # does not share the API client's local PostHog session.
                 logger.info("OAuth redirect: allowing PostHog Code callback without user binding in dev mode")
 
+            enforce_ip_restrictions(
+                request,
+                request.user if is_authenticated else oauth_state.installation.user,
+                organization_id=str(oauth_state.installation.team.organization_id),
+            )
             oauth_state.consumed_at = now
             oauth_state.save(update_fields=["consumed_at", "updated_at"])
             return oauth_state

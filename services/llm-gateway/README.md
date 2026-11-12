@@ -15,11 +15,11 @@ uv run uvicorn llm_gateway.main:app --reload
 ### Making a request
 
 ```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -X POST http://localhost:8080/django/v1/chat/completions \
   -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4.1-mini",
+    "model": "gpt-6-luna",
     "messages": [{"role": "user", "content": "Hello"}],
     "user": "end-user-distinct-id"
   }'
@@ -138,22 +138,17 @@ The gateway supports capturing additional event properties to PostHog via the `X
 
 ## API endpoints
 
+Every inference path needs a product segment. A request without one returns a 400 that points at the AI gateway.
+
 ### OpenAI-compatible
 
-- `POST /v1/chat/completions` - Chat completions
-- `POST /v1/responses` - OpenAI Responses API
+- `POST /{product}/v1/chat/completions` - Chat completions
+- `POST /{product}/v1/responses` - OpenAI Responses API
 
 ### Anthropic-compatible
 
-- `POST /v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
-- `POST /v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
-
-### Product-scoped endpoints
-
-For product-specific rate limits and tracking:
-
-- `POST /{product}/v1/chat/completions`
-- `POST /{product}/v1/messages`
+- `POST /{product}/v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
+- `POST /{product}/v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
 
 The product name is extracted from the first path segment and recorded as `ai_product` on `$ai_generation` events. See [Products](#products) for the full list and how to add one.
 
@@ -254,15 +249,13 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 
 | Product              | Auth            | Models                                             | Notes                           |
 | -------------------- | --------------- | -------------------------------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                                                | Default when no product in path |
-| `ci`                 | API key only    | All                                                | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set                                     | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set                                     | Cloud background agents         |
 | `onboarding`         | OAuth only      | claude-sonnet-5                                    | Unbilled setup wizard cloud run |
 | `wizard`             | API key + OAuth | All                                                | Max AI assistant                |
 | `django`             | API key only    | All                                                | Server-side Django calls        |
 | `growth`             | API key only    | All                                                | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini                                       | AI observability translation    |
+| `llma_translation`   | API key only    | gpt-4.1-mini, gpt-6-luna                           | AI observability translation    |
 | `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini, gpt-5-nano, gpt-5-mini | AI observability summarization  |
 | `llma_eval_summary`  | API key only    | gpt-5-mini                                         | AI observability eval summary   |
 

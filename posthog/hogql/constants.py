@@ -249,6 +249,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     use_uncompressed_cache: Optional[bool] = None
     merge_tree_max_rows_to_use_cache: Optional[int] = None
     merge_tree_max_bytes_to_use_cache: Optional[int] = None
+    move_primary_key_columns_to_end_of_prewhere: Optional[bool] = None
 
 
 def get_default_hogql_global_settings(

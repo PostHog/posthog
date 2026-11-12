@@ -25,7 +25,7 @@ class TestPlaywrightSetup(APIBaseTest):
     @override_settings(TEST=True)
     def test_organization_with_team_setup(self):
         """Test the organization_with_team setup function"""
-        payload = {"organization_name": "Test Org API"}
+        payload = {"organization_name": "Test Org API", "no_demo_data": True}
 
         response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
 
@@ -121,7 +121,7 @@ class TestPlaywrightSetup(APIBaseTest):
     @override_settings(DEBUG=True)
     def test_endpoint_allowed_in_debug_mode(self):
         """Test that the endpoint works in DEBUG mode"""
-        payload = {"organization_name": "Debug Org"}
+        payload = {"organization_name": "Debug Org", "no_demo_data": True}
         response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

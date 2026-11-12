@@ -20,7 +20,7 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available, is_http_email_service_available
+from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -55,7 +55,7 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
 )
 
 
@@ -418,6 +418,7 @@ class CodeBasedVerifier:
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user).should_send:
@@ -442,6 +443,10 @@ class CodeBasedVerifier:
                 user_last_login=str(user.last_login) if user.last_login else None,
             )
             return True
+        except EmailRecipientUndeliverableError:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="undeliverable").inc()
+            mfa_logger.info("Code-based verification email refused as undeliverable", user_id=user.pk)
+            raise
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(

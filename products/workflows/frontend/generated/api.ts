@@ -87,6 +87,8 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowEmailSandboxProvisionApi,
+    WorkflowEmailSandboxStatusApi,
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
@@ -1206,12 +1208,13 @@ export const getHogFlowsRunCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ * Run a workflow with a `schedule` or `manual` trigger now, once.
  *
- * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
- * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
- * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
- * the scheduler itself applies in `internal_process_due_schedules`.
+ * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+ * workflow runs for the calling user, as the trigger button in the editor does. Other
+ * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+ * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+ * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
  *
  * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
  * after a timed-out request): a repeat with the same key returns the first call's result
@@ -1731,6 +1734,40 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/provision/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxProvision = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxProvisionApi> => {
+    return apiMutator<WorkflowEmailSandboxProvisionApi>(getWorkflowEmailSandboxProvisionUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/status/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxStatusApi> => {
+    return apiMutator<WorkflowEmailSandboxStatusApi>(getWorkflowEmailSandboxStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

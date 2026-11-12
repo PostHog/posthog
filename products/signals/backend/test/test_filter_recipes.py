@@ -21,6 +21,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
 from products.signals.backend.filter_catalog_schema import CatalogBundle, JsonPathRecipe
+from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 
@@ -92,26 +93,40 @@ class TestFilterRecipeValidation(SimpleTestCase):
 
 class TestFilterRecipeExecution(SimpleTestCase):
     def assert_malformed(self, engine: WarehouseFilterBindings, payload: str, expression: str | None = None) -> None:
-        with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
-            self.execute(engine, payload, expression)
-        self.assertEqual(raised.exception.code, 395)
+        if expression is None:
+            with self.assertRaisesRegex(InternalCHQueryError, "signal_filter:malformed_value:value") as raised:
+                self.select(payload, engine.projections["value"].select())
+            self.assertEqual(raised.exception.code, 395)
+            return
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        self.assertEqual(self.select(payload, predicate.matches, predicate.malformed), (0, 1))
 
     def execute(
         self, engine: WarehouseFilterBindings, payload: str | int | None, expression: str | None = None
     ) -> object:
-        selected: ast.Expr = (
-            engine.projections["value"].select()
-            if expression is None
-            else engine.predicate(expression) or ast.Constant(value=True)
-        )
+        if expression is None:
+            return self.select(payload, engine.projections["value"].select())[0]
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        matches, malformed = self.select(payload, predicate.matches, predicate.malformed)
+        self.assertEqual(malformed, 0)
+        return matches
+
+    def matches(self, engine: WarehouseFilterBindings, expression: str) -> ast.Expr:
+        predicate = engine.predicate(expression)
+        assert predicate is not None
+        return predicate.matches
+
+    def select(self, payload: str | int | None, *exprs: ast.Expr) -> tuple[object, ...]:
         query = ast.SelectQuery(
-            select=[selected],
+            select=list(exprs),
             select_from=ast.JoinExpr(
                 alias="source",
                 table=ast.SelectQuery(select=[ast.Alias(alias="payload", expr=ast.Constant(value=payload))]),
             ),
         )
-        return self.execute_query(query)[0][0]
+        return self.execute_query(query)[0]
 
     def execute_query(self, query: ast.SelectQuery) -> list[tuple[object, ...]]:
         context = HogQLContext(
@@ -155,7 +170,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("integer", '{"value":9223372036854775808}'),
         ]
     )
-    def test_malformed_values_surface_errors(self, field_type: str, payload: str) -> None:
+    def test_malformed_values_never_pass(self, field_type: str, payload: str) -> None:
         engine = bindings(field_type)
         self.assert_malformed(engine, payload)
         self.assert_malformed(engine, payload, "true OR isNull(value)")
@@ -271,7 +286,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     select=[ast.Alias(alias="payload", expr=ast.Constant(value='{"value":"Core","other":"Team"}'))]
                 ),
             ),
-            where=engine.predicate("payload = 'Core' AND other = 'Team'"),
+            where=self.matches(engine, "payload = 'Core' AND other = 'Team'"),
         )
         self.assertEqual(self.execute_query(query), [("Core", "Team")])
 
@@ -300,39 +315,8 @@ class TestFilterRecipeExecution(SimpleTestCase):
         )
         self.assertEqual(self.execute(engine, json.dumps({key: "safe"})), "safe")
 
-    def test_linear_recipes_in_scoped_query(self) -> None:
-        specs = [
-            ("team_id", "team", "id"),
-            ("project_id", "project", "id"),
-            ("project_name", "project", "name"),
-            ("assignee_id", "assignee", "id"),
-            ("state_type", "state", "type"),
-            ("label_names", "labels", "name"),
-        ]
-        fields: list[dict[str, object]] = [
-            {
-                "name": name,
-                "type": "array<string>" if name == "label_names" else "string",
-                "description": "Synthetic issue field.",
-                "binding": {"kind": "json_array_map", "column": column, "array_path": ["nodes"], "value_path": [key]}
-                if name == "label_names"
-                else {"kind": "json_path", "column": column, "path": [key]},
-                "missing_value": "empty_array" if name == "label_names" else "null",
-                "malformed_value": "error",
-            }
-            for name, column, key in specs
-        ]
-        fields.append(
-            {
-                "name": "priority",
-                "type": "integer",
-                "description": "Synthetic issue priority.",
-                "binding": {"kind": "column", "column": "priority"},
-                "missing_value": "null",
-                "malformed_value": "error",
-            }
-        )
-        bundle = CatalogBundle.model_validate({"schema_version": 1, "fields": fields, "starter_expressions": []})
+    def test_linear_seed_recipes_in_scoped_query(self) -> None:
+        bundle = CatalogBundle.model_validate(LINEAR_ISSUE_SEED.bundle)
         payloads: dict[str, str | int] = {
             "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
             "project": json.dumps({"id": "project-a", "name": "Core"}),
@@ -356,7 +340,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     select=[ast.Alias(alias=name, expr=ast.Constant(value=value)) for name, value in payloads.items()]
                 ),
             ),
-            where=ast.And(exprs=[ast.Constant(value=True), predicate]),
+            where=ast.And(exprs=[ast.Constant(value=True), predicate.matches]),
             limit=ast.Constant(value=1),
         )
         self.assertEqual(

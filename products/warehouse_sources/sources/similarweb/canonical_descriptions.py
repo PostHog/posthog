@@ -86,4 +86,57 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rank": "Rank of the domain within that country's websites.",
         },
     },
+    "website_keywords": {
+        "description": "Search keywords for each domain and month. Includes organic and paid traffic across devices.",
+        "docs_url": "https://developers.similarweb.com/reference/website-analysis-keywords",
+        "columns": {
+            "domain": _SHARED_COLUMNS["domain"],
+            "country": _SHARED_COLUMNS["country"],
+            "date": "First day of the requested month, as a timestamp.",
+            "keyword": "Search term that drove clicks to the domain.",
+            "clicks": "Estimated search clicks for the keyword.",
+            "traffic_share": "Share of the domain's search clicks from this keyword.",
+            "top_url": "Page that receives the most search traffic for this keyword.",
+        },
+    },
+    "conversion_analysis": {
+        "description": "Monthly desktop conversion metrics for account segments that match the configured domains. "
+        "Requires a two-letter country code and access to Conversion Analysis in Similarweb.",
+        "docs_url": "https://developers.similarweb.com/reference/conversion-analysis-1",
+        "columns": {
+            "domain": _SHARED_COLUMNS["domain"],
+            "country": "Two-letter country code used for the request. Worldwide data is not supported.",
+            "date": _SHARED_COLUMNS["date"],
+            "conversion_segment_id": "Conversion segment ID from the account's segment catalog.",
+            "visits": "Estimated desktop visits to the segment.",
+            "converted_visits": "Desktop visits that resulted in a conversion.",
+            "conversion_rate": "Share of desktop visits that resulted in a conversion.",
+            "confidence": "Similarweb's confidence level for the result.",
+        },
+    },
+    "deduplicated_audience": {
+        "description": "Monthly audience size and device overlap. Requires access to Deduplicated Audience in Similarweb.",
+        "docs_url": "https://developers.similarweb.com/reference/deduplicated-audience",
+        "columns": {
+            "domain": _SHARED_COLUMNS["domain"],
+            "country": _SHARED_COLUMNS["country"],
+            "date": _SHARED_COLUMNS["date"],
+            "total_deduplicated_audience": "Estimated individuals who visited across desktop and mobile web, counted once.",
+            "desktop_only_audience_share": "Share of the audience that visited only on desktop.",
+            "mobile_web_only_audience_share": "Share of the audience that visited only on mobile web.",
+            "desktop_and_mobile_web_audience_share": "Share of the audience that visited on both device types.",
+        },
+    },
+    "visits_split": {
+        "description": "Desktop and mobile web visit shares over the requested months. Supports full refresh only.",
+        "docs_url": "https://developers.similarweb.com/reference/desktop-vs-mobile-split",
+        "columns": {
+            "domain": _SHARED_COLUMNS["domain"],
+            "country": _SHARED_COLUMNS["country"],
+            "start_date": "First requested month, in YYYY-MM format.",
+            "end_date": "Last requested month, in YYYY-MM format.",
+            "desktop_visit_share": "Share of visits from desktop devices.",
+            "mobile_web_visit_share": "Share of visits from mobile web devices.",
+        },
+    },
 }

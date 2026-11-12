@@ -10,6 +10,7 @@ import { useBodyIsDark } from 'lib/hooks/useBodyIsDark'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { optOutOfBrowserExtensions } from 'lib/monaco/browserExtensionOptOut'
 import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -180,7 +181,9 @@ export function CodeEditor({
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const isDarkModeOn = useBodyIsDark()
-    const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
+    const inTestRunner = inStorybookTestRunner()
+    const scrollbarRendering = inTestRunner ? 'hidden' : 'auto'
+    const cursorBlinking = inTestRunner ? 'solid' : 'blink'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -460,6 +463,7 @@ export function CodeEditor({
             hideCursorInOverviewRuler: false,
             overviewRulerLanes: 3,
             overflowWidgetsDomNode: monacoRoot,
+            cursorBlinking,
             ...options,
             padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
             scrollbar: {
@@ -469,7 +473,7 @@ export function CodeEditor({
                 ...options?.scrollbar,
             },
         }),
-        [options, enableVimMode, scrollbarRendering, monacoRoot]
+        [options, enableVimMode, scrollbarRendering, cursorBlinking, monacoRoot]
     )
     const diffEditorOptions = useMemo<editor.IStandaloneDiffEditorConstructionOptions>(
         () => ({
@@ -504,6 +508,7 @@ export function CodeEditor({
             ;(window as any).__monaco = monaco
         }
         trackEditorModels(editor, monaco)
+        optOutOfBrowserExtensions(editor)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
@@ -645,6 +650,7 @@ export function CodeEditor({
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
             trackEditorModels(modifiedEditor, monaco)
+            optOutOfBrowserExtensions(modifiedEditor)
             monacoDisposables.current.push(trackFindWidgetVisibility(modifiedEditor))
             monacoDisposables.current.push(trackFindWidgetVisibility(diff.getOriginalEditor()))
             const original = diff.getOriginalEditor().getModel()

@@ -885,4 +885,7 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if kind == "signal_failed":
             return Response({"detail": "Failed to queue message for the agent"}, status=status.HTTP_502_BAD_GATEWAY)
+        tasks_facade.record_task_client(
+            task_id=self._task_id(), team_id=self.team_id, client=get_task_client_provenance(request)
+        )
         return Response(TaskThreadMessageSerializer(message).data)

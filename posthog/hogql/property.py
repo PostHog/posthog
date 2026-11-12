@@ -62,7 +62,7 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import get_interval_func
 from posthog.models import Property, Team
 from posthog.models.element import Element
-from posthog.models.event import Selector
+from posthog.models.event import MAX_SELECTOR_LENGTH, Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
@@ -2024,6 +2024,8 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 
 def selector_to_expr(selector_string: str):
+    if len(selector_string) > MAX_SELECTOR_LENGTH:
+        raise QueryError(f"Selector is too long. The maximum length is {MAX_SELECTOR_LENGTH} characters.")
     selector = Selector(selector_string, escape_slashes=False)
     if selector.is_unsatisfiable():
         # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every
