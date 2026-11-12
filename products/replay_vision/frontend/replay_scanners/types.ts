@@ -315,7 +315,7 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
 
 // Tier names the `vision-model-tier-naming` experiment shows in place of the Gemini names.
 const MODEL_TIER_NAMES: Record<ScannerModelEnumApi, string> = {
-    [ScannerModelEnumApi.Gemini35FlashLite]: 'Low',
+    [ScannerModelEnumApi.Gemini35FlashLite]: 'Light',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
     [ScannerModelEnumApi.Gemini38Flash]: 'Frontier',
 }

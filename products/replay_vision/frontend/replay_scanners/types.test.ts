@@ -92,7 +92,7 @@ describe('scanner type helpers', () => {
         })
 
         it('names the options by tier from cheapest to most capable', () => {
-            expect(modelOptions(true).map((opt) => opt.label.split(' · ')[0])).toEqual(['Low', 'Standard', 'Frontier'])
+            expect(modelOptions(true).map((opt) => opt.label.split(' · ')[0])).toEqual(['Light', 'Standard', 'Frontier'])
             expect(modelName('gemini-3.8-flash', true)).toBe('Frontier')
             expect(modelName('gemini-3.7-flash', true)).toBe('Gemini 3.7 Flash')
         })
