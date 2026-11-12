@@ -28,6 +28,8 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { sandboxRecipient } from './email/emailStepVariants'
+import { StepEmailSandboxConfiguration } from './email/StepEmailSandboxConfiguration'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { getDelayDescription } from './stepDelayLogic'
@@ -203,6 +205,17 @@ const HogFlowStepConfigs: Partial<{
             },
         ],
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
+    },
+    email_sandbox: {
+        type: 'email_sandbox',
+        icon: () => <IconLetter />,
+        color: () => '#2F80FA',
+        getPreviews: (action) => [
+            {
+                label: sandboxRecipient(action) ? `To ${sandboxRecipient(action)}` : 'Email',
+            },
+        ],
+        renderConfiguration: (node) => <StepEmailSandboxConfiguration key={node.id} node={node} />,
     },
     function_sms: {
         type: 'function_sms',

@@ -11,12 +11,17 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.conditions_changed import (
+    release_conditions_changed_mid_run,
+    release_conditions_changed_rows,
+)
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ConditionSetTraffic,
+    FlagHistory,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
@@ -58,6 +63,7 @@ def _context(
     variants: list[dict[str, Any]] = EVEN,
     exposed_units: int | None = None,
     early_exit: bool = False,
+    exposed_before_first: bool | None = True,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -76,6 +82,7 @@ def _context(
         flag_history=flag_history(
             changes,
             start_date=LAUNCHED_AT,
+            exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
@@ -84,6 +91,12 @@ def _context(
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
+
+
+def _before_exposure(ctx: HealthContext) -> HealthContext:
+    history = ctx.flag_history
+    assert isinstance(history, FlagHistory)
+    return replace(ctx, flag_history=replace(history, counted_since=None))
 
 
 def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
@@ -488,3 +501,41 @@ class TestReleaseConditionsChangedMidRun(TestCase):
     )
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(release_conditions_changed_mid_run(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("saved_after_someone_was_exposed", _context([PRO], [PRO, EVERYONE], [EVERYONE]), [False, False]),
+            ("saved_before_anyone_was_exposed", _before_exposure(_context([PRO], [PRO, EVERYONE])), [True]),
+            (
+                "saved_when_the_exposure_answer_was_unknown",
+                _context([PRO], [PRO, EVERYONE], [EVERYONE], exposed_before_first=None),
+                [None, None],
+            ),
+            (
+                "a_history_not_compared_with_the_exposures",
+                _context([PRO], [PRO, EVERYONE], not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                [None],
+            ),
+        ]
+    )
+    def test_lists_each_change_with_whether_it_came_before_any_exposure(
+        self, _name: str, ctx: HealthContext, expected: list[bool | None]
+    ) -> None:
+        rows = release_conditions_changed_rows(ctx)
+
+        self.assertEqual([row[ExperimentHealthValueKey.BEFORE_EXPOSURE] for row in rows], expected)
+
+    def test_lists_each_change_with_the_conditions_before_and_after(self) -> None:
+        rows = release_conditions_changed_rows(
+            _context([PRO_PINNED, EVERYONE], [PRO, {**EVERYONE, "rollout_percentage": 50}])
+        )
+
+        self.assertEqual(
+            [(row[ExperimentHealthValueKey.BEFORE], row[ExperimentHealthValueKey.AFTER]) for row in rows],
+            [
+                (
+                    'Set 1: 100%, filters on plan, forces "test"\nSet 2: 100%',
+                    "Set 1: 100%, filters on plan\nSet 2: 50%",
+                )
+            ],
+        )

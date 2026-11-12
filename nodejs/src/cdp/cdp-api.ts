@@ -1192,6 +1192,19 @@ export class CdpApi {
                 this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                 throw error
             }
+            this.invocationResultsService.monitoringService.queueAppMetric(
+                {
+                    team_id: team.id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                },
+                'hog_flow'
+            )
+            // Not awaited, so a stalled metrics produce cannot time out a run that is already queued.
+            void this.invocationResultsService.monitoringService.flush()
             // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
             // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
             await this.invocationResultsService.invocationResultsRowsService.flush()
