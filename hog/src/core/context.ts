@@ -1,6 +1,7 @@
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
+import { resolveCatalog, type ResolvedCatalog } from '@/posthog/api-catalog'
 import {
     loginQuery,
     posthogPath,
@@ -8,10 +9,12 @@ import {
     type CredentialOptions,
     type Credentials,
 } from '@/posthog/credentials'
+import { parseHost, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
 import type { LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
+import { fallbackHost, readSettings } from '@/posthog/settings'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -93,9 +96,56 @@ export class Context {
         return this.loaded
     }
 
-    apiTools(): Promise<ApiToolLibrary> {
-        this.tools ??= this.runtime.loadApiTools()
+    apiTools(options: { refresh?: boolean } = {}): Promise<ApiToolLibrary> {
+        if (options.refresh) {
+            this.tools = undefined
+        }
+        this.tools ??= this.loadApiTools(options.refresh === true)
         return this.tools
+    }
+
+    catalog: ResolvedCatalog | undefined
+
+    private async loadApiTools(refresh: boolean): Promise<ApiToolLibrary> {
+        const resolved = await resolveCatalog(this.runtime, { host: await this.apiHost(), refresh })
+        this.catalog = resolved
+        const library = await this.runtime.loadApiTools(resolved.catalog ? { catalog: resolved.catalog } : {})
+
+        if (this.globals.debug) {
+            const status = library.catalog()
+            const source =
+                status.source === 'downloaded'
+                    ? `${status.tools} tools from the ${resolved.origin === 'network' ? 'downloaded' : 'saved'} catalog`
+                    : `the tools built into hog, because ${status.rejected ?? resolved.reason}`
+            this.runtime.writeStderr(`[debug] api catalog: ${source}\n`)
+            for (const dropped of status.dropped) {
+                const action = dropped.builtIn ? 'kept the built-in' : 'left out'
+                this.runtime.writeStderr(`[debug] api catalog: ${action} ${dropped.name}, because ${dropped.reason}\n`)
+            }
+        }
+        return library
+    }
+
+    // The host API calls go to, found without reading the keychain, since browsing tools needs no login.
+    private async apiHost(): Promise<Host | undefined> {
+        const requested = await this.requestedCredentials?.catch(() => undefined)
+        if (requested) {
+            return requested.key.host
+        }
+        const configHost = (await this.config().catch(() => undefined))?.config.host
+        const raw = this.globals.host ?? configHost
+        if (raw !== undefined) {
+            try {
+                return parseHost(raw)
+            } catch {
+                return undefined
+            }
+        }
+        try {
+            return fallbackHost(await readSettings(this.runtime))
+        } catch {
+            return undefined
+        }
     }
 
     // The PostHog agent skills, saved in ~/.posthog/skills for when a download fails. Without a home

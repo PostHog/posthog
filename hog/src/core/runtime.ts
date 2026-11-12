@@ -3,7 +3,12 @@ import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, s
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
-import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    SkillsLibrary,
+    SkillsLibraryOptions,
+} from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
@@ -77,7 +82,7 @@ export interface Runtime {
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
     // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
-    loadApiTools: () => Promise<ApiToolLibrary>
+    loadApiTools: (options?: ApiToolLibraryOptions) => Promise<ApiToolLibrary>
     // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
     loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
 }
@@ -308,9 +313,9 @@ export function processRuntime(): Runtime {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
-        loadApiTools: () =>
+        loadApiTools: (options) =>
             loadMcpLibrary(
-                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(),
+                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(options),
                 'api_tools_missing',
                 'the API tool catalog'
             ),
