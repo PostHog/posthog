@@ -1430,6 +1430,9 @@ class TestOauthIntegrationModel(BaseTest):
             ("server_error", [(500, {"error": {"type": "api_error"}})], False),
             ("rate_limited", [(429, {"error": {"type": "rate_limit_error"}})], False),
             ("concurrent_request", [(409, {"error": {"type": "idempotency_error"}})], False),
+            ("invalid_client", [(401, {"error": "invalid_client"})], False),
+            ("forbidden", [(403, {"error": {"type": "permission_error"}})], False),
+            ("invalid_grant", [(400, {"error": "invalid_grant"})], True),
             (
                 "rejected",
                 [(400, {"error": "invalid_request", "error_description": "Authorization not supported for this app"})],
@@ -1485,6 +1488,74 @@ class TestOauthIntegrationModel(BaseTest):
         assert all("REFRESH" not in key for key in keys)
         stored = Integration.objects.get(id=integration.id)
         assert stored.sensitive_config["refresh_token"] == "ROTATED_AGAIN"
+        assert "stripe_refresh_key_round" not in stored.config
+
+    @parameterized.expand(
+        [
+            (
+                "replayed_server_error",
+                500,
+                {"error": {"type": "api_error"}},
+                {"Request-Id": "req_original", "Idempotent-Replayed": "true"},
+                "warning",
+                {"stripe_request_id": "req_original", "stripe_idempotent_replayed": True},
+            ),
+            (
+                "fresh_success",
+                200,
+                {"access_token": "REFRESHED", "refresh_token": "ROTATED"},
+                {"Request-Id": "req_fresh"},
+                "info",
+                {"stripe_request_id": "req_fresh", "stripe_idempotent_replayed": False},
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.logger")
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_logs_the_stripe_request_id_and_replay(
+        self, _name, status_code, body, headers, level, expected, mock_post, mock_reload, mock_logger
+    ):
+        res = requests.Response()
+        res.status_code = status_code
+        res._content = json.dumps(body).encode()
+        res.headers.update(headers)
+        mock_post.return_value = res
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert getattr(mock_logger, level).call_args.kwargs.items() >= expected.items()
+
+    @parameterized.expand(
+        [
+            ("invalid_client", 401, {"error": "invalid_client"}),
+            ("forbidden", 403, {"error": {"type": "permission_error"}}),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_recovers_a_replayed_success_after_an_authentication_failure(
+        self, _name, status_code, body, mock_post, mock_reload
+    ):
+        lost_key = hashlib.sha256(b"REFRESH").hexdigest()
+        # Stripe rolled the token and saved the success under the key, but the response was lost.
+        saved = MagicMock(status_code=200, text="{}")
+        saved.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
+        failure = MagicMock(status_code=status_code, text=json.dumps(body))
+        failure.json.return_value = body
+        mock_post.side_effect = [failure, saved]
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+            OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+
+        keys = [call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list]
+        assert keys == [lost_key, lost_key]
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.sensitive_config["refresh_token"] == "ROTATED"
         assert "stripe_refresh_key_round" not in stored.config
 
     @patch("posthog.models.integration.oauth.requests.post")

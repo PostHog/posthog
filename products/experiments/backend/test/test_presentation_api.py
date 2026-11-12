@@ -12,6 +12,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -889,6 +890,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "ensure_experience_continuity": False,
             },
         )
+        if _name == "condition_added_after_launch":
+            conditions = next(c for c in health["checks"] if c["key"] == "release_conditions_changed_mid_run")
+            self.assertEqual([row["before_exposure"] for row in conditions["rows"]], [False])
 
     @parameterized.expand(
         [
@@ -7372,6 +7376,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             cohort = response.json()
         self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
 
+    # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.

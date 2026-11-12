@@ -1,3 +1,3 @@
-from . import hog_functions
+from . import hog_functions, invocation_replay
 
-__all__ = ["hog_functions"]
+__all__ = ["hog_functions", "invocation_replay"]

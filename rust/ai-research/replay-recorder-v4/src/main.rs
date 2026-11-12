@@ -47,6 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .from_env_lossy(),
         )
         .init();
+    // The argument only picks which service this process runs, and grants nothing.
+    // nosemgrep: rust.lang.security.args.args
     if std::env::args().nth(1).as_deref() == Some(PARQUET_SINK_MODE) {
         return replay_parquet_sink_v4::run().await;
     }
