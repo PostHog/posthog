@@ -485,6 +485,15 @@ jobs:
     #     (used while migrating away from a pattern with a known backlog).
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # See `.semgrep/rules/devex/README.md`.
+    #
+    # The two passes whose name ends in "(informational)" cannot fail this job:
+    # they print a backlog that is a property of the tree, not of the diff. A pull
+    # request's own findings are gated by "New warnings (blocking)", which applies
+    # the same WARNING rules against the PR base in a median 20s. So the informational
+    # passes run on pushes and the hourly schedule only. On a pull request they were a
+    # median 309s and 43s of a 743s job (7 runs on 2026-11-11), and this job ended the
+    # required-check lane for 27 of 34 recently merged pull requests, so that scan time
+    # was the pull request's wait rather than a signal.
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
@@ -516,8 +525,9 @@ jobs:
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
-            # up here.
+            # up here. Informational, so master-level; see the job comment.
             - name: Warnings (informational)
+              if: github.event_name != 'pull_request'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
@@ -530,7 +540,9 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
+            # Informational, so master-level; see the job comment.
             - name: Authorization migration (informational)
+              if: github.event_name != 'pull_request'
               run: |
                   if [ ! -f .semgrep/rules/devex/authorization-through-sdk.yaml ]; then
                       echo "authorization-through-sdk not present on this branch yet, skipping (rebase to pick it up)"

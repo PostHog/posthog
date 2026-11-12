@@ -1,9 +1,8 @@
 import clsx from 'clsx'
 import { useRef, useState } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonSliderTick {
     value: number
