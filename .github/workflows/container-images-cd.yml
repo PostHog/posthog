@@ -417,7 +417,8 @@ jobs:
                   mkdir -p "$staging"
                   cd "$RUNNER_TEMP/frontend-dist"
                   find . -type f -regextype posix-extended \
-                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+$' > "$RUNNER_TEMP/hashed.txt"
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+$' \
+                      ! -name '*.map' > "$RUNNER_TEMP/hashed.txt"
                   while IFS= read -r f; do
                       rel="${f#./}"
                       mkdir -p "$staging/$(dirname "$rel")"
@@ -433,7 +434,7 @@ jobs:
                   # More parallel requests than the AWS CLI default of 10 keep each upload well inside it.
                   aws configure set default.s3.max_concurrent_requests 50
 
-            # Sourcemaps never match the pattern (they end in .map), so a retained .map file stays private.
+            # The extract step leaves out every .map file, so a retained sourcemap stays private.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
             #
@@ -487,6 +488,17 @@ jobs:
                   set -euo pipefail
                   aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            # The role action exports its session keys to the job environment, where they stay until the
+            # job ends. No later step uses AWS, so the steps below must not hold write access to the buckets.
+            - name: Drop the static-assets credentials
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              run: |
+                  {
+                      echo "AWS_ACCESS_KEY_ID="
+                      echo "AWS_SECRET_ACCESS_KEY="
+                      echo "AWS_SESSION_TOKEN="
+                  } >> "$GITHUB_ENV"
 
             - name: get deployer token
               id: deployer
