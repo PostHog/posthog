@@ -34,7 +34,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -3135,6 +3135,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
+    def _impact_observations(self, scanner: ReplayScanner) -> QuerySet[ReplayObservation]:
+        # Same experiment gates as the observations endpoint: not-found for the scanner's current
+        # experiment, row-level for the experiments in each observation's snapshot.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
+        return accessible_observations(self.user_access_control, self.team_id, ReplayObservation.objects.all())
+
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(
         detail=True,
@@ -3149,6 +3156,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading scanner impact requires session_recording read access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         params = ScannerImpactQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
@@ -3159,6 +3167,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=params.validated_data["tag"],
                 min_score=params.validated_data["min_score"],
                 max_score=params.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -3218,6 +3227,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("cohort", required_level="editor"):
             raise PermissionDenied("Saving an affected cohort requires cohort edit access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         body = AffectedCohortRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         window_days: int = body.validated_data["window_days"]
@@ -3230,6 +3240,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=body.validated_data["tag"],
                 min_score=body.validated_data["min_score"],
                 max_score=body.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
