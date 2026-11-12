@@ -70,6 +70,7 @@ export function EvaluationReportsTab({
         configDraft,
         shownDestinations,
         editingDestinations,
+        reportHistoryReady,
     } = useValues(logic)
     const {
         generateReport,
@@ -174,7 +175,10 @@ export function EvaluationReportsTab({
                                 size="small"
                                 onClick={() => generateReport(activeReport.id)}
                                 loading={isWriting}
-                                disabledReason={generationDisabledReason}
+                                disabledReason={
+                                    generationDisabledReason ??
+                                    (reportHistoryReady ? undefined : 'Waiting for the report history to load')
+                                }
                                 data-attr="llma-evaluation-report-generate"
                             >
                                 Generate now

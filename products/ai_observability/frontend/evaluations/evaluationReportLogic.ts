@@ -323,6 +323,7 @@ export interface evaluationReportLogicValues {
     isConfigDirty: boolean
     isNewEvaluation: boolean
     olderReportRunsLoadFailed: boolean
+    reportHistoryReady: boolean
     reportRuns: EvaluationReportRun[]
     reportRunsLoadFailed: boolean
     reportRunsLoading: boolean
@@ -587,6 +588,12 @@ export interface evaluationReportLogicMeta {
         isNewEvaluation: (evaluationId: string) => boolean
         configErrors: (configDraft: ReportConfigDraft) => ReportConfigErrors
         configError: (configDraft: ReportConfigDraft) => string | null
+        reportHistoryReady: (
+            reportsLoading: boolean,
+            reportRunsLoading: boolean,
+            reportRunsLoadFailed: boolean,
+            reportRuns: EvaluationReportRunApi[]
+        ) => boolean
         activeReport: (reports: EvaluationReport[]) => EvaluationReport | null
         cooldownMinutes: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => number
         isConfigDirty: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => boolean
@@ -909,6 +916,16 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             (s) => [s.configDraft],
             (configDraft: ReportConfigDraft): string | null => getReportConfigError(configDraft),
         ],
+        // The baseline for "Generate now" is the newest loaded report, so it needs the history first.
+        reportHistoryReady: [
+            (s) => [s.reportsLoading, s.reportRunsLoading, s.reportRunsLoadFailed, s.reportRuns],
+            (
+                reportsLoading: boolean,
+                reportRunsLoading: boolean,
+                reportRunsLoadFailed: boolean,
+                reportRuns: EvaluationReportRun[]
+            ): boolean => !reportsLoading && !reportRunsLoadFailed && !(reportRunsLoading && reportRuns.length === 0),
+        ],
         activeReport: [
             (s) => [s.reports],
             (reports: EvaluationReport[]): EvaluationReport | null => {
@@ -969,25 +986,27 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             evaluationReportTracking.generateRequested()
         },
         generateReportSuccess: ({ payload: reportId }) => {
-            actions.startWaitingForNewReport(values.reportRuns[0]?.created_at ?? '')
-            const startedAt = Date.now()
-            // Fetch before the timeout check, so the last tick still looks for the report.
-            const tick = (): void => {
-                if (reportId) {
-                    actions.loadNewestReportRuns(reportId)
-                }
-                if (Date.now() - startedAt > NEW_REPORT_POLL_TIMEOUT_MS) {
-                    actions.stopWaitingForNewReport()
-                    lemonToast.info('The new report is taking longer than usual. Refresh the page later to see it.')
-                }
+            if (!reportId) {
+                return
             }
+            actions.startWaitingForNewReport(values.reportRuns[0]?.created_at ?? '')
+            const deadline = Date.now() + NEW_REPORT_POLL_TIMEOUT_MS
+            // The setup runs again when a hidden tab comes back. Every check is scheduled, never run inside the
+            // setup, so giving up can dispose this registration once it exists.
             cache.disposables.add(() => {
-                // The setup runs again when a hidden tab comes back, so it checks right away instead of a tick later.
-                if (Date.now() - startedAt > NEW_REPORT_POLL_INTERVAL_MS) {
-                    tick()
+                const check = (): void => {
+                    actions.loadNewestReportRuns(reportId)
+                    if (Date.now() > deadline) {
+                        actions.stopWaitingForNewReport()
+                        lemonToast.info('The new report is taking longer than usual. Refresh the page later to see it.')
+                    }
                 }
-                const timer = setInterval(tick, NEW_REPORT_POLL_INTERVAL_MS)
-                return () => clearInterval(timer)
+                const first = setTimeout(check, 0)
+                const timer = setInterval(check, NEW_REPORT_POLL_INTERVAL_MS)
+                return () => {
+                    clearTimeout(first)
+                    clearInterval(timer)
+                }
             }, NEW_REPORT_POLL)
         },
         loadNewestReportRunsSuccess: ({ reportRuns }) => {

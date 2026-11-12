@@ -189,6 +189,42 @@ describe('evaluationReportDrawerLogic', () => {
         }
     })
 
+    it('stops polling for good when a hidden tab returns after the deadline', async () => {
+        await mountWithRuns()
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        const setHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        jest.useFakeTimers()
+        try {
+            reportLogic.actions.generateReport(REPORT.id)
+            await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
+            setHidden(true)
+            jest.advanceTimersByTime(31 * 60_000)
+            setHidden(false)
+            jest.advanceTimersByTime(0)
+            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            expect(reportLogic.values.waitingForNewReportSince).toBeNull()
+
+            jest.advanceTimersByTime(60_000)
+            await expectLogic(reportLogic).toNotHaveDispatchedActions(['loadNewestReportRuns'])
+        } finally {
+            setHidden(false)
+            jest.useRealTimers()
+        }
+    })
+
+    it('holds "Generate now" until the report history has loaded', async () => {
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        reportLogic.mount()
+        await expectLogic(reportLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRuns'])
+        expect(reportLogic.values.reportHistoryReady).toBe(false)
+
+        await expectLogic(reportLogic).toDispatchActions(['loadReportRunsSuccess'])
+        expect(reportLogic.values.reportHistoryReady).toBe(true)
+    })
+
     it('offers a retry when a page of a linked report fails to load', async () => {
         delete runsPages['2']
         router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'run-1' })
