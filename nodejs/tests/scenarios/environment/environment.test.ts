@@ -878,10 +878,11 @@ describe('scenario environment', () => {
             )
             await waitForExpect(() => expect(heldMemberSeen()).toBe(true), 20_000, 50)
             releaseDeadMember()
+            const outcome = await up
 
             expect({
                 rolesSpawnedWhileHeld,
-                up: await up,
+                up: outcome,
                 apiHealth: await healthOf('cdp-api'),
             }).toEqual({
                 rolesSpawnedWhileHeld: 0,
