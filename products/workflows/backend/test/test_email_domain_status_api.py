@@ -288,12 +288,14 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
         if expected_status != "verified":
             assert (body["verified"], self.is_verified(sender), self.verified_events()) == (False, False, [])
 
-    def test_adding_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
+    def test_verifying_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
         self.world.ses.add_identity(DOMAIN, reports_mail_from_status=False)
-
         sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
 
-        assert not self.is_verified(sender)
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, False)
 
 
 class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
