@@ -99,7 +99,9 @@ class SyncSlice:
 
 def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncSlice]:
     # The first slice also takes the replayed overlap, so a run the budget stops after one slice still moves a full hour.
-    cursor = window_start
+    # It starts at the top of window_start's hour, where the hourly rollup read starts: an intent first called
+    # between the two would otherwise never get a vector.
+    cursor = corpus.start_of_hour(window_start)
     slice_end = min(window_start + SYNC_RESUME_OVERLAP + SYNC_SLICE, window_end)
     while cursor < window_end:
         yield SyncSlice(start=cursor, end=slice_end)
@@ -108,9 +110,6 @@ def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncS
 
 
 def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budget: int, page_size: int) -> RunOutcome:
-    # The hourly rollup reads whole hours, so the embeddings are read from the same start: an intent first
-    # called between the start of that hour and window_start would otherwise never get a vector.
-    window_start = corpus.start_of_hour(window_start)
     run = persist.start_run(
         team, kind=Kind.SYNC, run_id=_run_id(Kind.SYNC, window_end), window_start=window_start, window_end=window_end
     )
