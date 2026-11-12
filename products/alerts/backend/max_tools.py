@@ -660,7 +660,7 @@ class UpsertAlertTool(MaxTool):
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
             # Access control has no resource for an alert, so the check above passes everyone. The alert
             # API gates every alert on viewer access to its insight, and so does this tool.
-            insight = await sync_to_async(lambda: alert.insight)()
+            insight = await sync_to_async(lambda edited: edited.insight)(alert)
             await self.check_object_access(insight, "viewer", resource="insight", action="edit an alert on")
 
             if interval_msg := await self._validate_interval_entitlement(
