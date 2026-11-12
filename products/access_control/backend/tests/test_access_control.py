@@ -299,6 +299,40 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
         assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
 
 
+# The actions viewset serves contracts, so these endpoints reach the action through its ObjectAccessRef.
+class TestObjectAccessControlsOnAContractBackedView(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        from products.actions.backend.facade.testing import create_action
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        self.creator = self._create_user("creator@example.com")
+        self.action = create_action(team=self.team, name="test action", created_by=self.creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(self.action.id),
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
+
+    def test_access_controls_resolve_the_viewer_level(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/access_controls")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        body = res.json()
+        assert (body["user_access_level"], body["user_can_edit_access_levels"]) == ("viewer", False)
+        assert body["inherited_access"]["source"] == "system_default"
+
+    def test_users_with_access_name_where_each_level_comes_from(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/users_with_access")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        levels = {user["user_id"]: (user["access_level"], user["access_source"]) for user in res.json()["users"]}
+        assert levels[str(self.user.uuid)] == ("viewer", AccessSource.EXPLICIT_MEMBER.value)
+        assert levels[str(self.creator.uuid)] == ("manager", AccessSource.CREATOR.value)
+
+
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def setUp(self):
         super().setUp()
@@ -1529,7 +1563,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         with patch("posthog.utils.get_template", return_value=mock_template):
             mock_request = MagicMock()
             mock_request.user = self.user
-            mock_request.GET = {}
+            mock_request.GET = {"deferred_app_context": "0"}
             render_template("index.html", request=mock_request, context={})
 
             # Get the context passed to the template

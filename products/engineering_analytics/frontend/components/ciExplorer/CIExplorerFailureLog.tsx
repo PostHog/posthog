@@ -8,7 +8,6 @@ import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 const LOG_CLASS =
     'm-0 max-h-60 shrink-0 overflow-auto whitespace-pre-wrap break-words rounded bg-fill-error-tertiary p-3 font-mono text-xs text-danger'
 
-/** Why the focused job failed: the end of its stored failure log, with the lines before it on request. */
 export function CIExplorerFailureLog(): JSX.Element {
     const { focusedJobFailure, failureLogs, failureLogsLoading, failureLogsFailed } = useValues(ciExplorerLogic)
     if (failureLogsFailed) {

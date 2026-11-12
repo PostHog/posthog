@@ -14,10 +14,6 @@ import { ciExplorerContextLogic } from '../../scenes/ciExplorerContextLogic'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 import { CIExplorerChips } from './CIExplorerChips'
 
-/**
- * The steps of a focused job, each with a bar for its share of the slowest step. A row opens the step on GitHub.
- * While the Context tab is open, resting on a row or moving the keyboard focus to it compares that step.
- */
 export function CIExplorerSteps({ job }: { job: WorkflowJobApi }): JSX.Element {
     const { repoOwner, repoName, focusedJobInsights, focusedBadgedSteps } = useValues(ciExplorerLogic)
     const { active: contextActive, stepNumber: contextStep } = useValues(ciExplorerContextLogic)

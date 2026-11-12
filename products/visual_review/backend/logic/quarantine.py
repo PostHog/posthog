@@ -113,7 +113,8 @@ def quarantine_identifier(
     identifier: str,
     run_type: str,
     reason: str,
-    user_id: int,
+    # None only for an automatic quarantine, which no person asked for.
+    user_id: int | None,
     team_id: int,
     expires_at: datetime | None = None,
     source_run_id: UUID | None = None,

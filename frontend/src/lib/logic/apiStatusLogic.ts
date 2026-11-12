@@ -2,11 +2,10 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } fr
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { ACCESS_BLOCKED_ERROR_CODE, PROJECT_ACCESS_DENIED_DETAIL } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { teamLogic } from 'scenes/teamLogic'
