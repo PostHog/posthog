@@ -9876,6 +9876,11 @@ export interface TicketSidebarConfiguration {
     hidden?: string[]
 }
 
+export interface SessionReplayListConfiguration {
+    /** Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference. */
+    filter_test_accounts?: boolean
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9885,6 +9890,7 @@ export interface UserUIConfiguration {
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
     ticket_sidebar?: TicketSidebarConfiguration
+    session_replay?: SessionReplayListConfiguration
     [key: string]: unknown
 }
 

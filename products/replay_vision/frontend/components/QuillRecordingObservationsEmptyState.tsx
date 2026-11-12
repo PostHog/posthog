@@ -12,7 +12,6 @@ import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { ScannerType } from '../replay_scanners/types'
 import { ScanBlock } from '../utils/scanEligibility'
 import { VisionDocsPage, visionDocsUrl } from './DocsLink'
-import { QuillScannerPicker } from './QuillScannerPicker'
 import { QuillScannerTypeBadge } from './QuillScannerTypeBadge'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -151,8 +150,8 @@ export function QuillRecordingObservationsEmptyState({
                         Summarize this recording above for chapters and a short write-up, or run a scanner to check it
                         for something specific.
                     </p>
-                    <div className="mt-1 flex flex-wrap gap-2">
-                        {noScanners ? (
+                    {noScanners && (
+                        <div className="mt-1 flex flex-wrap gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -161,10 +160,8 @@ export function QuillRecordingObservationsEmptyState({
                             >
                                 Create a scanner
                             </Button>
-                        ) : (
-                            <QuillScannerPicker sessionId={sessionId} scanBlock={null} variant="outline" />
-                        )}
-                    </div>
+                        </div>
+                    )}
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
                         {!noScanners && (
                             <Button

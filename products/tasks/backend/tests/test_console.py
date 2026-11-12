@@ -31,7 +31,8 @@ class TestTaskRunLogsConsoleTool(BaseTest):
         self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
 
     def _download(self, run_id: object) -> Any:
-        return self.client.post(_DOWNLOAD_URL, {"run": str(run_id)})
+        # A result shows on its own page behind a redirect; a refusal answers directly.
+        return self.client.post(_DOWNLOAD_URL, {"run": str(run_id)}, follow=True)
 
     @patch(f"{_STORAGE}.get_presigned_url", return_value="https://s3.example.test/presigned-link")
     @patch(f"{_STORAGE}.head_object", return_value={"ContentLength": 10})

@@ -1,10 +1,11 @@
 import { SignJWT } from 'jose'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { IntegrationAuthError, type IntegrationVerifier } from '@/auth/integrations'
 import { JwtVerifier } from '@/auth/jwt'
 import type { SigningKeyLoader } from '@/auth/registry'
 import { AUDIENCE, type SigningKeys } from '@/auth/types'
-import { createApp } from '@/http/app'
+import { createApp, type IntegrationDeps } from '@/http/app'
 import { httpRequestsTotal, register } from '@/metrics'
 import type { Lifecycle, MountedSecrets } from '@/types'
 
@@ -40,7 +41,10 @@ function build(
 ): { app: ReturnType<typeof createApp>; lifecycle: Lifecycle } {
     const lifecycle: Lifecycle = { shuttingDown: false, ready: true, ...overrides.lifecycle }
     const app = createApp({
-        verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
+        verifier: new JwtVerifier({
+            entries: () => Object.entries(KEYS),
+            allowedSecrets: () => null,
+        } as unknown as SigningKeyLoader),
         lifecycle,
         secrets: overrides.secrets ?? ((): MountedSecrets | null => MOUNTED),
     })
@@ -171,5 +175,32 @@ describe('http surface', () => {
         expect(labels).not.toContain('/definitely-not-a-route-9f2a')
         expect(labels).not.toContain('/another-invented-route-c81d')
         expect(new Set(labels).size).toBe(1)
+    })
+})
+
+describe('integration routes that turn on after boot', () => {
+    const deps = {
+        verifier: {
+            verify: async (): Promise<never> => {
+                throw new IntegrationAuthError('malformed', 'token was not accepted')
+            },
+        } as unknown as IntegrationVerifier,
+        service: {} as IntegrationDeps['service'],
+    }
+
+    it('answers 404 until the getter returns routes, then serves them without a restart', async () => {
+        let current: IntegrationDeps | undefined
+        const app = createApp({
+            verifier: new JwtVerifier({ entries: () => [], allowedSecrets: () => null } as unknown as SigningKeyLoader),
+            lifecycle: { shuttingDown: false, ready: true },
+            secrets: () => null,
+            integrations: () => current,
+        })
+        const get = (): Promise<Response> =>
+            Promise.resolve(app.request('/v1/integrations', { headers: { Authorization: 'Bearer x' } }))
+
+        expect((await get()).status).toBe(404)
+        current = deps
+        expect((await get()).status).toBe(401)
     })
 })

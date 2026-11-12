@@ -47,6 +47,9 @@ class ExposuresPrecompute:
     precomputation_mode: Optional[PrecomputationMode]
     is_data_warehouse_query: bool
     group_type_index: Optional[int]
+    # A rule-linked experiment always scans events. The precomputed tables hold exposures that were built from
+    # the legacy predicate, and no build or cache key tells the two predicates apart yet.
+    is_rule_linked: bool = False
 
     def ensure_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         if not self.window_start:
@@ -75,7 +78,7 @@ class ExposuresPrecompute:
         # data warehouse tables. A group-aggregated build INSERT references $group_N, which
         # the INSERT ... SELECT analysis path can't resolve (MATERIALIZED on sharded_events),
         # so every build fails with UNKNOWN_IDENTIFIER.
-        if self.is_data_warehouse_query or self.group_type_index is not None:
+        if self.is_data_warehouse_query or self.group_type_index is not None or self.is_rule_linked:
             return False
         return self.ineligibility_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
 
@@ -105,4 +108,6 @@ class ExposuresPrecompute:
             return PrecomputeSkipReason.DATA_WAREHOUSE
         if self.group_type_index is not None:
             return PrecomputeSkipReason.GROUP_AGGREGATION
+        if self.is_rule_linked:
+            return PrecomputeSkipReason.FLAG_RULE
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready

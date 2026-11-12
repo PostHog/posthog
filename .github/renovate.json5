@@ -86,6 +86,23 @@
       ],
     },
   },
+  // Use one branch per package across catalogs and overrides; preset family rules take precedence.
+  npm: {
+    minor: {
+      groupName: 'npm non-major {{packageName}}',
+    },
+    patch: {
+      groupName: 'npm non-major {{packageName}}',
+    },
+  },
+  pep621: {
+    minor: {
+      groupName: 'python non-major {{packageName}}',
+    },
+    patch: {
+      groupName: 'python non-major {{packageName}}',
+    },
+  },
   packageRules: [
     // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
     {
@@ -133,44 +150,49 @@
       minimumReleaseAge: null,
     },
     {
-      matchManagers: ['npm', 'pep621', 'cargo'],
+      matchManagers: ['cargo'],
       matchUpdateTypes: ['minor', 'patch'],
-      groupName: '{{manager}} non-major',
+      groupName: 'cargo non-major',
     },
     // Directories with their own lock file
     {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchManagers: ['cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: [
-        '**/go.mod',
-        'cli/**',
-        'funnel-udf/**',
-        'rust/common/hogvm/node/Cargo.toml',
-        'services/llm-gateway/**',
-        'services/stripe-mock/**',
-        'tools/hedgebox-dummy/**',
-        'frontend/@posthog/lemon-ui/**',
-        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
-        '.depot/actions/paths-filter/**',
-        '.github/actions/paths-filter/**',
-        '.github/actions/shared-image-releases/**',
-        'products/canvas/packages/canvas_builder/**',
-        'products/visual_review/cli/**',
-        'rust/batch-import-worker/scripts/**',
-      ],
+      matchFileNames: ['**/go.mod', 'cli/**', 'funnel-udf/**', 'rust/common/hogvm/node/Cargo.toml'],
       groupName: '{{manager}} non-major in {{packageFileDir}}',
-    },
-    {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: ['products/desktop/**', 'packages/agent/**'],
-      groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
     },
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor'],
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
+    },
+    // Each package in these groups requires an exact version of another package in the group, so
+    // they must update together. The rules come after the 0.x rule because some Dagster libraries
+    // are 0.x and must stay in the group on a minor update
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['dagster*'],
+      groupName: 'python dagster non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
+      groupName: 'npm connectrpc non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@bufbuild/protobuf', '@bufbuild/protoc-gen-es'],
+      groupName: 'npm protobuf-es non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@earendil-works/pi-*'],
+      groupName: 'npm pi non-major',
     },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
@@ -210,6 +232,13 @@
       matchManagers: ['nodenv', 'nvm'],
       matchUpdateTypes: ['minor', 'patch'],
       dependencyDashboardApproval: false,
+    },
+    // When `[tool.uv.sources]` routes a package to a PyTorch wheel index, Renovate looks it up there.
+    // That index lists local versions like `+cpu`, and Renovate cannot write those into a `~=` specifier.
+    // It also has no release dates, which `minimumReleaseAge` needs. PyPI has the same releases with dates
+    {
+      matchRegistryUrls: ['https://download.pytorch.org/whl/**'],
+      registryUrls: ['https://pypi.org/pypi/'],
     },
   ],
 }

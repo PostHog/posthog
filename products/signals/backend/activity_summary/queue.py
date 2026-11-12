@@ -54,11 +54,17 @@ from products.signals.backend.activity_summary.config import ActivitySummaryConf
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS, mcp_redis_client
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
 from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, parse_record, records_key, window_days
-from products.signals.backend.activity_summary.prompt import COMPUTED_MAX_CHARS, PROMPT_VERSION, system_prompt
+from products.signals.backend.activity_summary.prompt import (
+    COMPUTED_MAX_CHARS,
+    MIN_PROMPT_VERSION,
+    PROMPT_VERSION,
+    system_prompt,
+)
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     MAX_LIMITS,
     MAX_SUMMARY_CHARS,
+    MIN_RENDER_VERSION,
     NOISY_ACTIVITY_SCOPES,
     PERSON_SCOPE,
     RENDER_VERSION,
@@ -156,6 +162,9 @@ class PairSelection:
     due_pairs: int
     tiers: list[ActivitySummaryTierStats]
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Pairs with activity in the window whose summary is outdated but not due, so they wait for a normal update.
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
 
 
 @frozen
@@ -799,11 +808,20 @@ def sync_pair_state(team_id: int, user_id: int) -> None:
     )
 
 
-def _current(config: ActivitySummaryConfig) -> Q:
-    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale."""
-    current = Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+def _up_to_date() -> Q:
+    """Queue states whose summary `logic.is_outdated` does not mark outdated."""
+    return Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+
+
+def _not_stale(config: ActivitySummaryConfig, now: datetime.datetime) -> Q:
+    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale and that
+    `outdated_rebuild_after_days` does not make due."""
+    current = Q(prompt_version__gte=MIN_PROMPT_VERSION, render_version__gte=MIN_RENDER_VERSION)
     if config.rebuild_before is not None:
         current &= Q(summarized_at__gte=config.rebuild_before)
+    if config.outdated_rebuild_after_days is not None:
+        cutoff = now - datetime.timedelta(days=config.outdated_rebuild_after_days)
+        current &= _up_to_date() | Q(summarized_at__gte=cutoff)
     return Q(summarized_at__isnull=True) | current
 
 
@@ -814,6 +832,9 @@ def _hours_since(now: datetime.datetime, at: Coalesce) -> Combinable:
 
 def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int]) -> QuerySet:
     """The queue states of these teams, with their tier, staleness, pending score and priority score.
+
+    `stale` marks a summary due for a rebuild without new rows. `outdated` marks a summary from an older
+    prompt or render.
 
     Staleness is the summary age over the tier's target interval. A pair with no summary counts its age
     from its first queued row. The pending score leaves out the view part when views do not count. The
@@ -827,7 +848,12 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
         output_field=FloatField(),
     )
     age_hours = _hours_since(now, Coalesce("summarized_at", "created_at"))
-    stale = Case(When(_current(config), then=Value(False)), default=Value(True), output_field=BooleanField())
+    stale = Case(When(_not_stale(config, now), then=Value(False)), default=Value(True), output_field=BooleanField())
+    outdated = Case(
+        When(Q(summarized_at__isnull=False) & ~_up_to_date(), then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
+    )
     cold_bonus = Case(
         When(summarized_at__isnull=True, then=Value(config.cold_start_bonus)),
         # A stale pair often has no pending units, so its staleness orders it among the other rebuilds.
@@ -839,7 +865,7 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
     return (
         # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
         UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids)
-        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale)
+        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale, outdated=outdated)
         .annotate(
             staleness=age_hours / target_hours,
             write_score=write_score,
@@ -915,6 +941,26 @@ def _due_by_trigger(due: QuerySet) -> dict[str, int]:
     return {trigger: counts.get(trigger, 0) for trigger in TRIGGERS}
 
 
+@frozen
+class _VersionStats:
+    outdated_pairs: int
+    current_version_share: float | None
+
+
+def _version_stats(
+    states: QuerySet, due: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
+) -> _VersionStats:
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    counts = states.filter(last_activity_at__gte=window_start, summarized_at__isnull=False).aggregate(
+        summarized=Count("id"), outdated_count=Count("id", filter=Q(outdated=True))
+    )
+    outdated_due = due.filter(outdated=True).count()
+    return _VersionStats(
+        outdated_pairs=counts["outdated_count"] - outdated_due,
+        current_version_share=1 - counts["outdated_count"] / counts["summarized"] if counts["summarized"] else None,
+    )
+
+
 def _tier_stats(
     states: QuerySet, due: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
 ) -> list[ActivitySummaryTierStats]:
@@ -960,7 +1006,9 @@ def select_pairs(
     with no summary is also due once it opened objects or scenes on `cold_start_min_active_days` days.
     A pair with a stale summary needs no pending score, because its update reads the full window, and it
     ranks with the pairs with no summary. When views count, a pair with no summary that opened the Inbox
-    in the window is also due. Each returned pair carries the trigger that made it due.
+    in the window is also due. A pair with an outdated summary that is not stale needs a pending score like
+    a current one, until `outdated_rebuild_after_days` makes it stale. Each returned pair carries the
+    trigger that made it due.
     Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
     does not stop the other updates. The Inbox visit pairs fill `inbox_visit_budget_share` of `limit`
     first, paying pairs first. The part of that share they do not use goes to the other passes, and an
@@ -977,6 +1025,7 @@ def select_pairs(
     due = _due(states, config, now)
     tiers = _tier_stats(states, due, config, now)
     due_by_trigger = _due_by_trigger(due)
+    versions = _version_stats(states, due, config, now)
     due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
     reserved = _fill_pass(
         due.filter(trigger=TRIGGER_INBOX_VISIT),
@@ -1004,4 +1053,6 @@ def select_pairs(
         due_pairs=sum(tier.due_pairs for tier in tiers),
         tiers=tiers,
         due_by_trigger=due_by_trigger,
+        outdated_pairs=versions.outdated_pairs,
+        current_version_share=versions.current_version_share,
     )

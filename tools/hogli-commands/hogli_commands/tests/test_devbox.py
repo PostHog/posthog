@@ -7,6 +7,7 @@ import csv
 import sys
 import json
 import errno
+import shlex
 import signal
 import hashlib
 import subprocess
@@ -1442,7 +1443,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
         monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
@@ -1585,7 +1586,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
-        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
         monkeypatch.setattr(devbox_mutagen, "sync_list", lambda label_selector=None: [])
@@ -1677,6 +1678,138 @@ class TestDevboxWorktreeCommand:
         expected_record = "devbox-test-user-feat" if switched else "wt-feat"
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
         assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
+
+    @pytest.mark.parametrize(
+        "args, devboxes, clone_reply, marker_on_box, expected_exit, expected_hogland, app_started, output_has",
+        [
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (0, '{"action": "cloned"}', ""),
+                False,
+                0,
+                [["devbox", "clone", "wt-base", "wt-feat"], ["devbox", "up", "wt-feat", "--no-connect"]],
+                False,
+                "Cloning Hogland devbox 'wt-base' into 'wt-feat'",
+                id="clone-from-running-box",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "latest_snapshot_id": "snap-1"}],
+                None,
+                False,
+                1,
+                [],
+                False,
+                "'wt-base' is hibernated",
+                id="clone-from-hibernated-box-refused",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (1, "", 'Error: unknown command "clone" for "hogland devbox"'),
+                False,
+                1,
+                [["devbox", "clone", "wt-base", "wt-feat"]],
+                False,
+                "brew upgrade",
+                id="outdated-hogland-cli-asks-for-upgrade",
+            ),
+            pytest.param(
+                ["--start-app"],
+                [],
+                None,
+                False,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="start-app-on-new-box",
+            ),
+            pytest.param(
+                ["--no-start-app"],
+                [{"name": "wt-feat", "current_box_id": "box-feat"}],
+                None,
+                True,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="saved-start-app-survives-flag-on-existing-box",
+            ),
+        ],
+    )
+    def test_hogland_clone_and_start_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        tmp_path: Path,
+        args: list[str],
+        devboxes: list[dict[str, str]],
+        clone_reply: tuple[int, str, str] | None,
+        marker_on_box: bool,
+        expected_exit: int,
+        expected_hogland: list[list[str]],
+        app_started: bool,
+        output_has: str,
+    ) -> None:
+        box_home = tmp_path / "box"
+        box_repo = box_home / "posthog"
+        (box_repo / "bin").mkdir(parents=True)
+        hogli_stub = box_repo / "bin" / "hogli"
+        hogli_stub.write_text('#!/bin/sh\necho "$@ (flox: ${FLOX_ENV:-off})" >> "$HOME/hogli-calls"\n')
+        hogli_stub.chmod(0o755)
+        flox_stub = box_home / "tools" / "flox"
+        flox_stub.parent.mkdir()
+        flox_stub.write_text(
+            '#!/bin/sh\n[ "$1" = activate ] && [ "$2" = -- ] || exit 2\nshift 2\nFLOX_ENV=on exec "$@"\n'
+        )
+        flox_stub.chmod(0o755)
+        if marker_on_box:
+            (box_home / ".config" / "hogli").mkdir(parents=True)
+            (box_home / ".config" / "hogli" / "start-app").touch()
+        monkeypatch.setattr(devbox_hogland, "REMOTE_REPO_PATH", str(box_repo))
+        monkeypatch.setattr(devbox_hogland.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path / "hogland-ssh")
+        monkeypatch.setattr(devbox_worktree, "ensure_hogland_sync_session", lambda *a, **kw: None)
+        box_events = box_home / "hogli-calls"
+
+        def flush_sync(selector: str) -> None:
+            with box_events.open("a") as events_file:
+                events_file.write("sync flushed\n")
+
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush_sync)
+        hogland_calls: list[list[str]] = []
+        up_reply = '{"box": {"id": "box-new", "status": "running", "public_ip": "10.0.0.1", "guest_ssh_port": 22}}'
+        real_run = subprocess.run
+
+        def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if argv[0] == "hogland" and argv[1:3] == ["devbox", "list"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(devboxes), "")
+            if argv[0] == "hogland":
+                hogland_calls.append(argv[1:])
+                code, out, err = clone_reply if argv[2] == "clone" and clone_reply else (0, up_reply, "")
+                return subprocess.CompletedProcess(argv, code, out, err)
+            if argv[0] == "ssh":
+                shell, login_flag, script = shlex.split(argv[-1])
+                assert (shell, login_flag) == ("bash", "-lc")
+                return real_run(
+                    ["bash", "--noprofile", "--norc", "-c", script],
+                    capture_output=True,
+                    text=True,
+                    env={"HOME": str(box_home), "PATH": f"{flox_stub.parent}:{os.environ['PATH']}"},
+                )
+            return subprocess.CompletedProcess(argv, 1, "", "")
+
+        monkeypatch.setattr(devbox_hogland.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--provider", "hogland", "--label", "feat", *args])
+
+        assert result.exit_code == expected_exit, result.output
+        assert output_has in result.output
+        assert hogland_calls == expected_hogland
+        events = box_events.read_text() if box_events.exists() else ""
+        assert events == ("sync flushed\nup -d -y (flox: on)\n" if app_started else "")
 
 
 class TestWorkspaceRegion:
@@ -3337,37 +3470,105 @@ class TestDevboxCommands:
         # The box without region metadata renders the unknown placeholder.
         assert "unknown" in result.output
 
-    def test_devbox_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
+    @staticmethod
+    def _forward(monkeypatch: pytest.MonkeyPatch, name: str, busy: set[int], args: list[str] | None = None) -> Any:
+        captured: dict[str, int] = {}
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: (name, []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: port not in busy)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(
             devbox_cli,
             "port_forward_replace",
             lambda name, local_port, remote_port: captured.update(
-                {"name": name, "local_port": local_port, "remote_port": remote_port}
+                {"local_port": local_port, "remote_port": remote_port}
             ),
         )
+        result = runner.invoke(cli, ["devbox:forward", *(args or [])])
+        result.captured = captured
+        return result
 
-        result = runner.invoke(cli, ["devbox:forward"])
+    def test_devbox_forward_keeps_8010_for_the_default_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-test-user", busy=set())
 
         assert result.exit_code == 0
         assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
-        assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
+        assert "Without forwarding, open https://app--devbox-test-user--test-user.coder.example.com" in result.output
+        assert result.captured == {"local_port": 8010, "remote_port": 8010}
 
-    def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
-        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+    @pytest.mark.parametrize("name", ["devbox-test-user", "devbox-test-user-feature-x"])
+    def test_devbox_forward_picks_a_free_port_kept_per_box(self, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+        busy = {8010}
+        first = self._forward(monkeypatch, name, busy=busy)
+        again = self._forward(monkeypatch, name, busy=busy)
+        busy.add(first.captured["local_port"])
+        bumped = self._forward(monkeypatch, name, busy=busy)
 
-        result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
+        assert first.exit_code == again.exit_code == bumped.exit_code == 0
+        assert 18000 <= first.captured["local_port"] < 19000
+        assert again.captured == first.captured
+        assert bumped.captured["local_port"] not in busy
+
+    def test_devbox_forward_gives_each_box_its_own_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ports = {
+            self._forward(monkeypatch, f"devbox-test-user-{label}", busy=set()).captured["local_port"]
+            for label in ("a", "b", "c")
+        }
+
+        assert len(ports) == 3
+
+    def test_devbox_forward_fails_early_when_the_chosen_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-test-user", busy={8010}, args=["--port", "8010"])
 
         assert result.exit_code == 1
         assert "Local port 8010 is already in use." in result.output
-        assert "hogli devbox:forward --port 8011" in result.output
+        assert "rerun without --port" in result.output
+        assert result.captured == {}
+
+    def test_devbox_forward_hides_the_app_url_for_a_shared_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._forward(monkeypatch, "devbox-other", busy=set(), args=["@other"])
+
+        assert result.exit_code == 0
+        assert "app--" not in result.output
+
+    @pytest.mark.parametrize(
+        "owner, expected",
+        [
+            ("test-user", "App:     https://app--devbox-test-user--test-user.coder.example.com (healthy)"),
+            ("someone-else", None),
+        ],
+    )
+    def test_devbox_status_shows_the_app_url_of_your_own_box(
+        self, monkeypatch: pytest.MonkeyPatch, owner: str, expected: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {
+                "owner_name": owner,
+                "latest_build": {
+                    "status": "stopped",
+                    "resources": [
+                        {"agents": [{"status": "connected", "apps": [{"slug": "app", "health": "healthy"}]}]}
+                    ],
+                },
+            },
+        )
+
+        result = runner.invoke(cli, ["devbox:status"])
+
+        assert result.exit_code == 0
+        if expected is None:
+            assert "App:" not in result.output
+        else:
+            assert expected in result.output
 
 
 class TestDevboxOpenHerdr:
