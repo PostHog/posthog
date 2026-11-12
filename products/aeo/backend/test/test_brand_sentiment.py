@@ -188,14 +188,11 @@ class _StubEngine:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "enabled, record, expected_starts",
-    [(True, True, 1), (False, True, 0), (True, False, 0)],
-    ids=["on", "off", "dry_run"],
+    "record, expected_starts",
+    [(True, 1), (False, 0)],
+    ids=["recording", "dry_run"],
 )
-def test_runner_starts_the_sentiment_workflow_only_when_enabled_and_recording(
-    settings, enabled: bool, record: bool, expected_starts: int
-) -> None:
-    settings.AEO_BRAND_SENTIMENT_ENABLED = enabled
+def test_runner_starts_the_sentiment_workflow_only_when_recording(settings, record: bool, expected_starts: int) -> None:
     team = _team()
     create_own_brand(team, "example.com")
     upsert_prompts(team, [PromptCandidate(text="q?", source="imported")])
