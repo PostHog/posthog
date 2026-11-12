@@ -447,6 +447,11 @@ class _MetricSeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.",
     )
+    histogram_layout_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Most distinct bucket layouts merged into one point of a histogram_quantile series. Above 1, series with different buckets were merged by bucket width. Null for other aggregations.",
+    )
 
 
 class _MetricQueryResponseSerializer(serializers.Serializer):
@@ -456,7 +461,7 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
     )
     hint = serializers.CharField(
         required=False,
-        help_text="Set only when the query returned no points: what to check before querying again.",
+        help_text="Set when the query returned no points, with what to check before querying again, or when a histogram_quantile merged different bucket layouts, with how to read the result.",
     )
     omitted_empty_series = serializers.IntegerField(
         required=False,
@@ -479,12 +484,24 @@ def _series_magnitude(series: MetricSeries) -> float:
     return sum(abs(point.value) for point in series.points if point.value is not None)
 
 
+def _mixed_layouts_hint(layout_count: int) -> str:
+    return (
+        f"Series with {layout_count} bucket layouts were merged by bucket width, so each quantile is only as "
+        "precise as histogram_bounds. PromQL histogram_quantile over sum by (le) of the _bucket series adds "
+        "different layouts by le and can overstate high quantiles, up to the top finite bucket edge. To compare "
+        "them, group by a label that separates the layouts, such as k8s.namespace.name or service_name."
+    )
+
+
 def _series_response(
     series: list[MetricSeries], *, drop_empty_series: bool = False, limit: int | None = None
 ) -> Response:
     response_data: dict = {}
+    layout_count = max((s.histogram_layout_count or 0 for s in series), default=0)
     if not any(s.points for s in series):
         response_data["hint"] = _NO_SERIES_HINT
+    elif layout_count > 1:
+        response_data["hint"] = _mixed_layouts_hint(layout_count)
     if drop_empty_series:
         kept = [s for s in series if any(point.value for point in s.points)]
         if omitted := len(series) - len(kept):

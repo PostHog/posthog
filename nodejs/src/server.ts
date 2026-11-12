@@ -453,6 +453,7 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
                     heartbeatTimeoutMs: this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
                     // Pages are processed serially, so a bigger dequeue batch adds no throughput —
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
