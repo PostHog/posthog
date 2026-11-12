@@ -408,9 +408,15 @@ mod tests {
             "the old assignment's completion is stale"
         );
         assert_eq!(processed(), 0, "a stale completion processed nothing");
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[]),
+            "a stale completion completes no poll of the next assignment"
+        );
         harness.complete(0, &[0, 1]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
         assert_eq!(processed(), 2);
+        assert_eq!(harness.completed_polls(), polls(&[("poll-1", 2)]));
     }
 
     #[test]
@@ -629,6 +635,19 @@ mod tests {
             polls(&[("poll-1", 2), ("poll-0", 3)]),
             "a compacted offset inside a poll's span never settles, so it does not count"
         );
+    }
+
+    #[test]
+    fn a_poll_completes_without_a_partition_whose_charge_the_ledger_rejected() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0]);
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit_with_a_stale_charge_on(&[1]);
+
+        harness.complete(0, &[0]);
+
+        assert_eq!(harness.completed_polls(), polls(&[("poll-0", 1)]));
     }
 
     #[test]

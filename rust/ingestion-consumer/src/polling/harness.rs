@@ -82,6 +82,13 @@ impl<P: PollingStrategy> Harness<P> {
     }
 
     pub(super) fn submit(&mut self) -> HashMap<TopicPartition, (i64, i64)> {
+        self.submit_with_a_stale_charge_on(&[])
+    }
+
+    pub(super) fn submit_with_a_stale_charge_on(
+        &mut self,
+        stale: &[i32],
+    ) -> HashMap<TopicPartition, (i64, i64)> {
         let Some(Step::Submit(collected)) = self.step() else {
             panic!("expected a poll to submit");
         };
@@ -89,6 +96,14 @@ impl<P: PollingStrategy> Harness<P> {
         let mut uncommitted = HashMap::new();
         for (topic_partition, deliveries) in &mut partitions {
             deliveries.generation = self.ledger.generation(topic_partition);
+            if stale.contains(&topic_partition.partition) {
+                self.settlement
+                    .on_revoked(std::slice::from_ref(topic_partition));
+                self.settlement
+                    .charge(topic_partition, deliveries.generation, &deliveries.charges)
+                    .expect_err("a charge under a forgotten generation is stale");
+                continue;
+            }
             let charged = self
                 .settlement
                 .charge(topic_partition, deliveries.generation, &deliveries.charges)
