@@ -213,6 +213,10 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
+const ScheduledAtSchema = z.string().datetime({ offset: true })
+
+export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
@@ -222,7 +226,7 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
-    scheduled_at: z.string().datetime({ offset: true }).optional(),
+    scheduled_at: ScheduledAtSchema.optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }

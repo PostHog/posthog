@@ -86,6 +86,25 @@ export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>
     }
 }
 
+export function withReschedule(
+    state: Buffer | null,
+    scheduledAt: string,
+    now: Date
+): { state: Buffer; rescheduledAt: Date } {
+    const blob: SerializedJobState = state ? parseJSON(state.toString('utf-8')) : { state: null }
+    const previous = Date.parse(blob.state?.statusAt ?? '')
+    const rescheduledAt = new Date(Number.isNaN(previous) ? now.getTime() : Math.max(now.getTime(), previous + 1))
+    return {
+        state: Buffer.from(
+            JSON.stringify({
+                ...blob,
+                state: { ...blob.state, scheduledAt, statusAt: rescheduledAt.toISOString() },
+            })
+        ),
+        rescheduledAt,
+    }
+}
+
 export type JobRow = Pick<
     CyclotronV2DequeuedJob,
     | 'id'

@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { CyclotronJobInvocation } from '../../types'
-import { JobRow, encodeJob, v2JobToInvocation } from './job-codec'
+import { JobRow, encodeJob, v2JobToInvocation, withReschedule } from './job-codec'
 
 const codeSend: CyclotronJobInvocation = {
     id: '019a4f3e-7c1d-7000-8000-00000000c0de',
@@ -117,5 +117,19 @@ describe('job codec', () => {
 
     it.each(cases)('reads $name as the earlier adapter wrote it', ({ invocation, golden }) => {
         expect(v2JobToInvocation(rowWith(invocation, Buffer.from(golden, 'utf-8')))).toEqual(dequeued(invocation))
+    })
+
+    it.each([
+        ['no earlier status row', undefined, '2026-11-09T10:00:00.000Z'],
+        ['an earlier one in the past', '2026-11-09T09:59:59.000Z', '2026-11-09T10:00:00.000Z'],
+        ['an earlier one in the same millisecond', '2026-11-09T10:00:00.000Z', '2026-11-09T10:00:00.001Z'],
+        ['an earlier one ahead of this clock', '2026-11-09T10:00:05.000Z', '2026-11-09T10:00:05.001Z'],
+    ])('times a reschedule after %s', (_desc, previous, expected) => {
+        const stored = Buffer.from(JSON.stringify({ state: { scheduledAt: 'old', statusAt: previous, x: 1 } }))
+
+        const { state, rescheduledAt } = withReschedule(stored, 'new', new Date('2026-11-09T10:00:00.000Z'))
+
+        expect(rescheduledAt.toISOString()).toEqual(expected)
+        expect(parseJSON(state.toString())).toEqual({ state: { scheduledAt: 'new', statusAt: expected, x: 1 } })
     })
 })

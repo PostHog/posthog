@@ -607,6 +607,7 @@ export type HogFlowInvocationContext = {
     variables?: Record<string, any>
     send?: QueuedSend
     scheduledAt?: string
+    statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

@@ -21,7 +21,15 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailDeliveryStatus = 'scheduled' | 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailDeliveryStatus =
+    | 'scheduled'
+    | 'queued'
+    | 'canceled'
+    | 'failed'
+    | 'sent'
+    | 'delivered'
+    | 'bounced'
+    | 'complained'
 
 // Only email_status_events keeps these, so they never replace a delivery status.
 export type EmailEngagementStatus = 'opened' | 'clicked'
@@ -64,6 +72,7 @@ export type EmailSkipReason =
 const STATUS_RANK: Record<EmailStatus, bigint> = {
     scheduled: 0n,
     queued: 0n,
+    canceled: 1n,
     failed: 2n,
     sent: 3n,
     delivered: 5n,

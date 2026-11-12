@@ -225,8 +225,10 @@ export class IdempotencyKeys {
         fingerprint: string,
         invocationId: string,
         replayFields?: ReplayFields,
-        scheduledAt?: string
+        scheduledAt?: string,
+        latestDueAt?: Date
     ): Promise<void> {
+        const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
             value: {
@@ -236,7 +238,7 @@ export class IdempotencyKeys {
                 ...(replayFields && { replayFields }),
                 ...(scheduledAt && { scheduledAt }),
             },
-            expiresAt: Math.max(Date.now(), scheduledAt ? Date.parse(scheduledAt) : 0) + QUEUED_TTL_SECONDS * 1000,
+            expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {

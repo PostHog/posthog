@@ -2,12 +2,16 @@ import { DateTime } from 'luxon'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
+import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
 import { HogFlow } from '../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
+import { createCanceledInvocationResult } from '../../utils/invocation-utils'
+import type { CyclotronV2JobProducer } from '../cyclotron-v2'
+import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
@@ -18,6 +22,7 @@ import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
+import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
@@ -73,6 +78,24 @@ const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | 
         return undefined
     }
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
+}
+
+const writeStatus = (
+    emailStatus: EmailStatusService,
+    update: EmailStatusUpdate & { status: 'queued' | 'scheduled' | 'canceled' }
+): void => {
+    emailStatus.queue(update)
+    void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
+}
+
+const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
+    const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
+    return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
+}
+
+const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
+    const to = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.event?.properties?.to
+    return typeof to === 'string' ? to : undefined
 }
 
 export type TransactionalSendsDeps = {
@@ -158,6 +181,8 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
+        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
+        const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
             await releaseKey()
@@ -185,7 +210,7 @@ export class TransactionalSends {
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
                     files.deadline,
-                    scheduledAt ?? undefined
+                    latestDueAt
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -198,6 +223,7 @@ export class TransactionalSends {
                 }
             }
             stages.start('queue_insert')
+            invocation.state.statusAt = statusAt.toISOString()
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
             try {
                 await this.deps.queue.queueInvocations([invocation])
@@ -218,17 +244,19 @@ export class TransactionalSends {
                 fingerprint,
                 invocation.id,
                 attachmentTotals,
-                scheduledAt?.toISOString()
+                scheduledAt?.toISOString(),
+                scheduledAt ? latestDueAt : undefined
             )
         }
         stages.start('metrics_flush')
-        this.writeStatus({
+        writeStatus(this.deps.emailStatus, {
             teamId: team.id,
             messageId: invocation.id,
             status: scheduledAt ? 'scheduled' : 'queued',
             recipient: to,
             functionId: hogFlow.id,
             scheduledAt: scheduledAt ?? undefined,
+            statusAt,
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
@@ -240,11 +268,6 @@ export class TransactionalSends {
             scheduledAt: scheduledAt?.toISOString() ?? null,
             replyFields: attachmentTotals,
         }
-    }
-
-    private writeStatus(update: EmailStatusUpdate & { status: 'queued' | 'scheduled' }): void {
-        this.deps.emailStatus.queue(update)
-        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
     }
 
     private buildInvocation(
@@ -342,5 +365,100 @@ export class TransactionalSends {
             return 'recipient_unreachable'
         }
         return null
+    }
+}
+
+export type ScheduledTransactionalSendsDeps = {
+    jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
+    invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
+    emailStatus: EmailStatusService
+}
+
+export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'claimed' | 'not_found' }
+
+export type ScheduledSendRescheduleResult =
+    | { outcome: 'rescheduled'; scheduledAt: string }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+
+export class ScheduledTransactionalSends {
+    constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
+
+    async cancel(teamId: number, messageId: string): Promise<ScheduledSendCancelResult> {
+        if (!UUID.validateString(messageId, false)) {
+            return { outcome: 'not_found' }
+        }
+        const result = await this.deps.jobs.cancelUnclaimed(teamId, messageId)
+        switch (result.outcome) {
+            case 'canceled':
+                await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: true })
+                return { outcome: 'canceled' }
+            case 'already_canceled':
+                if (result.job) {
+                    await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: false })
+                }
+                return { outcome: 'canceled' }
+            default:
+                return { outcome: result.outcome }
+        }
+    }
+
+    async reschedule(teamId: number, messageId: string, requestedAt: Date): Promise<ScheduledSendRescheduleResult> {
+        if (!UUID.validateString(messageId, false)) {
+            return { outcome: 'not_found' }
+        }
+        const now = new Date()
+        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+            return { outcome: 'invalid_scheduled_at' }
+        }
+        const scheduledAt = requestedAt > now ? requestedAt : now
+        const result = await this.deps.jobs.rescheduleUnclaimed(teamId, messageId, scheduledAt)
+        if (result.outcome !== 'rescheduled') {
+            return { outcome: result.outcome }
+        }
+        const job = v2JobToInvocation(result.job)
+        writeStatus(this.deps.emailStatus, {
+            teamId,
+            messageId,
+            status: 'scheduled',
+            recipient: recipientOf(job),
+            functionId: job.functionId,
+            scheduledAt,
+            statusAt: result.rescheduledAt,
+        })
+        return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
+    }
+
+    private async recordCanceledRun(
+        job: CyclotronJobInvocation,
+        { countMetrics }: { countMetrics: boolean }
+    ): Promise<void> {
+        const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
+        const hogFlow = await this.deps.hogFlows.getHogFlowCheckingPrimaryOnMiss(job.functionId).catch(() => null)
+        const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
+        result.invocation.queueScheduledAt = scheduledAtOfRunningRow(job)
+        if (countMetrics && (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
+            result.metrics.push({
+                team_id: job.teamId,
+                app_source_id: job.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
+            })
+        }
+        if (countMetrics) {
+            monitoringService.queueInvocationResults([result])
+        }
+        invocationResultsRowsService.queueInvocationResults([result])
+        writeStatus(this.deps.emailStatus, {
+            teamId: job.teamId,
+            messageId: job.id,
+            status: 'canceled',
+            recipient: recipientOf(job),
+            functionId: job.functionId,
+        })
+        void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
+        const { produced } = await invocationResultsRowsService.handOffQueuedRows()
+        void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))
     }
 }
