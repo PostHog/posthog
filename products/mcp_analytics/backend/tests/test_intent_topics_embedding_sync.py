@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 from products.mcp_analytics.backend.intent_topics.corpus import DistinctIntent
@@ -65,3 +66,18 @@ class TestEmitIntentEmbeddings(APIBaseTest):
 
         assert emit_intent_embeddings(self.team, [], now=datetime.now(tz=UTC)) == 0
         mock_emit.assert_not_called()
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_raises_when_kafka_did_not_deliver_a_request(self, mock_emit) -> None:
+        from confluent_kafka import KafkaException
+
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        delivered, failed = MagicMock(), MagicMock()
+        failed.get.side_effect = KafkaException("broker down")
+        mock_emit.side_effect = [delivered, failed]
+
+        with pytest.raises(KafkaException):
+            emit_intent_embeddings(self.team, [_intent("a"), _intent("b")], now=datetime.now(tz=UTC))
+
+        delivered.get.assert_called_once()

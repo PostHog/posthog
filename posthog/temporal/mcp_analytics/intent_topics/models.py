@@ -6,7 +6,7 @@ from typing import Any
 RUN_KINDS = ("sync", "assign", "refit")
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntentTopicsWorkflowInputs:
     """One pipeline run for one team.
 
@@ -24,7 +24,7 @@ class IntentTopicsWorkflowInputs:
         return {"team_id": self.team_id, "kind": self.kind}
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntentTopicsRunResult:
     team_id: int
     kind: str
@@ -37,7 +37,7 @@ class IntentTopicsRunResult:
     error_message: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class IntentTopicsWorkflowResult:
     team_id: int
     kind: str

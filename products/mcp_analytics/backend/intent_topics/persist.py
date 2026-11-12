@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 import numpy as np
@@ -13,7 +14,7 @@ from posthog.models.team.team import Team
 from products.mcp_analytics.backend.intent_topics.assignment_sql import PcaBasis, TopicVector
 from products.mcp_analytics.backend.intent_topics.clustering import FitOutput
 from products.mcp_analytics.backend.intent_topics.constants import TOPIC_ARCHIVE_AFTER_DAYS
-from products.mcp_analytics.backend.intent_topics.labeling import fallback_label
+from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel, fallback_label
 from products.mcp_analytics.backend.intent_topics.topic_registry import ExistingTopic, MatchResult
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 
@@ -76,12 +77,18 @@ def latest_pca_basis(team: Team) -> PcaBasis | None:
     return PcaBasis(mean=stored["mean"], pc1=stored["pc1"], pc2=stored["pc2"])
 
 
-def _member_centroid_2d(fit: FitOutput, cluster_idx: int) -> tuple[float, float]:
+@dataclass(frozen=True)
+class MapPosition:
+    x: float
+    y: float
+
+
+def _member_centroid_2d(fit: FitOutput, cluster_idx: int) -> MapPosition:
     coords = fit.coords_2d[fit.labels == cluster_idx]
     if len(coords) == 0:
-        return 0.0, 0.0
+        return MapPosition(x=0.0, y=0.0)
     mean = coords.mean(axis=0)
-    return float(mean[0]), float(mean[1])
+    return MapPosition(x=float(mean[0]), y=float(mean[1]))
 
 
 def apply_fit(
@@ -94,54 +101,59 @@ def apply_fit(
     Topics no cluster matched are archived once they have been unmatched for ``TOPIC_ARCHIVE_AFTER_DAYS``.
     The PCA basis is stored on the run so the nightly assignment can project new intents.
     """
-    topic_ids: dict[int, str] = {}
-    created: list[str] = []
+    # One transaction: a partial registry next to the previous basis would mislabel the nightly assignment.
+    with transaction.atomic():
+        topic_ids: dict[int, str] = {}
+        created: list[str] = []
 
-    for cluster_idx, topic_id in match.reused.items():
-        topic = MCPIntentTopic.objects.get(team=team, pk=topic_id)
-        _write_cluster(topic, fit, cluster_idx, run.run_id)
-        topic.last_seen_at = now
-        topic.save()
-        topic_ids[cluster_idx] = topic_id
+        for cluster_idx, topic_id in match.reused.items():
+            topic = MCPIntentTopic.objects.get(team=team, pk=topic_id)
+            _write_cluster(topic, fit, cluster_idx, run.run_id)
+            topic.last_seen_at = now
+            topic.save()
+            topic_ids[cluster_idx] = topic_id
 
-    for cluster_idx in match.created:
-        topic = MCPIntentTopic(team=team, label="", centroid=b"")
-        _write_cluster(topic, fit, cluster_idx, run.run_id)
-        topic.label = fallback_label(str(topic.pk))
-        topic.save()
-        topic_ids[cluster_idx] = str(topic.pk)
-        created.append(str(topic.pk))
+        for cluster_idx in match.created:
+            topic = MCPIntentTopic(team=team, label="", centroid=b"")
+            _write_cluster(topic, fit, cluster_idx, run.run_id)
+            topic.label = fallback_label(str(topic.pk))
+            topic.save()
+            topic_ids[cluster_idx] = str(topic.pk)
+            created.append(str(topic.pk))
 
-    archived: list[str] = []
-    cutoff = now - timedelta(days=TOPIC_ARCHIVE_AFTER_DAYS)
-    for topic in MCPIntentTopic.active.filter(team=team, pk__in=match.unmatched_topics, last_seen_at__lt=cutoff):
-        topic.status = MCPIntentTopic.Status.ARCHIVED
-        topic.save(update_fields=["status"])
-        archived.append(str(topic.pk))
+        archived: list[str] = []
+        cutoff = now - timedelta(days=TOPIC_ARCHIVE_AFTER_DAYS)
+        for topic in MCPIntentTopic.active.filter(team=team, pk__in=match.unmatched_topics, last_seen_at__lt=cutoff):
+            topic.status = MCPIntentTopic.Status.ARCHIVED
+            topic.save(update_fields=["status"])
+            archived.append(str(topic.pk))
 
-    run.params = {
-        **run.params,
-        PCA_BASIS_PARAM: {
-            "mean": fit.pca_mean.astype(float).tolist(),
-            "pc1": fit.pca_components[0].astype(float).tolist(),
-            "pc2": fit.pca_components[1].astype(float).tolist(),
-        },
-    }
-    run.save(update_fields=["params"])
+        run.params = {
+            **run.params,
+            PCA_BASIS_PARAM: {
+                "mean": fit.pca_mean.astype(float).tolist(),
+                "pc1": fit.pca_components[0].astype(float).tolist(),
+                "pc2": fit.pca_components[1].astype(float).tolist(),
+            },
+        }
+        run.save(update_fields=["params"])
     return FitPersistResult(topic_ids_by_cluster=topic_ids, created=created, archived=archived)
 
 
 def _write_cluster(topic: MCPIntentTopic, fit: FitOutput, cluster_idx: int, run_id: str) -> None:
     topic.centroid = MCPIntentTopic.encode_centroid(fit.centroids[cluster_idx])
     topic.outlier_distance = float(fit.outlier_distances[cluster_idx])
-    topic.centroid_x, topic.centroid_y = _member_centroid_2d(fit, cluster_idx)
+    position = _member_centroid_2d(fit, cluster_idx)
+    topic.centroid_x, topic.centroid_y = position.x, position.y
     topic.member_count = int(np.sum(fit.labels == cluster_idx))
     topic.last_run_id = run_id
 
 
-def update_topic_labels(team: Team, labels: dict[str, tuple[str, str]]) -> None:
-    for topic_id, (label, summary) in labels.items():
-        MCPIntentTopic.objects.filter(team=team, pk=topic_id).update(label=label, summary=summary)
+def update_topic_labels(team: Team, labels: dict[str, TopicLabel]) -> None:
+    for topic_id, topic_label in labels.items():
+        MCPIntentTopic.objects.filter(team=team, pk=topic_id).update(
+            label=topic_label.label, summary=topic_label.summary
+        )
 
 
 def run_params(run: MCPIntentClusteringRun) -> dict[str, Any]:

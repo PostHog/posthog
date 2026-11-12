@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -7,10 +7,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 
 from products.mcp_analytics.backend.intent_topics.assignment_sql import PcaBasis, TopicVector, build_assignment_insert
-from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, unit_vector
+from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour, unit_vector
 
 OTHER_TEAM_ID = 10**9  # never a real team in the test database, so rows cannot collide with the next test
-DAY_START = datetime(2026, 10, 19, 0, 0, tzinfo=UTC)
+DAY_START = recent_hour(days_ago=2).replace(hour=0)
 DAY_END = DAY_START + timedelta(days=1)
 
 
@@ -98,3 +98,12 @@ class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
         rows = self._assignments()
         assert len(rows) == 1
         assert len(rows[0][6]) == 500
+
+    def test_truncation_never_splits_a_multibyte_character(self) -> None:
+        text = "a" * 499 + "é" + "tail"
+        insert_intent_embedding(self.team.pk, "h-utf8", text, at=DAY_START + timedelta(hours=1))
+
+        self._run()
+
+        [row] = self._assignments()
+        assert row[6] == "a" * 499 + "é"
