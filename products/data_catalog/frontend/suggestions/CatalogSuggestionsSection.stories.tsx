@@ -158,11 +158,10 @@ export const FilteredByName: Story = {
 
 export const BulkApproveDialog: Story = {
     play: async ({ canvasElement }) => {
-        const selectAll = await waitForElement<HTMLElement>(
-            canvasElement,
-            '[aria-label="Select all shown suggestions"]'
-        )
-        selectAll.click()
+        await waitForElement(canvasElement, '[aria-label^="Select every"]')
+        canvasElement
+            .querySelectorAll<HTMLElement>('[aria-label^="Select every"]')
+            .forEach((checkbox) => checkbox.click())
         const approve = await waitForElement<HTMLElement>(
             canvasElement,
             '[data-attr="data-catalog-suggestions-bulk-accept"]'

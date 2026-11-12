@@ -19,8 +19,8 @@ import { warehouseSuggestionsSectionLogic } from 'products/warehouse_suggestions
 import { CatalogSuggestionCheckbox } from './CatalogSuggestionCheckbox'
 import { CatalogSuggestionsBulkBar } from './CatalogSuggestionsBulkBar'
 import { CatalogSuggestionsEmptyState } from './CatalogSuggestionsEmptyState'
+import { CatalogSuggestionsGroupCheckbox } from './CatalogSuggestionsGroupCheckbox'
 import { catalogSuggestionsLogicProps } from './catalogSuggestionsLogicProps'
-import { CatalogSuggestionsSelectAll } from './CatalogSuggestionsSelectAll'
 import { CatalogSuggestionsToolbar } from './CatalogSuggestionsToolbar'
 
 const NOTICE_STATES = ['error', 'warming_up', 'not_eligible']
@@ -58,11 +58,11 @@ function SuggestionsList(): JSX.Element {
                     <CatalogSuggestionsToolbar />
                     {filteredGroups.length > 0 ? (
                         <div className="@container/suggestions divide-y divide-border rounded border border-border">
-                            <CatalogSuggestionsSelectAll />
                             <QuillSuggestedModelsGroups
                                 groups={filteredGroups}
                                 windowDays={status?.window_days ?? 0}
                                 renderSelection={(suggestion) => <CatalogSuggestionCheckbox suggestion={suggestion} />}
+                                renderGroupSelection={(group) => <CatalogSuggestionsGroupCheckbox group={group} />}
                             />
                         </div>
                     ) : (

@@ -154,7 +154,7 @@ export interface warehouseSuggestionsSectionLogicValues {
     filteredGroups: SuggestionGroup[]
     filters: SuggestionsSectionFilters
     filtersActive: boolean
-    selectableIds: string[]
+    selectableIdsByKind: Record<string, string[]>
     selectedIds: string[]
     selectedSuggestions: WarehouseSuggestionApi[]
     selectedViewDeprecations: WarehouseSuggestionApi[]
@@ -236,11 +236,11 @@ export interface warehouseSuggestionsSectionLogicMeta {
             filters: SuggestionsSectionFilters,
             user: UserType | null
         ) => SuggestionGroup[]
-        selectableIds: (
+        selectableIdsByKind: (
             filteredGroups: SuggestionGroup[],
             leavingSuggestionIds: string[],
             actionsInFlight: Record<string, boolean>
-        ) => string[]
+        ) => Record<string, string[]>
         selectedSuggestions: (
             filteredGroups: SuggestionGroup[],
             selectedIds: string[],
@@ -374,16 +374,26 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
                     }))
                     .filter((group) => group.suggestions.length > 0),
         ],
-        selectableIds: [
+        selectableIdsByKind: [
             (s) => [s.filteredGroups, s.leavingSuggestionIds, s.actionsInFlight],
-            (groups: SuggestionGroup[], leavingIds: string[], inFlight: Record<string, boolean>): string[] =>
-                groups
-                    .flatMap((group) => group.suggestions)
-                    .filter(
-                        (suggestion) =>
-                            suggestion.can_act && !inFlight[suggestion.id] && !leavingIds.includes(suggestion.id)
-                    )
-                    .map((suggestion) => suggestion.id),
+            (
+                groups: SuggestionGroup[],
+                leavingIds: string[],
+                inFlight: Record<string, boolean>
+            ): Record<string, string[]> =>
+                Object.fromEntries(
+                    groups.map((group) => [
+                        group.kind,
+                        group.suggestions
+                            .filter(
+                                (suggestion) =>
+                                    suggestion.can_act &&
+                                    !inFlight[suggestion.id] &&
+                                    !leavingIds.includes(suggestion.id)
+                            )
+                            .map((suggestion) => suggestion.id),
+                    ])
+                ),
         ],
         selectedSuggestions: [
             (s) => [s.filteredGroups, s.selectedIds, s.leavingSuggestionIds],
