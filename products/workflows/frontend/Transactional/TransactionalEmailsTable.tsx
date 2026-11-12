@@ -267,30 +267,30 @@ export function TransactionalEmailsTable(): JSX.Element {
                                         }}
                                     />
                                 ) : (
-                                <AppMetricsSparkline
-                                    logicKey={`transactional-${row.id}`}
-                                    // Lines, not stacked bars: a delivered or failed email was also counted as sent.
-                                    type="line"
-                                    metricLabels={{
-                                        email_sent: 'Sent',
-                                        email_delivered: 'Delivered',
-                                        email_failed: 'Failed',
-                                    }}
-                                    metricColors={{
-                                        email_sent: 'blue',
-                                        email_delivered: 'success',
-                                        email_failed: 'danger',
-                                    }}
-                                    forceParams={{
-                                        appSource: 'hog_flow',
-                                        appSourceId: row.hog_flow_id,
-                                        metricName: ['email_sent', 'email_delivered', 'email_failed'],
-                                        breakdownBy: 'metric_name',
-                                        interval: 'day',
-                                        dateFrom: '-7d',
-                                    }}
-                                />
-                            )
+                                    <AppMetricsSparkline
+                                        logicKey={`transactional-${row.id}`}
+                                        // Lines, not stacked bars: a delivered or failed email was also counted as sent.
+                                        type="line"
+                                        metricLabels={{
+                                            email_sent: 'Sent',
+                                            email_delivered: 'Delivered',
+                                            email_failed: 'Failed',
+                                        }}
+                                        metricColors={{
+                                            email_sent: 'blue',
+                                            email_delivered: 'success',
+                                            email_failed: 'danger',
+                                        }}
+                                        forceParams={{
+                                            appSource: 'hog_flow',
+                                            appSourceId: row.hog_flow_id,
+                                            metricName: ['email_sent', 'email_delivered', 'email_failed'],
+                                            breakdownBy: 'metric_name',
+                                            interval: 'day',
+                                            dateFrom: '-7d',
+                                        }}
+                                    />
+                                )
                             return (
                                 <Link
                                     to={
