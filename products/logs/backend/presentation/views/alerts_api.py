@@ -70,7 +70,11 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts_platform.backend.presentation.views.platform_alert import GroupingSerializer
+from products.alerts_platform.backend.presentation.views.platform_alert import (
+    RULE_ANNOTATIONS_HELP,
+    RULE_LABELS_HELP,
+    GroupingSerializer,
+)
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -343,6 +347,13 @@ class LogsAlertGroupingSerializer(GroupingSerializer):
         return _SINGLE_INSTANCE
 
 
+class PlatformCopyDictField(serializers.DictField):
+    # The logs row has no column for this field. `to_representation` of the alert serializer replaces
+    # the empty value with the platform copy's value for an alert the platform owns.
+    def get_attribute(self, instance: LogsAlertConfiguration) -> dict[str, str]:
+        return {}
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -488,11 +499,29 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "deletes the existing instances and closes their notification threads without a message."
         ),
     )
+    labels = PlatformCopyDictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            f"{RULE_LABELS_HELP} Alert routes match on labels to send the alert to shared receivers. Only an "
+            "alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects "
+            "a value. Omit it on update to keep the current labels. A value replaces all of them."
+        ),
+    )
+    annotations = PlatformCopyDictField(
+        child=serializers.CharField(trim_whitespace=False),
+        required=False,
+        help_text=(
+            f"{RULE_ANNOTATIONS_HELP} Notifications show annotations. Only an alert the alerts platform "
+            "evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on "
+            "update to keep the current annotations. A value replaces all of them."
+        ),
+    )
     platform_owned = serializers.BooleanField(
         read_only=True,
         help_text=(
             "Whether the alerts platform evaluates this alert and sends its notifications. Only such an "
-            "alert can set a grouping other than single."
+            "alert can set labels, annotations, or a grouping other than single."
         ),
     )
 
@@ -732,6 +761,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         ).value
         data["consecutive_failures"] = runtime.consecutive_failures
         data["grouping"] = self.fields["grouping"].to_representation(runtime.grouping)
+        data["labels"] = self.fields["labels"].to_representation(runtime.labels)
+        data["annotations"] = self.fields["annotations"].to_representation(runtime.annotations)
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
@@ -779,6 +810,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "state_timeline",
             "destination_types",
             "grouping",
+            "labels",
+            "annotations",
             "platform_owned",
             "first_enabled_at",
             "created_at",
@@ -869,8 +902,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         edited_at = timezone.now()
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        labels: dict[str, str] | None = validated_data.pop("labels", None)
+        annotations: dict[str, str] | None = validated_data.pop("annotations", None)
         if instance.has_no_logs_row:
-            return self._update_native(instance, validated_data, grouping=grouping, snooze_data=snooze_data)
+            return self._update_native(
+                instance,
+                validated_data,
+                grouping=grouping,
+                labels=labels,
+                annotations=annotations,
+                snooze_data=snooze_data,
+            )
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -955,6 +997,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     alert_id=updated.id,
                     snooze_changed=snooze_data is not _SENTINEL,
                     grouping=grouping,
+                    labels=labels,
+                    annotations=annotations,
                     at=edited_at,
                 )
             )
@@ -965,7 +1009,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             return updated
 
     def _update_native(
-        self, instance: LogsAlertConfiguration, validated_data: dict, *, grouping: Grouping | None, snooze_data: object
+        self,
+        instance: LogsAlertConfiguration,
+        validated_data: dict,
+        *,
+        grouping: Grouping | None,
+        labels: dict[str, str] | None,
+        annotations: dict[str, str] | None,
+        snooze_data: object,
     ) -> LogsAlertConfiguration:
         snooze_changed = snooze_data is not _SENTINEL
         updated = _write_platform_edit(
@@ -974,6 +1025,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 alert_id=instance.id,
                 changes=validated_data,
                 grouping=grouping,
+                labels=labels,
+                annotations=annotations,
                 snooze_until=cast(datetime | None, snooze_data) if snooze_changed else None,
                 snooze_changed=snooze_changed,
             )
@@ -992,8 +1045,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        labels: dict[str, str] | None = validated_data.pop("labels", None)
+        annotations: dict[str, str] | None = validated_data.pop("annotations", None)
         if creates_native_alert(validated_data["team_id"]):
-            return _write_platform_edit(lambda: _create_native_alert(validated_data, grouping))
+            return _write_platform_edit(lambda: _create_native_alert(validated_data, grouping, labels, annotations))
 
         with transaction.atomic():
             try:
@@ -1003,9 +1058,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             if schedule_restriction := validated_data.get("schedule_restriction"):
                 validated_data["next_check_at"] = first_check_at(validated_data["team_id"], schedule_restriction)
             created = super().create(validated_data)
-            # Raised inside the transaction, so a grouping the alert cannot take leaves no alert behind.
+            # Raised inside the transaction, so a grouping, labels or annotations the alert cannot take leave no
+            # alert behind.
             if _write_platform_edit(
-                lambda: on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now(), grouping=grouping)
+                lambda: on_created(
+                    team_id=created.team_id,
+                    alert_id=created.id,
+                    at=timezone.now(),
+                    grouping=grouping,
+                    labels=labels,
+                    annotations=annotations,
+                )
             ):
                 created.refresh_from_db(fields=["owner", "owner_changed_at"])
             elif created.enabled:
@@ -1015,7 +1078,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             return created
 
 
-def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> LogsAlertConfiguration:
+def _create_native_alert(
+    validated_data: dict,
+    grouping: Grouping | None,
+    labels: dict[str, str] | None,
+    annotations: dict[str, str] | None,
+) -> LogsAlertConfiguration:
     team_id = validated_data["team_id"]
     snooze_until = validated_data.get("snooze_until")
     # Settings only: the creator travels as an id, and the team as the call's own argument.
@@ -1024,7 +1092,12 @@ def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> Log
     with transaction.atomic():
         try:
             created = create_native(
-                team_id=team_id, fields=fields, grouping=grouping, created_by_id=validated_data["created_by"].id
+                team_id=team_id,
+                fields=fields,
+                grouping=grouping,
+                labels=labels,
+                annotations=annotations,
+                created_by_id=validated_data["created_by"].id,
             )
         except PlatformAlertCreateRefused as error:
             raise ValidationError(str(error)) from error
@@ -1035,6 +1108,8 @@ def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> Log
                     alert_id=created.id,
                     changes={},
                     grouping=None,
+                    labels=None,
+                    annotations=None,
                     snooze_until=snooze_until,
                     snooze_changed=True,
                 )

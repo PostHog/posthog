@@ -38,6 +38,7 @@ from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
+    HOGQL_FILTER_KEY,
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
@@ -57,6 +58,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
@@ -74,12 +76,19 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_SOAK_HOURS,
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
+    CheckComparison,
     CheckConfigValidationError,
     MetricThresholdReplacementConfig,
+    MonitoringMetricConfig,
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_monitoring_summary import (
+    MonitoringLeadCheck,
+    MonitoringSummaryState,
+    ReportMonitoringSummary,
+)
 from products.signals.backend.report_search import (
     DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
     MAX_LIMIT as REPORT_SEARCH_MAX_LIMIT,
@@ -87,6 +96,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filters import compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -151,6 +161,7 @@ from .report_metrics import (
     MAX_METRIC_SERIES_POINTS,
     MAX_METRIC_TITLE_LENGTH,
     MAX_METRIC_UNIT_LENGTH,
+    MAX_SERIES_BUCKET_LABEL_LENGTH,
     REPORT_METRIC_KINDS,
     REPORT_METRIC_ROLES,
     REPORT_METRIC_VALUE_FORMATS,
@@ -424,6 +435,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
                 source_product, source_type, config[ISSUE_FILTERS_KEY]
             )
+        if config is not None and HOGQL_FILTER_KEY in config:
+            config[HOGQL_FILTER_KEY] = self._saved_hogql_filter(source_product, source_type, config[HOGQL_FILTER_KEY])
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -445,6 +458,29 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def _saved_hogql_filter(self, source_product: str | None, source_type: str | None, raw: object) -> object:
+        current_config = self.instance.config if self.instance is not None else None
+        current = current_config.get(HOGQL_FILTER_KEY) if isinstance(current_config, dict) else None
+        # A whole-config write echoes the stored filter back; keep it without re-checking the rollout gate.
+        if current is not None and raw == current:
+            return current
+        if not isinstance(raw, str):
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} must be a string expression"})
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None or not source_product or not source_type:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} needs a project and source"})
+        try:
+            saved = compile_source_filter(
+                organization_id=str(team.organization_id),
+                source_product=source_product,
+                source_type=source_type,
+                expression=raw,
+            )
+        except FilterValidationError as error:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY}: {error}"})
+        return saved.to_config()
 
     def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
         if (source_product, source_type) not in ISSUE_FILTER_SOURCES:
@@ -1367,6 +1403,18 @@ class ReportMetricSerializer(serializers.Serializer):
             "points. Null when no snapshot series is available to this viewer."
         ),
     )
+    series_buckets = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SERIES_BUCKET_LABEL_LENGTH),
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_SERIES_POINTS,
+        help_text=(
+            "The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or "
+            "`2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or "
+            "`series` is null for this viewer."
+        ),
+    )
     value_format = serializers.ChoiceField(
         choices=REPORT_METRIC_VALUE_FORMATS,
         required=False,
@@ -1445,6 +1493,7 @@ class ReportMetricSerializer(serializers.Serializer):
             representation["value"] = None
             representation["value_at"] = None
             representation["series"] = None
+            representation["series_buckets"] = None
 
         if "query" in representation and not policy.may_read_query(instance):
             representation["query"] = None
@@ -1466,6 +1515,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
     # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
+    series_buckets = None  # type: ignore[assignment]  # recorded by snapshot refreshes, never authored
     goal_value = None  # type: ignore[assignment]
     goal_direction = None  # type: ignore[assignment]
     goal_grain = None  # type: ignore[assignment]
@@ -1490,6 +1540,123 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     """
 
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+    interval = serializers.SerializerMethodField(
+        help_text=(
+            "Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query "
+            "names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values "
+            "mix neighbouring buckets, or is not a Trends query."
+        )
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_interval(self, instance: Mapping[str, object]) -> str | None:
+        query = instance.get("query")
+        source = query.get("source") if isinstance(query, Mapping) else None
+        if not isinstance(source, Mapping):
+            return None
+        trends_filter = source.get("trendsFilter")
+        smoothing = trends_filter.get("smoothingIntervals") if isinstance(trends_filter, Mapping) else None
+        if isinstance(smoothing, int) and smoothing > 1:
+            return None
+        interval = source.get("interval")
+        # Trends buckets by day when the query names no interval.
+        return interval if isinstance(interval, str) else "day"
+
+
+class MonitoringReadingSerializer(serializers.Serializer):
+    measured_at = serializers.DateTimeField(help_text="When this interim reading was measured.")
+    matches = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the reading met the target at that point in the window. Null when the measurement failed or "
+            "this viewer may not read the check's data."
+        ),
+    )
+    observed_value = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this "
+            "viewer may not read the check's data."
+        ),
+    )
+    threshold = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Target the reading was compared with, scaled to elapsed time when the check scales linearly. "
+            "Null for a `between` target, a failed measurement, or a viewer who may not read the check's data."
+        ),
+    )
+
+
+class MonitoringLeadCheckSerializer(serializers.Serializer):
+    check_id = serializers.UUIDField(help_text="The follow-up check this summary is drawn from.")
+    title = serializers.CharField(help_text="The check's short label.")
+    metric_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The report metric the check measures, matching `metrics[].metric_id`. Null when the check names "
+            "none, or the report metric with that id no longer runs the check's query."
+        ),
+    )
+    metric_kind = serializers.ChoiceField(
+        choices=REPORT_METRIC_KINDS,
+        allow_null=True,
+        help_text="What the measured value means, when the check names it.",
+    )
+    value_format = serializers.ChoiceField(
+        choices=REPORT_METRIC_VALUE_FORMATS,
+        allow_null=True,
+        help_text="How to format measured values, matching a report metric's `value_format`.",
+    )
+    unit = serializers.CharField(allow_null=True, help_text="Optional value suffix, such as `users`.")
+    comparison = serializers.SerializerMethodField(
+        help_text="What the measured value must satisfy over the reference period."
+    )
+    monitoring = serializers.SerializerMethodField(
+        help_text="The target's reference period and whether it scales with elapsed time."
+    )
+    baseline_value = serializers.FloatField(
+        allow_null=True,
+        help_text="The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.",
+    )
+    ends_at = serializers.DateTimeField(help_text="End of this check's observation window.")
+    next_measurement_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the next interim reading is scheduled, if one falls inside the window."
+    )
+    readings = MonitoringReadingSerializer(
+        many=True, help_text="Interim readings in this Monitoring period, oldest first."
+    )
+
+    @extend_schema_field(CheckComparison)  # type: ignore[arg-type]
+    def get_comparison(self, lead: MonitoringLeadCheck) -> dict[str, object]:
+        return lead.comparison.model_dump(mode="json")
+
+    @extend_schema_field(MonitoringMetricConfig)  # type: ignore[arg-type]
+    def get_monitoring(self, lead: MonitoringLeadCheck) -> dict[str, object]:
+        return lead.monitoring.model_dump(mode="json")
+
+
+class ReportMonitoringSummarySerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=MonitoringSummaryState.choices,
+        help_text=(
+            "Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. "
+            "`awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not "
+            "read the data of a metric check whose readings would decide the state. `on_track`: every metric "
+            "check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, "
+            "so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification "
+            "is due or running."
+        ),
+    )
+    started_at = serializers.DateTimeField(help_text="When this Monitoring period started.")
+    ends_at = serializers.DateTimeField(help_text="When the last open check's observation window ends.")
+    lead_check = MonitoringLeadCheckSerializer(
+        allow_null=True,
+        help_text=(
+            "The metric check that best stands for the report: the first one this viewer can see is off track, "
+            "otherwise the first metric check that takes interim readings. Null when none does."
+        ),
+    )
 
 
 class ReportSourceSuggestionSerializer(serializers.Serializer):
@@ -2284,6 +2451,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
+    implementation_in_flight = serializers.SerializerMethodField(
+        help_text=(
+            "Whether an implementation run for this report is still working. A new implementation run "
+            "cannot start until it settles."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -2369,6 +2542,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_issues",
             "work_state",
             "assignee",
+            "implementation_in_flight",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -2752,6 +2926,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_implementation_in_flight(self, obj: SignalReport) -> bool:
+        from products.signals.backend.task_run_artefacts import implementation_in_flight_report_ids
+
+        in_flight = self.context.get("implementation_in_flight_ids")
+        if in_flight is None:
+            in_flight = implementation_in_flight_report_ids(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return str(obj.id) in in_flight
+
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:
         assignment = self._get_assignment(obj)
@@ -2866,10 +3049,30 @@ class SignalReportListSerializer(SignalReportSerializer):
             "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
+    monitoring_summary = serializers.SerializerMethodField(
+        help_text=(
+            "Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring "
+            "with open follow-up checks."
+        ),
+    )
 
     class Meta(SignalReportSerializer.Meta):
-        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key", "personal_tier", "personal_reason"]
+        fields = [
+            *SignalReportSerializer.Meta.fields,
+            "inbox_merge_key",
+            "personal_tier",
+            "personal_reason",
+            "monitoring_summary",
+        ]
         read_only_fields = fields
+
+    @extend_schema_field(ReportMonitoringSummarySerializer(allow_null=True))
+    def get_monitoring_summary(self, obj: SignalReport) -> dict[str, object] | None:
+        summaries: dict[str, ReportMonitoringSummary] = self.context.get("monitoring_summaries_map", {})
+        summary = summaries.get(str(obj.id))
+        if summary is None or not self._monitoring_enabled(obj):
+            return None
+        return dict(ReportMonitoringSummarySerializer(summary).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         ranker = self.context.get("inbox_ranker")

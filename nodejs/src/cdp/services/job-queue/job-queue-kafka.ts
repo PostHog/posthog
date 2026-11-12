@@ -3,6 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
@@ -73,8 +74,9 @@ export class CyclotronJobQueueKafka implements JobQueue {
     }
 
     public async stopProducer() {
-        await this.kafkaProducer?.disconnect()
+        const producer = this.kafkaProducer
         this.kafkaProducer = undefined
+        await producer?.disconnect()
     }
 
     public isHealthy(): HealthCheckResult {
@@ -145,6 +147,17 @@ export class CyclotronJobQueueKafka implements JobQueue {
     // Kafka jobs don't need explicit dequeue — they're just dropped
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+
+    public async deferInvocations(
+        deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
+    ): Promise<void> {
+        await this.queueInvocations(
+            deferrals.map(({ invocation, scheduledAt }) => ({
+                ...invocation,
+                queueScheduledAt: DateTime.fromJSDate(scheduledAt),
+            }))
+        )
+    }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished

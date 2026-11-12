@@ -1881,6 +1881,18 @@ export const LogsAlertsCreateBody = () => zod.object({
         .describe(
             'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
         ),
+    labels: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.'
+        ),
+    annotations: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.'
+        ),
 })
 
 export const LogsAlertsRetrieveParams = () => zod.object({
@@ -3744,6 +3756,18 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
+    labels: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.'
+        ),
+    annotations: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.'
         ),
 })
 
@@ -6273,11 +6297,11 @@ export const LogsGroupByCreateBody = () => zod.object({
                     'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
-                .enum(['log', 'resource', 'column'])
-                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                .enum(['log', 'resource', 'column', 'body'])
+                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                 ),
             groupBys: zod
                 .array(
@@ -6285,14 +6309,16 @@ export const LogsGroupByCreateBody = () => zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\"); when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template); when source is \"body\", a dot-separated JSON path into the log body (e.g. \"fields.message\").'
                             ),
                         source: zod
-                            .enum(['log', 'resource', 'column'])
-                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .enum(['log', 'resource', 'column', 'body'])
+                            .describe(
+                                '\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
+                            )
                             .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
                             .describe(
-                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                             ),
                     })
                 )

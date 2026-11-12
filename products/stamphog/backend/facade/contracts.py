@@ -49,6 +49,7 @@ class RepoConfigDTO:
     trigger_label: str = ""
     routing_mode: str = ""
     routing_fork_labels: dict[str, str] = Field(default_factory=dict)
+    review_on_clean_external_review: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

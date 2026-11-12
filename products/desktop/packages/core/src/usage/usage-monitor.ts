@@ -52,9 +52,15 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     this.thresholdsSeen = { ...this.host.getThresholdsSeen() };
     // The snapshot is identity-scoped billing data: a signed-in account must
     // never be served the previous account's spend.
-    let orgId = authService.getState().currentOrgId;
+    let { currentOrgId: orgId, currentProjectId: projectId } =
+      authService.getState();
     authService.on(AuthServiceEvent.StateChanged, (state) => {
-      if (state.currentOrgId === orgId) return;
+      const projectChanged = state.currentProjectId !== projectId;
+      projectId = state.currentProjectId;
+      if (state.currentOrgId === orgId) {
+        if (projectChanged && projectId !== null) this.requestRefresh();
+        return;
+      }
       orgId = state.currentOrgId;
       this.latestUsage = null;
       // The snapshot was just dropped, so let the refetch through any open

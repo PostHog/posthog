@@ -1,11 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -40,13 +41,27 @@ describe('broadcastsLogic', () => {
     let schedules: Record<string, { status: string }[]>
     let sends: Record<string, Record<string, number>>
     // Each fault fails the next request to its endpoint, then clears, so a test can wait until it was served.
-    let failing: Set<'list' | 'runs' | 'schedules' | 'metrics'>
-    let held: { list?: Promise<void>; runs?: Promise<void> }
+    let failing: Set<'list' | 'runs' | 'schedules' | 'metrics' | 'write'>
+    let held: Partial<Record<'list' | 'runs' | 'metrics', Promise<void>>>
+
+    const holdNext = (endpoint: keyof typeof held): (() => void) => {
+        let release!: () => void
+        held[endpoint] = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        return release
+    }
+
+    const pass = async (endpoint: keyof typeof held): Promise<void> => {
+        const gate = held[endpoint]
+        delete held[endpoint]
+        await gate
+    }
 
     const listFlows = async ({ request }: { request: Request }): Promise<[number, any]> => {
         const query = Object.fromEntries(new URL(request.url).searchParams)
         listed.push(query)
-        await held.list
+        await pass('list')
         if (failing.delete('list')) {
             return [500, { detail: 'boom' }]
         }
@@ -64,6 +79,7 @@ describe('broadcastsLogic', () => {
 
     // Stands in for the app_metrics table: counts are filed per run, and only a filter on the run narrows them.
     const queryMetrics = async ({ request }: { request: Request }): Promise<[number, any]> => {
+        await pass('metrics')
         if (failing.delete('metrics')) {
             return [500, { detail: 'timeout' }]
         }
@@ -76,6 +92,8 @@ describe('broadcastsLogic', () => {
         }
         return [200, { results: Object.entries(totals).map(([metric, total]) => [total, metric]) }]
     }
+
+    const names = (): (string | null)[] => logic.values.broadcasts.results.map(({ name }) => name)
 
     const reload = async (): Promise<void> => {
         logic.actions.loadBroadcasts()
@@ -91,8 +109,12 @@ describe('broadcastsLogic', () => {
         await waitFor(() => expect(logic.values.rowDetailsById[LIVE.id]).toEqual(LIVE_DETAILS))
     }
 
-    const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+    const answerRequestsAheadOfANewOne = async (): Promise<void> => {
         await generatedApi.hogFlowsBatchJobsList(String(MOCK_TEAM_ID), LIVE.id)
+    }
+
+    const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+        await answerRequestsAheadOfANewOne()
         await new Promise((resolve) => setTimeout(resolve, 0))
     }
 
@@ -110,7 +132,7 @@ describe('broadcastsLogic', () => {
                 '/api/environments/:team_id/hog_flows/': listFlows,
                 '/api/projects/:team_id/hog_flows/': listFlows,
                 '/api/projects/:team_id/hog_flows/:id/batch_jobs/': async ({ params }) => {
-                    await held.runs
+                    await pass('runs')
                     return failing.delete('runs') ? [500, {}] : [200, runs[String(params.id)] ?? []]
                 },
                 '/api/projects/:team_id/hog_flows/:id/schedules/': ({ params }) =>
@@ -121,9 +143,21 @@ describe('broadcastsLogic', () => {
             },
             patch: {
                 '/api/projects/:team_id/hog_flows/:id/': async ({ request, params }) => {
+                    if (failing.delete('write')) {
+                        return [500, { detail: 'boom' }]
+                    }
                     const flow = flows.find(({ id }) => id === params.id)!
                     Object.assign(flow, await request.json())
                     return [200, flow]
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/hog_flows/:id/': ({ params }) => {
+                    if (failing.delete('write')) {
+                        return [500, { detail: 'boom' }]
+                    }
+                    flows = flows.filter(({ id }) => id !== params.id)
+                    return [204]
                 },
             },
         })
@@ -200,7 +234,6 @@ describe('broadcastsLogic', () => {
         flows = [...drafts(31, 'other'), { ...DRAFT, name: 'Welcome' }, { ...DRAFT, id: 'well', name: 'Well done' }]
         router.actions.push('/broadcasts?page=2')
         await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
-        const names = (): (string | null)[] => logic.values.broadcasts.results.map(({ name }) => name)
         const page2 = ['other 30', 'Welcome', 'Well done']
         expect(names()).toEqual(page2)
 
@@ -217,6 +250,41 @@ describe('broadcastsLogic', () => {
         await waitFor(() => expect(names()).toEqual(['Welcome']))
         expect(router.values.searchParams).toEqual({ search: 'Welcome' })
         expect(logic.values.filtersPending).toBe(false)
+    })
+
+    it.each([
+        {
+            lands: 'during the pause before the latest search loads',
+            afterLatest: false,
+            shown: ['Welcome', 'Well done'],
+        },
+        { lands: 'after the latest search started loading', afterLatest: true, shown: [] },
+    ])('a slow load for earlier search text that lands $lands never reads as the latest results', async (row) => {
+        flows = [
+            { ...DRAFT, name: 'Welcome' },
+            { ...DRAFT, id: 'well', name: 'Well done' },
+        ]
+        const shownNow = (): object => ({ names: names(), pending: logic.values.filtersPending })
+        const releaseEarlier = holdNext('list')
+        logic.actions.setFilters({ search: 'Wel' })
+        await waitFor(() => expect(held).not.toHaveProperty('list'))
+
+        jest.useFakeTimers()
+        logic.actions.setFilters({ search: 'Welcome' })
+        let releaseLatest = (): void => {}
+        if (row.afterLatest) {
+            releaseLatest = holdNext('list')
+            await jest.advanceTimersByTimeAsync(300)
+            await waitFor(() => expect(held).not.toHaveProperty('list'))
+        }
+        releaseEarlier()
+        // Fake timers would hold the settling tick, so only the requests are awaited.
+        await answerRequestsAheadOfANewOne()
+
+        expect(shownNow()).toEqual({ names: row.shown, pending: true })
+        await jest.advanceTimersByTimeAsync(300)
+        releaseLatest()
+        await waitFor(() => expect(shownNow()).toEqual({ names: ['Welcome'], pending: false }))
     })
 
     it('lands on the last real page when the requested one is past the end', async () => {
@@ -282,10 +350,7 @@ describe('broadcastsLogic', () => {
     })
 
     it('drops a live row’s lookup without an error when the list unmounts before its runs arrive', async () => {
-        let releaseRuns!: () => void
-        held.runs = new Promise<void>((resolve) => {
-            releaseRuns = resolve
-        })
+        const releaseRuns = holdNext('runs')
         runs[LIVE.id] = [RUN]
         const rejections: unknown[] = []
         const onRejection = (error: unknown): void => {
@@ -306,12 +371,32 @@ describe('broadcastsLogic', () => {
         expect(rejections).toEqual([])
     })
 
+    it.each([
+        { lands: 'its runs', holding: 'runs' as const, meanwhile: () => (runs[LIVE.id] = [OLDER_RUN]) },
+        { lands: 'a failed runs request', holding: 'runs' as const, meanwhile: () => failing.add('runs') },
+        {
+            lands: 'its counts',
+            holding: 'metrics' as const,
+            meanwhile: () => (sends = { [RUN.id]: { email_sent: 1 } }),
+        },
+    ])('a row lookup from an earlier load that lands with $lands leaves the newer row as it is', async (row) => {
+        flows = [LIVE]
+        runs[LIVE.id] = [RUN]
+        const releaseEarlier = holdNext(row.holding)
+        await reload()
+        await waitFor(() => expect(held).not.toHaveProperty(row.holding))
+        await loadLiveRow()
+
+        row.meanwhile()
+        releaseEarlier()
+        await settleRequestsAheadOfANewOne()
+
+        expect(logic.values.rowDetailsById[LIVE.id]).toEqual(LIVE_DETAILS)
+    })
+
     it('drops only the run statuses when the list reloads, keeping the tag and counts on screen', async () => {
         await loadLiveRow()
-        let releaseList!: () => void
-        held.list = new Promise<void>((resolve) => {
-            releaseList = resolve
-        })
+        const releaseList = holdNext('list')
 
         logic.actions.loadBroadcasts()
 
@@ -404,5 +489,95 @@ describe('broadcastsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadBroadcastsSuccess'])
 
         expect(logic.values.broadcasts.results).toMatchObject([{ id: 'archived-1', status: 'draft' }])
+    })
+
+    describe('archiving or deleting a row', () => {
+        const KEPT = { ...DRAFT, id: 'sale', name: 'Spring sale' }
+        const ARCHIVED = { ...KEPT, status: 'archived' }
+        const kept = [{ status: 'draft' }]
+        const archived = [{ status: 'archived' }]
+
+        it.each([
+            { act: 'archiveBroadcast', flow: KEPT, click: 'Archive', after: archived, toast: 'Archived "Spring sale"' },
+            { act: 'archiveBroadcast', flow: KEPT, click: 'Cancel', after: kept, toast: null },
+            {
+                act: 'archiveBroadcast',
+                flow: KEPT,
+                click: 'Archive',
+                fault: true,
+                after: kept,
+                toast: "Couldn't archive the broadcast: boom",
+            },
+            {
+                act: 'archiveBroadcast',
+                flow: KEPT,
+                click: 'Archive',
+                sending: true,
+                after: kept,
+                toast: 'This broadcast is sending. Wait for it to finish before archiving it.',
+            },
+            { act: 'deleteBroadcast', flow: ARCHIVED, click: 'Delete', after: [], toast: 'Deleted "Spring sale"' },
+            { act: 'deleteBroadcast', flow: ARCHIVED, click: 'Cancel', after: archived, toast: null },
+            {
+                act: 'deleteBroadcast',
+                flow: ARCHIVED,
+                click: 'Delete',
+                fault: true,
+                after: archived,
+                toast: "Couldn't delete the broadcast: boom",
+            },
+        ] as const)('$act, then $click, leaves the list and store at $after', async (row) => {
+            flows = [{ ...row.flow }]
+            await reload()
+            runs[row.flow.id] = 'sending' in row ? [{ ...RUN, status: 'active' }] : []
+            if ('fault' in row) {
+                failing.add('write')
+            }
+
+            logic.actions[row.act](row.flow)
+            fireEvent.click(await screen.findByText(row.click))
+            render(createElement(jest.requireActual('react-toastify').ToastContainer))
+
+            if (row.toast) {
+                await screen.findByText(row.toast)
+            }
+            await waitFor(() => expect(screen.queryByText(/broadcast\?$/)).toBeNull())
+            await waitFor(() => expect(logic.values.broadcasts.results).toMatchObject(row.after))
+            await settleRequestsAheadOfANewOne()
+            expect({ shown: logic.values.broadcasts.results, stored: flows }).toMatchObject({
+                shown: row.after,
+                stored: row.after,
+            })
+        })
+    })
+
+    it('neither loads nor changes a row while no project is selected', async () => {
+        await loadLiveRow()
+        flows = [{ ...LIVE }, DRAFT]
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+
+        logic.actions.saveBroadcastTags(LIVE.id, ['changed'])
+        logic.actions.loadBroadcasts()
+        logic.actions.archiveBroadcast(LIVE)
+        logic.actions.deleteBroadcast(LIVE)
+        logic.actions.restoreBroadcast(LIVE)
+        await expectLogic(logic).toFinishAllListeners()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        await settleRequestsAheadOfANewOne()
+
+        const { batchJobStatuses: _, ...shownWithoutRuns } = LIVE_DETAILS
+        expect({
+            shown: logic.values.broadcasts.results,
+            row: logic.values.rowDetailsById[LIVE.id],
+            loadFailed: logic.values.loadFailed,
+            stored: flows,
+            dialogOrToast: screen.queryByText(/broadcast\?$|^Couldn't restore/),
+        }).toEqual({
+            shown: [LIVE],
+            row: shownWithoutRuns,
+            loadFailed: false,
+            stored: [LIVE, DRAFT],
+            dialogOrToast: null,
+        })
     })
 })

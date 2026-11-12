@@ -250,13 +250,15 @@ export function ReportVerdictBanner({
     [queryClient, rememberStartedTask, report],
   );
 
-  const { createPrReport, isCreatingPr } = useCreatePrReport({
+  const { createPrReport, isCreatingPr, claimDialog } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
+    claim: report,
     surface,
     triageId,
     onTaskCreated: handleImplementationStarted,
+    trackAction: fireAction,
   });
   const { discussReport, isDiscussing } = useDiscussReport({
     report,
@@ -286,13 +288,10 @@ export function ReportVerdictBanner({
 
   const handleCreatePr = useCallback(() => {
     const trimmed = prFeedback.trim();
-    fireAction("create_pr", {
-      has_feedback: trimmed.length > 0,
-    });
     setPrFeedback("");
     setPrOpen(false);
     void createPrReport(trimmed || undefined);
-  }, [createPrReport, fireAction, prFeedback]);
+  }, [createPrReport, prFeedback]);
 
   const handleComposeImplementation = useCallback(() => {
     if (artefactsLoading || awaitingChannel) return;
@@ -655,6 +654,7 @@ export function ReportVerdictBanner({
         {actionsRow}
         {resolveDialog}
         {dismissDialog}
+        {claimDialog}
       </>
     );
   }
@@ -680,6 +680,7 @@ export function ReportVerdictBanner({
     >
       {actionsRow}
       {dismissDialog}
+      {claimDialog}
     </ReportVerdictCallout>
   );
 }

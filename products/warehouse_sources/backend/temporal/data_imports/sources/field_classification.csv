@@ -157,7 +157,7 @@ Beamer,api_key,,,,,beamer
 Beehiiv,api_key publication_id,,,,,beehiiv
 BetterStack,api_token,,,,,better-stack
 Bettermode,region client_id client_secret network_id,,,,,bettermode
-Bexio,,,,,,bexio
+Bexio,api_token,,,,,bexio
 BigCommerce,store_hash access_token,,,,,big-commerce
 BigMailer,api_key,,,,,big-mailer
 BigQuery,auth_type use_custom_region dataset_project,auth_type=service_account,,dataset_id temporary-dataset,,google-cloud-service-account
@@ -247,7 +247,7 @@ Chift,,,,,,chift
 Chorus,,,,,,chorus
 Churnkey,api_key app_id,,,,,churnkey
 Cimis,app_key,,,targets unit_of_measure,,cimis
-Cin7,,,,,,cin7
+Cin7,account_id application_key,,,,,cin7
 CircleCI,api_token org_slug,,,,,circle-ci
 CircleSo,,,,,,circle-so
 Circleback,api_key,,,,,circleback
@@ -358,11 +358,11 @@ Deepsource,api_token account_login vcs_provider,,,,,deepsource
 Demodesk,api_key,,,,,demodesk
 DenoDeploy,access_token,,,,,deno-deploy
 Depot,api_token,,,repository,,depot
-Deputy,,,,,,deputy
+Deputy,install_url access_token,,,,,deputy
 Descope,project_id management_key,,,,,descope
 Develocity,instance_url access_key,,,,,develocity
 DevinAI,api_key org_id,,,,,devin-ai
-Dialpad,,,,,,dialpad
+Dialpad,api_key,,,,,dialpad
 Didit,,,,,,didit
 DigitalOcean,api_key,,,,,digital-ocean
 DingConnect,api_key,,,,,ding-connect
@@ -415,6 +415,7 @@ Eloqua,,,,,,eloqua
 EmailOctopus,api_key,,,,,email-octopus
 Emarsys,,,,,,emarsys
 Embrace,api_token app_id region,,,,,embrace
+Emplifi,,,,,,emplifi
 EmploymentHero,,,,,,employment-hero
 Encharge,,,,,,encharge
 Entsoe,,,,,,entsoe
@@ -437,7 +438,7 @@ Faire,api_key,,,,,faire
 FarosAi,,,,,,faros-ai
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
-Fathom,,,,,,fathom
+Fathom,api_key,,,,,fathom
 Fauna,,,,,,fauna
 Featurebase,api_key,,,,,featurebase
 Feishu,,,,,,feishu
@@ -602,11 +603,11 @@ Hex,api_key workspace_url,,,,,hex
 HeyGen,api_key,,,,,hey-gen
 HeyReach,api_key,,,,,hey-reach
 HiBob,service_user_id service_user_token,,,,,hi-bob
-HighLevel,,,,,,high-level
+HighLevel,private_integration_token location_id,,,,,high-level
 Hightouch,api_key,,,,,hightouch
 Hitpay,api_key platform_api_key environment,,,,,hitpay
 Hivebrite,,,,,,hivebrite
-Holded,,,,,,holded
+Holded,api_key,,,,,holded
 Honeybadger,api_key,,,,,honeybadger
 Honeycomb,api_key region,,,,,honeycomb
 Hookdeck,api_key,,,,,hookdeck
@@ -822,7 +823,7 @@ Moesif,,,,,,moesif
 Mollie,api_key,,,,,mollie
 Monaco,,,,,,monaco
 Monday,api_token,,,,,monday
-Moneybird,,,,,,moneybird
+Moneybird,api_token administration_id,,,,,moneybird
 MongoDB,connection_string database_name,,,,,mongodb
 Mono,api_key,,,start_date,,mono
 MonteCarlo,api_key_id api_key_secret,,,,,monte-carlo
@@ -942,7 +943,7 @@ Paymongo,api_key,,,,,paymongo
 Paystack,secret_api_key,,,,,paystack
 PeecAI,api_key project_id,,,start_date,,peec-ai
 Pendo,integration_key region,,,,,pendo
-Pennylane,,,,,,pennylane
+Pennylane,api_key,,,,,pennylane
 Perigon,api_key,,,,,perigon
 Perk,,,,,,perk
 PersistIq,api_key,,,,,persist-iq
@@ -1082,7 +1083,7 @@ Salesflare,api_key,,,,,salesflare
 Salesforce,,salesforce_integration_id,,,,salesforce
 SalesforceMarketingCloud,,,,,,salesforce-marketing-cloud
 Salestrics,,,,,,salestrics
-SamCart,,,,,,sam-cart
+SamCart,api_key,,,,,sam-cart
 Sanity,project_id dataset api_token,,,,,sanity
 SapConcur,,,,,,sap-concur
 SapErp,,,,,,sap-erp
@@ -1142,7 +1143,7 @@ Similarweb,api_key,,,domains country granularity start_date,,similarweb
 SimonData,,,,,,simon-data
 SimpleCast,api_key,,,,,simple-cast
 Simplesat,api_key,,,,,simplesat
-Simpro,,,,,,simpro
+Simpro,build api_key company_id,,,,,simpro
 Sinch,,,,,,sinch
 Singlestore,api_key,,,,,singlestore
 Singular,api_key,,,dimensions metrics cohort_metrics cohort_periods,,singular
@@ -1158,7 +1159,7 @@ SmartEngage,api_key,,,,,smart-engage
 Smartlead,api_key,,,,,smartlead
 Smartlook,api_token region,,,,,smartlook
 Smartreach,api_key team_id,,,,,smartreach
-Smartrecruiters,,,,,,smartrecruiters
+Smartrecruiters,api_key,,,,,smartrecruiters
 Smartsheet,access_token,,,,,smartsheet
 Smartwaiver,api_key,,,,,smartwaiver
 Smokeball,,,,,,smokeball
@@ -1320,7 +1321,7 @@ UsBls,,,,,,us-bls
 UsEia,api_key,,,,,us-eia
 UsTreasuryFiscalData,,,,,,us-treasury-fiscal-data
 UserCom,,,,,,user-com
-Userback,,,,,,userback
+Userback,api_token,,,,,userback
 Usersnap,jwt_secret jwt_id,,,,,usersnap
 Uservoice,subdomain api_key,,,,,uservoice
 VWO,api_token account_id,,,,,vwo
@@ -1334,7 +1335,7 @@ Veracode,api_id api_secret region,,,,,veracode
 Vercel,access_token team_id,,,,,vercel
 Vespa,,,,,,vespa
 Vimeo,access_token,,,,,vimeo
-Virtuous,,,,,,virtuous
+Virtuous,api_key,,,,,virtuous
 VismaEconomic,,,,,,visma-economic
 Vitally,secret_token region,,,,,vitally
 Vonage,,,,,,vonage
@@ -1358,9 +1359,9 @@ Whop,api_key company_id,,,,,whop
 WikipediaPageviews,,,,project access agent article_names countries start_date,,wikipedia-pageviews
 Windmill,host workspace api_token,,,,,windmill
 WindsorAi,,,,,,windsor-ai
-Wise,,,,,,wise
+Wise,api_token,,,,,wise
 WisprFlow,,,,,,wispr-flow
-Wistia,,,,,,wistia
+Wistia,api_token,,,,,wistia
 Wix,api_key site_id,,,,,wix
 Wiz,,,,,,wiz
 Wompi,,,,,,wompi

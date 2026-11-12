@@ -209,6 +209,7 @@
   list([
     'description',
     'documentation_url',
+    'image_url',
     'name',
     'payload',
     'stage',
@@ -709,6 +710,7 @@
     '__module__',
     '__static_attributes__',
     '__str__',
+    '_assert_rule_snapshot_before_start',
     '_meta',
     'archived',
     'can_freeze_exposure',
@@ -748,6 +750,7 @@
     'is_exposure_frozen',
     'is_launched',
     'is_paused',
+    'is_rule_linked',
     'is_running',
     'is_stopped',
     'launched_at',

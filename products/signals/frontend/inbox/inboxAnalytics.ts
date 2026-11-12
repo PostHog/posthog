@@ -182,6 +182,10 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'implementation_button_clicked'
+    | 'monitor'
+    | 'reopen'
+    | 'change_priority'
     | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
@@ -194,6 +198,7 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
 
