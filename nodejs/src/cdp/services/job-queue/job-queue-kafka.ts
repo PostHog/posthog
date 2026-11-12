@@ -16,7 +16,7 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { JobQueue } from './job-queue.interface'
+import { ConsumerOptions, JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
@@ -50,7 +50,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options: ConsumerOptions = {}
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
@@ -61,9 +62,13 @@ export class CyclotronJobQueueKafka implements JobQueue {
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
-        logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
+        const crashGuard = options.crashGuard?.({ groupId })
+
+        logger.info('🔄', 'Connecting kafka consumer', { groupId, topic, quarantineMode: crashGuard?.mode ?? 'off' })
         await this.kafkaConsumer.connect(async (messages) => {
-            const { backgroundTask } = await this.consumeKafkaBatch(messages)
+            const { backgroundTask } = crashGuard
+                ? await crashGuard.run(messages, (kept) => this.consumeKafkaBatch(kept))
+                : await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
     }

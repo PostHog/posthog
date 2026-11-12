@@ -5,7 +5,8 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
+import { CrashGuard, CrashGuardSettings } from '../services/poison-batch/crash-guard'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -25,6 +26,11 @@ const cyclotronWorkerPhaseDuration = new Histogram({
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
+export type CdpCyclotronWorkerDeps = CdpConsumerBaseDeps & {
+    // Null when CDP_BATCH_QUARANTINE_MODE is off.
+    crashGuardSettings?: CrashGuardSettings | null
+}
+
 /**
  * CDP worker that consumes and processes hog function / hogflow jobs.
  * Receives its job queue backend via constructor injection.
@@ -35,8 +41,9 @@ export class CdpCyclotronWorker<
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: JobQueue
     protected queue: CyclotronJobQueueKind
+    protected crashGuardSettings: CrashGuardSettings | null
 
-    constructor(config: TConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
+    constructor(config: TConfig, deps: CdpCyclotronWorkerDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
         super(config, deps)
         this.queue = queue ?? config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
@@ -45,6 +52,7 @@ export class CdpCyclotronWorker<
         }
 
         this.cyclotronJobQueue = jobQueue
+        this.crashGuardSettings = deps.crashGuardSettings ?? null
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
@@ -283,7 +291,16 @@ export class CdpCyclotronWorker<
     public override async start() {
         await super.start()
         await this.cyclotronJobQueue.startAsProducer()
-        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
+        await this.cyclotronJobQueue.startAsConsumer(
+            this.queue,
+            (batch) => this.processBatch(batch),
+            this.consumerOptions()
+        )
+    }
+
+    protected consumerOptions(): ConsumerOptions {
+        const settings = this.crashGuardSettings
+        return settings ? { crashGuard: ({ groupId }) => new CrashGuard(settings, groupId) } : {}
     }
 
     public override async stop() {
