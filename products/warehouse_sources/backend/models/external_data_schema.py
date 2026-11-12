@@ -1540,6 +1540,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 self.table.soft_delete()
 
             self.table_id = None
+            # The table's access rules go with it, so its source's rules must not take over for a live query.
+            self.live_query_enabled = False
             self.last_synced_at = None
             self.status = None
             self.save()
@@ -2671,12 +2673,14 @@ def sync_old_schemas_with_new_schemas(
         for s in schemas_to_check:
             if is_pinned_schema(s):
                 continue
+            if s.live_query_enabled:
+                # A table recreated upstream under the same name must not become queryable live without a new choice.
+                s.live_query_enabled = False
+                s.save(update_fields=["live_query_enabled", "updated_at"])
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).
             if s.table_id is None and not s.should_sync:
-                # A table recreated upstream under the same name revives this row, so it must not come back live.
-                s.live_query_enabled = False
                 s.soft_delete()
                 deleted_schemas.append(schema)
             elif s.should_sync:

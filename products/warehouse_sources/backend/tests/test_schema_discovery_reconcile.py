@@ -294,11 +294,18 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert revived.pk != tombstone.pk
         assert SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in (revived.sync_type_config or {}).get("schema_metadata", {})
 
-    def test_live_only_table_dropped_upstream_comes_back_not_live(self) -> None:
+    @parameterized.expand([("never_synced", False), ("retains_synced_table", True)])
+    def test_live_only_table_dropped_upstream_comes_back_not_live(self, _name: str, retains_table: bool) -> None:
         source = self._make_source()
-        live_only = ExternalDataSchema.objects.create(
-            team_id=self.team.pk, source_id=source.pk, name="invoices", should_sync=False, live_query_enabled=True
-        )
+        if retains_table:
+            live_only = self._make_synced_schema(source, "invoices")
+            live_only.should_sync = False
+            live_only.live_query_enabled = True
+            live_only.save()
+        else:
+            live_only = ExternalDataSchema.objects.create(
+                team_id=self.team.pk, source_id=source.pk, name="invoices", should_sync=False, live_query_enabled=True
+            )
 
         sync_old_schemas_with_new_schemas({"contacts": None}, source_id=str(source.pk), team_id=self.team.pk)
         sync_old_schemas_with_new_schemas(

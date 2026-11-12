@@ -307,9 +307,10 @@ class TestDropHistoryTable(BaseTest):
 
     @parameterized.expand([("consolidated_kept_it", False), ("cdc_only_linked_it", True)])
     def test_drop_deletes_the_files_and_the_record_and_forgets_the_naming(self, _name: str, linked: bool) -> None:
+        self.schema.live_query_enabled = True
         if linked:
             self.schema.table = self.history
-            self.schema.save()
+        self.schema.save()
 
         assert self._drop() == self.history
 
@@ -324,6 +325,7 @@ class TestDropHistoryTable(BaseTest):
         self.schema.refresh_from_db()
         assert self.history.deleted
         assert self.schema.table_id is None
+        assert self.schema.live_query_enabled is not linked
         assert "history_naming" not in self.schema.sync_type_config
         assert self.schema.sync_type_config["query_folder_state"] == {"orders__query": {"active": "orders__query_a"}}
 

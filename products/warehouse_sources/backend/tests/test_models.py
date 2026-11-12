@@ -2053,6 +2053,8 @@ class TestDeleteTable(BaseTest):
         self, _name: str, error: Exception, expected_reported: bool
     ) -> None:
         schema = self._schema()
+        schema.live_query_enabled = True
+        schema.save(update_fields=["live_query_enabled"])
         table_id = schema.table_id
         assert table_id is not None
         client = MagicMock()
@@ -2067,6 +2069,7 @@ class TestDeleteTable(BaseTest):
         assert capture.called is expected_reported
         schema.refresh_from_db()
         assert schema.table_id is None
+        assert schema.live_query_enabled is False
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True
