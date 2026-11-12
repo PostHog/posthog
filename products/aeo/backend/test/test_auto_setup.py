@@ -15,6 +15,7 @@ from products.aeo.backend import auto_setup
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
 from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
+from products.aeo.backend.seeding import prompt_hash
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
@@ -146,6 +147,11 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         prompts_added = expected_steps[1][2]
         assert AEOPrompt.objects.for_team(self.team.id).count() == prompts_added
+        # Without a first run the new prompts are saved paused, so nothing is checked until someone turns them on.
+        assert AEOPrompt.objects.for_team(self.team.id).filter(active=True).count() == (
+            prompts_added if run_first_check else 0
+        )
+        assert job["steps"][1]["detail"] == ("" if run_first_check or prompts_added == 0 else "paused")
         assert AEOKeyword.objects.for_team(self.team.id).count() == expected_steps[2][2]
         assert first_run.call_count == (1 if expected_steps[3][1] == "done" else 0)
         if expected_steps[3][1] == "skipped":
@@ -198,6 +204,32 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             ("example.com", BrandKind.OWN, BrandStatus.CONFIRMED)
         ]
         assert first_run.call_count == 1
+
+    def test_configure_only_keeps_existing_prompts_and_run_once_turns_the_paused_ones_on(self) -> None:
+        AEOPrompt.objects.for_team(self.team.id).create(
+            team=self.team,
+            prompt=PROMPTS_ANSWER[0]["prompt"],
+            prompt_hash=prompt_hash(PROMPTS_ANSWER[0]["prompt"]),
+            prompt_source=AEOPrompt.Source.MANUAL,
+        )
+
+        self._run([_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)], run_first_check=False)
+
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        assert sorted(prompts.values_list("prompt", "active")) == [
+            (PROMPTS_ANSWER[0]["prompt"], True),
+            (PROMPTS_ANSWER[1]["prompt"], False),
+            (PROMPTS_ANSWER[2]["prompt"], False),
+        ]
+        context = self.client.get(f"{self.url}context/").json()
+        assert (context["active_prompts"], context["paused_prompts"]) == (1, 2)
+
+        job, post, first_run = self._run([], body={"only_first_run": True, "activate_paused_prompts": True})
+
+        assert self._steps(job)[3] == ("first_run", "done", 0)
+        assert post.call_count == 0
+        assert first_run.call_count == 1
+        assert prompts.filter(active=False).count() == 0
 
     def test_run_only_queues_checks_without_consent_or_model_calls(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -272,16 +304,22 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_ai_consent", False, "example.com", status.HTTP_403_FORBIDDEN),
-            ("not_a_domain", True, "localhost", status.HTTP_400_BAD_REQUEST),
+            ("no_ai_consent", False, {"domain": "example.com"}, status.HTTP_403_FORBIDDEN),
+            ("not_a_domain", True, {"domain": "localhost"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "activation_outside_a_run",
+                True,
+                {"domain": "example.com", "activate_paused_prompts": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
-    def test_setup_refuses_to_start(self, _name: str, ai_approved: bool, domain: str, expected: int) -> None:
+    def test_setup_refuses_to_start(self, _name: str, ai_approved: bool, body: dict, expected: int) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
         with patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued:
-            response = self.client.post(self.url, {"domain": domain}, format="json")
+            response = self.client.post(self.url, body, format="json")
 
         assert response.status_code == expected
         assert queued.call_count == 0

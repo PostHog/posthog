@@ -33,13 +33,15 @@ from products.aeo.backend.presentation.views import AEOEngineSettingSerializer, 
 SETUP_DESCRIPTION = (
     "Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the "
     "organization. In order, it adds the site as the project's own brand, has PostHog suggest "
-    f"{SETUP_PROMPT_COUNT} prompts and saves them, has PostHog suggest {SETUP_KEYWORD_COUNT} keywords and saves "
-    "them, and with run_first_check queues a first citation check run with the enabled engines. Each check is a "
-    "paid call to every enabled engine, and the daily schedule keeps running them. A step the project already covers is "
-    f"skipped: an own brand exists, {SETUP_ENOUGH_PROMPTS} or more active prompts, {SETUP_ENOUGH_KEYWORDS} or more "
-    "keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off "
-    "before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it "
-    "completes, which takes a few minutes. Running it again only fills the gaps."
+    f"{SETUP_PROMPT_COUNT} prompts and saves them, and has PostHog suggest {SETUP_KEYWORD_COUNT} keywords and saves "
+    "them. With run_first_check the prompts are saved active and a first citation check run is queued with the "
+    "enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active "
+    "prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they "
+    "are turned on. A step the project already covers is skipped: an own brand exists, "
+    f"{SETUP_ENOUGH_PROMPTS} or more unarchived prompts, {SETUP_ENOUGH_KEYWORDS} or more keywords, or any check "
+    "already recorded. With engines, the chosen engines are turned on and the other available ones off before the "
+    "job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few "
+    "minutes. Running it again only fills the gaps."
 )
 
 
@@ -77,6 +79,7 @@ class AEOSetupContextSerializer(DataclassSerializer):
         extra_kwargs = {
             "own_domains": {"help_text": "Domains already set as the project's own brands."},
             "active_prompts": {"help_text": "Active, unarchived prompts the project tracks."},
+            "paused_prompts": {"help_text": "Unarchived prompts that are turned off. No run checks them."},
             "keywords": {"help_text": "Keywords in the project's keyword list."},
             "has_checks": {"help_text": "Whether any citation check has been recorded for the project."},
             "ai_data_processing_approved": {
@@ -125,7 +128,8 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Queue a first citation check run after setup. Each check is a paid call to every enabled engine. "
-        "When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks.",
+        "When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned "
+        "on, for example with only_first_run and activate_paused_prompts.",
     )
     only_first_run = serializers.BooleanField(
         required=False,
@@ -135,7 +139,16 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         "check is a paid call to every enabled engine.",
     )
 
+    activate_paused_prompts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="With only_first_run, turn on every paused prompt before the run, such as the ones a setup without "
+        "run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on.",
+    )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("activate_paused_prompts") and not attrs.get("only_first_run"):
+            raise serializers.ValidationError({"activate_paused_prompts": "Only valid together with only_first_run."})
         if attrs.get("only_first_run"):
             if "engines" in attrs:
                 raise serializers.ValidationError({"engines": "Leave engines out when only_first_run is true."})
@@ -162,7 +175,7 @@ class AEOSetupStepSerializer(DataclassSerializer):
             },
             "added": {"help_text": "How many brands, prompts or keywords the step added."},
             "detail": {
-                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), or why the keywords or first_run step failed."
+                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off."
             },
         }
 
@@ -237,6 +250,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                     run_first_check=data["run_first_check"],
                     engines=tuple(data["engines"]) if "engines" in data else None,
                     only_first_run=data["only_first_run"],
+                    activate_paused_prompts=data["activate_paused_prompts"],
                 ),
             )
         except SetupRequestError as error:
