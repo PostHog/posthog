@@ -61205,6 +61205,8 @@ export namespace Schemas {
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
      * * `cursor` - Cursor
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -61323,6 +61325,8 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**
@@ -61490,7 +61494,9 @@ export namespace Schemas {
        * * `google_play_console` - Google Play Console
        * * `azure_application_insights` - Azure Application Insights
        * * `appsignal` - AppSignal
-       * * `cursor` - Cursor */
+       * * `cursor` - Cursor
+       * * `app_store_connect` - App Store Connect
+       * * `sentry_feedback` - Sentry user feedback */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -104518,6 +104524,8 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**

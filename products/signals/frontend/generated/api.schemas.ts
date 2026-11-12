@@ -1134,6 +1134,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `azure_application_insights` - Azure Application Insights
  * * `appsignal` - AppSignal
  * * `cursor` - Cursor
+ * * `app_store_connect` - App Store Connect
+ * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1251,6 +1253,8 @@ export const SignalSourceProductEnumApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1418,7 +1422,9 @@ export interface InboxOnboardingSourceApi {
      * * `google_play_console` - Google Play Console
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
-     * * `cursor` - Cursor */
+     * * `cursor` - Cursor
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4403,6 +4409,8 @@ export const SignalSourceProductApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**

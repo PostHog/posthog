@@ -632,6 +632,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'feedback',
     },
     {
+        source: 'sentry_feedback',
+        label: 'Sentry user feedback',
+        category: 'Product feedback',
+        watches: 'Surface what users report when they hit an error',
+        dwSourceType: 'Sentry',
+        requiredTables: ['project_user_feedback'],
+        sourceType: 'feedback',
+    },
+    {
         source: 'typeform',
         label: 'Typeform',
         category: 'Product feedback',
@@ -711,6 +720,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor new app and product reviews',
         dwSourceType: 'Appfollow',
         requiredTables: ['reviews'],
+        sourceType: 'review',
+    },
+    {
+        source: 'app_store_connect',
+        label: 'App Store Connect',
+        category: 'Reviews',
+        watches: 'Monitor new App Store reviews',
+        dwSourceType: 'AppStoreConnect',
+        requiredTables: ['customer_reviews'],
         sourceType: 'review',
     },
     {

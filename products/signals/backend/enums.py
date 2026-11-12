@@ -224,6 +224,10 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
+    # App reviews and error-report feedback
+    APP_STORE_CONNECT = "app_store_connect"
+    # Sentry user feedback has its own product so it can be toggled apart from Sentry issues.
+    SENTRY_FEEDBACK = "sentry_feedback"
 
 
 class SignalSourceType(StrEnum):
@@ -378,6 +382,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
+    SignalSourceProduct.APP_STORE_CONNECT: "App Store Connect",
+    SignalSourceProduct.SENTRY_FEEDBACK: "Sentry user feedback",
 }
 
 
