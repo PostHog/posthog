@@ -42,7 +42,8 @@ const columns: ColumnDef<Person>[] = [
 
 Rules:
 
-- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
+- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells), `expand: true` (absorb leftover width) and `sticky: 'left' | 'right'` (freeze the column while the table scrolls sideways, such as a name column beside a wide timeline).
+- A row can grow to show more without an expansion API: render the extra content inside its cells from your own expanded state, toggled by `onRowClick`. Every cell in the row grows together, so a sticky label column stays aligned with the content beside it.
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`. A column needs an `accessorKey` or `accessorFn` to sort.
 - A list sorted on the server passes `sorting` and `onSortingChange`. The table then keeps the rows in the order of `data`, only reports the clicks, and has no "off" state. Use `sortDescFirst` on a column to start at desc. `meta: { sortDataAttr }` sets the `data-attr` of the column's sort button.
