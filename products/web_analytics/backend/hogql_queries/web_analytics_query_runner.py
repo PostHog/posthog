@@ -37,7 +37,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    apply_path_cleaning,
+    get_property_key,
+    get_property_type,
+    property_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -774,9 +780,13 @@ WHERE and(
         if getattr(self.query, "conversionGoal", None) is not None or getattr(self.query, "includeRevenue", False):
             return False
         filters = [*(getattr(self.query, "properties", None) or []), *self._test_account_filters]
+        session_fields = self._posthog_tables_database.get_table("sessions").fields
         for prop in filters:
-            prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+            prop_type = get_property_type(prop)
             if prop_type not in ("event", "session"):
+                return False
+            # A saved expression can add a custom field to sessions, and only the full database loads it.
+            if prop_type == "session" and get_property_key(prop) not in session_fields:
                 return False
         # The built-in-only database carries no per-user access control.
         return not team_has_property_access_rules(team_id=self.team.pk)
