@@ -4,6 +4,7 @@ import { redactCredentials, redactCredentialsInText } from '@/lib/credential-red
 import redactFailureLogsHooks from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
+import groupByRedactionHooks from '@/tools/logs/groupByRedactionHooks'
 import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
 import type { Context } from '@/tools/types'
 
@@ -345,6 +346,29 @@ describe('credential redaction', () => {
         } as unknown as Context
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
+    })
+
+    it.each([
+        {
+            name: 'returns raw text to a key that names logs_unredacted:read',
+            scopes: ['logs:read', 'logs_unredacted:read'],
+            raw: true,
+        },
+        { name: 'keeps redaction for a full-access key', scopes: ['*'], raw: false },
+        { name: 'keeps redaction when the key lookup fails', scopes: null, raw: false },
+    ])('$name', async ({ scopes, raw }) => {
+        const getApiKey = scopes ? vi.fn().mockResolvedValue({ scopes }) : vi.fn().mockRejectedValue(new Error('down'))
+        const context = { stateManager: { getApiKey } } as unknown as Context
+        const logs = { results: [{ body: `password=${OTHER_SECRET}` }] }
+        const groups = { groups: [{ values: [OTHER_SECRET], log_count: 1 }] }
+        const params = { query: { groupBy: 'api_key' } }
+
+        expect(await redactCredentialsHooks.afterResponse(context, {}, logs)).toEqual(
+            raw ? logs : { results: [{ body: 'password=[REDACTED]' }] }
+        )
+        expect(await groupByRedactionHooks.afterResponse(context, params, groups)).toEqual(
+            raw ? groups : { groups: [{ values: ['[REDACTED]'], log_count: 1 }] }
+        )
     })
 
     it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {
