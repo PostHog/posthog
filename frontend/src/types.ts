@@ -6614,7 +6614,8 @@ export type SchemaIncrementalFieldsResponse = {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     primary_key_detection_supported?: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
     /** Whether the organization can keep a history table for an incremental table. */
     incremental_history_available?: boolean
@@ -6647,7 +6648,8 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
-    cdc_available?: boolean
+    /** `null` when CDC is off for the source, `false` when this table has no primary key for CDC. */
+    cdc_available?: boolean | null
     xmin_available?: boolean
     incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'

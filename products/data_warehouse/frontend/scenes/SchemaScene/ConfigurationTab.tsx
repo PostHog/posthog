@@ -64,6 +64,7 @@ import type {
     IncrementalFieldTypeEnumApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '../SourceScene/tabs/replaceFileLogic'
@@ -150,7 +151,7 @@ export function ConfigurationTab({
         case 'sync-method':
             return (
                 <div className="flex flex-col gap-6">
-                    <SyncMethodSection sourceId={sourceId} schema={schema} />
+                    <SyncMethodSection sourceId={sourceId} schema={schema} source={source} />
                     <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
                 </div>
             )
@@ -432,12 +433,22 @@ function DetailsSection({
     )
 }
 
-function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: ExternalDataSourceSchema }): JSX.Element {
+function SyncMethodSection({
+    sourceId,
+    schema,
+    source,
+}: {
+    sourceId: string
+    schema: ExternalDataSourceSchema
+    source: SchemaSceneSource | null
+}): JSX.Element {
     // Incremental fields + saving both go through schemaSceneLogic — deliberately NOT
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
+    const { availableSources } = useValues(availableSourcesLogic)
+    const sourceSupportsCdc = !!source && !!availableSources?.[source.source_type]?.cdcEngine
     const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
@@ -659,6 +670,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 schemaIncrementalFields.primary_key_detection_supported ?? false
                             }
                             primaryKeyLocked={!!schema.table && !!schema.primary_key_columns?.length}
+                            sourceSupportsCdc={sourceSupportsCdc}
+                            sourceConfigurationUrl={urls.dataWarehouseSource(`managed-${sourceId}`, 'configuration')}
                             onClose={() => {}}
                             onSave={persistSyncMethod}
                         />
