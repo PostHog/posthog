@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.error_tracking.backend.logic.rules import get_client_safe_suppression_rules
@@ -471,3 +472,9 @@ class TestSuppressionRuleAPI(APIBaseTest):
         assert rule.order_key == 0
         assert rule.disabled_data is None
         assert rule.filters == VALID_FILTERS
+
+    @parameterized.expand([("get",), ("patch",), ("delete",)])
+    def test_non_uuid_rule_id_returns_404(self, method: str) -> None:
+        response = getattr(self.client, method)(self._url("0"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

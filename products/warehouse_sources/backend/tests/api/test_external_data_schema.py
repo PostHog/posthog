@@ -1964,6 +1964,47 @@ class TestExternalDataSchema(APIBaseTest):
         # ...but no schedule create/update is attempted, because the schema has no schedule to touch.
         mock_sync_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("canonical", "24hour", 200, timedelta(hours=24)),
+            ("daily", "daily", 200, timedelta(hours=24)),
+            ("hourly", "hourly", 200, timedelta(hours=1)),
+            ("weekly", "weekly", 200, timedelta(days=7)),
+            ("sixty_minutes", "60min", 200, timedelta(hours=1)),
+            ("one_h", "1h", 200, timedelta(hours=1)),
+            ("never", "never", 400, timedelta(hours=6)),
+            ("unknown", "fortnightly", 400, timedelta(hours=6)),
+        ]
+    )
+    def test_update_schema_sync_frequency_synonyms(self, _name, sync_frequency, expected_status, expected_interval):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": sync_frequency},
+        )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == expected_interval
+        if sync_frequency == "never":
+            assert "should_sync" in response.json()["detail"]
+        elif expected_status == 400:
+            assert "5min" in response.json()["detail"]
+            assert "30day" in response.json()["detail"]
+
     def test_update_schema_frequency_on_enabled_schema_without_schedule_creates_it(self):
         # An enabled schema whose Temporal schedule is missing should have it created when the
         # cadence is edited (even when should_sync isn't re-sent), not left silently unscheduled.

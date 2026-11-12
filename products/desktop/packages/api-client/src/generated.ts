@@ -5978,8 +5978,11 @@ export namespace Schemas {
     };
     /**
      * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build
      */
-    export type CohortRealtimeUnavailableReasonEnum = "history_over_limit";
+    export type CohortRealtimeUnavailableReasonEnum =
+        | "history_over_limit"
+        | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -6002,9 +6005,10 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
+         * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
@@ -7473,6 +7477,7 @@ export namespace Schemas {
         | "stripe"
         | "intercom"
         | "email"
+        | "email_sandbox"
         | "twilio"
         | "linear"
         | "github"
@@ -10645,6 +10650,19 @@ export namespace Schemas {
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10689,7 +10707,20 @@ export namespace Schemas {
         | "forced_percentage"
         | "traffic_since_at"
         | "changed_at"
-        | "before_exposure";
+        | "before_exposure"
+        | "changed_setting"
+        | "before"
+        | "after"
+        | "flag_service_call_percentage"
+        | "event"
+        | "event_received"
+        | "invalid_metric_count"
+        | "unchecked_metric_count"
+        | "flag_split"
+        | "baseline_variant"
+        | "other_running_experiment_count"
+        | "assigned_outside_count"
+        | "other_draft_experiment_count";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10746,6 +10777,19 @@ export namespace Schemas {
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10800,6 +10844,19 @@ export namespace Schemas {
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -11713,7 +11770,6 @@ export namespace Schemas {
         | "objectid"
         | "xid";
     /**
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -11725,7 +11781,6 @@ export namespace Schemas {
      * * `30day` - 30day
      */
     export type SettableSyncFrequencyEnum =
-        | "never"
         | "5min"
         | "15min"
         | "30min"
@@ -12030,10 +12085,66 @@ export namespace Schemas {
         | "mcp"
         | "wizard"
         | "self_driving";
+    /**
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed
+     */
+    export type SourceSetupErrorCodeEnum =
+        | "unresolved_secret_ref"
+        | "credential_not_found"
+        | "credential_expired"
+        | "credential_source_type_mismatch"
+        | "reserved_name"
+        | "direct_query_unsupported"
+        | "direct_query_name_required"
+        | "duplicate_source"
+        | "duplicate_prefix"
+        | "billing_limit_reached"
+        | "max_instances_reached"
+        | "source_unavailable"
+        | "invalid_config"
+        | "credential_validation_failed"
+        | "schema_discovery_failed"
+        | "no_tables_found"
+        | "cdc_unsupported_source_type"
+        | "invalid_cdc_management_mode"
+        | "host_not_allowed"
+        | "connection_failed";
+    export type ExternalDataSourceErrorResponse = {
+        /**
+         * Human-readable explanation of why the request failed and what to do next.
+         */
+        message: string;
+        code?: SourceSetupErrorCodeEnum | undefined;
+    };
     export type ExternalDataSourceRevenueAnalyticsConfig = Partial<{
         enabled: boolean;
         include_invoiceless_charges: boolean;
     }>;
+    export type SourceUpdatePayload = {
+        /**
+         * Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds.
+         */
+        credential_id: string;
+    };
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -12124,6 +12235,10 @@ export namespace Schemas {
          * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
          */
         connection_warning: string | null;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        payload?: (SourceUpdatePayload & unknown) | undefined;
     };
     export type FeatureFlagExperimentSetMetadata = {
         /**
@@ -16226,6 +16341,7 @@ export namespace Schemas {
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
+        payload: SourceUpdatePayload & unknown;
     }>;
     /**
      * * `errors` - Errors or bugs
@@ -18717,6 +18833,10 @@ export namespace Schemas {
         github_issue_number: number | null;
         zendesk_ticket_id: number | null;
         /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         */
+        intercom_conversation_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;
@@ -19315,7 +19435,10 @@ export namespace Endpoints {
 
             body: Schemas.ExternalDataSourceCreate;
         };
-        responses: { 201: Schemas.ExternalDataSourceCreateResponse };
+        responses: {
+            201: Schemas.ExternalDataSourceCreateResponse;
+            400: Schemas.ExternalDataSourceErrorResponse;
+        };
     };
     /**
      * Create, Read, Update and Delete External data Sources.

@@ -24,10 +24,14 @@ tools:
             encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect
             credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
             the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
-            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
-            single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must
-            be filled by the same user this session authenticates as. Never ask the user to paste raw database
-            passwords, API keys, or OAuth tokens into the chat.
+            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Use the same link to
+            reconnect an EXISTING source or rotate its credentials (expired OAuth token, changed password or API key):
+            request the link for that source's source_type, wait for the user to finish the page, find the credential
+            with 'data-warehouse-stored-credentials-list', then call 'external-data-sources-partial-update' with the
+            source id and {"payload": {"credential_id": "<uuid>"}}. Stored credentials are single-use, expire after 24
+            hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user
+            this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens
+            into the chat.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -59,13 +63,22 @@ tools:
             Snowflake), and bucket files (AmazonS3, GoogleCloudStorage, AzureBlob, CloudflareR2). Discover required
             credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in
             the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the
-            'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list');
-            stored credentials are deleted once the source is created. For an already-connected OAuth integration you
-            can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). NOTE: this enables EVERY
-            discovered table — ideal for small fixed schemas (Stripe, Zendesk) but on a large production database (a
-            Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all, which can be costly and noisy. When
-            the user wants only specific tables, or non-default sync types per table, use 'external-data-sources-create'
-            instead.
+            'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list').
+            Stored credentials work once, expire 24 hours after the user stores them, and are deleted when the source is
+            created. A failed call does not use them up. The credential must be stored for the same source_type you pass
+            here, or the call fails with 'credential_source_type_mismatch'. For an already-connected OAuth integration
+            (for example the user's Google Ads account) pass the integration id instead. The key name is different for
+            every source, so do not guess it: call 'external-data-sources-wizard' with the source_type and use the name
+            of the field whose type is 'oauth'. Examples: Hubspot uses 'hubspot_integration_id', GoogleAds uses
+            'google_ads_integration_id', MetaAds uses 'meta_ads_integration_id', for example
+            {'google_ads_integration_id': 45}. A missing or misnamed key fails with 'invalid_config' and the message
+            names the field. Every 400 response carries a 'message' with the fix and, for most causes, a stable 'code'
+            such as 'credential_expired', 'credential_not_found', 'invalid_config', 'credential_validation_failed',
+            'duplicate_source' or 'no_tables_found'. When the code is 'credential_expired', ask the user to open a new
+            connect link. NOTE: this enables EVERY discovered table — ideal for small fixed schemas (Stripe, Zendesk)
+            but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all,
+            which can be costly and noisy. When the user wants only specific tables, or non-default sync types per
+            table, use 'external-data-sources-create' instead.
         exclude_params:
             - client_secret
             - account_id
@@ -89,8 +102,10 @@ tools:
             cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) —
             never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
-            with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
-            soon as setup consumes them — and expire after 24 hours if never used.
+            with {'credential_id': '<uuid>'} in the payload to create a source, or
+            'external-data-sources-partial-update' with {"payload": {"credential_id": "<uuid>"}} to reconnect an
+            existing source. Stored credentials are single-use — they are deleted as soon as a setup or update consumes
+            them — and expire after 24 hours if never used.
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -232,7 +247,10 @@ tools:
             should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is
             refused once data has synced, because rows already merged under the old key would repeat; delete the synced
             data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
-            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
+            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.
+            sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are
+            mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no
+            'never' value: to stop a table syncing, set should_sync to false."
         exclude_params:
             - drop_history_table
         param_overrides:
@@ -240,6 +258,8 @@ tools:
                 aliases:
                     - schema_id
                     - schemaId
+            sync_frequency:
+                cast: sync-frequency
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -317,7 +337,37 @@ tools:
             'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source,
             such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
             anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
-            Changes take effect on the next sync, not retroactively.
+            Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour,
+            6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or
+            1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set
+            should_sync to false.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get CDC health for a source
+        description: >
+            Read the live change data capture (CDC) health of a Postgres source. Use this first when a CDC table is
+            stale, a CDC sync fails, or before choosing between 'external-data-sources-resume-cdc-create' and
+            'external-data-sources-repair-cdc-create'. It connects to the source database, so it fails with a 400 if the
+            source is unreachable. It changes nothing. Returns {enabled: false} when CDC is off. When CDC is on, returns
+            management_mode (posthog or self_managed), slot_name, publication_name, lag_warning_threshold_mb,
+            lag_critical_threshold_mb, schedule_paused, slot_exists, publication_exists, lag_bytes, and
+            published_tables. Read the result like this: schedule_paused=true with slot_exists=true and
+            publication_exists=true means a failure paused extraction but nothing was lost, so fix the cause and call
+            resume. slot_exists=false or publication_exists=false means the replication resources were lost, so call
+            repair (it forces a full re-sync). A large and growing lag_bytes means changes are not being consumed and
+            the source database disk can fill up.
         param_overrides:
             id:
                 aliases:
@@ -337,10 +387,19 @@ tools:
             Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled
             (wal_level=logical), replication slot available, publication present, and required permissions.
             Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
-            diagnose why an existing CDC sync has started failing.
+            diagnose why an existing CDC sync has started failing. The connection details (host, port, database, user,
+            password, schema, ssh_tunnel) go INSIDE 'payload', the same way as in 'external-data-sources-create'.
+            Instead of a password, pass {'credential_id': '<uuid>'} in the payload, referencing connection details the
+            user stored via 'data-warehouse-source-connect-link' (find ids with
+            'data-warehouse-stored-credentials-list'). This check does not use the stored credential up, so the same id
+            still works for 'data-warehouse-source-setup'. A source_type without CDC support fails with code
+            'cdc_unsupported_source_type'. Other 400 responses carry a 'code' such as 'invalid_config',
+            'credential_expired', 'host_not_allowed' or 'connection_failed'.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
+            payload:
+                input_schema: ExternalDataSourcePayloadSchema
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: true
@@ -513,6 +572,62 @@ tools:
                 aliases:
                     - source_id
                     - sourceId
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Disable CDC on a source
+        description: >
+            Turn off change data capture on a source. Destructive: it cancels running CDC jobs, deletes the CDC
+            extraction schedule, drops the replication slot and publication (when PostHog manages them), deletes
+            buffered change data, clears all CDC settings, and soft-deletes the CDC history tables. Every table that
+            synced with sync_type=cdc is reset to no sync type with syncing off, so each one needs a new sync_type and
+            should_sync=true (see 'external-data-schemas-partial-update') before it syncs again. Ask the user before
+            calling this. Do not use it to fix a broken CDC sync: use 'external-data-sources-resume-cdc-create' or
+            'external-data-sources-repair-cdc-create' instead. Needs edit access to every CDC table of the source.
+            Returns {success, already_disabled}; if CDC was already off it changes nothing. If the table syncs cannot be
+            paused it fails with a 503 and CDC stays on, so retry.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Enable CDC on a source
+        description: >
+            Enable change data capture (CDC) on an existing Postgres source. Safe order: call this tool, then switch
+            individual tables to sync_type=cdc with 'external-data-schemas-partial-update' (CDC tables need
+            primary_key_columns). Do not call 'external-data-sources-check-cdc-prerequisites-create' first: it needs the
+            database connection details and cannot read the stored ones. This tool checks the prerequisites itself and
+            lists any that fail. It starts no table sync by itself. It creates the replication slot (and the publication
+            in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use
+            cdc_management_mode='posthog' (default) when the database user can manage replication, or 'self_managed'
+            when the customer created the publication already and passes its name in cdc_publication_name. Fails with a
+            400 when the source type has no CDC support, the prerequisites are not met (the errors are listed), or the
+            source is unreachable, and with a 409 if CDC is already on (use
+            'external-data-sources-update-cdc-settings-create' to tune it). Returns {success, schedules_ready};
+            schedules_ready=false means CDC is on but scheduling failed, and it recovers when the first table is
+            switched to cdc. Management mode and slot or publication names cannot be changed later: disable and enable
+            again. An unused replication slot makes the source database retain WAL, so do not leave CDC enabled with no
+            cdc tables.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-list:
         operation: external_data_sources_list
         enabled: true
@@ -553,10 +668,18 @@ tools:
             idempotent: true
         title: Update data warehouse source
         description: >
-            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change
-            the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
-            rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
-            securely in their browser rather than pasting secrets into the chat.
+            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description, or reconnect
+            it with new credentials. Cannot change the source_type or access_method after creation. Do not send
+            connection secrets inline here. To reconnect the source or rotate its credentials (expired OAuth token,
+            changed password or API key): 1) call 'data-warehouse-source-connect-link' with the source's source_type and
+            share the connect_url with the user; 2) wait for the user to confirm they finished the page; 3) find the
+            newest credential_id for that source_type with 'data-warehouse-stored-credentials-list'; 4) call this tool
+            with the source id and {"payload": {"credential_id": "<uuid>"}}, and no job_inputs. The stored values
+            replace the source's connection details and the connection is checked before the save. An SSH tunnel or
+            connection host that the user did not enter on the page is not kept. The stored credential must belong to
+            the same user, match the source's source_type, and not be expired. It is deleted after a successful update.
+            A failed update keeps it. When the connection check fails, get a new link so the user can enter correct
+            details.
         param_overrides:
             id:
                 aliases:
@@ -582,6 +705,7 @@ tools:
             - prefix
             - description
             - job_inputs
+            - payload
         param_overrides:
             id:
                 aliases:
@@ -606,6 +730,7 @@ tools:
             - prefix
             - description
             - job_inputs
+            - payload
         param_overrides:
             id:
                 aliases:
@@ -629,6 +754,31 @@ tools:
             gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy
             (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is
             already running. Safe to retry after a failure. Returns {success, schemas_reset}.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
+    external-data-sources-resume-cdc-create:
+        operation: external_data_sources_resume_cdc_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Resume a paused CDC source
+        description: >
+            Restart CDC extraction that a non-retryable failure paused (bad credentials, SSL or host errors) while the
+            replication slot survived. Use it when 'external-data-sources-cdc-status-retrieve' shows
+            schedule_paused=true and slot_exists=true and publication_exists=true, after the cause is fixed (for example
+            the password was updated). It checks the source connection, recreates the extraction schedule if it was
+            deleted, unpauses it, and clears the paused marker. Streaming continues from the saved position, with no
+            re-snapshot, so it is the cheap alternative to 'external-data-sources-repair-cdc-create'. The next
+            extraction run starts the sync; table status stays failed until a run succeeds. Refuses with a 400 when CDC
+            is off, no table uses sync_type=cdc with syncing on, the source is still unreachable, or the slot or
+            publication is missing (then use repair, which forces a full re-sync). Returns {success}.
         param_overrides:
             id:
                 aliases:
@@ -665,6 +815,29 @@ tools:
             exclude:
                 - schemas.*.table.columns
                 - schemas.*.available_columns
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update CDC settings on a source
+        description: >
+            Change the tuning settings of change data capture on a source that has it enabled: cdc_auto_drop_slot,
+            cdc_lag_warning_threshold_mb, and cdc_lag_critical_threshold_mb. Send only the fields to change. Thresholds
+            are whole MB of replication lag, at least 1, and the warning must stay below the critical value (checked
+            against the stored value for a field you omit). It does not touch the replication slot, publication, or
+            schedules. Management mode and slot or publication names cannot be changed here: disable and enable CDC
+            again. Fails with a 400 when CDC is off or a value is invalid. Returns {success}, plus unchanged=true when
+            no field was sent.
+        param_overrides:
+            id:
+                aliases:
+                    - source_id
+                    - sourceId
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
