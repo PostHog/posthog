@@ -53,5 +53,6 @@ rules:
           - '/session-replay/recording-api/*.test.*'
       owners: team-replay
     - match:
+          - '/common/utils/seal-intrinsics.test.*'
           - '/messaging/push-subscriptions/*.test.*'
       owners: team-workflows

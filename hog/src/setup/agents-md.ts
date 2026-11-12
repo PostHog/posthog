@@ -26,13 +26,13 @@ export function earlyBlock(): string {
     return [
         '## PostHog',
         '',
-        `${IN_PROGRESS} Run \`hog setup\` to see the current step and continue. Do not install PostHog another way.`,
+        `${IN_PROGRESS} Run \`hog setup\` to see the current step. Don't install PostHog any other way.`,
     ].join('\n')
 }
 
 interface UseCase {
     text: string
-    // Each one adds its `hog learn` command to the line.
+    // Each one adds its `hog skills read` or `hog skills search` command to the line.
     products: readonly ProductId[]
     command?: string
     onlyWhenChosen?: boolean
@@ -42,15 +42,15 @@ const USE_CASES: readonly UseCase[] = [
     { text: 'Adding tracking for a new feature', products: ['product-analytics'] },
     { text: 'Feature flags and experiments', products: ['feature-flags', 'experiments'] },
     { text: 'Debugging errors (error tracking)', products: ['error-tracking'] },
-    { text: 'Logs, metrics and tracing (APM)', products: ['logs', 'metrics', 'tracing'] },
+    { text: 'Logs, metrics, and tracing (APM)', products: ['logs', 'metrics', 'tracing'] },
     { text: 'Querying data from other tools (data warehouse)', products: ['data-warehouse'] },
     { text: 'Tracking how agents use an MCP server (MCP analytics)', products: ['mcp-analytics'] },
     {
         text: 'Checking metrics or answering product questions',
         products: [],
-        command: '`hog query run "<HogQL>"`, with `hog learn -s "query data"` for how to write the query',
+        command: '`hog query run "<HogQL>"` (see `hog skills search query data` for how to write HogQL)',
     },
-    { text: 'LLM analytics', products: ['llm-analytics'], onlyWhenChosen: true },
+    { text: 'AI observability (LLM analytics)', products: ['llm-analytics'], onlyWhenChosen: true },
 ]
 
 // Lines for the products picked in the purpose step come first, in the order picked.
@@ -87,10 +87,10 @@ export function finalBlock(options: {
     return [
         '## PostHog',
         '',
-        `This folder sends data to PostHog project ${projectId} on ${host}, as posthog.json says. Start PostHog work here with these commands:`,
+        `This folder sends data to PostHog project ${projectId} on ${host}, set in \`posthog.json\`. Start PostHog tasks with these commands:`,
         '',
         ...lines,
-        '- Anything else: `hog learn -s "<keywords>"`',
+        '- Anything else: `hog skills search <keywords>`',
     ].join('\n')
 }
 
@@ -120,8 +120,8 @@ function withBlock(path: string, text: string, body: string): string {
     if (text.includes(START) || text.includes(END)) {
         throw new HogError(
             'setup_block_broken',
-            `${path} has only one of the PostHog setup markers, ${START} and ${END}.`,
-            `Remove the marker that is left from ${path}, then run \`hog setup next\` again.`
+            `${path} has only one of the two PostHog setup markers, ${START} and ${END}.`,
+            `Remove the remaining marker from ${path}, then run \`hog setup next\` again.`
         )
     }
     if (text.trim() === '') {
@@ -136,11 +136,11 @@ function withBlock(path: string, text: string, body: string): string {
 async function destination(runtime: Runtime, root: string, path: string): Promise<string> {
     const target = await runtime.realPath(path).catch(() => undefined)
     if (target === undefined || !isInside(root, target)) {
-        const where = target === undefined ? 'a file that does not exist' : escapeControls(target)
+        const where = target === undefined ? 'a missing file' : escapeControls(target)
         throw new HogError(
             'setup_file_outside_folder',
-            `${escapeControls(path)} links to ${where}, outside ${escapeControls(root)}, so it stays as it is.`,
-            `Replace ${basename(path)} with a file, or link it to a file inside the folder. Then run \`hog setup next\` again.`
+            `${escapeControls(path)} links to ${where}, outside ${escapeControls(root)}. hog doesn't write through links that leave the folder.`,
+            `Replace ${basename(path)} with a regular file, or link it to a file inside ${escapeControls(root)}. Then run \`hog setup next\` again.`
         )
     }
 

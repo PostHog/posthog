@@ -234,7 +234,7 @@ describe('hog query', () => {
             'select 1',
             { isValid: false, errors: [{ message: 'Query is too complex', start: null, end: null }] },
             1,
-            'error: Query is too complex\n1 error',
+            '✗ Query has 1 error, 0 warnings, 0 notices\nerror: Query is too complex\n',
         ],
         [
             'terminal escapes in the source and the message are printed escaped',

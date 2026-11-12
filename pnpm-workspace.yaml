@@ -198,7 +198,7 @@ catalog:
     '@posthog/icons': ^0.39.0
     '@posthog/brand': 0.17.0
     '@posthog/react': ^1.11.3
-    posthog-js: ^1.447.12
+    posthog-js: ^1.447.13
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
