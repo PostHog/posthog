@@ -1462,6 +1462,33 @@ async def test_update_delivery_record_empty_lists_persist(team, user):
     assert row.recipient_results == []
 
 
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_update_delivery_record_skips_row_deleted_with_its_subscription(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="gone01", name="Deleted mid-run")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+            temporal_workflow_id="wf-gone",
+            idempotency_key="idem-gone",
+        ),
+    )
+    await sync_to_async(subscription.delete)()
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(delivery_id=delivery_id, status=DeliveryStatus.COMPLETED, finished=True),
+    )
+
+    assert not await sync_to_async(SubscriptionDelivery.objects.filter(pk=delivery_id).exists)()
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio

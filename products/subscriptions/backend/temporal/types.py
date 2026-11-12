@@ -316,7 +316,8 @@ class GenerateAIReportResult:
 class DeliveryAbort:
     """Returned by `validate_subscription_for_delivery` when the workflow should abort.
     `failed_recipient` is populated only when this run auto-disabled the sub
-    (workflow records FAILED). None means already-disabled — idempotency redispatch."""
+    (workflow records FAILED). None means already-disabled (idempotency redispatch) or an
+    earlier run already delivered this scheduled slot."""
 
     failed_recipient: typing.Optional[RecipientResult] = None
 

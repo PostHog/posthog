@@ -19,7 +19,6 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
 from products.subscriptions.backend.logic.slack_subscriptions import SlackDeliveryResult
-from products.subscriptions.backend.models.subscription import SubscriptionDelivery
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -36,11 +35,9 @@ from products.subscriptions.backend.temporal.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
-    DeliveryStatus,
     GenerateAIReportResult,
     SnapshotInsightsResult,
     TrackedSubscriptionInputs,
-    UpdateDeliveryRecordInputs,
 )
 from products.subscriptions.backend.temporal.workflows import ProcessAISubscriptionWorkflow, ProcessSubscriptionWorkflow
 from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
@@ -347,24 +344,3 @@ async def test_schedule_update_failure_preserves_primary_failure(
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["failure_stage"] == "delivery"
     assert inputs.slo.completion_properties["failure_component"] == "subscription_delivery"
-
-
-async def test_update_delivery_record_skips_row_deleted_with_its_subscription(team, user) -> None:
-    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
-    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
-        subscription=subscription,
-        team=team,
-        temporal_workflow_id="wf-test",
-        idempotency_key=str(uuid.uuid4()),
-        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
-        target_type="email",
-        target_value="test@posthog.com",
-    )
-    await sync_to_async(subscription.delete)()
-
-    await ActivityEnvironment().run(
-        update_delivery_record,
-        UpdateDeliveryRecordInputs(delivery_id=delivery.id, status=DeliveryStatus.COMPLETED, finished=True),
-    )
-
-    assert not await sync_to_async(SubscriptionDelivery.objects.filter(pk=delivery.id).exists)()

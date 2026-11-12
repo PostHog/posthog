@@ -256,9 +256,8 @@ async def validate_subscription_for_delivery(
         thread_sensitive=False,
     )(pk=subscription_id)
 
-    # A finished delivery record means an earlier run already handled this scheduled slot
-    # (see `create_delivery_record`). This happens when that run closed seconds before the
-    # next scheduler run started a second child workflow from a stale due list.
+    # A finished delivery record means an earlier run already handled this scheduled slot.
+    # See `_delivery_idempotency_key`.
     if (
         delivery_id is not None
         and await database_sync_to_async(
@@ -725,17 +724,17 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
 @temporalio.activity.defn
 async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
     @database_sync_to_async(thread_sensitive=False)
-    def _update() -> bool:
+    def _update() -> None:
         delivery = SubscriptionDelivery.objects.filter(pk=inputs.delivery_id).first()
         # The row is gone when its subscription was hard-deleted during the run (for example,
         # deleting an insight deletes its subscriptions), so there is nothing left to record.
         if delivery is None:
             LOGGER.info("update_delivery_record.missing_skipping", delivery_id=inputs.delivery_id)
-            return False
+            return
         # A finished row belongs to an earlier run of the same scheduled slot. Keep its outcome.
         if delivery.finished_at is not None:
             LOGGER.info("update_delivery_record.already_finished_skipping", delivery_id=inputs.delivery_id)
-            return False
+            return
         update_fields: list[str] = ["status", "last_updated_at"]
         delivery.status = inputs.status
 
@@ -755,15 +754,9 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
             update_fields.append("finished_at")
 
         delivery.save(update_fields=update_fields)
-        return True
+        LOGGER.info("update_delivery_record.updated", delivery_id=inputs.delivery_id, status=inputs.status)
 
-    if not await _update():
-        return
-    await LOGGER.ainfo(
-        "update_delivery_record.updated",
-        delivery_id=inputs.delivery_id,
-        status=inputs.status,
-    )
+    await _update()
 
 
 @temporalio.activity.defn
@@ -800,25 +793,31 @@ async def advance_next_delivery_date(subscription_id: int, scheduled_at: str | N
     expected = datetime.fromisoformat(scheduled_at) if scheduled_at else None
 
     @database_sync_to_async(thread_sensitive=False)
-    def _advance() -> str:
+    def _advance() -> None:
         with transaction.atomic():
             subscription = Subscription.objects.select_for_update().get(pk=subscription_id)
             # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
             # future delivery date — avoids showing a misleading "next delivery" in the UI.
             if not subscription.enabled:
-                return "skipped_disabled"
+                LOGGER.info("advance_next_delivery_date.skipped_disabled", subscription_id=subscription_id)
+                return
             # Compare-and-set on the slot this run delivered. When the date moved away from it,
             # another run already advanced the schedule (or the user changed it), and a second
             # advance would skip the next delivery.
             if expected is not None and subscription.next_delivery_date != expected:
-                return "skipped_already_advanced"
+                LOGGER.info(
+                    "advance_next_delivery_date.skipped_already_advanced",
+                    subscription_id=subscription_id,
+                    scheduled_at=scheduled_at,
+                    next_delivery_date=subscription.next_delivery_date,
+                )
+                return
             subscription.set_next_delivery_date(subscription.next_delivery_date)
             subscription.save(update_fields=["next_delivery_date"])
-            return "updated"
+            LOGGER.info(
+                "advance_next_delivery_date.updated",
+                subscription_id=subscription_id,
+                next_delivery_date=subscription.next_delivery_date,
+            )
 
-    outcome = await _advance()
-    await LOGGER.ainfo(
-        f"advance_next_delivery_date.{outcome}",
-        subscription_id=subscription_id,
-        scheduled_at=scheduled_at,
-    )
+    await _advance()
