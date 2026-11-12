@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { IconEllipsis } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
+
 import { InsightColor } from '~/types'
 
 export interface QuillCardMetaProps {
@@ -34,7 +36,13 @@ export function QuillCardMeta({
             {refreshControl}
             {headerStatus}
             {menuItems ? (
-                <DropdownMenu>
+                <DropdownMenu
+                    onOpenChange={(open, details) => {
+                        if (closesIntoLemonPopover(open, details)) {
+                            details.cancel()
+                        }
+                    }}
+                >
                     <DropdownMenuTrigger
                         render={
                             <Button
