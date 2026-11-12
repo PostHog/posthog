@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconArrowLeft, IconEllipsis, IconFolder, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
@@ -76,6 +77,12 @@ export function WorkflowFolderContents(): JSX.Element {
     } = useValues(workflowsListV2Logic)
     // Health pills match nothing until run metrics arrive, so wait instead of showing an empty folder.
     const healthPending = hasHealthFilter && !metricsLoaded
+    // A new folder or filter starts again on page one, as the flag-off list does, and so does the inline folder row.
+    const filterKey = showFolderDraft
+        ? 'folder-draft'
+        : `${currentFolder ?? ''}\n${serializeFacetQuery(value.filters)}\n${value.text}`
+    const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
+    const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
     const { searchParams } = useValues(router)
     const sortOrder = String(searchParams[SORTING_URL_PARAM] ?? '').startsWith('-') ? -1 : 1
     const keepRowKindsInPlace =
@@ -259,12 +266,6 @@ export function WorkflowFolderContents(): JSX.Element {
                 </div>
             )}
             <LemonTable
-                // Remounting returns the table to page one, where the inline folder row is, and a new folder or filter does the same.
-                key={
-                    showFolderDraft
-                        ? 'folder-draft'
-                        : `${currentFolder ?? ''}\n${serializeFacetQuery(value.filters)}\n${value.text}`
-                }
                 dataSource={rows}
                 columns={[selectColumn, ...listColumns]}
                 rowKey="id"
@@ -289,7 +290,11 @@ export function WorkflowFolderContents(): JSX.Element {
                     serverSearchStatus === 'pending' ||
                     healthPending
                 }
-                pagination={{ pageSize: 100, useUrl: false }}
+                pagination={{
+                    pageSize: 100,
+                    currentPage,
+                    onPageChange: (page) => setPageForFilter({ filterKey, page }),
+                }}
                 emptyState={empty}
                 data-attr="workflows-folder-contents"
             />

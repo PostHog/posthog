@@ -617,25 +617,52 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
     })
 
-    it('shows a workflow only in its new folder after the shared tree refreshes a move made elsewhere', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        const moved = { id: 'nested', path: 'Billing/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }
-        useMocks({
-            get: {
-                '/api/projects/:team_id/file_system/': ({ request }) =>
-                    new URL(request.url).searchParams.get('ref') === moved.ref
-                        ? [200, paginated([moved])]
-                        : [200, paginated([])],
+    it.each([
+        [
+            'a workflow',
+            async (): Promise<void> => {
+                const moved = { id: 'nested', path: 'Billing/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/file_system/': ({ request }) =>
+                            new URL(request.url).searchParams.get('ref') === moved.ref
+                                ? [200, paginated([moved])]
+                                : [200, paginated([])],
+                    },
+                })
+                await projectTreeDataLogic.asyncActions.syncTypeAndRef('hog_flow', moved.ref, true)
             },
-        })
-        await projectTreeDataLogic.asyncActions.syncTypeAndRef('hog_flow', moved.ref, true)
-        await expectLogic(logic).toFinishAllListeners()
+            ['Billing/Cards/Receipt'],
+            [],
+        ],
+        [
+            'several files of one folder',
+            (): void =>
+                addProjectFiles([
+                    { id: 'nested', path: 'Billing/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id },
+                    { ...templateReceipt, path: 'Billing/Receipt' },
+                ]),
+            [],
+            ['Billing/Receipt'],
+        ],
+    ])(
+        'shows %s only in the new folder after the shared tree refreshes a move made elsewhere',
+        async (_, refresh, cardsTemplates, billingTemplates) => {
+            await expectLogic(logic).toFinishAllListeners()
+            await refresh()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.openFolder('Billing/Cards')
-        expect(logic.values.folderRows.map((row) => row.id)).toEqual([])
-        logic.actions.openFolder('Billing')
-        expect(logic.values.folderRows.map((row) => row.id)).toEqual([moved.ref, FIXTURE_WORKFLOWS[0].id])
-    })
+            logic.actions.openFolder('Billing/Cards')
+            expect(logic.values.folderRows.map((row) => row.id)).toEqual([])
+            expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(cardsTemplates)
+            logic.actions.openFolder('Billing')
+            expect(logic.values.folderRows.map((row) => row.id)).toEqual([
+                FIXTURE_WORKFLOWS[1].id,
+                FIXTURE_WORKFLOWS[0].id,
+            ])
+            expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(billingTemplates)
+        }
+    )
 
     it.each([
         [
@@ -691,75 +718,57 @@ describe('workflowFoldersLogic', () => {
     })
 
     it.each([
-        ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
-        ['keeps the cached files of a cut folder whose next page fails', 500],
-    ])('%s', async (_name, nextPageStatus) => {
+        ['restores a folder the shared tree cut to its first page from workflow file scans alone', 200, false],
+        ['keeps the cached files of a cut folder and offers a retry when its scan fails', 500, true],
+        ['keeps the cached files of a cut folder and offers a retry when its scan stalls', null, true],
+    ])('%s', async (_name, scanStatus, offersRetry) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
         const requests: URLSearchParams[] = []
+        const welcome = { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
-                    return [
-                        nextPageStatus,
-                        paginated(
-                            params.get('parent') === 'Billing'
-                                ? [
-                                      {
-                                          id: 'direct',
-                                          path: 'Billing/Welcome',
-                                          type: 'hog_flow',
-                                          ref: FIXTURE_WORKFLOWS[0].id,
-                                      },
-                                  ]
-                                : []
-                        ),
-                    ]
+                    if (scanStatus === null) {
+                        return new Promise(() => {})
+                    }
+                    if (params.get('parent') === 'Billing') {
+                        // A mixed folder: the indexed workflow sits behind pages of another product's files.
+                        const offset = Number(params.get('offset'))
+                        const notes = Array.from({ length: 101 }, (_, index) => ({
+                            id: `notes-${offset + index}`,
+                            path: `Billing/Notes ${offset + index}`,
+                            type: 'notebook',
+                            ref: `synthetic-notes-${offset + index}`,
+                        }))
+                        return [200, paginated(offset < 200 ? notes : [welcome])]
+                    }
+                    return scanStatus === 200 ? projectFiles({ request }) : [scanStatus, { detail: 'Unavailable' }]
                 },
             },
         })
-        projectTreeDataLogic.actions.loadFolderSuccess(
-            'Billing',
-            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
-            true,
-            1,
-            true
-        )
+        jest.useFakeTimers()
+        try {
+            projectTreeDataLogic.actions.loadFolderSuccess(
+                'Billing',
+                [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+                true,
+                1,
+                true
+            )
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+        } finally {
+            jest.useRealTimers()
+        }
         await expectLogic(logic).toFinishAllListeners()
-        expect(requests.map((params) => params.get('parent'))).toEqual(['Billing'])
+
+        expect(new Set(requests.map((params) => params.get('search')))).toEqual(
+            new Set(['type:folder', 'type:hog_flow', 'type:message_template'])
+        )
         expect(logic.values.browserReadyLoading).toBe(false)
-        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
-    })
-
-    it('keeps the cached files of a cut folder when the tree changes while its next page loads and fails', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.openFolder('Billing')
-        let failPage!: () => void
-        const pageHeld = new Promise<void>((resolve) => (failPage = resolve))
-        let pageRequested = false
-        useMocks({
-            get: {
-                '/api/projects/:team_id/file_system/': async () => {
-                    pageRequested = true
-                    await pageHeld
-                    return [500, { detail: 'Unavailable' }]
-                },
-            },
-        })
-        projectTreeDataLogic.actions.loadFolderSuccess(
-            'Billing',
-            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
-            true,
-            1,
-            true
-        )
-        await waitFor(() => expect(pageRequested).toBe(true))
-        addProjectFiles([{ id: 'unrelated', path: 'Empty/Notes', type: 'notebook', ref: 'synthetic-notes' }])
-        failPage()
-        await expectLogic(logic).toFinishAllListeners()
-
+        expect(logic.values.browserLoadFailed).toBe(offersRetry)
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
@@ -1143,6 +1152,41 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Billing/Cards')
     })
 
+    it('opens the folder a workflows link scopes to, and keeps an opened folder in the URL', async () => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Billing' })
+        logic = workflowFoldersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentFolder).toBe('Billing')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.q).toBe('in:Billing/Cards')
+        expect(logic.values.currentFolder).toBe('Billing/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+    })
+
+    it.each(['in', 'path', 'folder', 'Folder'])('restores a project folder from %s: in the URL', async (key) => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: `${key}:Billing status:active` })
+        logic = workflowFoldersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(workflowsListV2Logic.values.value.filters).toEqual([
+            { facet: 'in', value: 'Billing', negated: false },
+            { facet: 'status', value: 'active', negated: false },
+        ])
+        expect(router.values.searchParams.q).toBe('in:Billing status:active')
+    })
+
     it('reveals the scoped folder and its subfolders when opened from a link', async () => {
         logic.unmount()
         projectTreeDataLogic.mount()
@@ -1156,26 +1200,73 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.expandedFolders).toContain('project://Billing')
     })
 
-    it('follows the open folder when an ancestor is renamed', async () => {
+    it.each([
+        [
+            'here',
+            (): void =>
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'billing', path: 'Billing', type: 'folder' },
+                    'Billing',
+                    'Archive'
+                ),
+        ],
+        [
+            'in another tab and the shared tree reloads its parent',
+            (): void => {
+                const rootFolders = [
+                    { id: 'billing', path: 'Archive', type: 'folder' },
+                    { id: 'empty', path: 'Empty', type: 'folder' },
+                    { id: 'dashboards', path: 'Reports', type: 'folder' },
+                    { id: 'unfiled', path: 'Unfiled', type: 'folder' },
+                ]
+                projectTreeDataLogic.actions.loadFolderSuccess('', rootFolders, false, rootFolders.length, true)
+            },
+        ],
+    ])('follows the open folder, with its files, when an ancestor is renamed %s', async (_, rename) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing/Cards')
+        let shortcutLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system_shortcut/': () => {
+                    shortcutLoads++
+                    return [200, paginated([])]
+                },
+            },
+        })
 
-        projectTreeDataLogic.actions.movedItem({ id: 'billing', path: 'Billing', type: 'folder' }, 'Billing', 'Archive')
+        rename()
         await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
         expect(logic.values.currentFolder).toBe('Archive/Cards')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
+        expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+        // Pins follow a moved folder through one reload, so a rename is applied to the tree once.
+        expect(shortcutLoads).toBe(1)
     })
 
-    it("still counts other products' files in a folder after it moves, and still hides it", async () => {
+    it.each([
+        ['after it moves', [{ folder: 'Reports', count: 1 }], 1],
+        [
+            'of both folders after it moves onto another',
+            [
+                { folder: 'Reports', count: 2 },
+                { folder: 'Old', count: 3 },
+            ],
+            5,
+        ],
+    ])("still counts other products' files in a folder %s, and still hides it", async (_, counts, expected) => {
         await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: counts }] } })
+        await expectLogic(logic, () => logic.actions.loadOtherFiles()).toFinishAllListeners()
 
         projectTreeDataLogic.actions.movedItem({ id: 'dashboards', path: 'Reports', type: 'folder' }, 'Reports', 'Old')
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Old')
 
-        expect(logic.values.otherProductFileCount).toBe(1)
+        expect(logic.values.otherProductFileCount).toBe(expected)
         expect(logic.values.folderPaths).not.toContain('Old')
     })
 

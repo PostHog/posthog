@@ -10,6 +10,10 @@ export interface PaginationAuto extends PaginationBase {
     /** Size of each page (except the last one which can be smaller). */
     pageSize: number
     showPageSelector?: boolean
+    /** Page on display, for a parent that owns it. Unset, the page lives in the URL or in local state. */
+    currentPage?: number
+    /** Page change handler for a parent that owns `currentPage`. */
+    onPageChange?: (newPage: number) => void
 }
 
 export interface PaginationManual extends PaginationBase {

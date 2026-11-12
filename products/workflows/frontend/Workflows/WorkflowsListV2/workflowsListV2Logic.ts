@@ -55,7 +55,7 @@ import {
     parseFacetQuery,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
-import { buildWorkflowListFacets, matchesWorkflowListText, workflowFolderFacet } from './workflowListFacets'
+import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
 import {
     LIST_TYPES,
     DEFAULT_COLUMNS,
@@ -98,7 +98,12 @@ const LEGACY_FILTER_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 
 const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
-const QUERY_FACETS = [...buildWorkflowListFacets([]), workflowFolderFacet(null, false)]
+const QUERY_FACETS = buildWorkflowListFacets([])
+
+/** A view that adds its own facet to the list, such as the folders view's `in:`, keeps that facet's pills in the URL. */
+export function addListQueryFacet(facet: FacetDefinition<WorkflowListRow>): void {
+    QUERY_FACETS.push(facet)
+}
 
 function withRequestDeadline<T>(
     controller: AbortController,
@@ -774,10 +779,20 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             duplicateWorkflow: async ({ row }) => {
                 await runRowAction(row, 'duplicate', async () => {
                     const teamId = String(values.currentTeamId)
+                    const controller = new AbortController()
+                    const timeoutMessage = 'The server took too long to respond. Refresh the list before you try again.'
                     try {
                         // The summary row has no step graph, so the copy starts from the full workflow.
-                        const full = await hogFlowsRetrieve(teamId, row.id)
-                        await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
+                        const full = await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsRetrieve(teamId, row.id, { signal }),
+                            timeoutMessage
+                        )
+                        await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsCreate(teamId, prepareWorkflowDuplicate(full), { signal }),
+                            timeoutMessage
+                        )
                         lemonToast.success(`Workflow "${row.name}" duplicated`)
                         actions.refreshWorkflows()
                     } catch (error) {
