@@ -39,7 +39,7 @@ from products.posthog_ai.eval_harness.engines.types import (
     NullCaseHooks,
 )
 from products.posthog_ai.eval_harness.harness import reporting
-from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.cli import EvalSurface, SkillDelivery
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, discover_suites
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
@@ -505,19 +505,18 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
 @pytest.mark.parametrize(
     "delivery,origin,has_original,surface,expected_origin",
     [
-        ("exec", None, True, None, "eval"),
-        ("exec", None, False, None, "eval"),
-        ("bundled", None, True, None, None),
-        ("bundled", None, False, None, None),
-        ("exec", "eval", True, None, "eval"),
-        ("exec", "slack", True, None, "slack"),
-        ("exec", "posthog_ai", True, None, "posthog_ai"),
-        ("exec", "posthog-code", True, None, "posthog-code"),
-        ("bundled", "slack", True, None, "slack"),
+        ("exec", None, True, "mcp", "eval"),
+        ("exec", None, False, "mcp", "eval"),
+        ("bundled", None, True, "mcp", None),
+        ("bundled", None, False, "mcp", None),
+        ("exec", "eval", True, "mcp", "eval"),
+        ("exec", "slack", True, "mcp", "slack"),
+        ("exec", "posthog_ai", True, "mcp", "posthog_ai"),
+        ("exec", "posthog-code", True, "mcp", "posthog-code"),
+        ("bundled", "slack", True, "mcp", "slack"),
         ("bundled", None, True, "app", "posthog_ai"),
         ("bundled", None, False, "app", "posthog_ai"),
         ("bundled", "slack", True, "app", "slack"),
-        ("exec", None, True, "mcp", "eval"),
     ],
 )
 @pytest.mark.asyncio
@@ -527,19 +526,16 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     delivery: SkillDelivery,
     origin: str | None,
     has_original: bool,
-    surface: str | None,
+    surface: EvalSurface,
     expected_origin: str | None,
 ) -> None:
-    if surface is None:
-        monkeypatch.delenv(base.EVAL_SURFACE_ENV, raising=False)
-    else:
-        monkeypatch.setenv(base.EVAL_SURFACE_ENV, surface)
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
     sandbox_context = CustomPromptSandboxContext(team_id=1, user_id=2)
     ctx = MagicMock(
         posthog_client=None,
         case_filter=None,
         skill_delivery=delivery,
+        surface=surface,
         sandbox_slots=asyncio.Semaphore(1),
         team_setup_slots=asyncio.Semaphore(1),
         per_case_timeout_seconds=30,

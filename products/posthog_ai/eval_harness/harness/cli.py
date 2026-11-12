@@ -47,6 +47,8 @@ class ModelTarget:
 
 SkillDelivery = Literal["bundled", "exec"]
 DEFAULT_SKILL_DELIVERY: SkillDelivery = "bundled"
+EvalSurface = Literal["app", "mcp"]
+DEFAULT_EVAL_SURFACE: EvalSurface = "mcp"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
@@ -98,6 +100,7 @@ class HarnessOptions:
     skill_snapshot_output_dir: Path | None = None
     service_tier: str | None = None
     """OpenAI request tier for codex runs; ``None`` sends the request untiered."""
+    surface: EvalSurface = DEFAULT_EVAL_SURFACE
 
 
 def _default_case_timeout() -> int:
@@ -174,6 +177,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=SERVICE_TIERS,
         default=None,
         help="OpenAI service tier for codex runs. The claude runtime ignores it.",
+    )
+    parser.add_argument(
+        "--surface",
+        choices=get_args(EvalSurface),
+        default=None,
+        help=(
+            "Where the agent runs. 'app' runs every case that sets no interaction origin as PostHog AI in the app, "
+            "with the in-app system prompt, and needs bundled skill delivery. 'mcp' keeps the skill-delivery default."
+        ),
     )
     parser.add_argument(
         "--max-sandboxes",
@@ -326,6 +338,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--skill-delivery", args.skill_delivery is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
             ("--service-tier", args.service_tier is not None),
+            ("--surface", args.surface is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
             ("--rebuild-sandbox-image", args.rebuild_sandbox_image),
@@ -336,6 +349,9 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     provider = cast(SandboxProvider, args.provider or "docker")
     agent_runtime = args.agent_runtime or "claude"
     skill_delivery = cast(SkillDelivery, args.skill_delivery or DEFAULT_SKILL_DELIVERY)
+    surface = cast(EvalSurface, args.surface or DEFAULT_EVAL_SURFACE)
+    if surface == "app" and skill_delivery == "exec":
+        parser.error("--surface app needs --skill-delivery bundled, because the app does not get exec skills")
 
     if args.max_sandboxes is not None and args.max_sandboxes < 1:
         parser.error("--max-sandboxes must be at least 1")
@@ -395,4 +411,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         skill_snapshot_report=args.skill_snapshot_report,
         skill_snapshot_output_dir=args.skill_snapshot_output_dir,
         service_tier=args.service_tier,
+        surface=surface,
     )

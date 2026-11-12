@@ -610,6 +610,7 @@ class SandboxedEvalHarness:
             posthog_trace_project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             infrastructure_retries=self.options.infrastructure_retries,
             service_tier=self.options.service_tier,
+            surface=self.options.surface,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:
