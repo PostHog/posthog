@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor } from '@testing-library/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -11,6 +11,8 @@ import type {
     WarehouseSuggestionApi,
     WarehouseSuggestionStatusApi,
 } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
+
+import { userEvent } from 'storybook/test'
 
 import { catalogStoryMocks, grantWarehouseEditorAccess, inMainContent } from '../catalogStoryFixtures'
 import { DataCatalogScene } from '../DataCatalogScene'
@@ -152,7 +154,7 @@ export const FilteredByName: Story = {
             canvasElement,
             '[data-attr="data-catalog-suggestions-search"]'
         )
-        fireEvent.change(search, { target: { value: 'stripe' } })
+        await userEvent.type(search, 'stripe')
     },
 }
 
