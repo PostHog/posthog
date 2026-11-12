@@ -69844,6 +69844,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `points` - points
+     * * `summary` - summary
+     */
+    export type MetricQueryOutputEnum = typeof MetricQueryOutputEnum[keyof typeof MetricQueryOutputEnum];
+
+
+    export const MetricQueryOutputEnum = {
+      Points: 'points',
+      Summary: 'summary',
+    } as const;
+
+    /**
      * * `rate` - rate
      * * `increase` - increase
      */
@@ -74004,18 +74016,6 @@ export namespace Schemas {
       /** Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web). */
       threshold_percent: number;
     }
-
-    /**
-     * * `points` - points
-     * * `summary` - summary
-     */
-    export type OutputEnum = typeof OutputEnum[keyof typeof OutputEnum];
-
-
-    export const OutputEnum = {
-      Points: 'points',
-      Summary: 'summary',
-    } as const;
 
     /**
      * * `healthy` - healthy
@@ -125271,7 +125271,7 @@ export namespace Schemas {
        *
        * * `points` - points
        * * `summary` - summary */
-      output?: OutputEnum;
+      output?: MetricQueryOutputEnum;
     }
 
     export interface _MetricQueryCount {

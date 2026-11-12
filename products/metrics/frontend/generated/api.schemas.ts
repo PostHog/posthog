@@ -1027,9 +1027,9 @@ export interface _MetricClauseApi {
  * * `points` - points
  * * `summary` - summary
  */
-export type OutputEnumApi = (typeof OutputEnumApi)[keyof typeof OutputEnumApi]
+export type MetricQueryOutputEnumApi = (typeof MetricQueryOutputEnumApi)[keyof typeof MetricQueryOutputEnumApi]
 
-export const OutputEnumApi = {
+export const MetricQueryOutputEnumApi = {
     Points: 'points',
     Summary: 'summary',
 } as const
@@ -1128,7 +1128,7 @@ export interface _MetricQueryBodyApi {
      *
      * * `points` - points
      * * `summary` - summary */
-    output?: OutputEnumApi
+    output?: MetricQueryOutputEnumApi
 }
 
 export interface _MetricQueryRequestApi {
