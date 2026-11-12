@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import SourceKind
 
@@ -76,6 +77,7 @@ def backfill_platform_insight_alert_configurations(
         # One alert the copy rejects, such as a start time it cannot parse, must not stop the rest.
         try:
             was_created = upsert_configuration(upsert)
+            sync_subscriber_destinations(alert)
         except Exception:
             logger.exception("platform_insight_alert_backfill.failed", alert_id=str(alert.id), team_id=alert.team_id)
             failed += 1
@@ -109,10 +111,11 @@ def disable_platform_insight_alert_configurations(
 
 
 def follow_insight_alert(alert: AlertConfiguration) -> None:
-    """Copies an insight alert that was just created or turned back on, if its team runs insight on the platform.
+    """Copies an insight alert that was just created or turned back on, while insight runs on the platform.
 
     Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill.
+    stay off the platform until the next backfill. The insight parallel run covers every team, so a
+    team with no enabled copy yet, such as one creating its first alert, is admitted too.
 
     An AI detector alert is never followed. The backfill copies those only when an operator asks,
     and a copy's stored detector is what records that request, so following would overwrite it.
@@ -121,4 +124,5 @@ def follow_insight_alert(alert: AlertConfiguration) -> None:
         return
     upsert = platform_upsert_of(alert)
     if upsert is not None:
-        upsert_if_running(upsert, revive=True)
+        upsert_if_running(upsert, revive=True, admit_new_teams=True)
+        sync_subscriber_destinations(alert)

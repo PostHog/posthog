@@ -47,6 +47,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
+from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -113,11 +115,6 @@ def validate_saved_query_name(value: str) -> None:
 class NoSchedulableDagError(Exception):
     """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
     bootstrap one from."""
-
-
-class SchedulingUnavailableError(Exception):
-    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
-    The caller decides what to keep, because the saved query itself is not at fault."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -299,12 +296,24 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def name_chain(self) -> list[str]:
         return self.name.split(".")
 
+    @property
+    def engine(self) -> ViewEngine:
+        # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
+        return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
+
     def schedule_materialization(
-        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+        self,
+        *,
+        frequency_target: timedelta | None = None,
+        reconcile: bool = True,
+        trigger_immediate_run: bool = False,
+        triggered_by_id: int | None = None,
     ):
         """
-        Put this saved query on the schedule that will materialize it, at the frequency in
-        sync_frequency_interval.
+        Put this saved query on the schedule that will materialize it.
+
+        frequency_target is written to the query's DAG node(s), which are the only store of
+        cadence. None carries no frequency opinion and leaves existing targets alone.
 
         trigger_immediate_run is for callers enabling materialization: it starts the first
         materialization right away instead of waiting for the node's cadence tier to fire.
@@ -320,11 +329,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         disables materialization, because the alternative is a query that reports itself
         materialized while nothing is scheduled to materialize it.
         """
-        from products.data_modeling.backend.logic.freshness import (
+        from products.data_modeling.backend.facade.contracts import (
+            MissingDagNodeError,
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
-        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
@@ -369,26 +378,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     raise MissingDagNodeError(
                         f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
                     )
-                # The interval is one-shot transport for frequency intent — consume it into the
-                # node target(s) and reconcile. Validation raises before the nulling below, so a
-                # rejected frequency stays visible for retry. A call with no interval carries no
-                # frequency opinion and must not touch existing targets.
-                if self.sync_frequency_interval is not None:
+                if frequency_target is not None:
                     # A bootstrap reconciles the whole DAG once below, once the target has landed,
                     # so asking for a second pass here would only repeat it.
                     apply_saved_query_frequency_target(
-                        self, self.sync_frequency_interval, reconcile=reconcile and dag_to_bootstrap is None
+                        self, frequency_target, reconcile=reconcile and dag_to_bootstrap is None
                     )
                 if dag_to_bootstrap is not None:
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
                     bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
-                # The interval must end up NULL: the node target is the only durable store of
-                # frequency intent.
-                if self.sync_frequency_interval is not None:
-                    self.sync_frequency_interval = None
-                    self.save(update_fields=["sync_frequency_interval"])
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
@@ -516,15 +516,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         """Whether ``set_columns(columns)`` would leave this view's stored columns unchanged."""
         return columns == self.columns and list(columns.keys()) == self.column_order
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
-
+    @property
+    def sql(self) -> str:
+        """The stored SQL as every reader outside a materialization run sees it: the incremental
+        window start bound to NULL. A run binds the real window start on the parsed query instead."""
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
+        return bind_window_start_sql(query["query"])
+
+    def get_columns(
+        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+    ) -> dict[str, dict[str, Any]]:
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(query["query"])
+        select_query = parse_select(self.sql)
         _limit_to_zero_rows(select_query)
         _InSubqueryZeroRows().visit(select_query)
 
@@ -540,6 +547,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     user=user,
                     query_type="HogQLQuery",
                     refresh_stale_view_columns=False,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
                 )
         result = response.types
 
@@ -590,11 +598,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
-        query = self.query or {}
-        if not isinstance(query, dict) or "query" not in query:
-            raise Exception("Saved query is missing a query definition")
-
-        node = parse_select(query["query"])
+        node = parse_select(self.sql)
         resolved_node = resolve_types(node, context, dialect="clickhouse")
 
         table_collector = S3TableVisitor()
@@ -646,7 +650,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return SavedQuery(
             id=str(self.id),
             name=self.name,
-            query=query["query"],
+            query=self.sql,
             fields=self.hogql_fields(),
             # Currently only storing metadata related to the managed viewset, but we can expand this in the future
             # This is basically just a bag of props that can be used by other methods to properly identify this query

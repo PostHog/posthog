@@ -7,18 +7,15 @@ import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
-    available_product_features: unknown
+    available_product_feature_keys: unknown
 }
 
-// One team's row must not throw, because a throw fails the batched lookup for every team in it. The
-// column is a jsonb array, so an entry can be null. An entry without a string key is skipped.
+// One team's row must not throw, because a throw fails the batched lookup for every team in it.
 function availableFeatures(raw: unknown): OrganizationAvailableFeature[] {
     if (!Array.isArray(raw)) {
         return []
     }
-    return raw.flatMap((feature) =>
-        typeof feature?.key === 'string' ? [feature.key as OrganizationAvailableFeature] : []
-    )
+    return raw.flatMap((key) => (typeof key === 'string' ? [key as OrganizationAvailableFeature] : []))
 }
 
 // Postgres stores team ids in int4 columns. A query that compares one of those columns to a
@@ -32,6 +29,14 @@ export function validTeamIds(keys: string[]): number[] {
     // parseInt would read "1.5" as team 1. Number keeps it 1.5, which isValidTeamId rejects.
     return keys.map(Number).filter(isValidTeamId)
 }
+
+// Ids and tokens share one cache, so each key carries its kind. A token that looks like a number
+// must only ever match `api_token`, never `id`.
+const ID_KEY_PREFIX = 'id:'
+const TOKEN_KEY_PREFIX = 'token:'
+
+const idKey = (teamId: number | string): string => `${ID_KEY_PREFIX}${teamId}`
+const tokenKey = (token: string): string => `${TOKEN_KEY_PREFIX}${token}`
 
 export interface TeamManagerOptions {
     /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
@@ -55,26 +60,28 @@ export class TeamManager {
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
             loaderRetry: options?.loaderRetry,
-            loader: async (teamIdOrTokens: string[]) => {
-                return await this.fetchTeams(teamIdOrTokens)
+            loader: async (keys: string[]) => {
+                return await this.fetchTeams(keys)
             },
         })
     }
 
     public async getTeam(teamId: number): Promise<Team | null> {
-        return this.lazyLoader.get(String(teamId))
+        return this.lazyLoader.get(idKey(teamId))
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {
-        return this.lazyLoader.get(token)
+        return this.lazyLoader.get(tokenKey(token))
     }
 
     public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(teamIds.map(String))
+        const loaded = await this.lazyLoader.getMany(teamIds.map(idKey))
+        return Object.fromEntries(teamIds.map((teamId) => [String(teamId), loaded[idKey(teamId)] ?? null]))
     }
 
     public async getTeamsByTokens(tokens: string[], options?: LoadOptions): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(tokens, options)
+        const loaded = await this.lazyLoader.getMany(tokens.map(tokenKey), options)
+        return Object.fromEntries(tokens.map((token) => [token, loaded[tokenKey(token)] ?? null]))
     }
 
     public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {
@@ -112,7 +119,7 @@ export class TeamManager {
 
             // Both keys, because a team is cached under its id and its token but ingestion only ever
             // looks it up by token - refreshing the id alone leaves the entry this worker reads stale.
-            this.lazyLoader.markForRefresh([String(team.id), team.api_token])
+            this.lazyLoader.markForRefresh([idKey(team.id), tokenKey(team.api_token)])
 
             if ((updateResult.rowCount ?? 0) === 0) {
                 // Another worker (or an earlier event seen through a stale cache) already flipped
@@ -136,6 +143,7 @@ export class TeamManager {
                         team,
                         'first team event ingested',
                         {
+                            $update_person_last_seen_at: false,
                             sdk: properties.$lib,
                             realm: properties.realm,
                             host: properties.$host,
@@ -149,25 +157,22 @@ export class TeamManager {
         }
     }
 
-    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
-        const [teamIds, tokens] = teamIdOrTokens.reduce(
-            ([teamIds, tokens], idOrToken) => {
-                // TRICKY: We are caching ids and tokens so we need to determine which is which
-                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
-                // that shouldn't overflow 32-bit integer in DB column.
-                if (/^\d{1,10}$/.test(idOrToken)) {
-                    const parsed = parseInt(idOrToken)
-                    // TODO: stat if this happens
+    private async fetchTeams(keys: string[]): Promise<Record<string, Team | null>> {
+        const teamIds: number[] = []
+        const tokens: string[] = []
+        for (const key of keys) {
+            if (key.startsWith(ID_KEY_PREFIX)) {
+                const rawId = key.slice(ID_KEY_PREFIX.length)
+                if (/^\d{1,10}$/.test(rawId)) {
+                    const parsed = parseInt(rawId)
                     if (isValidTeamId(parsed)) {
                         teamIds.push(parsed)
                     }
-                } else {
-                    tokens.push(idOrToken)
                 }
-                return [teamIds, tokens]
-            },
-            [[] as number[], [] as string[]]
-        )
+            } else if (key.startsWith(TOKEN_KEY_PREFIX)) {
+                tokens.push(key.slice(TOKEN_KEY_PREFIX.length))
+            }
+        }
 
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
@@ -192,7 +197,15 @@ export class TeamManager {
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 COALESCE(ocfg.flag_evaluations_mode, 0) AS flag_evaluations_mode,
-                o.available_product_features
+                -- The keys are the only part of available_product_features a caller reads. Picking
+                -- them out here returns a text[], which the pg driver reads with its plain array
+                -- parser. Selecting the jsonb[] column makes the driver JSON-parse every feature
+                -- object of every row, and an organization holds about a hundred of them.
+                ARRAY(
+                    SELECT feature->>'key'
+                    FROM unnest(o.available_product_features) AS feature
+                    WHERE feature->>'key' IS NOT NULL
+                ) AS available_product_feature_keys
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
@@ -203,15 +216,15 @@ export class TeamManager {
             'fetch-teams-with-features'
         )
 
-        // Initialize result record with nulls for all requested IDs/tokens
+        // Initialize result record with nulls for all requested keys
         const resultRecord: Record<string, Team | null> = {}
-        for (const idOrToken of teamIdOrTokens) {
-            resultRecord[idOrToken] = null
+        for (const key of keys) {
+            resultRecord[key] = null
         }
 
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
-            const { available_product_features, ...teamPartial } = row
+            const { available_product_feature_keys, ...teamPartial } = row
             const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
@@ -221,10 +234,10 @@ export class TeamManager {
                     teamPartial.drop_events_older_than_seconds !== null
                         ? Number(teamPartial.drop_events_older_than_seconds)
                         : null,
-                available_features: availableFeatures(available_product_features),
+                available_features: availableFeatures(available_product_feature_keys),
             }
-            resultRecord[row.id] = team
-            resultRecord[row.api_token] = team
+            resultRecord[idKey(row.id)] = team
+            resultRecord[tokenKey(row.api_token)] = team
         })
 
         return resultRecord

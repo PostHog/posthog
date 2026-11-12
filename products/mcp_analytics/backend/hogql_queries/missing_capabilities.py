@@ -24,15 +24,17 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    HarnessLabelQueryRunner,
     display_person_properties,
     mcp_query_date_range,
     missing_capability_report_expr,
+    shared_filter_exprs,
     validate_mcp_analytics_access,
 )
 
@@ -49,7 +51,7 @@ MAX_LIMIT = 500
 _REPORT_TEXT = "JSONExtractString(properties, '$mcp_intent')"
 
 
-class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
+class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabilitiesQueryResponse]):
     """Chronological feed of the capabilities agents asked for and could not get.
 
     Powers the "Missing capabilities" tab and the `query-mcp-missing-capabilities` MCP
@@ -84,6 +86,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+            *shared_filter_exprs(self.team, None, self.query.filterTestAccounts),
         ]
         term = (self.query.search or "").strip()
         if term:
@@ -135,7 +138,9 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_or_token_sql("h", "client_display")),
+                "harness_label": parse_expr(
+                    mcp_harness.harness_label_or_token_sql("h", "client_display", custom_harness_rules(self.team))
+                ),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),

@@ -34,7 +34,9 @@ from posthog.dags.clickhouse_cleanup import (
     OrphanedDistinctIdsTable,
     clickhouse_deletion_sweep_job,
 )
+from posthog.dags.common.resources import ClickhouseClusterResource
 from posthog.dags.person_pg_cleanup_drain import person_pg_cleanup_drain_job
+from posthog.dags.tests.conftest import isolated_clickhouse_cluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.persons_db import persons_db_url
@@ -47,6 +49,12 @@ COHORT_ID = 77
 RUN_FOR_REAL = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False}}}}
 
 
+@pytest.fixture
+def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+    with isolated_clickhouse_cluster(ClickhouseClusterResource().client_settings) as clickhouse_cluster:
+        yield clickhouse_cluster
+
+
 def without_age_floor(run_config: dict | None) -> dict:
     # Tests write their rows moments before the run, so the default minimum tombstone age would skip them all.
     run_config = deepcopy(run_config or {})
@@ -56,12 +64,16 @@ def without_age_floor(run_config: dict | None) -> dict:
 
 
 def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True, instance=None):
-    return clickhouse_deletion_sweep_job.execute_in_process(
-        run_config=without_age_floor(run_config),
-        resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
-        raise_on_error=raise_on_error,
-        instance=instance,
-    )
+    with (
+        patch("posthog.models.async_deletion.delete_cohorts.COHORT_MUTATION_POLL_SECONDS", 0.1),
+        patch.object(clickhouse_cleanup, "MUTATION_POLL_SECONDS", 0.1),
+    ):
+        return clickhouse_deletion_sweep_job.execute_in_process(
+            run_config=without_age_floor(run_config),
+            resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
+            raise_on_error=raise_on_error,
+            instance=instance,
+        )
 
 
 def visible_persons(client: Client) -> int:
@@ -1177,12 +1189,11 @@ def test_mutation_progress_tolerates_brief_invisibility_and_fails_when_it_persis
 
 @pytest.mark.django_db
 def test_a_mutation_that_fails_every_attempt_fails_the_run_and_gets_killed(
-    cluster: ClickhouseCluster, persons_database, monkeypatch
+    cluster: ClickhouseCluster, persons_database
 ):
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="doomed", person_id=deleted, version=0)
 
-    monkeypatch.setattr(clickhouse_cleanup, "MUTATION_POLL_SECONDS", 0.1)
     real_runner = clickhouse_cleanup.LightweightDeleteMutationRunner
 
     def poisoned_runner(*args, **kwargs):

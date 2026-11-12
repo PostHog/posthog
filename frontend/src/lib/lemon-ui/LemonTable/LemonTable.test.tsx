@@ -35,6 +35,43 @@ describe('LemonTable', () => {
 
     afterEach(cleanup)
 
+    it('updates bulk checkboxes without rendering data cells again', () => {
+        const renderCell = jest.fn((_: unknown, row: Row) => row.name)
+        const renderActions = jest.fn((_context: { selectedKeys: ReadonlyArray<string | number> }) => (
+            <span>Bulk actions</span>
+        ))
+        render(
+            <LemonTable
+                dataSource={DATA}
+                rowKey="id"
+                columns={[{ title: 'Name', render: renderCell }]}
+                bulkSelection={{
+                    rowAriaLabel: (row) => `Select ${row.name}`,
+                    headerAriaLabel: 'Select page',
+                    renderActions,
+                }}
+            />
+        )
+        renderCell.mockClear()
+
+        fireEvent.click(screen.getByLabelText('Select alpha'))
+
+        expect(screen.getByLabelText('Select alpha')).toBeChecked()
+        expect(screen.getByLabelText('Select beta')).not.toBeChecked()
+        expect(screen.getByLabelText('Select page').closest('.LemonCheckbox')).toHaveClass(
+            'LemonCheckbox--indeterminate'
+        )
+        expect(renderActions.mock.calls.at(-1)?.[0]).toMatchObject({ selectedKeys: [1] })
+        expect(renderCell).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByLabelText('Select page'))
+        for (const row of DATA) {
+            expect(screen.getByLabelText(`Select ${row.name}`)).toBeChecked()
+        }
+        expect(screen.getByLabelText('Select page')).toBeChecked()
+        expect(renderCell).not.toHaveBeenCalled()
+    })
+
     it.each([
         { children: 'plain data', props: { title: 'data title' } },
         { props: { dangerouslySetInnerHTML: { __html: '<b>plain data</b>' } } },
@@ -199,6 +236,27 @@ describe('LemonTable', () => {
             }
         }
     )
+
+    it('reports the rows in sorted order, and again only when they change', () => {
+        const onSortedRowsChange = jest.fn()
+        const table = (dataSource: Row[]): JSX.Element => (
+            <LemonTable
+                rowKey="id"
+                dataSource={dataSource}
+                columns={[...COLUMNS]}
+                defaultSorting={{ columnKey: 'value', order: 1 }}
+                onSortedRowsChange={onSortedRowsChange}
+            />
+        )
+        const { rerender } = render(table(DATA))
+        expect(onSortedRowsChange.mock.calls).toEqual([[[DATA[1], DATA[2], DATA[0]]]])
+
+        rerender(table(DATA))
+        expect(onSortedRowsChange).toHaveBeenCalledTimes(1)
+
+        rerender(table([DATA[0]]))
+        expect(onSortedRowsChange).toHaveBeenLastCalledWith([DATA[0]])
+    })
 
     it('does not rerender retained virtualized cells when scrolling', () => {
         const height = jest

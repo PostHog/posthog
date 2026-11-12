@@ -539,6 +539,13 @@ export const ExperimentResultsGetSchema = z.preprocess(
     })
 )
 
+export const ExperimentHealthGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, z.number().describe('The ID of the experiment to check')),
+    })
+)
+
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
 // accept a numeric id — production traces show both mistakes are common.
@@ -587,12 +594,18 @@ const ExplainChartEvidenceSchema = z.object({
         .describe(
             'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
+    insightShortId: z
+        .string()
+        .regex(/^[A-Za-z0-9]{8}$/)
+        .optional()
+        .describe('The `short_id` of a saved insight that shows this. The explanation links to it.'),
     url: z
         .string()
-        .url()
-        .startsWith('https://')
+        .regex(/^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/(pull\/\d+|commit\/[0-9a-fA-F]{7,40})\/?$/)
         .optional()
-        .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
+        .describe(
+            'A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.'
+        ),
 })
 
 const ExplainChartChapterSchema = z.object({
@@ -605,13 +618,15 @@ const ExplainChartChapterSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+            "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
         ),
     end: z
         .string()
         .min(1)
         .optional()
-        .describe('The last point the chapter covers, inclusive. Omit it when the chapter is about one point.'),
+        .describe(
+            'The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.'
+        ),
     summary: z
         .string()
         .max(400)
@@ -636,43 +651,67 @@ const ExplainChartChapterSchema = z.object({
     evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
 })
 
+const explainChartFields = {
+    insightId: z
+        .union([z.string(), z.number()])
+        .optional()
+        .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+            'A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.'
+        ),
+    series: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .default(0)
+        .describe(
+            "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one."
+        ),
+    headline: z
+        .string()
+        .min(1)
+        .max(300)
+        .describe(
+            'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+        ),
+    chapters: z
+        .array(ExplainChartChapterSchema)
+        .min(1)
+        .max(8)
+        .describe('The moments that stand out, in the order to read them. At most 8.'),
+}
+
+const onlyOneChart = {
+    check: (params: { insightId?: unknown; query?: unknown }): boolean =>
+        (params.insightId === undefined) !== (params.query === undefined),
+    message: 'Pass exactly one of `insightId` or `query`.',
+}
+
+const explainChartAliases = normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] })
+
 export const ExplainChartInputSchema = z.preprocess(
-    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    explainChartAliases,
+    z.object(explainChartFields).refine(onlyOneChart.check, { message: onlyOneChart.message })
+)
+
+export const ExplainChartSaveInputSchema = z.preprocess(
+    explainChartAliases,
     z
         .object({
-            insightId: z
-                .union([z.string(), z.number()])
-                .optional()
-                .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
-            query: z
-                .record(z.string(), z.unknown())
-                .optional()
-                .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
-            series: z
-                .number()
-                .int()
-                .min(0)
-                .optional()
-                .default(0)
-                .describe(
-                    "Index of the series in the chart's results that the story follows. Defaults to the first one."
-                ),
-            headline: z
+            ...explainChartFields,
+            explanationId: z
                 .string()
-                .min(1)
-                .max(300)
+                .uuid()
+                .optional()
                 .describe(
-                    'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+                    'The id an earlier `explain-chart-save` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
                 ),
-            chapters: z
-                .array(ExplainChartChapterSchema)
-                .min(1)
-                .max(8)
-                .describe('The moments that stand out, in the order to read them. At most 8.'),
         })
-        .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
-            message: 'Pass exactly one of `insightId` or `query`.',
-        })
+        .refine(onlyOneChart.check, { message: onlyOneChart.message })
 )
 
 export const AIObservabilityGetCostsSchema = z.object({
@@ -982,7 +1021,7 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Why this query runs, and the governed-catalog outcome behind it: state "governed catalog consulted: no match" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
+            'Why this query runs, and the governed-catalog outcome behind it. Write "governed catalog consulted: no match" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
         ),
     truncate: z
         .boolean()
@@ -1335,7 +1374,7 @@ export const WorkflowGraphPatchSchema = z.object({
 const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
 
 const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
-    z.object({
+    z.strictObject({
         op: z.literal('update_content'),
         id: z.string().describe('Id of the content block to update.'),
         patch: EmailDesignFreeformObject.describe(
@@ -1343,23 +1382,23 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
                 "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_column'),
         id: z.string().describe('Id of the column to update.'),
         patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_row'),
         id: z.string().describe('Id of the row to update.'),
         patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_body'),
         patch: EmailDesignFreeformObject.describe(
             "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_content'),
         column_id: z.string().describe('Id of the column to insert the block into.'),
         content: EmailDesignFreeformObject.describe(
@@ -1368,17 +1407,17 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_content'),
         id: z.string().describe('Id of the content block to remove.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('move_content'),
         id: z.string().describe('Id of the content block to move.'),
         column_id: z.string().describe('Id of the destination column.'),
         index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_row'),
         row: EmailDesignFreeformObject.describe(
             'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
@@ -1386,13 +1425,13 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_row'),
         id: z.string().describe('Id of the row to remove.'),
     }),
 ])
 
-export const EmailTemplateDesignPatchSchema = z.object({
+export const EmailTemplateDesignPatchSchema = z.strictObject({
     id: z.string().describe('The email template id to edit.'),
     operations: z
         .array(EmailDesignPatchOperationSchema)
@@ -1496,4 +1535,49 @@ export const FlagRulesV2UpdateInputSchema = z.preprocess(
             })
             .describe('The complete new configuration. It replaces the stored `filters`.'),
     })
+)
+
+// A scanner's recording filter, as the replay vision tools take it. The API validates the full
+// `RecordingsQuery`; inlining that schema in every scanner tool costs agents hundreds of kilobytes each,
+// so this names the parts a scanner filters on and lets each item through for the API to check.
+const RecordingFilterItemsSchema = z.array(z.record(z.string(), z.unknown()))
+
+const ScannerRecordingsFilterFields = z
+    .object({
+        kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
+        events: RecordingFilterItemsSchema.nullish().describe(
+            'Events a recording must contain, such as `{"id": "$pageview", "type": "events", "order": 0}`. Each can carry `properties` that filter that event.'
+        ),
+        actions: RecordingFilterItemsSchema.nullish().describe(
+            'Saved actions a recording must contain, such as `{"id": 12, "type": "actions", "order": 0}`.'
+        ),
+        properties: RecordingFilterItemsSchema.nullish().describe(
+            'Recording, session, person and cohort filters, such as `{"type": "recording", "key": "visited_page", "value": "/checkout", "operator": "icontains"}` or `{"type": "cohort", "key": "id", "value": 7, "operator": "in"}`.'
+        ),
+        having_predicates: RecordingFilterItemsSchema.nullish().describe(
+            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`. These always apply with AND, whatever `operand` says.'
+        ),
+        console_log_filters: RecordingFilterItemsSchema.nullish().describe(
+            'Console log filters, such as `{"type": "log_entry", "key": "level", "value": ["error"], "operator": "exact"}`.'
+        ),
+        operand: z
+            .enum(['AND', 'OR'])
+            .nullish()
+            .describe(
+                'How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.'
+            ),
+        filter_test_accounts: z.boolean().nullish().describe('Leave out recordings from internal and test accounts.'),
+    })
+    .passthrough()
+
+export const ScannerRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
+)
+
+export const ScannerUpdateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time."
+)
+
+export const ScannerEstimateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.'
 )

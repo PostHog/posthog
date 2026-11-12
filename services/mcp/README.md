@@ -244,7 +244,7 @@ Available features:
 | `health_issues`          | Health                                                                                          |
 | `hog_function_templates` | CDP function template browsing                                                                  |
 | `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
-| `insights`               | [Insights & analytics](https://posthog.com/docs/product-analytics/insights)                     |
+| `insights`               | [Run insight queries](https://posthog.com/docs/product-analytics/insights)                      |
 | `integrations`           | Integrations                                                                                    |
 | `links`                  | PostHog app URL generation                                                                      |
 | `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
@@ -258,7 +258,7 @@ Available features:
 | `notebooks`              | [Notebooks](https://posthog.com/docs/notebooks)                                                 |
 | `persons`                | [Persons](https://posthog.com/docs/data/persons)                                                |
 | `platform_features`      | Platform Features                                                                               |
-| `product_analytics`      | Product analytics                                                                               |
+| `product_analytics`      | Saved insights and other product analytics tools                                                |
 | `reminders`              | Reminders                                                                                       |
 | `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
 | `replay_vision`          | Replay vision                                                                                   |
@@ -281,7 +281,7 @@ Available features:
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
-To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions.json` (hand-written tools) and `schema/generated-tool-definitions.json` (tools generated from YAML).
 
 ### Learning and skills in cli mode
 
@@ -314,6 +314,8 @@ The cached bytes are kept for thirty days and re-extended on every refresh, so a
 No `learn`, `initialize`, or `discover` request reads the archive from Redis.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+The context-mill omnibus skills are overlaid on that bundle from the shared copy the resource refresh publishes; set `POSTHOG_MCP_OMNIBUS_SKILLS=off` to serve the bundle alone.
+A pinned bundle (`POSTHOG_MCP_SKILLS_SHA256`) serves no overlay, and a product skill keeps its name when an overlay skill collides with it.
 Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
@@ -454,7 +456,7 @@ Changes in the examples repo will be reflected on the next request.
 
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
-- `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
+- `schema/` - Tool definitions: hand-written `tool-definitions.json`, plus generated files such as `generated-tool-definitions.json`
 
 ### Development Commands
 

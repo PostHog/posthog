@@ -12,6 +12,12 @@
             "minimum": 1,
             "type": "number"
         },
+        "max_age_minutes": {
+            "description": "The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.",
+            "maximum": 10080,
+            "minimum": 0,
+            "type": "number"
+        },
         "refresh": {
             "default": false,
             "description": "Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.",
@@ -19,7 +25,7 @@
         },
         "wait_seconds": {
             "default": 0,
-            "description": "When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.",
+            "description": "When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.",
             "maximum": 30,
             "minimum": 0,
             "type": "number"

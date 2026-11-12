@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.rbac.decorators import field_access_control
 
@@ -22,6 +23,14 @@ from products.access_control.backend.presentation.access_control import UserAcce
 
 
 class TestFieldAccessControlDecorator(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # Project field checks are skipped without the entitlement
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
     def test_decorator_adds_metadata_to_field(self):
         """Test that the decorator adds access control metadata to fields"""
         field = cast(Any, Team)._meta.get_field("session_recording_opt_in")

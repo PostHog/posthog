@@ -9,8 +9,8 @@ import { objectClean } from 'lib/utils/objects'
 import { retryImport } from 'lib/utils/retryImport'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
+import type { ExposureSource } from 'scenes/experiments/exposureContract'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -49,6 +49,7 @@ import {
     isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
     Node,
@@ -75,7 +76,6 @@ import type { Realm, UserType } from '../../types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
-    DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
     Hotkey = 'hotkey',
@@ -86,8 +86,6 @@ export enum DashboardEventSource {
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
-    CardEdgeHover = 'card_edge_hover',
-    CardDragHandle = 'card_drag_handle',
     DashboardFilters = 'dashboard_filters',
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
@@ -491,6 +489,14 @@ export function getEventPropertiesForMetric(
             return {
                 ...base,
                 ...getSourceProperties(metric.source),
+            }
+        }
+
+        if (isExperimentQuantileMetric(metric)) {
+            return {
+                ...base,
+                ...getSourceProperties(metric.source),
+                quantile: metric.quantile,
             }
         }
 
@@ -1043,6 +1049,9 @@ export interface eventUsageLogicActions {
     reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
     }
+    reportExperimentWizardExposureSourceSelected: (exposureSource: ExposureSource) => {
+        exposureSource: ExposureSource
+    }
     reportExperimentWizardStarted: () => {
         value: true
     }
@@ -1100,6 +1109,13 @@ export interface eventUsageLogicActions {
         archivedCount: number
         failedCount: number
         pendingApprovalCount: number
+    }
+    reportFeatureFlagsBulkRestored: (
+        restoredCount: number,
+        failedCount: number
+    ) => {
+        failedCount: number
+        restoredCount: number
     }
     reportFlagsCodeExampleInteraction: (optionType: string) => {
         optionType: string
@@ -1175,12 +1191,10 @@ export interface eventUsageLogicActions {
     reportIntegrationConnectClicked: (
         integration: string,
         kind: string,
-        surface: IntegrationConnectSurface,
-        selfDriving?: boolean
+        surface: IntegrationConnectSurface
     ) => {
         integration: string
         kind: string
-        selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
     reportIntegrationConnectRejected: (
@@ -1458,34 +1472,6 @@ export interface eventUsageLogicActions {
             enabled: boolean
         }
     }
-    reportWizardSyncSessionDetected: (props: {
-        runPhase: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }) => {
-        runPhase: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }
-    reportWizardSyncSessionFinished: (props: {
-        completedTaskCount: number
-        elapsedSeconds: number
-        errorKind: InstallationErrorKind | null
-        outcome: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }) => {
-        completedTaskCount: number
-        elapsedSeconds: number
-        errorKind: 'usage_limit' | null
-        outcome: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }
 }
 
 export type eventUsageLogicType = MakeLogicType<eventUsageLogicValues, eventUsageLogicActions>
@@ -1504,16 +1490,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
-        reportIntegrationConnectClicked: (
-            integration: string,
-            kind: string,
-            surface: IntegrationConnectSurface,
-            selfDriving?: boolean
-        ) => ({
+        reportIntegrationConnectClicked: (integration: string, kind: string, surface: IntegrationConnectSurface) => ({
             integration,
             kind,
             surface,
-            selfDriving,
         }),
         reportIntegrationLinkExistingOffered: (
             kind: string,
@@ -1580,6 +1560,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
+        reportExperimentWizardExposureSourceSelected: (exposureSource: ExposureSource) => ({ exposureSource }),
         reportExperimentsListAiBadgeClicked: true,
         reportExperimentsListViewed: (listView: {
             experimentsShown: number
@@ -1736,6 +1717,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pendingApprovalCount,
             failedCount,
         }),
+        reportFeatureFlagsBulkRestored: (restoredCount: number, failedCount: number) => ({
+            restoredCount,
+            failedCount,
+        }),
         reportInviteMembersButtonClicked: true,
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
@@ -1763,23 +1748,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             sdkKey,
             surface,
         }),
-        // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
-        // (installationProgressLogic); guards for "once per session" live in that logic.
-        reportWizardSyncSessionDetected: (props: {
-            workflowId: string
-            skillId: string
-            runPhase: string
-            taskCount: number
-        }) => props,
-        reportWizardSyncSessionFinished: (props: {
-            workflowId: string
-            skillId: string
-            outcome: string
-            errorKind: InstallationErrorKind | null
-            taskCount: number
-            completedTaskCount: number
-            elapsedSeconds: number
-        }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
         reportRevenueAnalyticsSettingsViewed: () => ({}),
@@ -1901,15 +1869,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
-        reportIntegrationConnectClicked: ({ integration, kind, surface, selfDriving }) => {
+        reportIntegrationConnectClicked: ({ integration, kind, surface }) => {
             posthog.capture('integration_connect_clicked', {
                 integration,
                 integration_kind: kind,
                 surface,
-                // Only set where the surface can actually tell. The OAuth landing page serves both
-                // self-driving runs and everyone else, so it resolves this; surfaces that are
-                // self-driving by construction leave it unset rather than assert a constant.
-                self_driving: selfDriving,
             })
         },
         // The banner offering an existing installation is where an unfamiliar account name is read,
@@ -1956,7 +1920,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
+            posthog.capture('time to see data', { ...payload, $update_person_last_seen_at: false })
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')
@@ -2077,6 +2041,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentWizardAskAiClicked: ({ currentStep }) => {
             posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
+        },
+        reportExperimentWizardExposureSourceSelected: ({ exposureSource }) => {
+            posthog.capture('experiment wizard exposure source selected', { exposure_source: exposureSource })
         },
         reportExperimentsListAiBadgeClicked: () => {
             posthog.capture('experiments list ai badge clicked')
@@ -2358,6 +2325,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 failed_count: failedCount,
             })
         },
+        reportFeatureFlagsBulkRestored: ({ restoredCount, failedCount }) => {
+            posthog.capture('feature flags bulk restored', {
+                restored_count: restoredCount,
+                failed_count: failedCount,
+            })
+        },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
         },
@@ -2430,33 +2403,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk setup instructions sdk selected', {
                 sdk: sdkKey,
                 surface,
-            })
-        },
-        reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {
-            posthog.capture('setup wizard sync session detected', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                run_phase: runPhase,
-                task_count: taskCount,
-            })
-        },
-        reportWizardSyncSessionFinished: ({
-            workflowId,
-            skillId,
-            outcome,
-            errorKind,
-            taskCount,
-            completedTaskCount,
-            elapsedSeconds,
-        }) => {
-            posthog.capture('setup wizard sync session finished', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                outcome,
-                error_kind: errorKind,
-                task_count: taskCount,
-                completed_task_count: completedTaskCount,
-                elapsed_seconds: elapsedSeconds,
             })
         },
         // command bar

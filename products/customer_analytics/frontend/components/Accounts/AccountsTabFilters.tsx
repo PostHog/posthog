@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
+import { TagSelect } from 'lib/components/TagSelect'
 
-import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
@@ -27,8 +27,6 @@ export function AccountsTabFilters(): JSX.Element {
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -62,31 +60,20 @@ export function AccountsTabFilters(): JSX.Element {
             </div>
             <div className="flex flex-wrap gap-2 items-center">
                 <div className="contents">
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        onVisibilityChange={(open) => open && loadTagsIfNeeded()}
-                        overlay={
-                            <div className="p-2 min-w-64">
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    allowCustomValues
-                                    value={tagsFilter}
-                                    options={(tagsAvailable || []).map((t: string) => ({ key: t, label: t }))}
-                                    loading={tagsLoading}
-                                    onChange={(tags) => {
-                                        setTagsFilter(tags)
-                                        reportFilterChange('tag')
-                                    }}
-                                    placeholder="Select or type tags..."
-                                    data-attr="accounts-tags-filter"
-                                />
-                            </div>
-                        }
+                    <TagSelect
+                        value={tagsFilter}
+                        onChange={(tags) => {
+                            setTagsFilter(tags)
+                            reportFilterChange('tag')
+                        }}
+                        listDataAttr="accounts-tags-filter"
                     >
-                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                            {tagsButtonLabel}
-                        </LemonButton>
-                    </LemonDropdown>
+                        {() => (
+                            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                                {tagsButtonLabel}
+                            </LemonButton>
+                        )}
+                    </TagSelect>
                     {tagsFilter.length > 0 && (
                         <LemonButton
                             type="secondary"

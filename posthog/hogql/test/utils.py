@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_json_path
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
@@ -184,10 +184,9 @@ def json_dynamic_read_sql_from_parts(
 ) -> str:
     """The ClickHouse SQL the resolver prints for a property read on the native-JSON events table.
 
-    `field` and `sub_object` are called once per occurrence, so a caller whose key is parameterized can hand out the
-    next `%(hogql_val_N)s` placeholder each time. The shape mirrors `_json_subcolumn_value_expr`: a non-empty
-    sub-object wins, a missing key reads as NULL, containers render as JSON. A declared path cannot hold NULL, so
-    its '' and [] defaults read as NULL as well.
+    `field` and `sub_object` are called once per occurrence of the read. The shape mirrors
+    `_json_subcolumn_value_expr`: a non-empty sub-object wins, a missing key reads as NULL, containers render as
+    JSON. A declared path cannot hold NULL, so its '' and [] defaults read as NULL as well.
     """
     sub_object_read = f"toJSONString({sub_object()})" if with_sub_object else ""
     sub_object_again = f"toJSONString({sub_object()})" if with_sub_object else ""
@@ -216,7 +215,7 @@ def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool
     """
     field = root
     for key in path:
-        field += f"[{key}]" if isinstance(key, int) else f".{escape_clickhouse_identifier(key)}"
+        field += f"[{key}]" if isinstance(key, int) else f".{escape_clickhouse_json_path(key)}"
     if any(isinstance(key, int) for key in path):
         return json_dynamic_read_sql_from_parts(
             lambda: field, lambda: field, as_json=as_json, with_sub_object=False, declared=True
@@ -225,7 +224,7 @@ def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if root.endswith(".person_properties") else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
     declared = ".".join(str(key) for key in path) in declared_types
-    escaped = ".".join(escape_clickhouse_identifier(key) for key in path if isinstance(key, str))
+    escaped = ".".join(escape_clickhouse_json_path(key) for key in path if isinstance(key, str))
     return json_dynamic_read_sql_from_parts(
         lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json, declared=declared
     )

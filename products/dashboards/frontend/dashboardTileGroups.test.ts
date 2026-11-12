@@ -1,12 +1,11 @@
 import type { Layout } from 'react-grid-layout'
 
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
-
 import type { DashboardLayoutSize, DashboardTile, DashboardWidgetModel, TileLayout } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from './dashboardTileGroups'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
+import { calculateLayouts } from './tileLayouts'
 
 const tile = (id: number, group_key: string | null): DashboardTile =>
     ({ id, group_key, layouts: {}, color: null }) as DashboardTile

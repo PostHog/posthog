@@ -7,8 +7,9 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
@@ -152,7 +153,12 @@ async def deliver_email(
 
 
 def _resolve_slack_integration(subscription: Subscription) -> IntegrationRecord | None:
-    integration: IntegrationRecord | None = subscription.integration
+    integration: IntegrationRecord | None = None
+    if subscription.integration_id is not None:
+        try:
+            integration = IntegrationManager.any.get(subscription.team_id, subscription.integration_id)
+        except IntegrationNotFound:
+            pass
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
             "deliver_subscription.invalid_integration_kind",
@@ -218,14 +224,24 @@ async def deliver_slack(
             subscription_id=subscription.id,
             failed_thread_count=len(result.failed_thread_message_indices),
             total_thread_count=result.total_thread_messages,
+            undelivered_asset_count=result.undelivered_asset_count,
         )
+        parts: list[str] = []
+        failure_types: list[str] = []
         failed_count = len(result.failed_thread_message_indices)
-        partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
+        if failed_count:
+            parts.append(f"{pluralize(failed_count, 'thread message')} failed")
+            failure_types.append("partial_thread_failure")
+        undelivered_count = result.undelivered_asset_count
+        if undelivered_count:
+            parts.append(f"{pluralize(undelivered_count, 'chart')} could not be attached")
+            failure_types.append("undelivered_assets")
+        partial_message = "; ".join(parts)
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.recipient_label,
                 status="partial",
-                error={"message": partial_message, "type": "partial_thread_failure"},
+                error={"message": partial_message, "type": ",".join(failure_types)},
                 human_readable_error=partial_message,
             )
         )

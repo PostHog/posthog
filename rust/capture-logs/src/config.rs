@@ -34,8 +34,14 @@ pub struct Config {
     #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
     pub firehose_max_request_body_size_bytes: usize,
 
+    #[envconfig(from = "MAX_EXPANDED_REQUEST_BYTES", default = "268435456")] // 256 MiB
+    pub max_expanded_request_bytes: usize,
+
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
+
+    // Tokens that may use the Vercel drain route, or "*" for all. Unset keeps the route closed.
+    pub vercel_drain_enabled_tokens: Option<String>, // "<token>,<token>..." or "*"
 }
 
 impl Config {

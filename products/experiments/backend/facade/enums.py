@@ -3,6 +3,8 @@
 from decimal import Decimal
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 MAX_RECALCULATION_TIMES = 2
 # frontend/src/scenes/settings/environment/ExperimentRecalculationTime.tsx repeats this value, so change both together.
 MIN_RECALCULATION_GAP_HOURS = 6
@@ -34,3 +36,27 @@ class PrecomputeSkipReason(StrEnum):
     COHORT_NOT_CALCULATED = "cohort_not_calculated"
     DATA_WAREHOUSE = "data_warehouse"
     GROUP_AGGREGATION = "group_aggregation"
+    FLAG_RULE = "flag_rule"
+
+
+class ExperimentResultConfigurationStatus(LabeledStrEnum):
+    CURRENT = "current", "Current settings"
+    PREVIOUS = "previous", "Earlier settings"
+    UNKNOWN = "unknown", "Settings not recorded"
+
+
+class RecalculationStartOutcome(StrEnum):
+    STARTED = "started"
+    # An active run already existed, so no new run was created.
+    REUSED = "reused"
+    NOT_CREATED = "not_created"
+    # The row was created, but the workflow did not start, so the row is marked failed.
+    WORKFLOW_NOT_STARTED = "workflow_not_started"
+
+
+class TerminalMarkOutcome(StrEnum):
+    MARKED = "marked"
+    NOT_FOUND = "not_found"
+    ALREADY_TERMINAL = "already_terminal"
+    # A run without a query window never started, so it can only be marked failed.
+    NEVER_STARTED = "never_started"

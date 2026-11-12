@@ -15,6 +15,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -23,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
@@ -73,6 +75,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.OAuthAuthorize]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.OrganizationDeactivated]: sceneImport,
     [Scene.OrganizationPendingDeletion]: sceneImport,
@@ -83,6 +86,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
+    ReplayVision: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
     [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
     [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
@@ -342,11 +346,21 @@ describe('sceneLogic', () => {
         ['/organization/projects/new', urls.projectCreateFirst(), Scene.ProjectCreateFirst],
         ['/organization/create', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
         ['/organization/new', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/project/settings/environment-replay', urls.settings('environment-replay'), Scene.Settings],
+        // Bookmarks of the doubled path an id-less settings link once turned into must reach settings too
+        ['/project/123/project/settings/project-details', urls.settings('project-details'), Scene.Settings],
     ])('sends the unrouted %s to %s instead of the 404 scene', async (path, expected, expectedScene) => {
         router.actions.push(path)
         await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(expectedScene)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
+    it('keeps the setting anchor when redirecting an id-less settings section link', async () => {
+        router.actions.push('/project/settings/environment-replay#replay-triggers')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('environment-replay'))
+        expect(router.values.location.hash).toEqual('#replay-triggers')
     })
 
     // The redirect table is keyed on exact paths, so a later `/organization/*` prefix entry would
@@ -406,6 +420,32 @@ describe('sceneLogic', () => {
         router.actions.push('/replay/vision')
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
+    })
+
+    it.each([
+        ['sends a self-hosted install to the Move to PostHog Cloud page', false, false, urls.moveToPostHogCloud()],
+        [
+            'sends a self-hosted install away once preflight loads after the scene opened',
+            false,
+            true,
+            urls.moveToPostHogCloud(),
+        ],
+        ['keeps a cloud install on the scene', true, false, urls.replayVision()],
+        ['keeps a cloud install on the scene once preflight loads after it opened', true, true, urls.replayVision()],
+    ])('cloud-only scene: %s', async (_, cloud, preflightLoadsAfterOpen, expectedPath) => {
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        const loadPreflight = (): void => {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, cloud, is_debug: false } as any)
+        }
+        if (!preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
+        router.actions.push(urls.replayVision())
+        if (preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
     })
 
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
@@ -485,33 +525,56 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
+    const setUpUserWithoutOrganization = (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+    const setUpUserWithoutProjects = (): void => {
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+    }
+
     it.each([
-        ['without an organization', (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)],
+        [
+            'without an organization',
+            'agentic',
+            setUpUserWithoutOrganization,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
+        ],
         [
             'whose organization has no projects',
-            (): void => {
-                userLogic.actions.loadUserSuccess({
-                    ...MOCK_DEFAULT_USER,
-                    organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
-                })
-                teamLogic.actions.loadCurrentTeamSuccess(null)
-            },
+            'agentic',
+            setUpUserWithoutProjects,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
         ],
-    ])('keeps a signed-in user %s on the agentic consent page', async (_label, setUpUser) => {
-        setUpUser()
-        const originalPath = window.location.pathname
-        // openScene reads window.location, which the test router's memory history never moves.
-        window.history.replaceState(null, '', urls.agenticAuthorize())
-        try {
-            router.actions.push(urls.agenticAuthorize())
-            await expectLogic(logic).delay(1)
+        ['without an organization', 'OAuth', setUpUserWithoutOrganization, urls.oauthAuthorize(), Scene.OAuthAuthorize],
+        [
+            'whose organization has no projects',
+            'OAuth',
+            setUpUserWithoutProjects,
+            urls.oauthAuthorize(),
+            Scene.OAuthAuthorize,
+        ],
+    ])(
+        'keeps a signed-in user %s on the %s consent page',
+        async (_label, _page, setUpUser, consentPath, consentScene) => {
+            setUpUser()
+            const originalPath = window.location.pathname
+            // openScene reads window.location, which the test router's memory history never moves.
+            window.history.replaceState(null, '', consentPath)
+            try {
+                router.actions.push(consentPath)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.agenticAuthorize())
-            expect(logic.values.sceneId).toEqual(Scene.AgenticAuthorize)
-        } finally {
-            window.history.replaceState(null, '', originalPath)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(consentPath)
+                expect(logic.values.sceneId).toEqual(consentScene)
+            } finally {
+                window.history.replaceState(null, '', originalPath)
+            }
         }
-    })
+    )
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
@@ -612,6 +675,27 @@ describe('sceneLogic', () => {
         }
     )
 
+    it('renders the project access denied scene for project pages, not account settings, once the server refuses the current project', async () => {
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        const projectScene = logic.values.activeExportedScene
+        const projectSceneLogic = projectScene?.logic?.(projectScene.paramsToProps?.(logic.values.sceneParams) ?? {})
+        expect(projectSceneLogic?.isMounted()).toBe(true)
+
+        teamLogic.actions.currentProjectAccessDenied()
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        expect(projectSceneLogic?.isMounted()).toBe(false)
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+        router.actions.push(urls.settings('project'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+    })
+
     it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
@@ -676,50 +760,62 @@ describe('sceneLogic', () => {
     it.each([
         [
             'sends the homepage to the welcome page and keeps the side panel prompt',
+            'connector',
             `${urls.projectHomepage()}#panel=max:hello`,
             urls.onboardingWelcome(),
             { panel: 'max:hello' },
         ],
         [
             'keeps a deep link open',
+            'connector',
             urls.insightView('abc123' as InsightShortId),
             urls.insightView('abc123' as InsightShortId),
             {},
         ],
-    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
-        const priorAppContext = window.POSTHOG_APP_CONTEXT
-        try {
-            logic.unmount()
-            window.POSTHOG_APP_CONTEXT = {
-                ...priorAppContext,
-                current_user: {
-                    ...MOCK_DEFAULT_USER,
-                    organization: MOCK_DEFAULT_ORGANIZATION,
-                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
-                    onboarding_skipped_reason: 'connector',
-                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
-                },
-            } as AppContext
-            initKeaTests(true, {
-                ...MOCK_DEFAULT_TEAM,
-                ingested_event: false,
-                completed_snippet_onboarding: false,
-                has_completed_onboarding_for: {},
-            })
-            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
-            featureFlagLogic.mount()
-            logic = sceneLogic.build({ scenes: testScenes })
-            logic.mount()
+        [
+            'sends a device login signup to the welcome page too',
+            'device_login',
+            urls.projectHomepage(),
+            urls.onboardingWelcome(),
+            {},
+        ],
+    ] as const)(
+        'OAuth signup with no data: %s',
+        async (_name, skippedReason, target, expectedRoute, expectedHashParams) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                logic.unmount()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...priorAppContext,
+                    current_user: {
+                        ...MOCK_DEFAULT_USER,
+                        organization: MOCK_DEFAULT_ORGANIZATION,
+                        onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                        onboarding_skipped_reason: skippedReason,
+                        onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                    },
+                } as AppContext
+                initKeaTests(true, {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                logic = sceneLogic.build({ scenes: testScenes })
+                logic.mount()
 
-            router.actions.push(target)
-            await expectLogic(logic).delay(1)
+                router.actions.push(target)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
-            expect(router.values.hashParams).toEqual(expectedHashParams)
-        } finally {
-            window.POSTHOG_APP_CONTEXT = priorAppContext
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+                expect(router.values.hashParams).toEqual(expectedHashParams)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         }
-    })
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

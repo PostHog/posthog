@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.experiments.backend.facade.enums import RecalculationStartOutcome
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -243,6 +245,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -251,6 +254,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
+    STALE_EXPERIMENT = "stale_experiment"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -313,22 +318,9 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     ADD_SECONDARY_METRIC = "add_secondary_metric"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
-
-
-@frozen
-class ExperimentHealthFinding:
-    """One problem that a health check found in an experiment, with what fixes it."""
-
-    code: ExperimentHealthFindingCode
-    subcode: str | None
-    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
-    reason: str | None = None
-    severity: ExperimentHealthFindingSeverity
-    title: str
-    detail: str
-    evidence: Mapping[str, str | int | float | bool | None]
-    actions: tuple[ExperimentHealthFindingActionKind, ...]
-    diagnostic_ref: str | None
+    END_EXPERIMENT = "end_experiment"
+    FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -336,6 +328,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
@@ -352,11 +345,32 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+@frozen
+class ExperimentHealthFinding:
+    """One problem that a health check found in an experiment, with what fixes it."""
+
+    code: ExperimentHealthFindingCode
+    subcode: str | None
+    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
+    reason: str | None = None
+    severity: ExperimentHealthFindingSeverity
+    title: str
+    detail: str
+    evidence: Mapping[str, str | int | float | bool | None]
+    actions: tuple[ExperimentHealthFindingActionKind, ...]
+    diagnostic_ref: str | None
+    # The check that reported the finding. A code doesn't name its check, because one check can report several codes.
+    # The registry sets it, so a check leaves it out.
+    check: ExperimentHealthCheckKey | None = None
 
 
 class ExperimentHealthCheckStatus(LabeledStrEnum):
@@ -367,19 +381,207 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
     NOT_CHECKED = "not_checked"
 
 
+class ExperimentHealthValueKey(LabeledStrEnum):
+    # API callers read these keys in a check's `values` and its `rule`. The suffix gives the unit: `_count` is a
+    # count, `_percentage` is on the 0-100 scale, `_hours` is hours and `_at` is an ISO 8601 time in UTC. A key without a
+    # unit suffix is a setting or a state, as a string or a boolean. A key means the same thing in every check, so two
+    # values that differ in meaning get two keys.
+    EXPOSED_COUNT = (
+        "exposed_count",
+        "Users or groups exposed since launch, as the exposure criteria count them, including those exposed to "
+        "multiple variants",
+    )
+    COMPARED_COUNT = (
+        "compared_count",
+        "Exposed users or groups in the variants that the sample ratio test compares, without those exposed to "
+        "multiple variants",
+    )
+    MULTIPLE_VARIANT_COUNT = "multiple_variant_count", "Users or groups exposed to more than one variant"
+    MULTIPLE_VARIANT_PERCENTAGE = "multiple_variant_percentage", "multiple_variant_count as a share of exposed_count"
+    MULTIPLE_VARIANT_HANDLING = (
+        "multiple_variant_handling",
+        "What the results do with users exposed to more than one variant: exclude or first_seen",
+    )
+    P_VALUE = "p_value", "P-value of the sample ratio test"
+    SINCE_LAUNCH_HOURS = "since_launch_hours", "Hours since launch"
+    EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = (
+        "exposed_without_test_account_filter_count",
+        "Users or groups that the exposure criteria count without the test account filters",
+    )
+    KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = (
+        "kept_by_test_account_filter_percentage",
+        "exposed_count as a share of exposed_without_test_account_filter_count",
+    )
+    UNSERVED_EXPOSED_COUNT = (
+        "unserved_exposed_count",
+        "Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag "
+        "doesn't serve since that save",
+    )
+    UNSERVED_EXPOSED_PERCENTAGE = (
+        "unserved_exposed_percentage",
+        "unserved_exposed_count as a share of the users or groups first exposed after that day",
+    )
+    ONLY_COUNT_MATURED_USERS = (
+        "only_count_matured_users",
+        'Whether "Require completed conversion or retention window" is on',
+    )
+    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics that the calculation computes"
+    WAITING_METRIC_COUNT = (
+        "waiting_metric_count",
+        "Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet",
+    )
+    METRIC_COUNT = "metric_count", "Metrics that the calculation computes"
+    COMPLETED_METRIC_COUNT = "completed_metric_count", "Metrics whose result of the latest calculation the page shows"
+    FAILED_METRIC_COUNT = "failed_metric_count", "Metrics whose latest calculation failed"
+    CALCULATED_AT = "calculated_at", "When the latest calculation of the metrics finished"
+    FLAG_ACTIVE = "flag_active", "Whether the feature flag is enabled"
+    FLAG_DELETED = "flag_deleted", "Whether the feature flag is deleted"
+    FLAG_ROLLED_OUT = "flag_rolled_out", "Whether a release condition of the feature flag rolls out to more than 0%"
+    SHIPPED_VARIANT = (
+        "shipped_variant",
+        "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
+    )
+    FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    SINCE_START_HOURS = (
+        "since_start_hours",
+        "Hours since the experiment's start date, which can be earlier than the launch",
+    )
+    DAILY_CALCULATION_ENDS_AT = (
+        "daily_calculation_ends_at",
+        "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    METRIC_NAME = "metric_name", "The name of a metric"
+    METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
+    RATIO_SIDE = (
+        "ratio_side",
+        "The side of a ratio metric, numerator or denominator, or null for the other metric types",
+    )
+    SAMPLE_COUNT = "sample_count", "Users or groups in a metric's results, across the variants"
+    PLANNED_SAMPLE_COUNT = (
+        "planned_sample_count",
+        "Users or groups that the running time estimate needs to detect its minimum detectable effect",
+    )
+    DATA_HOURS = (
+        "data_hours",
+        "Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window",
+    )
+    VARIANT = "variant", "The key of a variant"
+    DIFFERENCE_PERCENTAGE = (
+        "difference_percentage",
+        "A variant's difference from the control on the primary metric, relative to the control, with its sign",
+    )
+    DETECTABLE_DIFFERENCE_PERCENTAGE = (
+        "detectable_difference_percentage",
+        "The smallest difference from the control that the variant's sample can reliably detect, relative to the "
+        "control",
+    )
+    SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    FORCED_CONDITION_COUNT = (
+        "forced_condition_count",
+        "Release conditions of the feature flag that serve a fixed variant through a variant override",
+    )
+    MATCHED_COUNT = (
+        "matched_count",
+        "Users or groups that a release condition served since traffic_since_at, without those forced to a variant "
+        "that has 0% in the split",
+    )
+    VARIANT_MATCHED_COUNT = (
+        "variant_matched_count",
+        "Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at "
+        "random",
+    )
+    FORCED_COUNT = "forced_count", "Users or groups that a release condition with a variant override served"
+    FORCED_PERCENTAGE = "forced_percentage", "forced_count as a share of variant_matched_count"
+    TRAFFIC_SINCE_AT = (
+        "traffic_since_at",
+        "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
+    )
+    CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
+    BEFORE_EXPOSURE = (
+        "before_exposure",
+        "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
+        "unknown",
+    )
+
+
+ExperimentHealthValue = str | int | float | bool | None
+
+
+class ExperimentHealthRuleSide(LabeledStrEnum):
+    ABOVE = "above", "Finding above the threshold"
+    BELOW = "below", "Finding below the threshold"
+
+
+class ExperimentHealthRuleTest(LabeledStrEnum):
+    CHI_SQUARED = "chi_squared", "Chi-squared goodness-of-fit test"
+
+
+@frozen
+class ExperimentHealthRuleMinimum:
+    """What a check needs before it judges: below the threshold, it doesn't report a finding."""
+
+    value: ExperimentHealthValueKey
+    threshold: float
+
+
+@frozen
+class ExperimentHealthCheckRule:
+    """How a check decides, as data. It is the same for every experiment, so the values of a run say how close the
+    check is to a finding."""
+
+    value: ExperimentHealthValueKey
+    threshold: float
+    # The side of the threshold that reports a finding. A value at the threshold doesn't.
+    warns: ExperimentHealthRuleSide
+    test: ExperimentHealthRuleTest | None = None
+    minimum: ExperimentHealthRuleMinimum | None = None
+
+
 @frozen
 class ExperimentHealthCheckResult:
     key: ExperimentHealthCheckKey
     name: str
+    description: str
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
+    # What the check read on the experiment, for every status. Empty when it read nothing or shows nothing.
+    values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
+    rule: ExperimentHealthCheckRule | None
+    # What the check read per variant, metric or flag change, with the same keys as `values`.
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthValue], ...]
+
+
+@frozen
+class ExperimentHealthReleaseCondition:
+    """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
+    must match, and the group type it assigns variants by (None for users)."""
+
+    rollout_percentage: float
+    property_count: int
+    aggregation_group_type_index: int | None
+
+
+@frozen
+class ExperimentHealthSetup:
+    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+
+    # The flag's condition sets as stored, in evaluation order.
+    release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
+    early_exit: bool
+    bucketing_identifier: str
+    aggregation_group_type_index: int | None
+    evaluation_runtime: str
+    evaluation_contexts: tuple[str, ...]
+    ensure_experience_continuity: bool
 
 
 @frozen
 class ExperimentHealth:
     findings: tuple[ExperimentHealthFinding, ...]
     checks: tuple[ExperimentHealthCheckResult, ...]
+    # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
+    setup: ExperimentHealthSetup | None = None
 
 
 @frozen
@@ -518,6 +720,8 @@ class CreateExperimentInput:
     filters: dict | None = None
     scheduling_config: dict | None = None
     create_in_folder: str | None = None
+    # The experiment rule to link when feature_flag_key names an existing flag with rules.
+    feature_flag_rule_id: "UUID | None" = None
 
     # Internal flags
     allow_unknown_events: bool = False
@@ -803,3 +1007,90 @@ class LinkedExperiment:
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class StaffTeamExperimentCounts:
+    total: int
+    running: int
+
+
+@frozen
+class StaffExperiment:
+    """An experiment as PostHog Admin shows it to staff."""
+
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    status: str
+    is_launched: bool
+    is_legacy: bool
+    has_malformed_properties: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+    created_at: datetime
+
+
+@frozen
+class StaffSharedMetric:
+    id: int
+    name: str
+    is_legacy: bool
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffSavedMetric:
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    is_legacy: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffRecalculationFailure:
+    metric_uuid: str
+    metric_name: str
+    error: str
+
+
+@frozen
+class StaffRecalculation:
+    """A metrics recalculation run as PostHog Admin shows it to staff."""
+
+    id: str
+    experiment_id: int
+    team_id: int
+    status: str
+    trigger: str
+    total_metrics: int
+    # None in lists, because counting needs a query per run.
+    completed_metrics: int | None
+    failed_metrics: int | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration: str | None
+    is_terminal: bool
+    temporal_url: str
+    failures: tuple[StaffRecalculationFailure, ...]
+
+
+@frozen
+class StaffMigration:
+    """The new-engine copy of a legacy experiment or shared metric."""
+
+    copy_id: int
+    # An earlier migration made the copy, so this one created nothing.
+    already_migrated: bool
+
+
+@frozen
+class RecalculationStart:
+    outcome: RecalculationStartOutcome
+    recalculation_id: str | None = None
+    detail: str = ""

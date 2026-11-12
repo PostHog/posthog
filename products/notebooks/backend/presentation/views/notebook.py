@@ -7,7 +7,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
@@ -28,6 +28,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
 
@@ -115,8 +116,18 @@ from products.notebooks.backend.facade.widgets import (
     set_widget_instance_version,
     start_widget_generation,
 )
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import (
+    KernelSandboxLimitExceeded,
+    build_notebook_sandbox_config,
+    get_kernel_runtime,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookCreateBurstThrottle,
+    NotebookCreateSustainedThrottle,
+    NotebookKernelStartBurstThrottle,
+    NotebookKernelStartSustainedThrottle,
+)
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
     ReusableWidgetDetailSerializer,
@@ -387,12 +398,36 @@ class NotebookSerializer(NotebookMinimalSerializer):
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
         created_by = validated_data.pop("created_by", request.user)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        try:
+            with transaction.atomic():
+                notebook = Notebook.objects.create(
+                    team=team,
+                    created_by=created_by,
+                    last_modified_by=request.user,
+                    **validated_data,
+                )
+        except IntegrityError:
+            existing_notebook = (
+                Notebook.objects.filter(team=team, short_id=short_id)
+                .only("id", "team_id", "created_by_id", "deleted")
+                .first()
+                if short_id
+                else None
+            )
+            if existing_notebook is not None:
+                access_control = self.user_access_control
+                if (
+                    existing_notebook.deleted
+                    or access_control is None
+                    or not access_control.check_access_level_for_object(existing_notebook, "viewer")
+                ):
+                    raise serializers.ValidationError(
+                        {"short_id": "This notebook ID is unavailable. Use a different ID."}
+                    )
+                raise serializers.ValidationError(
+                    {"short_id": "A notebook with this ID already exists. Open the existing notebook."}, code="unique"
+                )
+            raise
 
         log_notebook_activity(
             activity="created",
@@ -728,6 +763,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "create":
+            return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action in ("kernel_start", "kernel_restart"):
+            return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
+        return throttles
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
@@ -1542,6 +1585,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to start notebook kernel."}, status=503)
@@ -1565,6 +1610,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
@@ -1899,6 +1946,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to execute notebook code."}, status=503)

@@ -66,6 +66,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InboxUsageQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -74,6 +75,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
@@ -153,7 +155,13 @@ from posthog.api_queries_budget import (
     refill_and_read,
     seconds_until_positive,
 )
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    WARMING_TRIGGER_PREFIX,
+    ThresholdMode,
+    cache_target_age,
+    is_stale,
+    last_refresh_from_cached_result,
+)
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -190,7 +198,7 @@ from posthog.hogql_queries.query_failure_handling import (
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
-from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_TRACKING_FLAG, log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
@@ -198,6 +206,7 @@ from posthog.hogql_queries.validation.validation import (
     QueryValidationRule,
     run_validation_rules,
 )
+from posthog.hogql_queries.warehouse_suggestion_notes import serve_warehouse_suggestions
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
@@ -224,6 +233,7 @@ from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
     QuerySingleFlight,
+    query_single_flight_skipped,
 )
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import hydrate_response_scan
@@ -303,6 +313,7 @@ def _contains_user_hogql_label() -> str:
 
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
+CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
 
 QUERY_HASH_VERSION = 1
 
@@ -645,6 +656,7 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
 
 
 RunnableQueryNode = Union[
+    InboxUsageQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -678,6 +690,7 @@ RunnableQueryNode = Union[
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     MetricsQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
@@ -722,6 +735,13 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
             user=user,
+        )
+
+    if kind == "InboxUsageQuery":
+        from products.signals.backend.facade.spend import InboxUsageQueryRunner
+
+        return InboxUsageQueryRunner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, user=user
         )
 
     if kind == "TrendsQuery":
@@ -1387,6 +1407,17 @@ def get_query_runner(
 
         return MCPProtocolVersionBreakdownQueryRunner(
             query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPDashboardQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPDashboardQueryRunner
+
+        return MCPDashboardQueryRunner(
+            query=cast(MCPDashboardQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2129,11 +2160,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             isinstance(data, dict) and "is_cached" in data
         )
 
-    def _query_has_series_custom_names(self) -> bool:
-        # apply_series_custom_names patches only funnel steps, so another query kind has nothing to patch
-        if not isinstance(self.query, FunnelsQuery):
+    def _series_custom_names(self) -> list[str | None] | None:
+        """Each series' `custom_name`, indexed like the `order` on the query's result rows.
+
+        Returns None when apply_series_custom_names has nothing to patch: another query kind, or a trends formula.
+        A formula row takes its `order` and its name from the formula nodes, and the cache key includes those.
+        """
+        query = self.query
+        if isinstance(query, TrendsQuery) and query.trendsFilter is not None:
+            if query.trendsFilter.formulaNodes or query.trendsFilter.formula:
+                return None
+        if not isinstance(query, TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery):
+            return None
+        return [series.custom_name for series in query.series]
+
+    def _cached_results_need_custom_name_patch(self, results_have_custom_names: bool) -> bool:
+        # A named trends formula row sets results_have_custom_names, but _series_custom_names skips formulas,
+        # so that flag alone must not force the results off the raw-bytes path.
+        custom_names = self._series_custom_names()
+        if custom_names is None:
             return False
-        return any(s.custom_name is not None for s in self.query.series)
+        return results_have_custom_names or any(name is not None for name in custom_names)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -2253,19 +2300,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # payload. Only safe when the caller opted in AND validation of the parsed results
             # wouldn't add protection (the response class types them as plain data — for
             # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
-            # the schema-drift check that triggers recomputation) AND neither the query nor
-            # the cached results carry custom series names — otherwise
-            # apply_series_custom_names below must be able to patch the parsed results.
+            # the schema-drift check that triggers recomputation) AND apply_series_custom_names
+            # below has no series name to patch into the parsed results.
             split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
                 cached_response_candidate = split_candidate.header
                 if split_candidate.results_bytes is not None:
-                    if (
-                        response_results_contain_models(CachedResponse)
-                        or split_candidate.results_have_custom_names
-                        or self._query_has_series_custom_names()
+                    if response_results_contain_models(CachedResponse) or self._cached_results_need_custom_name_patch(
+                        split_candidate.results_have_custom_names
                     ):
                         cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
                     else:
@@ -2278,10 +2322,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
+            self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
-                cached_response = CachedResponse(**cached_response_candidate)
+                cached_response = CachedResponse.model_validate(cached_response_candidate, extra="ignore")
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:
@@ -2306,7 +2351,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
-                    response=cached_response.model_dump(),
+                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
                     target_age=cached_response.cache_target_age,
                 )
 
@@ -2377,6 +2422,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_single_flight_enabled(self) -> bool:
         return self._team_flag_enabled_locally(QUERY_SINGLE_FLIGHT_FLAG)
 
+    @cached_property
+    def _property_usage_tracking_enabled(self) -> bool:
+        return self._team_flag_enabled_locally(PROPERTY_USAGE_TRACKING_FLAG)
+
     def _team_flag_enabled_locally(self, flag_key: str) -> bool:
         # only_evaluate_locally keeps this flag check off the network - this runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
@@ -2434,8 +2483,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
-        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        # Trusted entry points set api_queries_budgeted. The product tag is caller-supplied
+        # via query.tags.productKey, so it cannot opt a query in or out.
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
@@ -2738,7 +2787,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # rules out serving a leader's entry too. An export never stores its result, so its leader
         # would have nothing to hand a follower.
         return (
-            self._query_single_flight_enabled
+            not query_single_flight_skipped()
+            and self._query_single_flight_enabled
             and not self.requires_fresh_calculation()
             and self.limit_context != LimitContext.EXPORT
         )
@@ -2796,11 +2846,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if (not query_run.trigger or not query_run.trigger.startswith("warming")) and results.query_metadata:
+            if (
+                not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX)
+            ) and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
                     user_id=query_run.user.id if query_run.user else None,
+                    log_properties=self._property_usage_tracking_enabled,
                 )
 
             last_refresh = last_refresh_from_cached_result(results)
@@ -2822,6 +2875,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
+            **self._staleness_event_properties(),
             "response_time_ms": query_run.elapsed_ms(),
             "clickhouse_rows_read": cached_query_scan.rows_read if cached_query_scan else None,
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
@@ -2850,7 +2904,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         try:
             phase = self._phase
             stats = phase.stats
-            refused = getattr(error, "served_from_query_failure_cache", False)
+            # The breaker and the read budget turn the run away on purpose, before ClickHouse runs it.
+            refused = getattr(error, "served_from_query_failure_cache", False) or isinstance(
+                error, APIQueriesBudgetExceeded
+            )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
@@ -2884,7 +2941,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         CachedResponse: type[CR] = self.cached_response_type
 
         last_refresh = datetime.now(UTC)
-        target_age = self.cache_target_age(last_refresh=last_refresh)
 
         # Avoid affecting cache key
         # Add user based modifiers here, primarily for user specific feature flagging
@@ -2952,6 +3008,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
             self._phase = RunPhase(name="finish", stats=query_stats, query_duration_ms=query_duration_ms)
+            target_age = self.cache_target_age(last_refresh=last_refresh)
             fresh_response_dict: dict[str, Any] = {
                 **query_result.model_dump(),
                 "is_cached": False,
@@ -2963,15 +3020,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             }
 
             try:
-                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                query_metadata = extract_query_metadata(
+                    query=self.query, team=self.team, include_properties=self._property_usage_tracking_enabled
+                ).model_dump()
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not query_run.trigger or not query_run.trigger.startswith("warming"):
+                if not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX):
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
                         user_id=query_run.user.id if query_run.user else None,
+                        log_properties=self._property_usage_tracking_enabled,
                     )
             except Exception as e:
                 # fail silently if we can't extract query metadata
@@ -3050,7 +3110,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
-                        response=fresh_response_dict,
+                        response=self._cache_entry_with_freshness(fresh_response_dict),
                         # This would be a possible place to decide to not ever keep this cache warm
                         # Example: Not for super quickly calculated insights
                         # Set target_age to None in that case
@@ -3069,6 +3129,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # where its findings reach the recomputed response. Served before the event, so the
             # response time covers the same work as on a cache hit.
             self._serve_query_scan(response, query_run.user)
+            notes_outcome = serve_warehouse_suggestions(
+                self.team, response, query_run.user, query_stats.saved_query_ids, query_run.trigger
+            )
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
@@ -3076,6 +3139,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
+                **self._staleness_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),
                 "query_duration_ms": query_duration_ms,
@@ -3089,6 +3153,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
+                **notes_outcome.event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(
@@ -3317,9 +3382,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if isinstance(self.query, FunnelsQuery):
-            return self._apply_funnels_custom_names(cached_response)
-        return cached_response, False
+        custom_names = self._series_custom_names()
+        if custom_names is None:
+            return cached_response, False
+        return self._apply_custom_names_by_order(cached_response, custom_names)
 
     def _fill_action_names(self, response: object) -> None:
         """Set `action_names` on a trends, stickiness or lifecycle response that lacks it.
@@ -3340,52 +3406,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if response.action_names is None:
             response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
 
-    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+    def _apply_custom_names_by_order(self, cached_response: CR, custom_names: list[str | None]) -> tuple[CR, bool]:
         """
-        Apply custom_name values to FunnelsQuery results (top-level of step dict).
+        Set the top-level `custom_name` of each result row to the name of the series at the row's `order`.
 
-        Funnel results have two structures:
-        - Without breakdown: flat list of steps [step1, step2, ...]
-        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        Results have two structures:
+        - Flat list of rows: trends series, stickiness series, lifecycle statuses, funnel steps without breakdown
+        - Funnel steps with breakdown: list of lists [[step1, step2], [step1, step2], ...]
         """
-        series = getattr(self.query, "series", None)
-        if not series:
-            return cached_response, False
-
         results = getattr(cached_response, "results", None)
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        rows = [row for group in results for row in group] if isinstance(results[0], list) else results
 
         was_modified = False
-
-        if results and len(results) > 0 and isinstance(results[0], list):
-            # Breakdown case: iterate through each breakdown group
-            for breakdown_group in results:
-                for step in breakdown_group:
-                    if not isinstance(step, dict):
-                        continue
-                    order = step.get("order")
-                    if order is not None and order in custom_names_by_order:
-                        new_name = custom_names_by_order[order]
-                        if step.get("custom_name") != new_name:
-                            step["custom_name"] = new_name
-                            was_modified = True
-        else:
-            # Non-breakdown case: flat list of steps
-            for step in results:
-                if not isinstance(step, dict):
-                    continue
-                order = step.get("order")
-                if order is not None and order in custom_names_by_order:
-                    new_name = custom_names_by_order[order]
-                    if step.get("custom_name") != new_name:
-                        step["custom_name"] = new_name
-                        was_modified = True
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            order = row.get("order")
+            if not isinstance(order, int) or not 0 <= order < len(custom_names):
+                continue
+            if row.get("custom_name") != custom_names[order]:
+                row["custom_name"] = custom_names[order]
+                was_modified = True
 
         return cached_response, was_modified
 
@@ -3458,6 +3502,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if last_refresh is None:
             return True
         return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        """Adds the runner's freshness decision to a cache entry before it is stored.
+
+        A cache hit returns before the runner compiles its query, so the runner cannot work out
+        freshness again on that request. A runner that decides freshness from the compiled query
+        stores the decision under CACHE_ENTRY_FRESHNESS_KEY and reads it back on the hit.
+        """
+        return response
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
+        """Restores the decision that `_cache_entry_with_freshness` stored, before the response is parsed."""
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

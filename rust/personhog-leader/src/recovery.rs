@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
@@ -11,10 +11,11 @@ use rdkafka::{Offset, TopicPartitionList};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
+use personhog_coordination::types::ClusterEndpoint;
 use personhog_proto::personhog::types::v1::Person;
 
 use crate::cache::{CachedPerson, DirtyMark, PersonCacheKey};
-use crate::warming::make_consumer;
+use crate::warming::{changelog_kafka, make_consumer};
 
 /// How long to wait before retrying a transiently failed fetch.
 const RETRY_BACKOFF: Duration = Duration::from_millis(100);
@@ -73,8 +74,10 @@ enum FetchError {
 /// empty pool.
 pub struct ChangelogRecovery {
     recv_timeout: Duration,
-    idle: Mutex<VecDeque<StreamConsumer>>,
+    idle: Mutex<HashMap<Option<Arc<ClusterEndpoint>>, VecDeque<StreamConsumer>>>,
     permits: Semaphore,
+    kafka: KafkaConfig,
+    group: String,
 }
 
 impl ChangelogRecovery {
@@ -92,8 +95,10 @@ impl ChangelogRecovery {
         }
         Ok(Self {
             recv_timeout: cfg.recv_timeout,
-            idle: Mutex::new(idle),
+            idle: Mutex::new(HashMap::from([(None, idle)])),
             permits: Semaphore::new(cfg.pool_size),
+            kafka: cfg.kafka,
+            group,
         })
     }
 
@@ -103,7 +108,10 @@ impl ChangelogRecovery {
     /// tail), returns it to the idle deque, and only then releases the
     /// permit — so a slot never opens before its consumer is home, on
     /// every path including cancellation of the awaiting future.
-    async fn checkout(&self) -> Result<PooledConsumer<'_>, String> {
+    async fn checkout(
+        &self,
+        cluster: Option<&Arc<ClusterEndpoint>>,
+    ) -> Result<PooledConsumer<'_>, String> {
         let wait_start = Instant::now();
         let permit = self
             .permits
@@ -112,14 +120,25 @@ impl ChangelogRecovery {
             .map_err(|_| "recovery pool closed".to_string())?;
         histogram!("personhog_leader_recovery_pool_wait_ms")
             .record(wait_start.elapsed().as_secs_f64() * 1000.0);
-        let consumer = self
+        let idle = self
             .idle
             .lock()
             .expect("recovery pool lock poisoned")
-            .pop_front()
-            .expect("a permit guarantees an idle consumer");
+            .get_mut(&cluster.cloned())
+            .and_then(VecDeque::pop_front);
+        // The default deque never runs dry under a permit: only default
+        // checkouts take from it, and at most pool_size are out at once.
+        let consumer = match (idle, cluster) {
+            (Some(consumer), _) => consumer,
+            (None, None) => unreachable!("a permit guarantees an idle default consumer"),
+            (None, Some(other)) => {
+                make_consumer(&changelog_kafka(&self.kafka, Some(other)), &self.group)
+                    .map_err(|e| format!("create recovery consumer for {}: {e}", other.name))?
+            }
+        };
         Ok(PooledConsumer {
             pool: self,
+            cluster: cluster.cloned(),
             consumer: Some(consumer),
             _permit: permit,
         })
@@ -142,7 +161,7 @@ impl ChangelogRecovery {
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
 
-        let consumer = self.checkout().await?;
+        let consumer = self.checkout(mark.stream.cluster.as_ref()).await?;
 
         // Each attempt repositions with a fresh assign: it starts fetching
         // at the target immediately (repositioning a live stream via seek
@@ -232,6 +251,7 @@ impl ChangelogRecovery {
 /// field drops last).
 struct PooledConsumer<'a> {
     pool: &'a ChangelogRecovery,
+    cluster: Option<Arc<ClusterEndpoint>>,
     consumer: Option<StreamConsumer>,
     _permit: tokio::sync::SemaphorePermit<'a>,
 }
@@ -254,6 +274,8 @@ impl Drop for PooledConsumer<'_> {
             .idle
             .lock()
             .expect("recovery pool lock poisoned")
+            .entry(self.cluster.take())
+            .or_default()
             .push_back(consumer);
     }
 }

@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddSourcesRequestApi,
     AddSourcesResponseApi,
+    ApplyMigrationItemApi,
+    ApplyMigrationItemResponseApi,
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
@@ -18,13 +20,16 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectCompleteRequestApi,
     DestinationConnectLinkApi,
+    DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
     ExternalDataDestinationsConnectLinkRetrieveParams,
+    ExternalDataDestinationsConnectLinkStatusRetrieveParams,
     ExternalDataDestinationsListParams,
     ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
@@ -37,6 +42,7 @@ import type {
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourceSyncStateApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
@@ -50,6 +56,8 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedWarehouseColumnStatisticsListApi,
+    PaginatedWarehouseMigrationItemListApi,
+    PaginatedWarehouseMigrationListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
@@ -64,12 +72,25 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
     WarehouseAlertDestinationApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
+    WarehouseMigrationApi,
+    WarehouseMigrationConnectLinkApi,
+    WarehouseMigrationCreateApi,
+    WarehouseMigrationItemApi,
+    WarehouseMigrationSkipItemsApi,
+    WarehouseMigrationSkipItemsResponseApi,
+    WarehouseMigrationStartUploadApi,
+    WarehouseMigrationUploadConnectionsApi,
+    WarehouseMigrationUploadResponseApi,
+    WarehouseMigrationsConnectLinkRetrieveParams,
+    WarehouseMigrationsItemsListParams,
+    WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
 } from './api.schemas'
 
@@ -305,7 +326,8 @@ export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
  * Return a secure browser link where the user connects the credentials for a destination.
  *
  * The page saves an integration and does not create the destination, so secrets never pass
- * through the agent. The agent then creates the destination with the new integration's id.
+ * through the agent. The link carries a connect token. The agent reads the saved integration's id
+ * with the token from the connect link status endpoint, then creates the destination with it.
  */
 export const externalDataDestinationsConnectLinkRetrieve = async (
     projectId: string,
@@ -316,6 +338,66 @@ export const externalDataDestinationsConnectLinkRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExternalDataDestinationsConnectLinkCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/connect_link_complete/`
+}
+
+/**
+ * Report the integration the user saved on the connect page, so the agent that sent them can read it.
+ *
+ * The connect page calls this. Repeating the call with the same integration is safe.
+ */
+export const externalDataDestinationsConnectLinkCompleteCreate = async (
+    projectId: string,
+    destinationConnectCompleteRequestApi: DestinationConnectCompleteRequestApi,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(getExternalDataDestinationsConnectLinkCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(destinationConnectCompleteRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkStatusRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link_status/`
+}
+
+/**
+ * Return whether the user saved a connection through a connect link, and which integration it is.
+ *
+ * Never returns credentials or integration config.
+ */
+export const externalDataDestinationsConnectLinkStatusRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(
+        getExternalDataDestinationsConnectLinkStatusRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
@@ -481,6 +563,24 @@ export const externalDataSchemasDestinationsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDestinationLinkApi),
+    })
+}
+
+export const getExternalDataSchemasHistoryTableDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/history_table/`
+}
+
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const externalDataSchemasHistoryTableDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasHistoryTableDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -779,14 +879,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -800,14 +897,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1101,7 +1195,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1110,7 +1204,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }
@@ -1130,6 +1224,26 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesApplyMigrationItemCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/apply_migration_item/`
+}
+
+/**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreate = async (
+    projectId: string,
+    applyMigrationItemApi: ApplyMigrationItemApi,
+    options?: RequestInit
+): Promise<ApplyMigrationItemResponseApi> => {
+    return apiMutator<ApplyMigrationItemResponseApi>(getExternalDataSourcesApplyMigrationItemCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyMigrationItemApi),
     })
 }
 
@@ -1496,6 +1610,25 @@ export const externalDataSourcesStoredCredentialsList = async (
     })
 }
 
+export const getExternalDataSourcesSyncStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/sync_state/`
+}
+
+/**
+ * Return a fingerprint of the sync state the sources list shows.
+ *
+ * A client that polls the list can compare fingerprints and refetch the list only when it changed.
+ */
+export const externalDataSourcesSyncStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceSyncStateApi> => {
+    return apiMutator<ExternalDataSourceSyncStateApi>(getExternalDataSourcesSyncStateRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSourcesWizardRetrieveUrl = (
     projectId: string,
     params?: ExternalDataSourcesWizardRetrieveParams
@@ -1648,5 +1781,286 @@ export const warehouseColumnStatisticsRetrieve = async (
     return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsListUrl = (projectId: string, params?: WarehouseMigrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsList = async (
+    projectId: string,
+    params?: WarehouseMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseMigrationListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationListApi>(getWarehouseMigrationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsCreate = async (
+    projectId: string,
+    warehouseMigrationCreateApi: WarehouseMigrationCreateApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationCreateApi),
+    })
+}
+
+export const getWarehouseMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseMigrationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseMigrationsConnectionsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/connections/`
+}
+
+/**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationUploadConnectionsApi?: WarehouseMigrationUploadConnectionsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationUploadResponseApi> => {
+    return apiMutator<WarehouseMigrationUploadResponseApi>(getWarehouseMigrationsConnectionsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
+    })
+}
+
+export const getWarehouseMigrationsItemsListUrl = (
+    projectId: string,
+    id: string,
+    params?: WarehouseMigrationsItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/${id}/items/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsList = async (
+    projectId: string,
+    id: string,
+    params?: WarehouseMigrationsItemsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseMigrationItemListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationItemListApi>(
+        getWarehouseMigrationsItemsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseMigrationsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationItemApi> => {
+    return apiMutator<WarehouseMigrationItemApi>(getWarehouseMigrationsItemsRetrieveUrl(projectId, id, itemId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseMigrationsItemsSkipCreateUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/skip/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsSkipCreate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationItemApi> => {
+    return apiMutator<WarehouseMigrationItemApi>(getWarehouseMigrationsItemsSkipCreateUrl(projectId, id, itemId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseMigrationsItemsBulkSkipCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/skip/`
+}
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+export const warehouseMigrationsItemsBulkSkipCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationSkipItemsApi?: WarehouseMigrationSkipItemsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationSkipItemsResponseApi> => {
+    return apiMutator<WarehouseMigrationSkipItemsResponseApi>(
+        getWarehouseMigrationsItemsBulkSkipCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(warehouseMigrationSkipItemsApi),
+        }
+    )
+}
+
+export const getWarehouseMigrationsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/refresh/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseMigrationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: WarehouseMigrationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/connect_link/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: WarehouseMigrationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<WarehouseMigrationConnectLinkApi> => {
+    return apiMutator<WarehouseMigrationConnectLinkApi>(
+        getWarehouseMigrationsConnectLinkRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseMigrationsUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/upload/`
+}
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const warehouseMigrationsUploadCreate = async (
+    projectId: string,
+    warehouseMigrationStartUploadApi: WarehouseMigrationStartUploadApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationStartUploadApi),
     })
 }

@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
+        True,
+        "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
         5000,
         "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "
@@ -19,6 +24,20 @@ CONSTANCE_CONFIG = {
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
+    ),
+    "HOGQL_PROJECTION_OPTIMIZATION_ENABLED": (
+        get_from_env("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", True, type_cast=str_to_bool),
+        "Whether HogQL prunes unused subquery columns and narrows exported event properties. "
+        "Disable to skip both optimizations for every project, even when optimizeProjections is true. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
+    ),
+    "HOGQL_PROPERTIES_NARROWING_ENABLED": (
+        get_from_env("HOGQL_PROPERTIES_NARROWING_ENABLED", True, type_cast=str_to_bool),
+        "Whether a HogQL subquery exports only the keys read of the events properties blob. "
+        "Disable to export the whole blob again while unused subquery columns are still pruned. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
     ),
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
         get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
@@ -344,7 +363,8 @@ CONSTANCE_CONFIG = {
         "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
         "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
         "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
-        "ingestion allowlist. "
+        "ingestion allowlist. A project that reads the native JSON events table keeps reading flag_evaluations "
+        "whatever the mode, because that table holds no flag calls. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
         "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
         "tab charts and the 90-day notes.",
@@ -422,6 +442,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
+    "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
+    "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",

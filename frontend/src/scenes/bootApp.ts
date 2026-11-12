@@ -1,4 +1,6 @@
 import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
+import { routerUrlChangeTrackingMiddleware } from 'lib/logic/scenes/urlChangeTracker'
+import { loadFullStageAppContext } from 'scenes/fullStageAppContext'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 import { prefetchScene } from 'scenes/prefetchScene'
 
@@ -26,8 +28,9 @@ export function bootApp(): void {
     appBooted = true
 
     loadPostHogJS()
-    // Kea must initialize before any component mounts
-    initKea()
+    // Kea must initialize before any component mounts. The URL loop detector is passed in rather than
+    // imported by initKea, which sits below lib/ in the frontend layers.
+    initKea({ middleware: [routerUrlChangeTrackingMiddleware] })
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
     // notebooks (toolbar, exporter) don't ship them; the app opts in here
     registerNotebookLinkDrag()
@@ -35,6 +38,7 @@ export function bootApp(): void {
     // toolbar and exporter keep linking out to the support options docs
     registerToastGetHelp()
     prefetchScene()
+    loadFullStageAppContext()
 
     const idle =
         typeof window.requestIdleCallback === 'function'

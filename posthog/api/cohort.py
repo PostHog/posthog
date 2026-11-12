@@ -38,11 +38,12 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import (
@@ -66,6 +67,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import (
+    FLAG_CALL_READS_COMPILE_ERRORS,
     FlagCallReads,
     HogQLCohortQuery,
     batch_flag_call_reads,
@@ -89,8 +91,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.utils import earliest_timestamp_func
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import (
@@ -135,10 +136,13 @@ from products.cohorts.backend.models.util import (
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
+    CohortRealtimeUnavailableReason,
     cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
@@ -257,6 +261,7 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
+    apply_history_limit: bool = True,
 ) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
@@ -292,6 +297,17 @@ def validate_filters_and_compute_realtime_support(
             if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
             else None
         )
+
+        if (
+            apply_history_limit
+            and cohort_type == CohortType.REALTIME
+            and behavioral_history_over_limit(
+                clean_filters["properties"],
+                limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
+                today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+            )
+        ):
+            cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
         if cohort_type == CohortType.REALTIME and cohort_count is not None:
@@ -663,15 +679,6 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-class LengthFirstListField(serializers.ListField):
-    # DRF checks max_length only after it validates every item, so an oversized list of bad items
-    # builds one error per item before it fails. Check the length first to reject it in constant time.
-    def to_internal_value(self, data: Any) -> list[Any]:
-        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
-
-
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
     person_ids = LengthFirstListField(
         child=serializers.UUIDField(
@@ -1023,7 +1030,7 @@ _FLAG_CALL_CRITERION_TYPE_REASON = (
     'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
 )
 _FLAG_CALL_WINDOW_REASON = (
-    f"PostHog keeps this event for {FLAG_EVALUATIONS_TTL_DAYS} days, so pick a range relative to today that goes back "
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_RETENTION_DAYS} days, so pick a range relative to today that goes back "
     f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
 )
 _FLAG_CALL_KEY_REASON = (
@@ -1103,7 +1110,7 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
     values = [{**prop.to_dict(), "negation": False} for prop in criteria]
     try:
         return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
-    except (BaseHogQLError, ValidationError, ValueError):
+    except FLAG_CALL_READS_COMPILE_ERRORS:
         return None
     except Exception as error:
         # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API
@@ -1267,6 +1274,18 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
     )
+    reason = serializers.ChoiceField(
+        choices=CohortRealtimeUnavailableReason.choices,
+        allow_null=True,
+        help_text="A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back "
+        "further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every "
+        "other state, and for a `daily` cohort that breaks no limit.",
+    )
+    history_limit_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="The most days realtime cohort criteria can look back. Null unless the reason is "
+        "`history_over_limit`.",
+    )
 
 
 class CohortListSerializer(serializers.ListSerializer):
@@ -1294,7 +1313,6 @@ def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculat
 
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(
         required=False,
@@ -2198,6 +2216,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
+                    # The editor sends filters on every save. An absolute start date that aged past the limit
+                    # must not take a realtime cohort off realtime on a rename, because flags that target it
+                    # would then match nobody.
+                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type

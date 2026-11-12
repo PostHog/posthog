@@ -13,7 +13,8 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.facade.contracts import SessionFile
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
+from products.tasks.backend.models import Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -85,16 +86,15 @@ class MultiTurnSession:
         context: CustomPromptSandboxContext,
         model: type[_ModelT],
         *,
+        profile: TaskProfile,
         branch: str | None = None,
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: Task.OriginProduct | None = None,
-        signal_report_id: str | None = None,
+        source: TaskSource | None = None,
         spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
-        internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
         origin_key: str | None = None,
@@ -102,7 +102,6 @@ class MultiTurnSession:
         fallback_from_text: Callable[[str], _ModelT] | None = None,
         json_retry_prompt: str | None = None,
         workflow_id_prefix: str | None = None,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
@@ -134,22 +133,20 @@ class MultiTurnSession:
         session, last_message = await cls.start_raw(
             prompt=prompt,
             context=context,
+            profile=profile,
             branch=branch,
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
+            source=source,
             spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
-            internal=internal,
             on_task_run_created=on_task_run_created,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             max_poll_seconds=max_poll_seconds,
             workflow_id_prefix=workflow_id_prefix,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,
@@ -172,9 +169,9 @@ class MultiTurnSession:
                     e,
                 )
                 salvageable = False
-                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                last_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
                 salvageable = True
-                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -216,23 +213,21 @@ class MultiTurnSession:
         prompt: str,
         context: CustomPromptSandboxContext,
         *,
+        profile: TaskProfile,
         branch: str | None = None,
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: Task.OriginProduct | None = None,
-        signal_report_id: str | None = None,
+        source: TaskSource | None = None,
         spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
-        internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
         origin_key: str | None = None,
         max_poll_seconds: int | None = None,
         poll_deadline: float | None = None,
         workflow_id_prefix: str | None = None,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
@@ -267,16 +262,14 @@ class MultiTurnSession:
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
+            profile=profile,
             branch=branch,
             step_name=step_name,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
+            source=source,
             spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
-            internal=internal,
             workflow_id_prefix=workflow_id_prefix,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,

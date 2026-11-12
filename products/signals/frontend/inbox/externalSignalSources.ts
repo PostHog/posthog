@@ -1,4 +1,4 @@
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import type { SignalSourceProductApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 
@@ -7,7 +7,7 @@ interface ExternalSignalSourceDefinition {
     label: string
     category: string
     watches: string
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
     // Creation-only cursors miss later edits, so these sources opt into full refresh.
@@ -167,6 +167,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface recurring check errors',
         dwSourceType: 'Checkly',
         requiredTables: ['error_groups'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'datadog',
+        label: 'Datadog',
+        category: 'Error tracking',
+        watches: 'Surface open error tracking issues and firing monitor alerts',
+        dwSourceType: 'Datadog',
+        requiredTables: ['error_tracking_issues', 'monitor_alerts'],
         sourceType: 'issue',
     },
     {

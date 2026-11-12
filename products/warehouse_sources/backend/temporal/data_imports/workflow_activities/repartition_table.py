@@ -1292,7 +1292,7 @@ def _charge_attempt(
     Every attempt also stamps `attempt_rows`, the rewrite checkpoint it is about to run from, charged
     or not: an attempt killed outright records nothing itself, so that stamp is the only thing a
     retry can judge the attempt it retries against (see `_retrying_a_killed_attempt`). `run_rows` is
-    the same reading kept once per charged run, so the give-up check weighs the run the cap actually
+    the same reading kept once per sync run, so the give-up check weighs the run the cap actually
     counted rather than whichever retry happened to end it (see `_last_run_advanced_rewrite`). Each
     stamp records which rewrite that reading came from too, because the reading alone is not
     comparable across a restart (see `_rewrite_advanced_past`).
@@ -1305,12 +1305,11 @@ def _charge_attempt(
     rewrite_at_start = _rewrite_checkpoint_id(schema)
     marker = {**pending, "attempt_rows": rows_at_start, "attempt_rewrite_id": rewrite_at_start}
     if not already_charged:
-        marker |= {
-            "attempts": prior + 1,
-            "charged_job_id": job_id,
-            "run_rows": rows_at_start,
-            "run_rewrite_id": rewrite_at_start,
-        }
+        marker |= {"attempts": prior + 1, "charged_job_id": job_id}
+        # A stand-down mid-run (a worker shutdown hand-off) refunds the charge and the run's next retry
+        # charges again. That is still the same run, so it keeps the reading taken when the run began.
+        if pending.get("run_job_id") != job_id:
+            marker |= {"run_rows": rows_at_start, "run_rewrite_id": rewrite_at_start, "run_job_id": job_id}
     try:
         schema.set_repartition_pending(marker)
     except Exception:

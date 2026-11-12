@@ -244,6 +244,22 @@ class TestTeamJoinRouting(_SlackRoutingTestBase):
         assert instance.client.chat_postMessage.call_args.kwargs["channel"] == self.JOINER_ID
         assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is True
 
+    @patch("products.slack_app.backend.api.request_onboarding")
+    @patch("products.slack_app.backend.api.is_slack_app_onboarding_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_with_onboarding_on_a_new_member_gets_the_onboarding_thread_instead(
+        self, slack_cls, _flag, _onboarding_flag, start_onboarding
+    ):
+        instance = self._mock_slack(slack_cls)
+
+        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        instance.client.chat_postMessage.assert_not_called()
+        assert start_onboarding.call_args.args[1] == self.JOINER_ID
+        assert start_onboarding.call_args.kwargs == {"may_start": True, "spread_burst": True}
+
     @parameterized.expand(
         [
             ("bot", {"is_bot": True}),

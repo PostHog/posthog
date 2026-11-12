@@ -222,6 +222,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn syntax_error_span_is_in_characters() {
+        for (query, expected_span) in [
+            ("SELECT \u{200b}", "\u{200b}"),
+            ("SELECT 'é😀', 0 AS trUE FROM events", "0 AS trUE"),
+        ] {
+            let err = parse::parse_select(query).unwrap_err();
+            let span: String = query
+                .chars()
+                .skip(err.start)
+                .take(err.end - err.start)
+                .collect();
+            assert_eq!(span, expected_span, "{query}");
+        }
+    }
+
+    #[test]
     fn run_converts_panic_to_json_error_envelope() {
         // A panic on a `*_json` path must surface as a structured error envelope, not unwind across the FFI as a `PanicException` (a `BaseException` that escapes callers' `except Exception` and the shadow harness). cargo captures the expected panic's stderr for a passing test, so no hook silencing is needed.
         let out = run(|| panic!("synthetic json-path panic"));

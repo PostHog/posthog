@@ -44,15 +44,21 @@ jobs:
 
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.ref_name }}
                   token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: |
+                      common/storybook/update-storybook-timings.sh
+                      common/storybook/storybook-timings.json
+                  sparse-checkout-cone-mode: false
 
             - name: Find Storybook CI run to use
               id: find-run
@@ -60,72 +66,88 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   INPUT_RUN_ID: ${{ inputs.storybook_run_id }}
               run: |
+                  # Master pushes run the chromium shards and the nightly scheduled run runs the
+                  # webkit and firefox shards, so the manifest is refreshed from one run of each.
+                  # The nightly run is found by its webkit shards; its firefox artifacts come with it.
                   validate_run() {
-                      local run_id="$1"
+                      local run_id="$1" event="$2" browser="$3" shard_pattern="$4" shard_count="$5"
                       local run_json artifact_names
 
                       run_json=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id")
-                      if ! jq -e '
+                      if ! jq -e --arg event "$event" '
                           .conclusion == "success" and
-                          .event == "push" and
+                          .event == $event and
                           .head_branch == "master" and
                           .path == ".github/workflows/ci-storybook.yml"
                       ' <<< "$run_json" >/dev/null; then
-                          echo "Run $run_id is not a successful master push of ci-storybook.yml" >&2
+                          echo "Run $run_id is not a successful master $event run of ci-storybook.yml" >&2
                           return 1
                       fi
 
                       artifact_names=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100" \
                           --jq '[.artifacts[] | select(.expired == false) | .name]')
-                      if ! jq -e '
-                          ([.[] | select(test("^junit-results-storybook-chromium-(?:[1-9]|1[0-6])$"))] | unique | length) == 16 and
-                          ([.[] | select(test("^junit-results-storybook-webkit-[1-4]$"))] | unique | length) == 4
+                      if ! jq -e --arg pattern "^junit-results-storybook-$browser-(?:$shard_pattern)\$" --argjson count "$shard_count" '
+                          ([.[] | select(test($pattern))] | unique | length) == $count
                       ' <<< "$artifact_names" >/dev/null; then
-                          echo "Run $run_id does not have all 20 live Storybook JUnit shard artifacts" >&2
+                          echo "Run $run_id does not have all $shard_count live $browser JUnit shard artifacts" >&2
                           return 1
                       fi
                   }
 
+                  # Storybook JUnit artifacts have 1-day retention, so the newest run is not always
+                  # usable: scan newest-first and pick the first with unexpired artifacts. The repo
+                  # is busy enough that master runs can fall outside a plain `gh run list -L 20`
+                  # window, so query the workflow's master runs directly. The event is matched
+                  # here rather than with the API's `event` parameter, which returns stale pages.
+                  find_run() {
+                      local event="$1"
+                      shift
+                      gh api "repos/${{ github.repository }}/actions/workflows/ci-storybook.yml/runs?status=success&branch=master&per_page=100" \
+                          --jq ".workflow_runs[] | select(.event == \"$event\") | .id" | \
+                          while read -r id; do
+                              if validate_run "$id" "$event" "$@"; then
+                                  echo "$id"
+                                  break
+                              fi
+                          done
+                  }
+
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      if ! validate_run "$INPUT_RUN_ID"; then
-                          echo "::error::Provided run must be a successful full master Storybook push with all shard artifacts"
+                      if ! validate_run "$INPUT_RUN_ID" push chromium '[1-9]|1[0-6]' 16; then
+                          echo "::error::Provided run must be a successful master Storybook push with all chromium shard artifacts"
                           exit 1
                       fi
-                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
-                      echo "Using provided Storybook CI run: $INPUT_RUN_ID"
-                      exit 0
+                      chromium_run_id="$INPUT_RUN_ID"
+                      echo "Using provided Storybook CI run for chromium: $chromium_run_id"
+                  else
+                      echo "Searching for a successful master Storybook push with live chromium JUnit artifacts..."
+                      chromium_run_id=$(find_run push chromium '[1-9]|1[0-6]' 16)
+                      if [ -z "$chromium_run_id" ]; then
+                          echo "::error::No successful master Storybook push found with live chromium JUnit artifacts (1-day retention)"
+                          exit 1
+                      fi
+                      echo "Using Storybook CI run for chromium: $chromium_run_id"
                   fi
 
-                  # Find a recent successful ci-storybook.yml master run whose JUnit artifacts are
-                  # still live. Storybook JUnit artifacts have 1-day retention, so the newest run is
-                  # not always usable — scan newest-first and pick the first with unexpired
-                  # junit-results-storybook-* artifacts. The repo is busy enough that master runs can
-                  # fall outside a plain `gh run list -L 20` window, so query the workflow's runs
-                  # filtered to master directly.
-                  echo "Searching for a successful master Storybook run with live JUnit artifacts..."
-                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-storybook.yml/runs?status=success&branch=master&per_page=30" \
-                      --jq '.workflow_runs[].id' | \
-                      while read -r id; do
-                          if validate_run "$id"; then
-                              echo "$id"
-                              break
-                          fi
-                      done)
-
-                  if [ -z "$run_id" ]; then
-                      echo "::error::No successful master Storybook run found with live JUnit artifacts (1-day retention)"
-                      exit 1
+                  echo "Searching for a successful nightly Storybook run with live webkit JUnit artifacts..."
+                  webkit_run_id=$(find_run schedule webkit '[1-4]' 4)
+                  if [ -z "$webkit_run_id" ]; then
+                      echo "::warning::No successful nightly Storybook run with live webkit JUnit artifacts; keeping the manifest's webkit timings"
+                  else
+                      echo "Using Storybook CI run for webkit: $webkit_run_id"
                   fi
-                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-                  echo "Using Storybook CI run: $run_id"
+
+                  echo "run_ids=$chromium_run_id $webkit_run_id" >> "$GITHUB_OUTPUT"
 
             - name: Regenerate storybook-timings.json
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
-              # The script downloads the run's junit-results-storybook-* artifacts and rewrites
+                  RUN_IDS: ${{ steps.find-run.outputs.run_ids }}
+              # The script downloads the runs' junit-results-storybook-* artifacts and rewrites
               # common/storybook/storybook-timings.json in place (seconds per story file, per browser).
-              run: ./common/storybook/update-storybook-timings.sh "$RUN_ID"
+              run: |
+                  read -ra run_ids <<< "$RUN_IDS"
+                  ./common/storybook/update-storybook-timings.sh "${run_ids[@]}"
 
             - name: Check for changes
               id: check-changes
@@ -172,7 +194,8 @@ jobs:
 
             - name: Commit via GitHub API (signed)
               if: steps.check-changes.outputs.changed == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'chore(ci): update storybook shard timing manifest'
                   repo: ${{ github.repository }}
@@ -185,13 +208,17 @@ jobs:
               if: steps.check-changes.outputs.changed == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+                  RUN_IDS: ${{ steps.find-run.outputs.run_ids }}
                   REPO: ${{ github.repository }}
               run: |
                   existing_pr=$(gh pr list --head "chore/update-storybook-timings" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
                   else
+                    run_links=""
+                    for run_id in $RUN_IDS; do
+                      run_links="$run_links [run $run_id](https://github.com/$REPO/actions/runs/$run_id)"
+                    done
                     body=$(cat <<EOF
                   ## Problem
 
@@ -199,11 +226,11 @@ jobs:
 
                   ## Changes
 
-                  Refresh the timing manifest from [Storybook CI run ${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}).
+                  Refresh the timing manifest from Storybook CI${run_links}.
 
                   ## How did you test this code?
 
-                  The scheduled workflow validated that the source was a successful full master run with all Chromium and WebKit shard artifacts, then regenerated the manifest.
+                  The scheduled workflow validated that the sources were a successful master push with all Chromium shard artifacts and, when one was found, a successful nightly run with all WebKit shard artifacts, then regenerated the manifest.
 
                   ## Docs update
 

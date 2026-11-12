@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -11,41 +11,46 @@ import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
-import { buildReportCheckRows, latestCheckExplanations, monitoringPeriodLabel } from './reportCheckPresentation'
+import {
+    buildReportCheckRows,
+    latestCheckExplanations,
+    monitoringPeriodLabel,
+    reportCheckMetric,
+} from './reportCheckPresentation'
 import { ReportCheckTiming } from './ReportCheckTiming'
 import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
-export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
+export function ReportExpectedImpact({
+    report,
+    reportUrl,
+}: {
+    report: SignalReport
+    reportUrl: string
+}): JSX.Element | null {
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
-    const { currentProjectId, metricCheckReplacementDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    if (!monitoringEnabled) {
+        return null
+    }
     const measurements = buildReportCheckRows(
         reportChecks ?? [],
         latestCheckExplanations(reportArtefacts ?? []),
         report.status
     )
-        .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
+        .filter(({ check }) => check.status !== 'cancelled')
         .flatMap((row) => {
-            const { check } = row
-            if (!('comparison' in check.config)) {
+            const checkMetric = reportCheckMetric(row.check)
+            if (!checkMetric) {
                 return []
             }
-            const config = check.config
-            const metric: ReportMetricApi = {
-                metric_id: config.metric_id ?? check.id,
-                title: check.title,
-                kind: config.metric_kind ?? 'custom',
-                query: config.query,
-                value_format: config.value_format ?? 'number',
-                unit: config.unit,
-                goal_value: config.comparison.operator === 'between' ? null : config.comparison.value,
-                goal_direction: config.comparison.operator === 'lte' ? 'at_most' : 'at_least',
-            }
+            const { config, metric } = checkMetric
             const formatValue = (value: number | null | undefined): string =>
                 value == null ? 'unavailable' : (formatReportMetricValue(metric, value) ?? String(value))
             const goal =
@@ -196,10 +201,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                         data-attr="report-expected-impact-suggest-metrics"
                         type="secondary"
                         size="small"
-                        disabledReason={
-                            metricCheckReplacementDisabledReason ??
-                            (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
-                        }
+                        disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
                         onClick={() => setModalOpen(true)}
                     >
                         Suggest different metrics

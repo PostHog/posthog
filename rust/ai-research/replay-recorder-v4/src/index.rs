@@ -1,6 +1,6 @@
 //! The v4 index rows. The recorder sends each row as one JSON message to the index topic, and the Parquet sink writes
 //! them to `rrweb-v4/index/`. The JSON keys are the Parquet column names in `replay-data.md`. Integer values fit the
-//! signed column types parquetjs writes, and an INT64 value stays in the range a JavaScript number holds exactly,
+//! signed column types the sink writes, and an INT64 value stays in the range a JavaScript number holds exactly,
 //! which the sink checks: a value past either range saturates.
 //!
 //! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
@@ -102,6 +102,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         written_jsonl_bytes,
         max_written_event_bytes,
         decode_failures,
+        unread_reason,
         moments_truncated,
         mouse_interactions,
         touch_moves,
@@ -164,6 +165,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         image_urls
     );
     map.serialize_entry("host", host)?;
+    map.serialize_entry("unread_reason", unread_reason)?;
     serialize_surfacing(&mut map, surfacing)?;
     map.end()
 }
@@ -427,7 +429,7 @@ mod tests {
     use super::*;
 
     /// The columns of the Parquet files the recorder wrote before the sink took them over, in file order, with their
-    /// parquetjs type and whether they are optional. The sink writes the same files, so a renamed field or a changed
+    /// Parquet type and whether they are optional. The sink writes the same files, so a renamed field or a changed
     /// type here breaks every reader.
     const BLOCK_COLUMNS: &[(&str, &str, bool)] = &[
         ("team_id", "INT64", false),
@@ -575,6 +577,7 @@ mod tests {
         ("surfacing_visited_url_fingerprints", "LIST<UTF8>", true),
         ("surfacing_click_target_ids", "LIST<INT64>", true),
         ("surfacing_form_field_ids", "LIST<INT64>", true),
+        ("unread_reason", "UTF8", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[

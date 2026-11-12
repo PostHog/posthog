@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -19,11 +21,13 @@ import {
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
     warehouseSuggestionsStatusRetrieve,
+    warehouseSuggestionsSurfaceMoreCreate,
 } from './generated/api'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './generated/api.schemas'
 import { intervalForSeconds } from './refreshIntervals'
 import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
 
+jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 jest.mock('./generated/api', () => ({
     warehouseSuggestionsAcceptCreate: jest.fn(),
     warehouseSuggestionsAssignCreate: jest.fn(),
@@ -31,6 +35,7 @@ jest.mock('./generated/api', () => ({
     warehouseSuggestionsList: jest.fn(),
     warehouseSuggestionsResumeCreate: jest.fn(),
     warehouseSuggestionsStatusRetrieve: jest.fn(),
+    warehouseSuggestionsSurfaceMoreCreate: jest.fn(),
 }))
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseSavedQueriesRetrieve: jest.fn(),
@@ -43,6 +48,9 @@ const mockAccept = warehouseSuggestionsAcceptCreate as jest.MockedFunction<typeo
 const mockAssign = warehouseSuggestionsAssignCreate as jest.MockedFunction<typeof warehouseSuggestionsAssignCreate>
 const mockDismiss = warehouseSuggestionsDismissCreate as jest.MockedFunction<typeof warehouseSuggestionsDismissCreate>
 const mockResume = warehouseSuggestionsResumeCreate as jest.MockedFunction<typeof warehouseSuggestionsResumeCreate>
+const mockSurfaceMore = warehouseSuggestionsSurfaceMoreCreate as jest.MockedFunction<
+    typeof warehouseSuggestionsSurfaceMoreCreate
+>
 const mockSavedQuery = warehouseSavedQueriesRetrieve as jest.MockedFunction<typeof warehouseSavedQueriesRetrieve>
 const mockCheck = warehouseSavedQueriesCheckIncrementalCreate as jest.MockedFunction<
     typeof warehouseSavedQueriesCheckIncrementalCreate
@@ -55,7 +63,10 @@ const ACTIVE_STATUS: WarehouseSuggestionStatusApi = {
     window_days: 30,
     paused_reason: null,
     refreshed_at: '2026-10-07T08:30:00Z',
+    waiting: 0,
+    can_show_more: false,
 }
+const MORE_WAITING_STATUS: WarehouseSuggestionStatusApi = { ...ACTIVE_STATUS, waiting: 4, can_show_more: true }
 
 const MATERIALIZE: WarehouseSuggestionApi = {
     id: 'suggestion-1',
@@ -73,6 +84,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
         unknown_sources: { names: [], hidden_count: 0 },
         refresh_mode: 'full',
         refresh_interval_basis: 'savings',
+        main_saving: null,
     },
     payload_version: 1,
     evidence: { human_requests: 200, human_users: 6, human_days: 25 },
@@ -99,6 +111,19 @@ function materialize(id: string, savesSeconds: number, savesBytes = 0): Warehous
         id,
         subject_id: `view-${id}`,
         payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
+    }
+}
+
+function ledBy(id: string, main: 'waiting' | 'scanned', amount: number): WarehouseSuggestionApi {
+    const suggestion = materialize(id, main === 'waiting' ? amount : 0, main === 'scanned' ? amount : 0)
+    return {
+        ...suggestion,
+        payload: {
+            ...suggestion.payload,
+            main_saving: main,
+            waiting_seconds_saved_per_month: main === 'waiting' ? amount : 0,
+            background_seconds_saved_per_month: 0,
+        },
     }
 }
 
@@ -142,6 +167,8 @@ function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSugg
     return { ...MATERIALIZE, id, kind, subject_kind: 'table', payload: { subject_name: id } }
 }
 
+const MODELS_SURFACE = { surface: 'models' }
+
 function page(results: WarehouseSuggestionApi[]): Awaited<ReturnType<typeof warehouseSuggestionsList>> {
     return { count: results.length, results } as Awaited<ReturnType<typeof warehouseSuggestionsList>>
 }
@@ -152,6 +179,7 @@ describe('warehouseSuggestionsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        jest.mocked(userHasAccess).mockReturnValue(true)
         mockSavedQuery.mockReset()
         mockCheck.mockReset()
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
@@ -345,7 +373,7 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
 
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody)
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody, MODELS_SURFACE)
     })
 
     it('materializes with a full refresh when the view can no longer refresh incrementally', async () => {
@@ -369,10 +397,12 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, {
-            refresh_interval_seconds: 86400,
-            refresh_mode: 'full',
-        })
+        expect(mockAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            INCREMENTAL.id,
+            { refresh_interval_seconds: 86400, refresh_mode: 'full' },
+            MODELS_SURFACE
+        )
     })
 
     it('switching a full proposal to incremental sends the mode and the keys', async () => {
@@ -385,13 +415,18 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.confirmMaterialize()
 
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id, {
-            refresh_interval_seconds: 86400,
-            refresh_mode: 'incremental',
-            incremental_key: 'day',
-            unique_key: ['day'],
-            lookback_seconds: 0,
-        })
+        expect(mockAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            MATERIALIZE.id,
+            {
+                refresh_interval_seconds: 86400,
+                refresh_mode: 'incremental',
+                incremental_key: 'day',
+                unique_key: ['day'],
+                lookback_seconds: 0,
+            },
+            MODELS_SURFACE
+        )
     })
 
     it.each<[string, Parameters<typeof logic.actions.setRefreshDraft>[0]]>([
@@ -510,13 +545,33 @@ describe('warehouseSuggestionsLogic', () => {
             ],
             ['time-big', 'time-small', 'bytes-big', 'unread-mid'],
         ],
+        ['models', [DEPRECATE, unmaterialize('scan-led', 0, 0)], ['scan-led', DEPRECATE.id]],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
     ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))
 
         await mountLogic(surface)
 
+        expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface })
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
+    })
+
+    it('tags its events with the placement it was mounted for', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = warehouseSuggestionsLogic({ surface: 'models', placement: 'overview' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
+
+        logic.actions.openReview()
+
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestions viewed',
+            expect.objectContaining({ surface: 'models', placement: 'overview' })
+        )
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestion review opened',
+            expect.objectContaining({ placement: 'overview' })
+        )
     })
 
     it('sums time and bytes across every view, including views that save both', async () => {
@@ -526,7 +581,29 @@ describe('warehouseSuggestionsLogic', () => {
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
+        expect(logic.values.savingsSummary).toEqual({
+            views: 3,
+            saving: { seconds: 3000, bytes: 5e12 },
+            split: null,
+        })
+    })
+
+    it('lists rows by the saving they lead with, so equal units sit together and larger comes first', async () => {
+        mockList.mockResolvedValue(
+            page([
+                ledBy('scanned', 'scanned', 100e12),
+                ledBy('ten-minutes', 'waiting', 600),
+                ledBy('half-hour', 'waiting', 1800),
+            ])
+        )
+
+        await mountLogic()
+
+        expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual([
+            'half-hour',
+            'ten-minutes',
+            'scanned',
+        ])
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {
@@ -548,6 +625,116 @@ describe('warehouseSuggestionsLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it.each<[string, WarehouseSuggestionStatusApi, WarehouseSuggestionApi[], boolean]>([
+        ['nothing open and more can show', MORE_WAITING_STATUS, [], true],
+        ['nothing open but the open limits are full', { ...MORE_WAITING_STATUS, can_show_more: false }, [], false],
+        ['a suggestion is still open', MORE_WAITING_STATUS, [MATERIALIZE], false],
+    ])('shows the waiting notice when %s', async (_name, status, results, expected) => {
+        mockStatus.mockResolvedValue(status)
+        mockList.mockResolvedValue(page(results))
+
+        await mountLogic()
+
+        expect(logic.values.showWaitingNotice).toBe(expected)
+    })
+
+    it('hides the waiting notice until the list has loaded, even when status answers first', async () => {
+        mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+        mockList.mockReturnValue(new Promise(() => {}))
+        logic = warehouseSuggestionsLogic({ surface: 'models' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+
+        expect(logic.values.showWaitingNotice).toBe(false)
+    })
+
+    it('rechecks the waiting count only after a slow dismissal is saved', async () => {
+        jest.useFakeTimers()
+        try {
+            let finishDismiss: () => void = () => {}
+            mockDismiss.mockReturnValue(
+                new Promise((resolve) => (finishDismiss = () => resolve({ ...MATERIALIZE, status: 'dismissed' })))
+            )
+            await mountLogic()
+            const statusCallsAtMount = mockStatus.mock.calls.length
+            mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+
+            logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+            const statusCallsWhileSaving = mockStatus.mock.calls.length - statusCallsAtMount
+            finishDismiss()
+            await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+
+            expect([statusCallsWhileSaving, logic.values.showWaitingNotice]).toEqual([0, true])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('rechecks the waiting count once the last row leaves, so the notice shows after the dialog closes', async () => {
+        jest.useFakeTimers()
+        try {
+            mockAccept.mockResolvedValue({ ...MATERIALIZE, status: 'accepted' })
+            await mountLogic()
+            logic.actions.openReview()
+            mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+
+            logic.actions.acceptSuggestion(MATERIALIZE.id, { refresh_interval_seconds: 86400 })
+            await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+            await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+            logic.actions.closeReview()
+
+            expect([logic.values.stripState, logic.values.showWaitingNotice]).toEqual(['all_done', true])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each<[string, number, boolean, number]>([
+        ['opens the dialog on the new batch', 2, true, 0],
+        ['tells the user when nothing new could show', 0, false, 1],
+    ])('show more %s', async (_name, surfaced, expectReviewOpen, expectedInfoToasts) => {
+        const info = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast')
+        mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+        mockList.mockResolvedValue(page([]))
+        mockSurfaceMore.mockResolvedValue({ surfaced })
+        await mountLogic()
+
+        logic.actions.showMore('strip')
+        await expectLogic(logic).toDispatchActions(['showMore', 'setShowingMore', 'loadSuggestionsSuccess'])
+
+        expect(mockSurfaceMore).toHaveBeenCalledWith(expect.any(String), { surface: 'models' })
+        expect([logic.values.reviewOpen, logic.values.showingMore, info.mock.calls.length]).toEqual([
+            expectReviewOpen,
+            false,
+            expectedInfoToasts,
+        ])
+    })
+
+    it('keeps show more busy until the new batch has loaded, so a second click does nothing', async () => {
+        let finishList: () => void = () => {}
+        mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+        mockList.mockResolvedValue(page([]))
+        mockSurfaceMore.mockResolvedValue({ surfaced: 3 })
+        await mountLogic()
+        mockList.mockReturnValue(new Promise((resolve) => (finishList = () => resolve(page([MATERIALIZE])))))
+
+        logic.actions.showMore('dialog')
+        await expectLogic(logic).toDispatchActions(['showMore', 'setShowingMore', 'loadSuggestions'])
+        logic.actions.showMore('dialog')
+        const busyWhileLoading = logic.values.showingMore
+        finishList()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'setShowingMore'])
+
+        expect([busyWhileLoading, mockSurfaceMore.mock.calls.length, logic.values.showingMore]).toEqual([
+            true,
+            1,
+            false,
+        ])
     })
 
     it('stays mounted as all done while the last row leaves and after it is gone', async () => {
@@ -681,26 +868,58 @@ describe('warehouseSuggestionsLogic', () => {
         }
     )
 
-    it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
-        ['stops refreshing by default', false, undefined, 'Marked old_rollup as deprecated and stopped its refreshes.'],
-        ['keeps refreshing when asked', true, { keep_materialized: true }, 'Marked old_rollup as deprecated.'],
-    ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
+    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+        [
+            'stops refreshing by default',
+            false,
+            false,
+            undefined,
+            { certification_id: 'cert-1', stopped_materialization: true },
+            'Marked old_rollup as deprecated and stopped its refreshes.',
+        ],
+        [
+            'keeps refreshing when asked',
+            true,
+            false,
+            { keep_materialized: true },
+            { certification_id: 'cert-1', stopped_materialization: false },
+            'Marked old_rollup as deprecated.',
+        ],
+        [
+            'deletes it when asked',
+            false,
+            true,
+            { delete_view: true },
+            { saved_query_id: 'view-1', stopped_materialization: true },
+            'Deleted old_rollup.',
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
-        mockAccept.mockResolvedValue({
-            ...DEPRECATE,
-            status: 'accepted',
-            created_asset: { certification_id: 'cert-1', stopped_materialization: !keep },
-        })
+        mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
+        logic.actions.setDeleteView(deleteView)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body)
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body, { surface: 'catalog' })
         expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toEqual(toast)
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
+    })
+
+    it.each([
+        ['marks it deprecated for a data catalog editor', true, false],
+        ['deletes it for someone who cannot edit the data catalog', false, true],
+    ])('a view deprecation opens on the choice that %s', async (_name, canEditCatalog, expectedDeleteView) => {
+        jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+        mockList.mockResolvedValue(page([DEPRECATE]))
+        await mountLogic()
+
+        logic.actions.openAcceptConfirm(DEPRECATE.id)
+
+        expect(logic.values.deleteView).toBe(expectedDeleteView)
     })
 
     it('reloads the list when an accept finds the view or table deleted', async () => {

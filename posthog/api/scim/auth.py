@@ -9,6 +9,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
@@ -21,6 +22,7 @@ class SCIMAuthToken:
 
     def __init__(self, config: IdentityProviderConfig):
         self.config = config
+        self.current_organization_id = config.organization_id
         self.is_authenticated = True
         self.is_active = True
         self.pk = None  # SCIM auth doesn't have a user PK
@@ -76,8 +78,10 @@ class SCIMBearerTokenAuthentication(ActivityCredentialMixin, BaseAuthentication)
         if not check_password(token, hashed_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
+        user = SCIMAuthToken(config)
+        enforce_ip_restrictions(request, user, self)
         self.record_activity_actor(None, str(config.id))
-        return (SCIMAuthToken(config), config)
+        return (user, config)
 
     def _extract_scim_slug_from_path(self, path: str) -> Optional[str]:
         """

@@ -61,6 +61,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
     LazyTable,
+    SavedQuery,
     StringDatabaseField,
     Table,
     TableNode,
@@ -84,7 +85,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
@@ -101,6 +101,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
@@ -483,9 +484,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("events_mode", FlagEvaluationsMode.EVENTS, False),
+            param("events_mode", FlagEvaluationsMode.EVENTS, False, table_in_catalog=False),
             # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
             param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, False, debug=True),
+            param("events_mode_on_cloud", FlagEvaluationsMode.EVENTS, False, cloud=True),
             param(
                 "events_mode_with_the_table_forced_in",
                 FlagEvaluationsMode.EVENTS,
@@ -493,6 +495,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 include_flag_evaluations_table=True,
             ),
             ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
+            param(
+                "read_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                union_flag_enabled=False,
+            ),
             param(
                 "read_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
@@ -512,31 +520,48 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 False,
                 include_flag_evaluations_table=False,
+                table_in_catalog=False,
             ),
         ]
     )
-    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode(
+    def test_flag_call_reads_follow_the_read_mode_and_the_union_flag(
         self,
         _name: str,
         mode: FlagEvaluationsMode,
         expected: bool,
         reads_forced_to_events: bool = False,
         debug: bool = False,
+        cloud: bool = False,
         include_flag_evaluations_table: bool | None = None,
+        union_flag_enabled: bool = True,
+        table_in_catalog: bool = True,
     ) -> None:
+        enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
 
         with (
             override_settings(DEBUG=debug),
+            self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key in enabled_flags,
+            ),
         ):
             database = Database.create_for(
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
             )
 
-        assert database.read_flag_calls_from_flag_evaluations is expected
+        assert database.organization_reads_flag_calls_from_flag_evaluations is expected
+        assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
+        # The build reads the union flag only when the table gate is on, and the override skips that gate.
+        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        assert database.flag_calls_union_enabled is union_expected
+        assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -796,7 +821,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.name == "id-hype"
         assert field.hogql_value == "`id-hype`"
 
-    def test_serialize_database_warehouse_table_source(self):
+    @parameterized.expand(
+        [
+            ("synced", "2024-01-01", "2024-01-01 00:00:00+00:00"),
+            ("never_synced", None, None),
+        ]
+    )
+    def test_serialize_database_warehouse_table_source(
+        self, _name: str, last_synced_at: str | None, expected_last_synced_at: str | None
+    ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -821,7 +854,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            last_synced_at="2024-01-01",
+            last_synced_at=last_synced_at,
             # No status but should be completed because a data warehouse table already exists
         )
 
@@ -846,7 +879,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
         assert table.schema_.status is None
-        assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
+        assert table.schema_.last_synced_at == expected_last_synced_at
 
         field = table.fields.get("id")
         assert field is not None
@@ -854,6 +887,119 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.hogql_value == "id"
         assert field.type == "string"
         assert field.schema_valid is True
+
+    @parameterized.expand(
+        [
+            param("running_by_dotted_name", schema={"status": "Running"}, queried="stripe.charges", hint="running"),
+            param("running_by_row_name", schema={"status": "Running"}, queried="stripe_charges", hint="running"),
+            param("never_started", schema={"status": None}, queried="stripe.charges", hint="running"),
+            param("failed", schema={"status": "Failed"}, queried="stripe.charges", hint="failed"),
+            param(
+                "prefixed_source_with_dotted_schema",
+                prefix="dev_",
+                schema={"name": "public.orders", "status": "Running"},
+                queried="stripe.dev.public__orders",
+                hint="running",
+            ),
+            param("sync_turned_off", schema={"status": "Failed", "should_sync": False}, queried="stripe.charges"),
+            param("deleted_schema", schema={"status": "Running", "deleted": True}, queried="stripe.charges"),
+            param(
+                "first_sync_complete_without_table",
+                schema={"status": "Completed", "initial_sync_complete": True},
+                queried="stripe.charges",
+            ),
+            param("other_teams_schema", schema={"status": "Running"}, queried="stripe.charges", other_team=True),
+            param("unrelated_name", schema={"status": "Running"}, queried="stripe.refunds"),
+            param(
+                "typo_of_synced_table_keeps_suggestion",
+                schema={"status": "Running"},
+                queried="stripe.invoice",
+                expected_message="Unknown table `stripe.invoice`. Did you mean: stripe.invoices?",
+            ),
+        ]
+    )
+    def test_unknown_table_says_when_first_sync_has_not_created_it(
+        self,
+        _name: str,
+        schema: dict[str, Any],
+        queried: str,
+        hint: str | None = None,
+        prefix: str | None = None,
+        other_team: bool = False,
+        expected_message: str | None = None,
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        own_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="own",
+            connection_id="own",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix=prefix,
+        )
+        synced_table = DataWarehouseTable.objects.create(
+            name="stripe_invoices",
+            format="Parquet",
+            team=self.team,
+            external_data_source=own_source,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=self.team, name="invoices", source=own_source, table=synced_table)
+
+        schema_team = self.team
+        if other_team:
+            schema_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        pending_source = (
+            ExternalDataSource.objects.create(
+                team=schema_team,
+                source_id="other",
+                connection_id="other",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            if other_team
+            else own_source
+        )
+        ExternalDataSchema.objects.create(
+            team=schema_team, source=pending_source, **{"name": "charges", "should_sync": True, **schema}
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.get_table(f"{'stripe.dev' if prefix else 'stripe'}.invoices").name is not None
+        with self.assertRaises(QueryError) as error:
+            database.get_table(queried)
+
+        if expected_message is None:
+            expected_message = {
+                None: f"Unknown table `{queried}`.",
+                "running": f"Unknown table `{queried}`: its first sync has not finished, so the table does not exist "
+                "yet. Check the sync status on the source page.",
+                "failed": f"Unknown table `{queried}`: its first sync failed, so the table does not exist yet. "
+                "Open the source page to see why.",
+            }[hint]
+        assert str(error.exception) == expected_message
+
+    def test_unknown_table_loads_first_sync_names_once_and_never_during_build(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="own",
+            connection_id="own",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        ExternalDataSchema.objects.create(team=self.team, name="charges", source=source, status="Running")
+
+        sources = Database._fetch_sources(team=self.team)
+        with self.assertNumQueries(0):
+            database = Database._build_from_sources(sources)
+
+        with self.assertNumQueries(1):
+            for name in ["stripe.charges", "stripe.refunds", "stripe.charges", "nope"]:
+                with self.assertRaises(QueryError):
+                    database.get_table(name)
 
     def _create_warehouse_table(self, *, name, url_pattern, source=None, credential=None):
         return DataWarehouseTable.objects.create(
@@ -1032,7 +1178,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view). +1 more for the
         # organization's flag_evaluations mode, which is_flag_evaluations_table_enabled reads once per build.
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(7, 10)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -1090,7 +1236,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
-        # plus the saved-expressions fetch and the organization's flag_evaluations mode
+        # plus the saved-expressions fetch and the organization's flag_evaluations mode.
+        # The custom MCP harness rules come from Redis, which the first build filled.
         with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -2226,11 +2373,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
+    @parameterized.expand([("persons",), ("posthog.persons",)])
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_database_warehouse_joins_persons_poe_v1(self):
+    def test_database_warehouse_joins_persons_poe_v1(self, source_table_name):
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name="persons",
+            source_table_name=source_table_name,
             source_table_key="properties.email",
             joining_table_name="groups",
             joining_table_key="key",
@@ -2419,7 +2567,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
             # credential joins (decrypt once per credential, not per table/view).
-            with self.assertNumQueries(FuzzyInt(6, 9)):
+            # Upper bound +1 for the custom MCP harness lookup.
+            with self.assertNumQueries(FuzzyInt(6, 10)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
@@ -3604,13 +3753,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys}},
         )
 
-    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self):
+    @parameterized.expand(
+        [
+            ("events", "events"),
+            ("events", ["posthog", "events"]),
+            ("posthog.events", "events"),
+            ("posthog.events", ["posthog", "events"]),
+        ]
+    )
+    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(
+        self, join_source_table_name, source_table
+    ):
         self._postgres_warehouse_source_with_foreign_key(
             foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
         )
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name="events",
+            source_table_name=join_source_table_name,
             source_table_key="event",
             joining_table_name="postgres.ph3.posthog_activitylog",
             joining_table_key="id",
@@ -3621,7 +3780,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # The join holds the warehouse table as an object, so resolving through it never calls
         # get_table on the warehouse name. Accessing the join's source table has to arm the build.
-        join_field = database.get_table("events").fields["activitylog"]
+        join_field = database.get_table(source_table).fields["activitylog"]
         assert isinstance(join_field, LazyJoin)
         joined = join_field.resolve_table(HogQLContext(team_id=self.team.pk, database=database))
         assert isinstance(joined.fields.get("team"), LazyJoin)
@@ -4324,6 +4483,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "logs_kafka_metrics",
             "web_pre_aggregated_stats",
             "web_pre_aggregated_bounces",
+            "web_stats_dimensional_preaggregated",
+            "web_bounces_dimensional_preaggregated",
             "preaggregation_results",
             "experiment_exposures_preaggregated",
             "experiment_metric_events_preaggregated",
@@ -4358,8 +4519,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             qualified_name = f"posthog.{table_name}"
             assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
 
-            table = database.get_table(qualified_name)
-            assert table is not None, f"Table {qualified_name} should return a valid table"
+            assert database.get_table(qualified_name) is database.get_table(table_name), (
+                f"Table {qualified_name} should be the same table as {table_name}"
+            )
+
+    def test_saved_expression_on_posthog_qualified_sessions_survives_the_session_table_version(self):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="posthog.sessions", field_name="qualified_expr", expression="1 + 1"
+            )
+
+        database = Database.create_for(
+            team=self.team, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        )
+
+        assert "qualified_expr" in database.get_table("posthog.sessions").fields
 
     def test_posthog_qualified_table_names_resolve_in_select(self):
         database = Database.create_for(team=self.team)
@@ -4371,6 +4545,66 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         prepare_and_print_ast(parse_select("select * from posthog.events"), context, dialect="clickhouse")
+
+    def test_views_under_a_table_and_its_posthog_qualified_name_stay_separate(self):
+        for name, value in (("events.summary", 1), ("posthog.events.summary", 2)):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": f"SELECT {value} AS value"},
+                columns={"value": "Int64"},
+            )
+
+        database = Database.create_for(team=self.team)
+
+        for name, expected in (
+            ("events.summary", "SELECT 1 AS value"),
+            ("posthog.events.summary", "SELECT 2 AS value"),
+        ):
+            view = database.get_table(name)
+            assert isinstance(view, SavedQuery)
+            assert str(view.query) == expected
+
+    def _print_with_v2_sessions(self, query: str) -> str:
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+            modifiers=modifiers,
+        )
+        sql, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
+        return sql
+
+    @parameterized.expand(
+        [
+            ("events", "uuid", False),
+            ("persons", "id", False),
+            ("persons", "id", True),
+            ("groups", "key", False),
+            ("groups", "key", True),
+            ("sessions", "session_id", False),
+            ("sessions", "session_id", True),
+        ]
+    )
+    def test_join_of_a_table_to_its_posthog_qualified_name_compares_both_sides(
+        self, table_name, column, qualified_first
+    ):
+        first, second = (
+            (f"posthog.{table_name}", table_name) if qualified_first else (table_name, f"posthog.{table_name}")
+        )
+
+        sql = self._print_with_v2_sessions(
+            f"SELECT count() FROM {first} JOIN {second} ON {table_name}.{column} = posthog.{table_name}.{column}"
+        )
+
+        assert f"ON equals({table_name}.{column}, posthog__{table_name}.{column})" in sql
+
+    def test_join_of_posthog_qualified_events_to_events_asks_for_an_alias(self):
+        with pytest.raises(QueryError, match="Give one of them an alias"):
+            self._print_with_v2_sessions(
+                "SELECT count() FROM posthog.events JOIN events ON events.uuid = posthog.events.uuid"
+            )
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""

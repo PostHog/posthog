@@ -49,6 +49,8 @@ const MOCK_EVENT_DEFINITIONS = {
             last_seen_at: '2026-03-25T10:00:00Z',
             created_at: '2025-03-01T00:00:00Z',
             verified: false,
+            hidden: true,
+            scheduled_deletion_at: '2026-03-31T14:00:00Z',
         },
         {
             id: '5',

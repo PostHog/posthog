@@ -6,17 +6,20 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
+from products.data_modeling.backend.facade.contracts import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
+    get_declared_pin,
     get_declared_target,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
@@ -24,6 +27,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
+    apply_saved_query_frequency_target,
     bootstrap_dag_to_tiers,
     convert_dag_to_tiers,
     delete_dag_schedules,
@@ -469,15 +473,28 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_id)
 
-    def test_upstream_slower_than_its_consumer_runs_at_the_consumer_cadence_and_keeps_its_setting(self):
+    @parameterized.expand(
+        [
+            ("unpinned_runs_at_the_consumer_cadence", False, True, {H6: ["upstream", "consumer"]}),
+            ("pinned_keeps_its_own_cadence", True, True, {DAY: ["upstream"], H6: ["consumer"]}),
+            ("pinned_holds_back_a_consumer_with_no_fresher_parent", True, False, {DAY: ["upstream", "consumer"]}),
+        ]
+    )
+    def test_upstream_slower_than_its_consumer_keeps_its_setting(
+        self, _name, pinned, consumer_reads_source, expected_tiers
+    ):
         dag = DAG.get_or_create_default(self.team)
         source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H1)
         upstream = _saved_query_node(self.team, dag, "org_universe", NodeType.MAT_VIEW)
         consumer = _saved_query_node(self.team, dag, "maps", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=upstream)
         Edge.objects.create(team=self.team, dag=dag, source=upstream, target=consumer)
+        if consumer_reads_source:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=consumer)
         set_declared_target(upstream, DAY)
         set_declared_target(consumer, H6)
+        if pinned:
+            set_declared_pin(upstream, True)
 
         with (
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
@@ -486,12 +503,41 @@ class TestMaybeReconcileDag(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
 
-        create.assert_called_once()
-        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), H6))
-        scheduled = create.call_args.kwargs["schedule"].action.args[0]["node_ids"]
-        self.assertEqual(sorted(scheduled), sorted([str(upstream.id), str(consumer.id)]))
+        ids = {"upstream": str(upstream.id), "consumer": str(consumer.id)}
+        created = {
+            call.kwargs["id"]: sorted(call.kwargs["schedule"].action.args[0]["node_ids"])
+            for call in create.call_args_list
+        }
+        self.assertEqual(
+            created,
+            {
+                tier_schedule_id(str(dag.id), cadence): sorted(ids[name] for name in names)
+                for cadence, names in expected_tiers.items()
+            },
+        )
         upstream.refresh_from_db()
         self.assertEqual(get_declared_target(upstream), DAY)
+
+    def test_a_pin_on_its_own_keeps_the_stored_target(self):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, H6)
+        assert node.saved_query is not None
+
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
+            apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)
+
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (H6, True))
+
+    def test_a_pin_on_its_own_is_refused_when_the_node_has_no_target(self):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        assert node.saved_query is not None
+
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"), self.assertRaises(ValueError):
+            apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)
+
+        node.refresh_from_db()
+        self.assertFalse(get_declared_pin(node))
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()

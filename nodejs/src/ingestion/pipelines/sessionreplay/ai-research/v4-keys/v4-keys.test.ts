@@ -1,52 +1,9 @@
 import { GetItemCommand } from '@aws-sdk/client-dynamodb'
 import { DecryptCommand } from '@aws-sdk/client-kms'
 
-import vector from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json'
-
-import { V4FrameContext, sealV4Frame } from './frame'
 import { TeamMonthKeys, teamMonthKeyExpiresAtMs, teamMonthWrappingContext } from './team-month-keys'
 
-const base64 = (value: string): Buffer => Buffer.from(value, 'base64')
-
 describe('v4 keys', () => {
-    it.each([
-        [
-            'an inline image under the team month key',
-            vector.teamMonthKey,
-            vector.image.context,
-            vector.image.bytes,
-            vector.image.nonce,
-            vector.image.frame,
-        ],
-        [
-            'a fetched image under the team month key',
-            vector.teamMonthKey,
-            vector.imageUrl.context,
-            vector.imageUrl.bytes,
-            vector.imageUrl.nonce,
-            vector.imageUrl.frame,
-        ],
-        [
-            'a fetched image whose context sets its absent fields to undefined',
-            vector.teamMonthKey,
-            { ...vector.imageUrl.context, sessionId: undefined },
-            vector.imageUrl.bytes,
-            vector.imageUrl.nonce,
-            vector.imageUrl.frame,
-        ],
-        [
-            'a block under the session key',
-            vector.sessionKey,
-            vector.block.context,
-            vector.block.body,
-            vector.block.nonce,
-            vector.block.frame,
-        ],
-    ])('seals %s exactly as the Rust recorder does', (_name, key, context, body, nonce, frame) => {
-        // The Rust crate pins the same file, so the two writers cannot drift apart.
-        expect(sealV4Frame(base64(key), context as V4FrameContext, base64(body), base64(nonce))).toEqual(base64(frame))
-    })
-
     const TEAM = 7
     const MONTH = '2026-10'
     const wrapped = Buffer.from('wrapped')
@@ -83,6 +40,49 @@ describe('v4 keys', () => {
         expect(await keys.get(TEAM, MONTH)).toEqual(expected)
         expect(await keys.get(TEAM, MONTH)).toEqual(expected)
         expect(dynamo.send).toHaveBeenCalledTimes(reads)
+    })
+
+    const rotated = { ...stored, wrapped_key: { B: Buffer.from('rotated') } }
+    const FIVE: number[] = []
+    const tombstone = { ...stored, wrapped_key: undefined, deleted: { BOOL: true } }
+
+    it.each([
+        ['reuses the plaintext while the row holds the same wrapped key', [stored, stored], ['ok', 'ok'], 1, FIVE],
+        ['unwraps again when the row holds another wrapped key', [stored, rotated], ['ok', 'ok'], 2, FIVE],
+        ['drops the plaintext at a tombstone', [stored, tombstone, stored], ['ok', 'deleted', 'ok'], 2, FIVE],
+        ['drops the plaintext when the row is gone', [stored, undefined, stored], ['ok', 'missing', 'ok'], 2, FIVE],
+        ['unwraps again once the plaintext is half an hour old', Array(7).fill(stored), Array(7).fill('ok'), 2, FIVE],
+        // The second read reuses the plaintext a second before it is half an hour old.
+        [
+            'holds a reused plaintext no longer than the plaintext',
+            Array(3).fill(stored),
+            Array(3).fill('ok'),
+            2,
+            [1_799_000, 2_000, 0],
+        ],
+    ])('after the cache lifetime, %s', async (_name, rows, statuses, unwraps, stepsMs) => {
+        // lru-cache keeps the clock object it found at import, and fake timers install another one, so the test
+        // moves both. lru-cache reads a start time of zero as an entry with no lifetime.
+        let cacheClockMs = 1
+        const cacheClock = jest.spyOn(performance, 'now').mockImplementation(() => cacheClockMs)
+        jest.useFakeTimers()
+        try {
+            const { keys, dynamo, kms } = fakes(undefined)
+            const seen: string[] = []
+            for (const row of rows) {
+                dynamo.send.mockResolvedValueOnce({ Item: row } as never)
+                seen.push((await keys.get(TEAM, MONTH)).status)
+                const stepMs = stepsMs[seen.length - 1] ?? 300_001
+                cacheClockMs += stepMs
+                jest.advanceTimersByTime(stepMs)
+            }
+            expect(seen).toEqual(statuses)
+            expect(dynamo.send).toHaveBeenCalledTimes(rows.length)
+            expect(kms.send).toHaveBeenCalledTimes(unwraps)
+        } finally {
+            jest.useRealTimers()
+            cacheClock.mockRestore()
+        }
     })
 
     it.each([

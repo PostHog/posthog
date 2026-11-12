@@ -2,15 +2,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core import mail
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -415,6 +418,27 @@ class TestWarehouseAlerts(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand(
+        [
+            ("platform_alerts_only", "platform-alerts", status.HTTP_403_FORBIDDEN),
+            ("warehouse_flag_only", "platform-alerts-source-warehouse", status.HTTP_200_OK),
+        ]
+    )
+    def test_destinations_open_on_the_warehouse_flag(self, _name: str, flag_on: str, expected: int) -> None:
+        configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+        self.enterContext(
+            patch(
+                "posthog.permissions.posthog_feature_flag_enabled",
+                side_effect=lambda flag, *_args, **_kwargs: flag == flag_on,
+            )
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/")
+
+        assert response.status_code == expected, response.json()
+
+    # The response's 24-hour state bar ends at the request's time, so the create and the read share one clock.
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
     def test_an_alert_and_its_slack_destination_route_a_failure_to_that_channel(self) -> None:
         schema = self._schema(self._source(), "charges", Status.FAILED)
 
@@ -701,13 +725,13 @@ class TestWarehouseAlerts(APIBaseTest):
             record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
         (delivery,) = evaluation.deliveries
 
-        with patch("products.alerts_platform.backend.delivery.email.EmailMessage") as email_message:
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(EMAIL_ENABLED=True):
             sent = platform_testing.deliver(delivery)
 
         assert sent == 1
         assert delivery.configuration_id == str(configuration_id)
-        assert "Sync failures" in email_message.call_args.kwargs["subject"]
-        assert [call.kwargs["email"] for call in email_message.return_value.add_recipient.call_args_list] == sorted(
+        assert all("Sync failures" in message.subject for message in mail.outbox)
+        assert sorted(address for message in mail.outbox for address in message.to) == sorted(
             [self.user.email, "member@example.com"]
         )
-        email_message.return_value.send.assert_called_once_with()

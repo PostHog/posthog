@@ -126,6 +126,8 @@ export interface logsAlertFormLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     pendingNotifications: PendingLogsAlertNotification[] // logsAlertNotificationLogic
     alerts: LogsAlertConfigurationApi[] // logsAlertingLogic
+    alertsLoaded: boolean // logsAlertingLogic
+    createdByFilter: string | null // logsAlertingLogic
     currentTeamId: number | null // teamLogic
     alertForm: LogsAlertFormType
     alertFormAllErrors: Record<string, any>
@@ -266,7 +268,13 @@ export interface logsAlertFormLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isEditing: (arg: any) => boolean
         groupingFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], groupingFlagEnabled: boolean) => boolean
+        canGroup: (
+            arg: any,
+            alerts: LogsAlertConfigurationApi[],
+            alertsLoaded: boolean,
+            createdByFilter: string | null,
+            groupingFlagEnabled: boolean
+        ) => boolean
         lockedGroupBy: (arg: any, groupingFlagEnabled: boolean) => LogsAlertGroupBy | null
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
@@ -291,7 +299,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsAlertingLogic,
-            ['alerts'],
+            ['alerts', 'alertsLoaded', 'createdByFilter'],
             featureFlagLogic,
             ['featureFlags'],
             logsAlertNotificationLogic({ alertId: alert?.id }),
@@ -408,12 +416,19 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING],
         ],
         canGroup: [
-            (s) => [(_, props) => props.alert, s.alerts, s.groupingFlagEnabled],
+            (s) => [(_, props) => props.alert, s.alerts, s.alertsLoaded, s.createdByFilter, s.groupingFlagEnabled],
             (
                 alert: LogsAlertConfigurationApi | null,
                 alerts: LogsAlertConfigurationApi[],
+                alertsLoaded: boolean,
+                createdByFilter: string | null,
                 groupingFlagEnabled: boolean
-            ): boolean => canGroupAlert(alert, alerts, groupingFlagEnabled),
+            ): boolean =>
+                canGroupAlert(
+                    alert,
+                    alertsLoaded ? { alerts, complete: createdByFilter === null } : null,
+                    groupingFlagEnabled
+                ),
         ],
         lockedGroupBy: [
             (s) => [(_, props) => props.alert, s.groupingFlagEnabled],

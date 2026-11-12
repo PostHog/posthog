@@ -8,13 +8,13 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import ActiveSessionCapError, CredentialUnavailableError
 from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
@@ -49,11 +49,12 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_slack_interaction_state,
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
+    mcp_exclude_tools_for_task,
     record_delivered_message,
     sandbox_identity_scope,
     unmounted_mcp_installations_log_fields,
@@ -358,6 +359,23 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     _fail_when_sandbox_stopped(input.run_id, state, actor_user, task_run=task_run)
 
+    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches forward_pending_message's deferred-import pattern
+        claim_task_run_sandbox_sessions,
+        record_task_run_user_activity,
+    )
+
+    try:
+        claim_task_run_sandbox_sessions(input.run_id, task_run.team_id)
+    except ActiveSessionCapError as error:
+        _write_error_and_complete(
+            input.run_id,
+            error.message,
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
+        raise
+
     # Rebind the sandbox's MCP session to this actor before the turn. On an
     # actor transition this must rebind or clear the prior session; if it can't,
     # fail closed rather than run the turn under the previous actor's creds.
@@ -434,6 +452,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         message_id=input.message_id,
         steer=input.steer,
     )
+    if result.turn_in_flight or (result.success and not (input.steer and _is_steer_declined(result.data))):
+        record_task_run_user_activity(input.run_id, task_run.team_id)
     logger.info(
         "send_followup_to_sandbox_attempted",
         run_id=input.run_id,
@@ -612,13 +632,13 @@ def _refresh_sandbox_mcp(
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(state),
+        exclude_tools=mcp_exclude_tools_for_task(task_run.task, state),
     )
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=not task_run.task.internal,
+        include_personal=include_personal_mcp_for_task(task_run.task),
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
@@ -626,6 +646,7 @@ def _refresh_sandbox_mcp(
         task_agent_key=task_run.task.mcp_builtin_agent_key,
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
+        profile=task_run.task.stored_profile,
     )
     if user_mcp.configs:
         mcp_configs = mcp_configs + user_mcp.configs
@@ -774,6 +795,11 @@ def _refresh_sandbox_github(
     if actor_user is None:
         return None
 
+    # Read-only runs use a team installation grant, not the message actor's identity.
+    # The periodic credential refresh rotates that grant without widening its permissions.
+    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
+        return None
+
     run_id = str(task_run.id)
     task = task_run.task
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
@@ -818,7 +844,7 @@ def _refresh_sandbox_github(
     except (
         ReauthorizationRequired,
         CredentialUnavailableError,
-        Integration.DoesNotExist,
+        IntegrationNotFound,
         UserIntegration.DoesNotExist,
     ) as e:
         # The new actor has no usable GitHub credential for this repo: needs reauthorization,
