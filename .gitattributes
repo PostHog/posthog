@@ -18,6 +18,7 @@ frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated
 
+services/mcp/schema/cli-catalog-tools.json linguist-generated
 services/mcp/schema/generated-tool-definitions.json linguist-generated
 services/mcp/src/api/generated.ts linguist-generated
 services/mcp/src/generated/** linguist-generated
