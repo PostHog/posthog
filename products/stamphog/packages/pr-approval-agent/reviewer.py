@@ -190,13 +190,11 @@ def _verdict_from_facts(
     The keys verdict, reasoning, risk, issues and change_summary keep the shape every
     consumer reads; `facts` keeps the model's raw answers for the evidence bundle.
     Facts that do not parse escalate, because a run we cannot read is never an approval.
-    `threads` is rebuttable_threads(pr): a rejected finding in any other thread stays open.
     """
     result = {
         "reasoning": str(output.get("reasoning", "")),
         "change_summary": str(output.get("change_summary", "")),
         "facts": {name: output.get(name) for name in FACT_FIELDS},
-        "upheld_rejections": [],
     }
     try:
         facts = _cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed)
@@ -213,7 +211,7 @@ def _verdict_from_facts(
         "verdict": ruled.verdict,
         "risk": ruled.risk,
         "issues": list(ruled.issues),
-        "upheld_rejections": list(ruled.upheld_rejections),
+        **({"upheld_rejections": list(ruled.upheld_rejections)} if ruled.upheld_rejections else {}),
     }
 
     # Path validator hook removed — the PreToolUse hook crashes the CLI

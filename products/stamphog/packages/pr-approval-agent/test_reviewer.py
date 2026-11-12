@@ -314,7 +314,7 @@ def test_verdict_from_facts_keeps_the_consumer_contract(
     output: dict, classification: dict, head_reviewed: bool, verdict: str
 ) -> None:
     result = _verdict_from_facts(output, classification, head_reviewed=head_reviewed)
-    assert set(result) == {"verdict", "reasoning", "risk", "issues", "change_summary", "facts", "upheld_rejections"}
+    assert set(result) == {"verdict", "reasoning", "risk", "issues", "change_summary", "facts"}
     assert result["verdict"] == verdict
     assert result["reasoning"] == "No showstoppers."
     assert result["change_summary"] == _CLEAN_FACTS["change_summary"]

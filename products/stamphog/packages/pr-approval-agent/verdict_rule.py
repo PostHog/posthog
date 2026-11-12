@@ -163,11 +163,6 @@ def derive_verdict(facts: ReviewFacts, rebuttable_threads: Mapping[str, str] | N
     Refusal grounds and unresolved concerns refuse anywhere. Risky territory needs
     independent assurance: a current-head review, or an author on the owning team or
     with STRONG familiarity. Without any of them the PR escalates to a human.
-
-    A reviewer bot's finding that the author rejected is resolved when the reviewer judged the
-    rejection sound, the finding is outside the strict categories, and its thread is in
-    `rebuttable_threads`, which the pipeline builds from GitHub's author types rather than from the
-    model. Every other rejected finding stays an unresolved concern.
     """
     threads = rebuttable_threads or {}
     open_rejections: list[str] = []
