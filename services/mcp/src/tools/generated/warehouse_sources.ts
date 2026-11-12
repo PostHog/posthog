@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { castSyncFrequency, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -143,33 +143,6 @@ const externalDataSchemasDeleteData = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasDeleteHistoryTableSchema = () => {
-    const ExternalDataSchemasHistoryTableDestroyParams = orvalSchemas.ExternalDataSchemasHistoryTableDestroyParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasHistoryTableDestroyParams.omit({ project_id: true })
-    )
-}
-
-const externalDataSchemasDeleteHistoryTable = (): ToolBase<
-    ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>,
-    unknown
-> => ({
-    name: 'external-data-schemas-delete-history-table',
-    schema: ExternalDataSchemasDeleteHistoryTableSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/history_table/`,
-        })
-        return result
-    },
-})
-
 const ExternalDataSchemasDestinationsRetrieveSchema = () => {
     const ExternalDataSchemasDestinationsRetrieveParams = orvalSchemas.ExternalDataSchemasDestinationsRetrieveParams()
     return z.preprocess(
@@ -262,9 +235,13 @@ const ExternalDataSchemasPartialUpdateSchema = () => {
     const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSchemasPartialUpdateBody.shape
-        )
+        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
+            .extend(ExternalDataSchemasPartialUpdateBody.shape)
+            .extend({
+                sync_frequency: z
+                    .preprocess(castSyncFrequency, ExternalDataSchemasPartialUpdateBody.shape['sync_frequency'])
+                    .optional(),
+            })
     )
 }
 
@@ -432,6 +409,33 @@ const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/bulk_update_schemas/`,
             body,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesCdcStatusRetrieveSchema = () => {
+    const ExternalDataSourcesCdcStatusRetrieveParams = orvalSchemas.ExternalDataSourcesCdcStatusRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesCdcStatusRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesCdcStatusRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesCdcStatusRetrieveSchema>,
+    Schemas.CdcStatus
+> => ({
+    name: 'external-data-sources-cdc-status-retrieve',
+    schema: ExternalDataSourcesCdcStatusRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCdcStatusRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CdcStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/cdc_status/`,
         })
         return result
     },
@@ -697,36 +701,74 @@ const externalDataSourcesDestroy = (): ToolBase<ReturnType<typeof ExternalDataSo
     },
 })
 
-const ExternalDataSourcesDraftCustomManifestSchema = () => {
-    const ExternalDataSourcesDraftCustomManifestCreateBody =
-        orvalSchemas.ExternalDataSourcesDraftCustomManifestCreateBody()
-    return ExternalDataSourcesDraftCustomManifestCreateBody
+const ExternalDataSourcesDisableCdcCreateSchema = () => {
+    const ExternalDataSourcesDisableCdcCreateParams = orvalSchemas.ExternalDataSourcesDisableCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesDisableCdcCreateParams.omit({ project_id: true })
+    )
 }
 
-const externalDataSourcesDraftCustomManifest = (): ToolBase<
-    ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>,
-    Schemas.DraftCustomManifestResponse
+const externalDataSourcesDisableCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDisableCdcCreateSchema>,
+    Schemas.CdcDisableResponse
 > => ({
-    name: 'external-data-sources-draft-custom-manifest',
-    schema: ExternalDataSourcesDraftCustomManifestSchema(),
+    name: 'external-data-sources-disable-cdc-create',
+    schema: ExternalDataSourcesDisableCdcCreateSchema(),
     handler: async (
         context: Context,
-        params: z.infer<ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>>
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDisableCdcCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_name !== undefined) {
-            body['source_name'] = params.source_name
-        }
-        if (params.docs_url !== undefined) {
-            body['docs_url'] = params.docs_url
-        }
-        if (params.docs_text !== undefined) {
-            body['docs_text'] = params.docs_text
-        }
-        const result = await context.api.request<Schemas.DraftCustomManifestResponse>({
+        const result = await context.api.request<Schemas.CdcDisableResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/draft_custom_manifest/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/disable_cdc/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesEnableCdcCreateSchema = () => {
+    const ExternalDataSourcesEnableCdcCreateBody = orvalSchemas.ExternalDataSourcesEnableCdcCreateBody()
+    const ExternalDataSourcesEnableCdcCreateParams = orvalSchemas.ExternalDataSourcesEnableCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesEnableCdcCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesEnableCdcCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesEnableCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesEnableCdcCreateSchema>,
+    Schemas.CdcEnableResponse
+> => ({
+    name: 'external-data-sources-enable-cdc-create',
+    schema: ExternalDataSourcesEnableCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesEnableCdcCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
+        }
+        if (params.cdc_auto_drop_slot !== undefined) {
+            body['cdc_auto_drop_slot'] = params.cdc_auto_drop_slot
+        }
+        if (params.cdc_lag_warning_threshold_mb !== undefined) {
+            body['cdc_lag_warning_threshold_mb'] = params.cdc_lag_warning_threshold_mb
+        }
+        if (params.cdc_lag_critical_threshold_mb !== undefined) {
+            body['cdc_lag_critical_threshold_mb'] = params.cdc_lag_critical_threshold_mb
+        }
+        const result = await context.api.request<Schemas.CdcEnableResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/enable_cdc/`,
             body,
         })
         return result
@@ -921,6 +963,30 @@ const externalDataSourcesRepairCdcCreate = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesResumeCdcCreateSchema = () => {
+    const ExternalDataSourcesResumeCdcCreateParams = orvalSchemas.ExternalDataSourcesResumeCdcCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesResumeCdcCreateParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSourcesResumeCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesResumeCdcCreateSchema>,
+    Schemas.CdcResumeResponse
+> => ({
+    name: 'external-data-sources-resume-cdc-create',
+    schema: ExternalDataSourcesResumeCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesResumeCdcCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CdcResumeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/resume_cdc/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesRetrieveSchema = () => {
     const ExternalDataSourcesRetrieveParams = orvalSchemas.ExternalDataSourcesRetrieveParams()
     return z.preprocess(
@@ -949,49 +1015,45 @@ const externalDataSourcesRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesRevenueConfigUpdateSchema = () => {
-    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody =
-        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody()
-    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams =
-        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams()
+const ExternalDataSourcesUpdateCdcSettingsCreateSchema = () => {
+    const ExternalDataSourcesUpdateCdcSettingsCreateBody = orvalSchemas.ExternalDataSourcesUpdateCdcSettingsCreateBody()
+    const ExternalDataSourcesUpdateCdcSettingsCreateParams =
+        orvalSchemas.ExternalDataSourcesUpdateCdcSettingsCreateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody.shape
+        ExternalDataSourcesUpdateCdcSettingsCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesUpdateCdcSettingsCreateBody.shape
         )
     )
 }
 
-const externalDataSourcesRevenueConfigUpdate = (): ToolBase<
-    ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>,
-    Schemas.ExternalDataSourceSerializers
+const externalDataSourcesUpdateCdcSettingsCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesUpdateCdcSettingsCreateSchema>,
+    Schemas.CdcUpdateSettingsResponse
 > => ({
-    name: 'external-data-sources-revenue-config-update',
-    schema: ExternalDataSourcesRevenueConfigUpdateSchema(),
+    name: 'external-data-sources-update-cdc-settings-create',
+    schema: ExternalDataSourcesUpdateCdcSettingsCreateSchema(),
     handler: async (
         context: Context,
-        params: z.infer<ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>>
+        params: z.infer<ReturnType<typeof ExternalDataSourcesUpdateCdcSettingsCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
+        if (params.cdc_auto_drop_slot !== undefined) {
+            body['cdc_auto_drop_slot'] = params.cdc_auto_drop_slot
         }
-        if (params.include_invoiceless_charges !== undefined) {
-            body['include_invoiceless_charges'] = params.include_invoiceless_charges
+        if (params.cdc_lag_warning_threshold_mb !== undefined) {
+            body['cdc_lag_warning_threshold_mb'] = params.cdc_lag_warning_threshold_mb
         }
-        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/revenue_analytics_config/`,
+        if (params.cdc_lag_critical_threshold_mb !== undefined) {
+            body['cdc_lag_critical_threshold_mb'] = params.cdc_lag_critical_threshold_mb
+        }
+        const result = await context.api.request<Schemas.CdcUpdateSettingsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_cdc_settings/`,
             body,
         })
-        const filtered = pickResponseFields(result, [
-            'id',
-            'source_type',
-            'prefix',
-            'revenue_analytics_config',
-        ]) as typeof result
-        return filtered
+        return result
     },
 })
 
@@ -1400,7 +1462,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
-    'external-data-schemas-delete-history-table': externalDataSchemasDeleteHistoryTable,
     'external-data-schemas-destinations-retrieve': externalDataSchemasDestinationsRetrieve,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-list': externalDataSchemasList,
@@ -1409,6 +1470,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-bulk-update-schemas': externalDataSourcesBulkUpdateSchemas,
+    'external-data-sources-cdc-status-retrieve': externalDataSourcesCdcStatusRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
     'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
@@ -1417,14 +1479,16 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-destinations-retrieve': externalDataSourcesDestinationsRetrieve,
     'external-data-sources-destinations-update': externalDataSourcesDestinationsUpdate,
     'external-data-sources-destroy': externalDataSourcesDestroy,
-    'external-data-sources-draft-custom-manifest': externalDataSourcesDraftCustomManifest,
+    'external-data-sources-disable-cdc-create': externalDataSourcesDisableCdcCreate,
+    'external-data-sources-enable-cdc-create': externalDataSourcesEnableCdcCreate,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
     'external-data-sources-repair-cdc-create': externalDataSourcesRepairCdcCreate,
+    'external-data-sources-resume-cdc-create': externalDataSourcesResumeCdcCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
-    'external-data-sources-revenue-config-update': externalDataSourcesRevenueConfigUpdate,
+    'external-data-sources-update-cdc-settings-create': externalDataSourcesUpdateCdcSettingsCreate,
     'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,
     'external-data-sources-wizard': externalDataSourcesWizard,
