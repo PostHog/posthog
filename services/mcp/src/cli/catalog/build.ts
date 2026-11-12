@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { isStaffOnlyTool } from '@/lib/staff-only-tools'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
@@ -40,11 +41,16 @@ export function buildCliCatalog(build: string | null): BuiltCatalog {
         if (!factory) {
             continue
         }
+        const definition = getToolDefinition(name)
+        // The catalog is public. Staff-only tools stay compiled in, the way MCP sessions hide them.
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
         const plan: CatalogHttpTool = CatalogHttpToolSchema.parse(rawPlan)
         tools.push({
             ...plan,
             requires: plan.requires.map(versionedHook),
-            definition: getToolDefinition(name),
+            definition,
             // The spread drops the non-enumerable `~standard` handle, which keeps the zod schema alive.
             inputSchema: { ...z.toJSONSchema(factory().schema, { io: 'input' }) } as Record<string, unknown>,
         })
