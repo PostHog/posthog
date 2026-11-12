@@ -16,6 +16,7 @@ describe('userMessageDisplayText', () => {
         ['an issue mention without a url', 'See <github_issue number="7" />', 'See #7'],
         ['a file mention', 'Read <file path="src/app/main.ts" />', 'Read `app/main.ts`'],
         ['a folder mention', 'Open <folder path="src/app" />', 'Open `app/`'],
+        ['a skill mention', 'Run <skill name="deploy" source="user" path="/skills/deploy" /> now', 'Run `/deploy` now'],
     ])('renders %s', (_, text, expected) => {
         expect(userMessageDisplayText(text)).toEqual(expected)
     })
