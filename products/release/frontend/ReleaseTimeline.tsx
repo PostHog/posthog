@@ -1,23 +1,16 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, memo, useContext, useEffect, useMemo, useRef } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import type {
-    ActivityLogEntryApi,
-    FeatureFlagApi,
-    ScheduledChangeApi,
-} from 'products/feature_flags/frontend/generated/api.schemas'
-
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
-import { RolloutStep, rolloutSteps } from './releaseRollout'
+import { RolloutStep } from './releaseRollout'
 import { ReleaseRolloutChart } from './ReleaseRolloutChart'
 import { ReleaseStageDot } from './ReleaseStageDot'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
@@ -25,10 +18,11 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { CALENDAR_SCALE, LANE, SPAN_LOOK, TOTAL, Track, buildTrack, mergeOverlapping } from './releaseTracks'
+import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
-import { ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
+import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
 
 const NAME = 300
 const SUMMARY = 60
@@ -144,13 +138,6 @@ const TrackLanes = memo(
         laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
 )
 
-interface CachedSteps {
-    flag: FeatureFlagApi
-    activity: ActivityLogEntryApi[]
-    scheduled: ScheduledChangeApi[]
-    steps: RolloutStep[]
-}
-
 interface CalendarState {
     expanded: Record<string, true>
     stepsByFlag: Map<number, RolloutStep[]>
@@ -178,8 +165,8 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 ]
 
 export function ReleaseTimeline(): JSX.Element {
-    const { filteredRows, dataLoading, releases, flags, scheduledChanges } = useValues(releaseLogic)
-    const { expanded, flagActivity } = useValues(releaseCalendarLogic)
+    const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
+    const { expanded } = useValues(releaseCalendarLogic)
     const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
 
     useEffect(() => {
@@ -198,27 +185,7 @@ export function ReleaseTimeline(): JSX.Element {
         }
     }, [expanded, filteredRows, loadFlagActivity])
 
-    const stepsCache = useRef(new Map<number, CachedSteps>())
-    const stepsByFlag = useMemo(() => {
-        const today = dayjs()
-        const horizon = CALENDAR_SCALE().start.add(TOTAL, 'day')
-        const steps = new Map<number, RolloutStep[]>()
-        for (const flag of flags) {
-            const activity = flagActivity[flag.id]
-            if (!activity) {
-                continue
-            }
-            const cached = stepsCache.current.get(flag.id)
-            if (cached?.flag === flag && cached.activity === activity && cached.scheduled === scheduledChanges) {
-                steps.set(flag.id, cached.steps)
-                continue
-            }
-            const fresh = rolloutSteps(flag, activity, scheduledChanges, today, horizon)
-            stepsCache.current.set(flag.id, { flag, activity, scheduled: scheduledChanges, steps: fresh })
-            steps.set(flag.id, fresh)
-        }
-        return steps
-    }, [flags, flagActivity, scheduledChanges])
+    const stepsByFlag = useRolloutStepsByFlag(CALENDAR_DAYS_AFTER)
 
     useRefreshChangedFlagHistory(flags)
 

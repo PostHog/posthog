@@ -1,3 +1,5 @@
+import { cn } from '@posthog/quill'
+
 import { dayjs } from 'lib/dayjs'
 
 import { ReleaseRolloutChart } from './ReleaseRolloutChart'
@@ -5,10 +7,20 @@ import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { FLAG_LANE, Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 
-export function ReleaseTrackLane({ lane, color, scale }: { lane: Lane; color: string; scale: Scale }): JSX.Element {
-    const height = laneHeight(lane)
+export function ReleaseTrackLane({
+    lane,
+    color,
+    scale,
+    detailed,
+}: {
+    lane: Lane
+    color: string
+    scale: Scale
+    detailed?: boolean
+}): JSX.Element {
+    const height = laneHeight(lane, detailed)
     return (
-        <div className="relative border-t border-border/60" style={{ height }}>
+        <div className={cn('relative', !detailed && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
                 <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
             ) : lane.kind === 'flag' ? (

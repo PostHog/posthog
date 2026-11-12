@@ -37,9 +37,11 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                     <Heading size="lg" render={<h2 className="m-0" />}>
                         {row.headline}
                     </Heading>
-                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                        {row.detail}
-                    </Text>
+                    {row.detail && (
+                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                            {row.detail}
+                        </Text>
+                    )}
                 </div>
                 {row.runningDays > 0 && row.runningDays < REVIEW_AFTER_DAYS && (
                     <Progress value={(row.runningDays / REVIEW_AFTER_DAYS) * 100} className="max-w-md">
