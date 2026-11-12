@@ -75,7 +75,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
                     user_id=1 + (day + request) % 6,
                     scene=SCENES[request],
                     read_alone=True,
-                    duration_ms=30_000,
+                    duration_ms=180_000,
                 )
                 for day in range(1, 31)
                 for request in range(2)
