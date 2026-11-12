@@ -15,6 +15,7 @@ from posthog.models.team import Team
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
 from products.aeo.backend.engines import CitationCheck, own_domains_key
+from products.aeo.backend.facade.contracts import CheckMode
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -179,6 +180,7 @@ async def test_activity_leaves_rows_unscored_when_the_model_is_unavailable(setti
 class _StubEngine:
     name = "stub-engine"
     model = "stub"
+    mode = CheckMode.WEB_SEARCH
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         return CitationCheck(engine=self.name, model=self.model, answer_text="Example is fine.")

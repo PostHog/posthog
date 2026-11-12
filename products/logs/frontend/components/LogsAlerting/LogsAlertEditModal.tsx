@@ -10,6 +10,7 @@ import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/co
 import { AlertSummaryParts } from 'products/alerts/frontend/components/alertSummary'
 import { SnoozeButton } from 'products/alerts/frontend/components/SnoozeButton'
 import { EditAlertTab, EditAlertTabs } from 'products/alerts/frontend/views/EditAlertModal/EditAlertTabs'
+import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertEventHistoryContent } from './LogsAlertEventHistory'
@@ -21,7 +22,6 @@ import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertRegroupConfirmModal } from './LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
-import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 
 interface LogsAlertEditModalProps {
     alert: LogsAlertConfigurationApi | null
@@ -225,7 +225,7 @@ function LogsAlertEditModalContent({
                                 </div>
                             }
                             statusNode={
-                                <LogsAlertStateTimeline
+                                <PlatformAlertStateTimeline
                                     timeline={alert.state_timeline}
                                     className="h-8 w-full"
                                     showAxis
