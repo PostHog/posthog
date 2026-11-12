@@ -29,7 +29,7 @@ from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.facade.api import build_account_deeplink
 from products.customer_analytics.backend.facade.contracts import AccountRef
 from products.dashboards.backend.facade.api import search_dashboards
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.search import search_experiments
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
@@ -81,12 +81,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description", "query_metadata", "query"],
         "filters": {"deleted": False, "saved": True},
     },
-    "experiment": {
-        "klass": Experiment,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
     "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "cohort": {
         "klass": Cohort,
@@ -120,19 +114,31 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 """
 
 
-# Actions and dashboards are searched through their products' facades rather than unioned by model class, so
-# they are not in ENTITY_MAP.
+def _search_live_experiments(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    return search_experiments(include_deleted=False, **kwargs)
+
+
+# Actions, dashboards and experiments are searched through their products' facades rather than unioned by model
+# class, so they are not in ENTITY_MAP.
 ACTION_ENTITY = "action"
 DASHBOARD_ENTITY = "dashboard"
-FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: search_live_actions, DASHBOARD_ENTITY: search_dashboards}
+EXPERIMENT_ENTITY = "experiment"
+FACADE_SEARCHES: dict[str, FacadeSearch] = {
+    EXPERIMENT_ENTITY: _search_live_experiments,
+    ACTION_ENTITY: search_live_actions,
+    DASHBOARD_ENTITY: search_dashboards,
+}
+# Dashboards and experiments keep their place after insights, and actions theirs before cohorts, in the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
-# Dashboards keep their place after insights, and actions theirs between feature flags and cohorts, in the counts.
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
 COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("experiment")],
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
     DASHBOARD_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("experiment") : _UNION_ENTITY_NAMES.index("cohort")],
+    EXPERIMENT_ENTITY,
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
     ACTION_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:],
 ]
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
