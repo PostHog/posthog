@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
@@ -14,10 +15,15 @@ class TestPendingEmailSenderRecheck(EmailDomainApiTestCase):
         super().setUp()
         self.enterContext(patch("products.workflows.backend.tasks.email_sender_verification.time.sleep"))
 
-    def test_verifies_senders_whose_records_were_published_after_the_owner_left(self) -> None:
+    @parameterized.expand([("mx_priority_10", 10), ("mx_priority_20", 20)])
+    def test_verifies_senders_whose_records_were_published_after_the_owner_left(
+        self, _name: str, mx_priority: int
+    ) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         sibling = self.create_sender(f"news@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        self.world.dns.unpublish(f"feedback.{DOMAIN}", "MX")
+        self.world.dns.publish(f"feedback.{DOMAIN}", "MX", f"{mx_priority} feedback-smtp.us-east-1.amazonses.com.")
 
         recheck_pending_email_senders()
 
@@ -35,12 +41,23 @@ class TestPendingEmailSenderRecheck(EmailDomainApiTestCase):
             },
         )
         self.world.dns.publish("feedback.bad_domain.example.com", "MX", "10 feedback-smtp.us-east-1.amazonses.com.")
+        unresolvable = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={
+                "email": "hi@odd.example.com",
+                "domain": "odd.example.com",
+                "mail_from_subdomain": "\\999",
+                "provider": "ses",
+                "verified": False,
+            },
+        )
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
 
         recheck_pending_email_senders()
 
-        assert not self.is_verified(broken.id)
+        assert not self.is_verified(broken.id) and not self.is_verified(unresolvable.id)
         assert self.is_verified(sender)
 
     def test_verifies_a_sender_whose_domain_another_project_moved_to_its_own_mail_from_subdomain(self) -> None:

@@ -143,6 +143,8 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return any(_spf_includes(answer, record.value) for answer in answers)
         case _, RecordType.CNAME:
             return _normalized_hostname(record.value) in answers
+        case _, RecordType.MX if record.priority is None:
+            return any(answer.partition(" ")[2] == _normalized_hostname(record.value) for answer in answers)
         case _, RecordType.MX:
             return f"{record.priority} {_normalized_hostname(record.value)}" in answers
         case _:

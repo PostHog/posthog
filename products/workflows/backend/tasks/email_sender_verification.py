@@ -1,6 +1,7 @@
 import time
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import replace
 
 from django.conf import settings
 
@@ -36,10 +37,10 @@ def recheck_pending_email_senders() -> None:
         if sender.config.get("verified") is not False or not domain or (sender.team_id, domain) in checked:
             continue
         checked.add((sender.team_id, domain))
-        if not _mail_from_points_at_ses(domain, mail_from_subdomains[domain]):
-            continue
-        attempted += 1
         try:
+            if not _mail_from_points_at_ses(domain, mail_from_subdomains[domain]):
+                continue
+            attempted += 1
             verified += EmailIntegration(sender).verify().get("status") == "success"
         except Exception:
             failed += 1
@@ -60,7 +61,7 @@ def _domain(sender: IntegrationRecord) -> str:
 
 def _mail_from_points_at_ses(domain: str, mail_from_subdomains: Iterable[str]) -> bool:
     mail_from_mx = [
-        record
+        replace(record, priority=None)
         for subdomain in mail_from_subdomains
         for record in build_email_domain_records(
             domain=domain,
