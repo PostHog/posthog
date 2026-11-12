@@ -750,11 +750,6 @@ describe('scenario environment', () => {
             (Object.keys(ROLE_PORTS) as Role[]).filter(
                 (role) => existsSync(logOf(role)) && readFileSync(logOf(role), 'utf8').includes(STARTED_WHILE_HELD)
             )
-        const rolesListening = async (): Promise<Role[]> => {
-            const roles = Object.keys(ROLE_PORTS) as Role[]
-            const free = await Promise.all(roles.map((role) => isPortFree(ROLE_PORTS[role])))
-            return roles.filter((_role, index) => !free[index])
-        }
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -897,12 +892,12 @@ describe('scenario environment', () => {
                 seen,
                 up: await up,
                 startedWhileMemberHeld: startedWhileMemberHeld(),
-                rolesListening: await rolesListening(),
+                health: await Promise.all(CdpRole.options.map((role) => healthOf(role).catch(String))),
             }).toEqual({
                 seen: 'member seen',
                 up: 'up',
                 startedWhileMemberHeld: [],
-                rolesListening: Object.keys(ROLE_PORTS),
+                health: CdpRole.options.map(() => 200),
             })
         }, 45_000)
 
