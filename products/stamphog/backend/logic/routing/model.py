@@ -25,13 +25,13 @@ from products.stamphog.backend.logic.gateway_tokens import (
     mint_scoped_token,
     revoke_scoped_token,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL, SHARED_BEHAVIOR_MODEL, model_for
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL
 
 logger = structlog.get_logger(__name__)
 
 # One small call reads at most the capped diff, so this cap and TTL sit far below the reviewer's.
 # They bound what a leaked token can spend, so do not widen them without a cost reason.
-ROUTING_TOKEN_CAP_USD = "1"
+ROUTING_TOKEN_CAP_USD = "0.25"
 ROUTING_TOKEN_TTL_SECONDS = 300
 # A timeout keeps every owner, so this only bounds how long the author waits for the review requests.
 # It sits above the slowest call of the offline evaluation.
@@ -55,7 +55,7 @@ def _parse_answer(text: str) -> Mapping[str, object] | None:
 
 def _create(client: Anthropic, system_prompt: str, user_prompt: str, output_config: OutputConfigParam) -> Message:
     return client.messages.create(
-        model=model_for(system_prompt),
+        model=CUT_MODEL,
         max_tokens=_MAX_OUTPUT_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
@@ -78,8 +78,8 @@ def _create_with_effort_fallback(
 class GatewayCutModel:
     """A `CutModelCall` for one routing run.
 
-    After the calls, `sent_request` says whether a request reached the gateway, and `usage` holds
-    the token counts summed over every answer.
+    After the call, `sent_request` says whether a request reached the gateway, and `usage` holds
+    the token counts of an answer.
     """
 
     def __init__(self, *, team_id: int, connected_by_user_id: int | None, attribution: Mapping[str, object]) -> None:
@@ -107,7 +107,7 @@ class GatewayCutModel:
                 user=user,
                 cap_usd=ROUTING_TOKEN_CAP_USD,
                 ttl_seconds=ROUTING_TOKEN_TTL_SECONDS,
-                allowed_models=[CUT_MODEL, SHARED_BEHAVIOR_MODEL],
+                allowed_models=[CUT_MODEL],
             )
         except Exception as exc:  # noqa: BLE001 - the cut is optional, so a mint failure keeps every owner
             logger.warning("stamphog_reviewer_routing_mint_failed", error_type=type(exc).__name__)
@@ -142,11 +142,7 @@ class GatewayCutModel:
             return None
         finally:
             client.close()
-        previous = self.usage or CutUsage(input_tokens=0, output_tokens=0)
-        self.usage = CutUsage(
-            input_tokens=previous.input_tokens + response.usage.input_tokens,
-            output_tokens=previous.output_tokens + response.usage.output_tokens,
-        )
+        self.usage = CutUsage(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
         if response.stop_reason != "end_turn":
             logger.info("stamphog_reviewer_routing_no_answer", stop_reason=response.stop_reason)
             return None
