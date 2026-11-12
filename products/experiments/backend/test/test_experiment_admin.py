@@ -10,7 +10,6 @@ from parameterized import parameterized
 from posthog.admin import register_all_admin
 from posthog.models import Organization, Team
 
-from products.experiments.backend.admin.experiment_admin import ExperimentAdmin
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -20,7 +19,8 @@ class TestExperimentAdmin(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.model_admin = ExperimentAdmin(Experiment, AdminSite())
+        register_all_admin()
+        self.model_admin = type(admin.site.get_model_admin(Experiment))(Experiment, AdminSite())
         now = timezone.now()
         self.draft = self._create_experiment(self.team, "draft")
         self.running = self._create_experiment(self.team, "running", start_date=now)
@@ -65,7 +65,9 @@ class TestExperimentAdmin(BaseTest):
 
 class TestExperimentAdminRegistration(SimpleTestCase):
     # Admin autodiscovery imports only `admin/__init__.py`, so an admin submodule that `__init__` stops
-    # importing drops its model out of Django admin without an error.
+    # importing drops its model out of Django admin without an error. A test module that imports an admin
+    # submodule registers its model on import and hides that, so the tests here read admin classes from
+    # the registry instead.
     @parameterized.expand([("experiment", Experiment), ("saved_metric", ExperimentSavedMetric)])
     def test_model_is_registered_in_django_admin(self, _name: str, model: type) -> None:
         # Tests skip the lazy admin registry, so trigger registration explicitly.
