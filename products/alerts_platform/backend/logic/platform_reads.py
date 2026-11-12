@@ -163,6 +163,17 @@ def native_configuration_keys(
     return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
 
 
+def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
+    """The teams with a copy of `source_kind`, in id order."""
+    return tuple(
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source_kind, legacy_configuration_id__isnull=False)
+        .order_by("team_id")
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 def native_configuration_matches(
     *, team_id: int, source_kind: str, search: str | None = None
 ) -> tuple[NativeConfigurationMatch, ...]:
