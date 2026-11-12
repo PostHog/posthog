@@ -1,4 +1,12 @@
-import { type FailureKind, failureRetryGuidance, modelLabel, modelName, observationRetryOffer } from './types'
+import {
+    type FailureKind,
+    failureRetryGuidance,
+    modelLabel,
+    modelName,
+    modelOptions,
+    modelTierNaming,
+    observationRetryOffer,
+} from './types'
 
 describe('scanner type helpers', () => {
     describe('failureRetryGuidance', () => {
@@ -71,6 +79,22 @@ describe('scanner type helpers', () => {
         it.each(['gemini-3.7-flash', 'gemini-3.6-flash'])('still names retired model %s', (model) => {
             expect(modelLabel(model)).toContain('Flash')
             expect(modelName(model)).toContain('Flash')
+        })
+
+        it.each([
+            ['control', 'Model', false],
+            [undefined, 'Model', false],
+            ['tier-label', 'Model tier', false],
+            ['tier-options', 'Model', true],
+            ['tier-both', 'Model tier', true],
+        ])('maps the tier naming arm %s', (variant, fieldLabel, tierNames) => {
+            expect(modelTierNaming(variant)).toEqual({ fieldLabel, tierNames })
+        })
+
+        it('names the options by tier from cheapest to most capable', () => {
+            expect(modelOptions(true).map((opt) => opt.label.split(' · ')[0])).toEqual(['Low', 'Standard', 'Frontier'])
+            expect(modelName('gemini-3.8-flash', true)).toBe('Frontier')
+            expect(modelName('gemini-3.7-flash', true)).toBe('Gemini 3.7 Flash')
         })
     })
 })

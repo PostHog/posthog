@@ -9,7 +9,9 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner,
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -29,6 +31,7 @@ import {
     OBSERVATION_CREDITS_BY_MODEL,
     SCANNER_TYPE_TAG_TYPE,
     modelName,
+    modelTierNaming,
     type ReplayScanner,
     scannerTypeLabel,
 } from '../types'
@@ -331,6 +334,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { fieldLabel, tierNames } = modelTierNaming(featureFlags[FEATURE_FLAGS.VISION_MODEL_TIER_NAMING])
     const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
@@ -400,9 +405,9 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </LemonTag>
                 <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
-                    <StatRow label="Model">
+                    <StatRow label={fieldLabel}>
                         <span className="inline-flex items-center gap-2">
-                            <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
+                            <LemonTag type="muted">{modelName(scanner.model, tierNames)}</LemonTag>
                             {creditsPerObservation != null ? (
                                 <span className="text-muted">
                                     {formatCreditCount(creditsPerObservation)} / observation

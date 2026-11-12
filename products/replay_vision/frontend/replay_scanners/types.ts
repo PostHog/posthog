@@ -313,12 +313,29 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
-    (value) => ({
+// Tier names the `vision-model-tier-naming` experiment shows in place of the Gemini names.
+const MODEL_TIER_NAMES: Record<ScannerModelEnumApi, string> = {
+    [ScannerModelEnumApi.Gemini35FlashLite]: 'Low',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
+    [ScannerModelEnumApi.Gemini38Flash]: 'Frontier',
+}
+
+/** The `vision-model-tier-naming` arms: whether the picker reads "Model tier", and whether options use tier names. */
+export function modelTierNaming(variant: string | boolean | undefined): { fieldLabel: string; tierNames: boolean } {
+    return {
+        fieldLabel: variant === 'tier-label' || variant === 'tier-both' ? 'Model tier' : 'Model',
+        tierNames: variant === 'tier-options' || variant === 'tier-both',
+    }
+}
+
+export function modelOptions(tierNames = false): { value: ScannerModelEnumApi; label: string }[] {
+    return Object.values(ScannerModelEnumApi).map((value) => ({
         value,
-        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    })
-)
+        label: `${(tierNames ? MODEL_TIER_NAMES : MODEL_NAMES)[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    }))
+}
+
+export const MODEL_OPTIONS = modelOptions()
 
 // Falls back to the raw id for models retired before they were named here.
 export function modelLabel(model: string | null | undefined): string {
@@ -329,9 +346,12 @@ export function modelLabel(model: string | null | undefined): string {
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined): string {
+export function modelName(model: string | null | undefined, tierNames = false): string {
     if (!model) {
         return '—'
+    }
+    if (tierNames && model in MODEL_TIER_NAMES) {
+        return MODEL_TIER_NAMES[model as ScannerModelEnumApi]
     }
     return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
 }
