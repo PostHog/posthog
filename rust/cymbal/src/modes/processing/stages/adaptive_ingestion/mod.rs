@@ -11,7 +11,6 @@ use common_redis::{CompressionConfig, RedisClient, RedisValueFormat, ScriptRunne
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -64,8 +63,6 @@ type Outcomes = HashMap<&'static str, u64>;
 
 pub struct AdaptiveIngestionRuntime {
     redis: Arc<dyn ScriptRunner>,
-    teams: HashSet<i32>,
-    team_percent: u8,
     thresholds: Thresholds,
     ledger: Ledger,
     heal_gate: HealGate,
@@ -89,24 +86,10 @@ impl AdaptiveIngestionRuntime {
             issue_day: config.adaptive_ingestion_issue_day_multiple,
             project_day: config.adaptive_ingestion_project_day_multiple,
         };
-        if config.adaptive_ingestion_team_percent > 100 || !thresholds.is_valid() {
+        if !thresholds.is_valid() {
             return Err(UnhandledError::Other(
-                "invalid adaptive ingestion rollout or thresholds".into(),
+                "invalid adaptive ingestion thresholds".into(),
             ));
-        }
-        let teams = config
-            .adaptive_ingestion_teams
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                s.parse::<i32>().map_err(|_| {
-                    UnhandledError::Other(format!("invalid ADAPTIVE_INGESTION_TEAMS entry: {s}"))
-                })
-            })
-            .collect::<Result<HashSet<_>, _>>()?;
-        if teams.is_empty() && config.adaptive_ingestion_team_percent == 0 {
-            return Ok(None);
         }
         let timeout = |ms: u64| (ms != 0).then(|| Duration::from_millis(ms));
         let redis = RedisClient::with_config(
@@ -117,24 +100,12 @@ impl AdaptiveIngestionRuntime {
             timeout(config.redis_connection_timeout_ms),
         )
         .await?;
-        Ok(Some(Arc::new(Self::new(
-            Arc::new(redis),
-            teams,
-            config.adaptive_ingestion_team_percent,
-            thresholds,
-        ))))
+        Ok(Some(Arc::new(Self::new(Arc::new(redis), thresholds))))
     }
 
-    fn new(
-        redis: Arc<dyn ScriptRunner>,
-        teams: HashSet<i32>,
-        team_percent: u8,
-        thresholds: Thresholds,
-    ) -> Self {
+    fn new(redis: Arc<dyn ScriptRunner>, thresholds: Thresholds) -> Self {
         Self {
             redis,
-            teams,
-            team_percent,
             thresholds,
             ledger: Ledger {
                 windows: vec![RECENT, HOURLY, DAILY],
@@ -142,22 +113,12 @@ impl AdaptiveIngestionRuntime {
             heal_gate: HealGate::new(),
         }
     }
+}
 
-    fn enabled_for(&self, team_id: i32, settings: &HashMap<i32, RateLimitSettings>) -> bool {
-        self.selected_for_rollout(team_id)
-            && settings
-                .get(&team_id)
-                .is_some_and(|setting| setting.adaptive_ingestion_enabled)
-    }
-
-    fn selected_for_rollout(&self, team_id: i32) -> bool {
-        if self.teams.contains(&team_id) {
-            return true;
-        }
-        let hash = Sha256::digest(team_id.to_be_bytes());
-        u64::from_be_bytes(hash[0..8].try_into().expect("sha256 has 32 bytes")) % 100
-            < u64::from(self.team_percent)
-    }
+fn enabled_for(team_id: i32, settings: &HashMap<i32, RateLimitSettings>) -> bool {
+    settings
+        .get(&team_id)
+        .is_some_and(|setting| setting.adaptive_ingestion_enabled)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -216,7 +177,7 @@ async fn apply_shadow(
     let mut teams: HashMap<i32, Vec<(usize, Uuid)>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let Ok(event) = item else { continue };
-        if runtime.enabled_for(event.team_id(), settings) {
+        if enabled_for(event.team_id(), settings) {
             teams
                 .entry(event.team_id())
                 .or_default()
@@ -333,7 +294,6 @@ impl Stage for AdaptiveIngestionStage {
         let team_ids: HashSet<i32> = items
             .iter()
             .filter_map(|item| item.as_ref().ok().map(ExceptionEvent::team_id))
-            .filter(|team_id| runtime.selected_for_rollout(*team_id))
             .collect();
         if team_ids.is_empty() {
             return Ok(Batch::from(items));
@@ -405,12 +365,7 @@ mod tests {
     }
 
     fn runtime(redis: Arc<dyn ScriptRunner>) -> Arc<AdaptiveIngestionRuntime> {
-        Arc::new(AdaptiveIngestionRuntime::new(
-            redis,
-            HashSet::from([7]),
-            0,
-            THRESHOLDS,
-        ))
+        Arc::new(AdaptiveIngestionRuntime::new(redis, THRESHOLDS))
     }
 
     fn enabled() -> HashMap<i32, RateLimitSettings> {

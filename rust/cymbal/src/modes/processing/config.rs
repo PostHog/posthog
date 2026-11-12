@@ -198,12 +198,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ADAPTIVE_INGESTION_MODE", default = "off")]
     pub adaptive_ingestion_mode: String,
 
-    #[envconfig(from = "ADAPTIVE_INGESTION_TEAMS", default = "")]
-    pub adaptive_ingestion_teams: String,
-
-    #[envconfig(from = "ADAPTIVE_INGESTION_TEAM_PERCENT", default = "0")]
-    pub adaptive_ingestion_team_percent: u8,
-
     #[envconfig(from = "ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE", default = "12")]
     pub adaptive_ingestion_issue_hour_multiple: f64,
 
