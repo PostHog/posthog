@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -8,32 +8,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { zendeskImportLogic, ZendeskImportJobStatus } from './zendeskImportLogic'
-
-function statusTag(status: ZendeskImportJobStatus | undefined): JSX.Element | null {
-    if (!status) {
-        return null
-    }
-    if (status === 'running' || status === 'pending') {
-        return (
-            <LemonTag type="warning" size="small">
-                Syncing
-            </LemonTag>
-        )
-    }
-    if (status === 'completed') {
-        return (
-            <LemonTag type="success" size="small">
-                Done
-            </LemonTag>
-        )
-    }
-    return (
-        <LemonTag type="danger" size="small">
-            Failed
-        </LemonTag>
-    )
-}
+import { ImportStatusHeader } from '../../components/ImportStatusHeader/ImportStatusHeader'
+import { zendeskImportLogic } from './zendeskImportLogic'
 
 export function ZendeskImportSection(): JSX.Element {
     return (
@@ -71,11 +47,11 @@ function ZendeskImportForm(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-3">
-            <div className="flex items-center gap-2">
-                <span className="font-medium">Import status</span>
-                {statusTag(importJob?.status)}
-                {importProgressLabel ? <span className="text-xs text-muted-alt">{importProgressLabel}</span> : null}
-            </div>
+            <ImportStatusHeader
+                status={importJob?.status}
+                progressLabel={importProgressLabel}
+                latestError={importJob?.latest_error}
+            />
 
             {importJob?.status === 'completed' ? (
                 <>
@@ -91,10 +67,6 @@ function ZendeskImportForm(): JSX.Element {
                         retention), archived tickets, and AI agent tickets may be omitted.
                     </p>
                 </>
-            ) : null}
-
-            {importJob?.status === 'failed' && importJob.latest_error ? (
-                <p className="text-xs text-danger m-0">{importJob.latest_error}</p>
             ) : null}
 
             <LemonInput
