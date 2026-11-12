@@ -158,6 +158,7 @@ export class HogFlowFunctionsService {
                 ...functionState,
                 ...(invocation.state.send && { send: invocation.state.send }),
                 ...(invocation.state.scheduledAt && { scheduledAt: invocation.state.scheduledAt }),
+                ...(invocation.state.acceptedAt && { acceptedAt: invocation.state.acceptedAt }),
             },
         }
 
