@@ -50,6 +50,16 @@ class ReviewerRemovalReason(LabeledStrEnum):
     OTHER = "other", "Other"
 
 
+class ReportCheckPauseReason(LabeledStrEnum):
+    # The coordinator gate that holds an open check. See `_check_pause` in `scout_harness/tools/checks.py`.
+    REPORT_NOT_RESOLVED = "report_not_resolved", "Report not resolved"
+    REPORT_RESOLVED_WITH_MONITORING = "report_resolved_with_monitoring", "Report resolved with Monitoring on"
+    METRIC_CHECK_OUTSIDE_MONITORING = "metric_check_outside_monitoring", "Metric check outside Monitoring"
+    NOT_MEASURED_IN_MONITORING = "not_measured_in_monitoring", "Not measured during Monitoring"
+    MONITORING_WINDOW_ENDED = "monitoring_window_ended", "Monitoring window ended"
+    HORIZON_PASSED = "horizon_passed", "Horizon passed"
+
+
 class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that

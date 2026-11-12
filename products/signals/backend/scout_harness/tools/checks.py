@@ -33,6 +33,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.enums import ReportCheckPauseReason
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
@@ -75,7 +76,17 @@ class RecordCheckResultResult:
     runs_remaining: int
 
 
-def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -> str | None:
+@frozen
+class CheckPause:
+    """Why the coordinator holds an open check, and what a reader can do about it."""
+
+    reason: ReportCheckPauseReason
+    # Completes "the check is paused because ...".
+    because: str
+    resume_hint: str
+
+
+def _check_pause(check: SignalReportCheck, report_status: str, now: datetime) -> CheckPause | None:
     """Why the coordinator would not dispatch this check even when it is due, or None.
 
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
@@ -84,13 +95,56 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     if report_status == SignalReport.Status.MONITORING:
         start = check.report.monitoring_started_at
         if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD or not check.config.get("monitoring") or start is None:
-            return "its report is `monitoring`"
+            return CheckPause(
+                reason=ReportCheckPauseReason.NOT_MEASURED_IN_MONITORING,
+                because="its report is `monitoring`",
+                resume_hint=(
+                    "Monitoring takes interim measurements only for metric checks with a `config.monitoring` "
+                    "definition. To measure this claim during Monitoring, replace the check with such a metric "
+                    "check through `inbox-report-checks-replace`."
+                ),
+            )
         if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
-            return "its Monitoring window ended"
+            return CheckPause(
+                reason=ReportCheckPauseReason.MONITORING_WINDOW_ENDED,
+                because="its Monitoring window ended",
+                resume_hint="Interim measurements stopped. Final verification records the verdict. No action is needed.",
+            )
     elif check.kind != SignalReportCheck.Kind.AGENT or not legacy_agent_checks_enabled(check.report):
-        return f"its report is `{report_status}`"
+        because = f"its report is `{report_status}`"
+        if report_status != SignalReport.Status.RESOLVED:
+            return CheckPause(
+                reason=ReportCheckPauseReason.REPORT_NOT_RESOLVED,
+                because=because,
+                resume_hint=(
+                    "The report has no fix to measure. The coordinator moves the check back to `pending` "
+                    "until the report has a fix again."
+                ),
+            )
+        if check.kind != SignalReportCheck.Kind.AGENT:
+            return CheckPause(
+                reason=ReportCheckPauseReason.METRIC_CHECK_OUTSIDE_MONITORING,
+                because=because,
+                resume_hint=(
+                    "A metric check runs only while its report is in Monitoring. Nothing restarts it on a "
+                    "resolved report, and it expires at its horizon. Cancel it if it is no longer useful."
+                ),
+            )
+        return CheckPause(
+            reason=ReportCheckPauseReason.REPORT_RESOLVED_WITH_MONITORING,
+            because=f"{because} and Monitoring is on for this project",
+            resume_hint=(
+                "With Monitoring on, a resolved report runs no follow-up checks, and nothing restarts this "
+                "check. It expires at its horizon. To verify the fix, follow the check's instructions "
+                "yourself, or cancel the check."
+            ),
+        )
     if check.expires_at <= now:
-        return "its horizon passed"
+        return CheckPause(
+            reason=ReportCheckPauseReason.HORIZON_PASSED,
+            because="its horizon passed",
+            resume_hint="The expiry sweep closes the check as `expired`. Write a new check if the claim still needs a measurement.",
+        )
     return None
 
 
@@ -114,9 +168,9 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         raise InvalidCheckResultError(f"check {check_id} not found")
     if check.kind != SignalReportCheck.Kind.AGENT:
         raise InvalidCheckResultError(f"check {check_id} is a `{check.kind}` check, which the coordinator measures")
-    pause_reason = _pause_reason(check, check.report.effective_status, timezone.now())
-    if pause_reason is not None:
-        raise InvalidCheckResultError(f"check {check_id} is paused because {pause_reason}")
+    pause = _check_pause(check, check.report.effective_status, timezone.now())
+    if pause is not None:
+        raise InvalidCheckResultError(f"check {check_id} is paused because {pause.because}")
     if check.status == SignalReportCheck.Status.PENDING:
         raise InvalidCheckResultError(
             f"check {check_id} waits for its report to resolve, so there is no fix to measure yet"
@@ -138,10 +192,10 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
             raise InvalidCheckResultError(
                 f"check {check_id} is not due until {check.next_run_at.isoformat()}, so it is not yours to close yet"
             )
-        pause_reason = _pause_reason(check, check.report.effective_status, now)
-        if pause_reason is not None:
+        pause = _check_pause(check, check.report.effective_status, now)
+        if pause is not None:
             raise InvalidCheckResultError(
-                f"check {check_id} is paused because {pause_reason}, so nothing is owed on it"
+                f"check {check_id} is paused because {pause.because}, so nothing is owed on it"
             )
 
     config = parse_check_config(check.kind, check.config)
@@ -226,6 +280,9 @@ class ScoutCheckSummary:
     last_outcome_reason: str | None
     # Where the check is in its run cycle. See `_run_state`.
     run_state: str
+    # Set only when `run_state` is `paused`: the coordinator gate that holds the check, and what to do.
+    pause_reason: ReportCheckPauseReason | None = None
+    resume_hint: str | None = None
     # True while an `agent` check waits on a dispatched run to record its verdict.
     waiting_on_run: bool = False
     # The run the coordinator dispatched, once that run has started. Null while it is queued.
@@ -234,11 +291,11 @@ class ScoutCheckSummary:
     dispatched_at: datetime | None = None
 
 
-def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: str | None, now: datetime) -> str:
+def _run_state(check: SignalReportCheck, pause: CheckPause | None, dispatched_run_id: str | None, now: datetime) -> str:
     """One word for where a check is, so a scout can tell a check it may answer from one it may not.
 
-    `waiting_on_report`: pending, and no fix to measure yet. `paused`: active, but its report is
-    suppressed or its horizon passed, so the coordinator does not dispatch it. `scheduled`: active,
+    `waiting_on_report`: pending, and no fix to measure yet. `paused`: active, but a gate in
+    `_check_pause` stops the coordinator from dispatching it. `scheduled`: active,
     not due yet. `due`: active and due now, so a run on its lane may record the verdict. `queued`:
     dispatched, and the run has not started. `running`: the dispatched run started and has time
     left. `stale`: the dispatched run had its whole window and recorded nothing, so the coordinator
@@ -248,7 +305,7 @@ def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: 
         return "waiting_on_report"
     if check.status != SignalReportCheck.Status.ACTIVE:
         return check.status
-    if _pause_reason(check, report_status, now) is not None:
+    if pause is not None:
         return "paused"
     if check.dispatched_at is None:
         return "due" if check.next_run_at <= now else "scheduled"
@@ -260,7 +317,9 @@ def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: 
 def _summarize(
     check: SignalReportCheck, report_status: str, dispatched_run_id: str | None = None, now: datetime | None = None
 ) -> ScoutCheckSummary:
-    run_state = _run_state(check, report_status, dispatched_run_id, now or timezone.now())
+    now = now or timezone.now()
+    pause = _check_pause(check, report_status, now) if check.status == SignalReportCheck.Status.ACTIVE else None
+    run_state = _run_state(check, pause, dispatched_run_id, now)
     return ScoutCheckSummary(
         check_id=str(check.id),
         report_id=str(check.report_id),
@@ -272,6 +331,8 @@ def _summarize(
         last_outcome=check.last_outcome,
         last_outcome_reason=check.last_outcome_reason,
         run_state=run_state,
+        pause_reason=pause.reason if pause else None,
+        resume_hint=pause.resume_hint if pause else None,
         waiting_on_run=run_state in {"queued", "running", "stale"},
         dispatched_run_id=dispatched_run_id,
         dispatched_at=check.dispatched_at,
