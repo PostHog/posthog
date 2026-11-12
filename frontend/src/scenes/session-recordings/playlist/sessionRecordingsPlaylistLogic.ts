@@ -559,6 +559,7 @@ function sortRecordings(
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
+    watchLayout?: boolean
     /**
      * Which surface embeds this playlist, stamped on `recording list fetched`. Set it wherever the
      * playlist is one part of another page, so its list loads can be told apart from the replay
@@ -1973,6 +1974,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     liveOnly &&
                     values.hasNext &&
                     cache.liveOnlyPages <= MAX_LIVE_ONLY_PAGES &&
+                    !!props.watchLayout &&
                     isNewReplayLayout(playerSettingsLogic.values.replayLayout)
                 ) {
                     actions.loadSessionRecordings('older')
