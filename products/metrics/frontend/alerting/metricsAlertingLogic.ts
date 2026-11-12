@@ -26,6 +26,8 @@ export interface metricsAlertingLogicValues {
     alertsLoadFailed: boolean
     alertsLoaded: boolean
     alertsLoading: boolean
+    editingAlert: PlatformAlertConfigurationApi | null
+    isCreateAlertModalOpen: boolean
     togglingAlertIds: Set<string>
 }
 
@@ -33,6 +35,12 @@ export interface metricsAlertingLogicValues {
 export interface metricsAlertingLogicActions {
     alertUpdated: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
+    }
+    closeCreateAlertModal: () => {
+        value: true
+    }
+    closeEditAlertModal: () => {
+        value: true
     }
     deleteAlert: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
@@ -51,6 +59,12 @@ export interface metricsAlertingLogicActions {
     ) => {
         alerts: PlatformAlertConfigurationApi[]
         payload?: any
+    }
+    openCreateAlertModal: () => {
+        value: true
+    }
+    openEditAlertModal: (alert: PlatformAlertConfigurationApi) => {
+        alert: PlatformAlertConfigurationApi
     }
     setTogglingAlertId: (
         id: string,
@@ -78,6 +92,10 @@ export const metricsAlertingLogic = kea<metricsAlertingLogicType>([
         toggleAlertEnabled: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         setTogglingAlertId: (id: string, toggling: boolean) => ({ id, toggling }),
         alertUpdated: (alert: PlatformAlertConfigurationApi) => ({ alert }),
+        openCreateAlertModal: true,
+        closeCreateAlertModal: true,
+        openEditAlertModal: (alert: PlatformAlertConfigurationApi) => ({ alert }),
+        closeEditAlertModal: true,
     }),
 
     loaders(({ values }) => ({
@@ -112,9 +130,21 @@ export const metricsAlertingLogic = kea<metricsAlertingLogicType>([
                     toggling ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
             },
         ],
+        isCreateAlertModalOpen: [false, { openCreateAlertModal: () => true, closeCreateAlertModal: () => false }],
+        editingAlert: [
+            null as PlatformAlertConfigurationApi | null,
+            {
+                openEditAlertModal: (_, { alert }) => alert,
+                closeEditAlertModal: () => null,
+                deleteAlert: (editingAlert, { alert }) => (editingAlert?.id === alert.id ? null : editingAlert),
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
+        openCreateAlertModal: () => {
+            posthog.capture('metrics alert create started')
+        },
         deleteAlert: async ({ alert }) => {
             try {
                 await platformAlertsDestroy(String(values.currentTeamId), alert.id)

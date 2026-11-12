@@ -20,7 +20,8 @@ import { describeMetricsCondition, metricsSourceConfig } from './metricsAlertUti
 
 export function MetricsAlertList(): JSX.Element {
     const { alerts, alertsLoading, alertsLoaded, alertsLoadFailed, togglingAlertIds } = useValues(metricsAlertingLogic)
-    const { loadAlerts, deleteAlert, toggleAlertEnabled } = useActions(metricsAlertingLogic)
+    const { loadAlerts, deleteAlert, toggleAlertEnabled, openCreateAlertModal, openEditAlertModal } =
+        useActions(metricsAlertingLogic)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Editor
@@ -30,7 +31,17 @@ export function MetricsAlertList(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, alert) => <span className="font-semibold">{alert.name}</span>,
+            render: (_, alert) => (
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    onClick={() => openEditAlertModal(alert)}
+                    disabledReason={editDisabledReason}
+                    data-attr="metrics-alert-row-name"
+                >
+                    {alert.name}
+                </LemonButton>
+            ),
         },
         {
             title: 'Status',
@@ -78,6 +89,11 @@ export function MetricsAlertList(): JSX.Element {
             render: (_, alert) => (
                 <LemonMenu
                     items={[
+                        {
+                            label: 'Edit',
+                            onClick: () => openEditAlertModal(alert),
+                            disabledReason: editDisabledReason,
+                        },
                         { label: 'View groups and history', to: urls.platformAlert(alert.id) },
                         {
                             label: 'Delete',
@@ -109,15 +125,28 @@ export function MetricsAlertList(): JSX.Element {
     }
 
     return (
-        <LemonTable
-            columns={columns}
-            dataSource={alerts}
-            rowKey="id"
-            loading={alertsLoading && !alertsLoaded}
-            loadingSkeletonRows={3}
-            emptyState="No metrics alerts yet."
-            size="small"
-            nouns={['alert', 'alerts']}
-        />
+        <div className="space-y-2">
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={openCreateAlertModal}
+                    disabledReason={editDisabledReason}
+                    data-attr="metrics-alerts-new"
+                >
+                    New alert
+                </LemonButton>
+            </div>
+            <LemonTable
+                columns={columns}
+                dataSource={alerts}
+                rowKey="id"
+                loading={alertsLoading && !alertsLoaded}
+                loadingSkeletonRows={3}
+                emptyState="No metrics alerts yet. Create one to get notified when a metric crosses a threshold."
+                size="small"
+                nouns={['alert', 'alerts']}
+            />
+        </div>
     )
 }
