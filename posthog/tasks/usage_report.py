@@ -997,7 +997,6 @@ def _get_ai_sub_sdk_event_metric_counts(
     )
 
 
-# $exception/$identify are shared SDK events, not MCP usage.
 MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
     "$mcp_tool_call": "mcp_tool_call_events",
     "$mcp_missing_capability": "mcp_missing_capability_events",
