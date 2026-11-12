@@ -338,28 +338,6 @@
             "readOnlyHint": false
         }
     },
-    "notebook-edit": {
-        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.\nIf you have browser access, check how the edited notebook renders.",
-        "category": "Notebooks",
-        "feature": "notebooks",
-        "summary": "Edit part of a notebook's content.",
-        "title": "Edit notebook",
-        "required_scopes": ["notebook:write"],
-        "api_operations": [
-            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
-            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/save/"
-        ],
-        "feature_flag": "notebooks-collaboration",
-        "hidden_when_flag_on": "revamped-py-notebooks",
-        "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
-        "redirect_hint": "Read the notebook with notebooks-get first: the revamped notebooks are cell-based, so an edit targets one cell.",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "notebooks-create-markdown": {
         "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body that states the question and the plan, not results computed elsewhere. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.\nWhen the notebook is ready, use a browser if available to check how it renders.",
         "category": "Notebooks",
@@ -368,7 +346,6 @@
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
         "api_operations": ["POST /api/projects/{project_id}/notebooks/"],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -388,7 +365,6 @@
             "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -408,7 +384,6 @@
             "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -424,7 +399,6 @@
         "title": "Delete notebook cell",
         "required_scopes": ["notebook:write"],
         "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/"],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -445,7 +419,6 @@
             "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -465,7 +438,6 @@
             "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -485,7 +457,6 @@
             "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
             "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
         ],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -501,7 +472,6 @@
         "title": "Set notebook variables",
         "required_scopes": ["notebook:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/notebooks/{short_id}/"],
-        "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

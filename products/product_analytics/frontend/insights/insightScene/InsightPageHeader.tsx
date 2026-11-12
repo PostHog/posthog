@@ -17,7 +17,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isActorsQuery, isBIVisualizationNode, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { isActorsQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
@@ -78,7 +78,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
     const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
@@ -222,12 +221,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 filtersOverride,
                                                 variablesOverride
                                             )}
-                                            {...(isBIVisualizationNode(query) && !biEnabled
-                                                ? {
-                                                      disabledReason:
-                                                          'Business intelligence is not enabled for this project',
-                                                  }
-                                                : {})}
                                             data-attr="insight-edit-button"
                                         >
                                             Edit

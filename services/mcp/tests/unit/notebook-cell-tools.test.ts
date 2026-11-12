@@ -776,7 +776,7 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies).toHaveLength(0)
     })
 
-    it.each(['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'])(
+    it.each(['notebooks-create-markdown', 'notebooks-add-cell'])(
         '%s advertises object widget views from the shared catalog',
         (toolName) => {
             const description = getToolDefinition(toolName).description

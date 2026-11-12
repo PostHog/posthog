@@ -28,7 +28,6 @@ import { mergeToolFactories } from './mergeToolFactories'
 import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
-import notebookEdit from './notebooks/edit'
 import notebookRunCell from './notebooks/runCell'
 import notebookRun from './notebooks/runNotebook'
 import notebookRunStatus from './notebooks/runNotebookStatus'
@@ -116,7 +115,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-parser-recipe-reference': parserRecipeReference,
 
     // Notebooks
-    'notebook-edit': notebookEdit,
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,

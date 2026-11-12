@@ -213,7 +213,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     const actions: MetricAction[] = [
-        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] && definitionSql
+        ...(definitionSql
             ? [
                   {
                       key: 'explore-bi',
