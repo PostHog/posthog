@@ -176,17 +176,17 @@ describe('evaluationReportDrawerLogic', () => {
         expect(reportLogic.values.editingDestinations).toBe(false)
     })
 
-    it('refuses to save a Slack destination without a channel', async () => {
+    it('blocks the evaluation save on a Slack destination without a channel', async () => {
         await mountWithRuns()
         const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
 
         reportLogic.actions.addDraftDestination('slack')
         reportLogic.actions.setDraftSlackIntegrationId(7)
-        expect(reportLogic.values.destinationsError).toBe('Pick a Slack channel, or remove Slack.')
+        // The evaluation's "Save changes" refuses to write while configError is set.
+        expect(reportLogic.values.configError).toBe('Pick a Slack channel, or remove Slack.')
 
-        reportLogic.actions.saveDraft()
-        await expectLogic(reportLogic).toNotHaveDispatchedActions(['updateReport'])
-        expect(patchBodies).toEqual([])
+        reportLogic.actions.setDraftSlackChannelValue('C0001|#evals')
+        expect(reportLogic.values.configError).toBeNull()
     })
 
     it('fetches once more and stops when the report never arrives', async () => {

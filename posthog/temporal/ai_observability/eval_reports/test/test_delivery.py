@@ -367,7 +367,6 @@ class TestMetricsBlockHtml(SimpleTestCase):
                     "output_type": "sentiment",
                     "total_runs": 0,
                     "result_counts": {"positive": 0, "neutral": 0, "negative": 0},
-                    "result_rates": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
                     "previous_result_rates": {"positive": 60.0, "neutral": 10.0, "negative": 30.0},
                 },
             ),

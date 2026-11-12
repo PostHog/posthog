@@ -197,12 +197,18 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                 // Puts new reports in front and refreshes the ones it sees again, so polling keeps older pages.
                 loadNewestReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
-                    const response = await llmAnalyticsEvaluationReportsRunsList(
-                        teamId.toString(),
-                        reportId,
-                        { limit: NEW_REPORT_POLL_PAGE_SIZE },
-                        { signal: cache.pollAbort?.signal }
-                    )
+                    let response
+                    try {
+                        response = await llmAnalyticsEvaluationReportsRunsList(
+                            teamId.toString(),
+                            reportId,
+                            { limit: NEW_REPORT_POLL_PAGE_SIZE },
+                            { signal: cache.pollAbort?.signal }
+                        )
+                    } catch {
+                        // A missed poll is retried 15 seconds later, so it keeps the list instead of raising a toast.
+                        return values.reportRuns
+                    }
                     const fresh = response?.results ?? []
                     const freshById = new Map(fresh.map((run) => [run.id, run]))
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))

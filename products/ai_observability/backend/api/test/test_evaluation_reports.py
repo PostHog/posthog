@@ -86,8 +86,8 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                     "result_counts": {"pass": 0, "fail": 0, "na": 0},
                 },
                 {"pass": 0, "fail": 0, "na": 0},
-                {"pass": 0.0, "fail": 0.0, "na": 0.0},
-                0.0,
+                {},
+                None,
             ),
             (
                 "explicit_legacy_zero_counts",
@@ -98,8 +98,8 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                     "na_count": 0,
                 },
                 {"pass": 0, "fail": 0, "na": 0},
-                {"pass": 0.0, "fail": 0.0, "na": 0.0},
-                0.0,
+                {},
+                None,
             ),
             (
                 "partial_rates_without_counts",
@@ -147,7 +147,7 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                 self.assertEqual(serialized_metrics["result_rates"], expected_rates)
 
             if expected_pass_rate is None:
-                self.assertNotIn("pass_rate", serialized_metrics)
+                self.assertIsNone(serialized_metrics.get("pass_rate"))
             else:
                 self.assertEqual(serialized_metrics["pass_rate"], expected_pass_rate)
 

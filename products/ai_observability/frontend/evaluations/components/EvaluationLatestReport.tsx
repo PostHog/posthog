@@ -24,6 +24,7 @@ export function EvaluationLatestReport({ evaluationId }: { evaluationId: string 
             <LatestReportPreview
                 run={latest}
                 className="p-4"
+                summaryClassName="max-h-28 overflow-hidden"
                 action={
                     <LemonButton
                         type="secondary"

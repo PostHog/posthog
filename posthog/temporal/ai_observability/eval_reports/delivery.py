@@ -208,11 +208,6 @@ def _format_pass_rate(rate: float | None) -> str:
     return f"{rate:.2f}%"
 
 
-def _has_graded_results(metrics: EvalReportMetrics) -> bool:
-    # An empty period stores every rate as 0, which would read as a collapse rather than nothing to grade.
-    return any(count > 0 for outcome, count in metrics.result_counts.items() if outcome != "na")
-
-
 def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
     count = metrics.result_counts[outcome]
     if metrics.output_type in ("boolean", "numeric", "categorical"):
@@ -222,7 +217,7 @@ def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
     value = str(count) if rate is None else f"{count} ({_format_pass_rate(rate)})"
 
     previous_rate = (metrics.previous_result_rates or {}).get(outcome)
-    if rate is None or previous_rate is None or not _has_graded_results(metrics):
+    if rate is None or previous_rate is None:
         return value
 
     diff = rate - previous_rate
@@ -231,8 +226,6 @@ def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
 
 
 def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
-    if not _has_graded_results(metrics):
-        return _format_pass_rate(None)
     value = _format_pass_rate(metrics.pass_rate)
     if metrics.pass_rate is None or metrics.previous_pass_rate is None:
         return value

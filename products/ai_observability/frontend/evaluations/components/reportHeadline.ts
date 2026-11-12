@@ -21,7 +21,7 @@ export function reportHeadline(run: EvaluationReportRun): ReportHeadline | null 
     }
     const total = metrics.total_runs ?? null
     const segments = reportResultSegments(metrics)
-    // An empty period stores every rate as 0, which would read as a collapse rather than "nothing to grade".
+    // Older runs stored 0% rates for an empty period, which would read as a collapse rather than nothing to grade.
     if (total === 0 || (metrics.result_counts && !segments.some(({ key }) => key !== 'na'))) {
         return null
     }
