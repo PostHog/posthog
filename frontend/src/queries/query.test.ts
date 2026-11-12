@@ -130,22 +130,31 @@ describe('query', () => {
         expect(queryCompletedCalls[0][1]).not.toHaveProperty('result_poll_timing')
     })
 
-    it('emits a specific event on a HogQLQuery', async () => {
+    it.each([undefined, 'metadata'] as const)('captures HogQLQuery telemetry with mode %s', async (queryTelemetry) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const querySpy = jest.spyOn(api, 'query')
         const q: HogQLQuery = setLatestVersionsOnQuery({
             kind: NodeKind.HogQLQuery,
-            query: 'select * from events',
+            query: "select 'person@example.com' from events",
         })
         captureSpy.mockClear()
-        await performQuery(q)
+        const response = await performQuery(q, { queryTelemetry })
+        expect(querySpy.mock.calls.at(-1)?.[0]).toEqual(q)
+        expect(response).toMatchObject({ clickhouse: 'clickhouse string', hogql: 'hogql string' })
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
         expect(queryCompletedCalls[0][1]).toMatchObject({
-            query: q,
+            query: queryTelemetry === 'metadata' ? { kind: NodeKind.HogQLQuery } : q,
             duration: expect.any(Number),
-            clickhouse_sql: expect.any(String),
             is_cached: false,
         })
+        if (queryTelemetry === 'metadata') {
+            expect(queryCompletedCalls[0][1]?.query).toEqual({ kind: NodeKind.HogQLQuery })
+            expect(queryCompletedCalls[0][1]).not.toHaveProperty('clickhouse_sql')
+            expect(JSON.stringify(queryCompletedCalls[0][1])).not.toContain('person@example.com')
+        } else {
+            expect(queryCompletedCalls[0][1]).toHaveProperty('clickhouse_sql', 'clickhouse string')
+        }
     })
 
     it('keeps each retry timing on the existing completion event and flattens the final attempt', async () => {
@@ -284,7 +293,12 @@ describe('query', () => {
         })
     })
 
-    it.each([undefined, 'client-query-id'])('emits an event when a query errors with query ID %s', async (queryId) => {
+    it.each<[string | undefined, 'metadata' | undefined]>([
+        [undefined, undefined],
+        ['client-query-id', undefined],
+        [undefined, 'metadata'],
+        ['client-query-id', 'metadata'],
+    ])('captures failed queries with query ID %s and telemetry mode %s', async (queryId, queryTelemetry) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
@@ -293,13 +307,13 @@ describe('query', () => {
         })
         captureSpy.mockClear()
         await expect(async () => {
-            await performQuery(q, undefined, undefined, queryId)
+            await performQuery(q, { queryTelemetry }, undefined, queryId)
         }).rejects.toThrow(ApiError)
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
         expect(queryFailedCalls[0][1]).toMatchObject({
-            query: q,
+            query: queryTelemetry === 'metadata' ? { kind: NodeKind.EventsQuery } : q,
             queryId,
             duration: expect.any(Number),
             error_status: 500,
@@ -312,6 +326,10 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+        if (queryTelemetry === 'metadata') {
+            expect(queryFailedCalls[0][1]?.query).toEqual({ kind: NodeKind.EventsQuery })
+            expect(queryFailedCalls[0][1]).not.toHaveProperty('clickhouse_sql')
+        }
     })
 
     it('does not emit a query failed event when the request is aborted', async () => {

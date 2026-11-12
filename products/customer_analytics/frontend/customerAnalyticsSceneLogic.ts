@@ -49,6 +49,7 @@ type ActiveTab =
     | 'dashboard'
     | 'journeys'
     | 'accounts'
+    | 'product_activity'
     | 'notes'
     | 'announcements'
     | 'feed'
@@ -58,6 +59,7 @@ type ActiveTab =
 const SCENE_KEY_TO_TAB: Record<string, ActiveTab> = {
     customerAnalyticsJourneys: 'journeys',
     customerAnalyticsAccounts: 'accounts',
+    customerAnalyticsProductActivity: 'product_activity',
     customerAnalyticsAccount: 'accounts',
     customerAnalyticsNotes: 'notes',
     customerAnalyticsAnnouncements: 'announcements',
@@ -196,13 +198,14 @@ export interface customerAnalyticsSceneLogicMeta {
                 | 'notes'
                 | 'overview'
                 | 'persons'
+                | 'product_activity'
                 | 'support'
                 | 'tasks'
         ) => string | null
         sceneName: (todayRailTabName: string | null, activeTab: ActiveTab) => string | undefined
         breadcrumbs: (todayRailTabName: string | null) => Breadcrumb[]
         customerLabel: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             businessType: BusinessType,
             selectedGroupType: number
         ) => {
