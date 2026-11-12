@@ -14,7 +14,6 @@ from uuid import UUID
 from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
@@ -75,12 +74,12 @@ def create_alert_destinations(
     team_id: int,
     configuration_id: UUID,
     destinations: Sequence[NewAlertDestination],
-    hog_function_event_ids: Collection[str] = (),
+    hog_function_groups: Sequence[AlertDestinationGroup] = (),
 ) -> tuple[StoredAlertDestination, ...]:
     """Adds the destinations to one configuration, all or none.
 
-    `hog_function_event_ids` are the events the alert's HogFunctions listen on. With them, a destination
-    that sends where one of those HogFunction groups already sends is refused too, unless it copies that group.
+    A destination that sends where one of the alert's `hog_function_groups` already sends is refused too,
+    unless it copies that group.
     """
     for destination in destinations:
         _validate(destination)
@@ -89,7 +88,7 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
-        _refuse_duplicates(team_id, configuration, destinations, hog_function_event_ids)
+        _refuse_duplicates(team_id, configuration.id, destinations, hog_function_groups)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
                 team_id=team_id,
@@ -295,19 +294,15 @@ def _names_subscribers(row: AlertDestination) -> bool:
 
 def _refuse_duplicates(
     team_id: int,
-    configuration: PlatformAlertConfiguration,
+    configuration_id: UUID,
     destinations: Sequence[NewAlertDestination],
-    hog_function_event_ids: Collection[str],
+    hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> None:
     """A second destination with the same address would send every message twice."""
     seen = [
-        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration.id)
+        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
     ]
-    groups = (
-        _hog_function_groups(team_id, configuration.destination_alert_id, hog_function_event_ids)
-        if hog_function_event_ids
-        else []
-    )
+    groups = [group for group in hog_function_groups if group.hog_function_ids]
     for destination in destinations:
         receiver = _receiver(destination.data)
         copied = set(destination.legacy_hog_function_ids)
@@ -325,7 +320,7 @@ def record_source_destination(
     data: AlertDestinationData,
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
-    hog_function_event_ids: Collection[str],
+    hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -347,18 +342,18 @@ def record_source_destination(
                 data=data, event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
             ),
         ),
-        hog_function_event_ids=hog_function_event_ids,
+        hog_function_groups=hog_function_groups,
     )
     return created
 
 
 def list_source_destinations(
-    *, team_id: int, public_id: UUID, hog_function_event_ids: Collection[str]
+    *, team_id: int, public_id: UUID, hog_function_groups: Sequence[AlertDestinationGroup]
 ) -> tuple[SourceDestination, ...]:
     """The destinations a person sees on the page of an alert whose source keeps HogFunctions: each
     HogFunction group, with the row that copies it, then each row whose HogFunctions are gone.
     Subscriber rows are left out, because the source shows its subscribers apart."""
-    groups = _hog_function_groups(team_id, public_id, hog_function_event_ids)
+    groups = [group for group in hog_function_groups if group.hog_function_ids]
     rows = [
         _stored(row)
         for row in AlertDestination.objects.for_team(team_id)
@@ -379,8 +374,7 @@ def list_source_destinations(
             SourceDestination(
                 destination_id=row.id if row is not None else None,
                 hog_function_ids=group.hog_function_ids,
-                # The row keeps what the person entered, such as a Slack channel's name, which HogFunctions do not.
-                data=row.data if row is not None else group.data,
+                data=_with_labels(group.data, row.data) if row is not None else group.data,
                 enabled=group.fully_enabled,
             )
         )
@@ -418,17 +412,12 @@ def _configurations_by_public_id(team_id: int, public_id: UUID) -> models.QueryS
     )
 
 
-def _hog_function_groups(
-    team_id: int, public_id: UUID, hog_function_event_ids: Collection[str]
-) -> list[AlertDestinationGroup]:
-    """The alert's HogFunction destinations, without the subscriber groups a source adds with none."""
-    return [
-        group
-        for group in list_alert_destination_groups(
-            team_id=team_id, alert_id=str(public_id), allowed_event_ids=hog_function_event_ids
-        )
-        if group.hog_function_ids
-    ]
+def _with_labels(live: AlertDestinationData, copy: AlertDestinationData) -> AlertDestinationData:
+    """The HogFunctions' live settings, with the labels the row keeps and they do not, such as a Slack
+    channel's name. A HogFunction edited since the copy keeps none, because the label may be stale."""
+    if _receiver(live) != _receiver(copy):
+        return live
+    return cast(AlertDestinationData, {**copy, **live})
 
 
 def _receiver(data: AlertDestinationData) -> dict[str, object]:
