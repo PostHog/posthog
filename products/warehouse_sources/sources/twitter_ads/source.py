@@ -30,8 +30,8 @@ from products.warehouse_sources.sources.twitter_ads.canonical_descriptions impor
 from products.warehouse_sources.sources.twitter_ads.settings import (
     ACCOUNT_ACCESS_DENIED,
     API_VERSION,
+    BILLING_RESTATEMENT_LOOKBACK_SECONDS,
     ENTITY_TABLES,
-    LOOKBACK_SECONDS,
     MISSING_APP,
     MISSING_INTEGRATION,
     PRIMARY_KEYS,
@@ -184,7 +184,9 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
                 supports_incremental=name in STATS_TABLES,
                 supports_append=False,
                 incremental_fields=[incremental_field("date")] if name in STATS_TABLES else [],
-                default_incremental_lookback_seconds=LOOKBACK_SECONDS if name in STATS_TABLES else None,
+                default_incremental_lookback_seconds=BILLING_RESTATEMENT_LOOKBACK_SECONDS
+                if name in STATS_TABLES
+                else None,
                 detected_primary_keys=PRIMARY_KEYS[name],
             )
             for name in (*ENTITY_TABLES, *STATS_TABLES)

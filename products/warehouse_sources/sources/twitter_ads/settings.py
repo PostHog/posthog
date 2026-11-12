@@ -5,7 +5,7 @@ PAGE_SIZES = {"lead_forms": 200}
 UNSORTABLE_TABLES = ("media_creatives", "lead_forms")
 STATS_TABLES = {"campaign_stats": "CAMPAIGN", "line_item_stats": "LINE_ITEM"}
 PLACEMENTS = ("ALL_ON_TWITTER", "SPOTLIGHT", "TREND")
-LOOKBACK_SECONDS = 3 * 24 * 60 * 60
+BILLING_RESTATEMENT_LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 # The synchronous stats endpoint we use rejects dates further back than this with a 400;
 # X's docs say onboarding backfills should use the (unimplemented) async analytics endpoint instead.
 MAX_STATS_BACKFILL_DAYS = 90
