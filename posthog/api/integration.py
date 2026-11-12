@@ -295,6 +295,19 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return False
 
 
+# Keep in sync with INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE in frontend/src/lib/api-error.ts, which
+# keeps this expected failure out of error tracking.
+INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = "integration_token_refresh_failed"
+
+
+def _token_refresh_failed_error() -> ValidationError:
+    return ValidationError(
+        "This integration's authentication token could not be refreshed. "
+        "Please reconnect or disconnect this integration and connect a different account.",
+        code=INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE,
+    )
+
+
 def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
     """Check that an OAuth integration's token is usable, attempting refresh if needed.
 
@@ -307,19 +320,13 @@ def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
         return instance
 
     if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise ValidationError(
-            "This integration's authentication token could not be refreshed. "
-            "Please reconnect or disconnect this integration and connect a different account."
-        )
+        raise _token_refresh_failed_error()
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
         instance = oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise ValidationError(
-                "This integration's authentication token could not be refreshed. "
-                "Please reconnect or disconnect this integration and connect a different account."
-            )
+            raise _token_refresh_failed_error()
     return instance
 
 
