@@ -22,6 +22,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
@@ -1298,6 +1300,62 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         results = response.json()["results"]
         self.assertEqual({s["labels"]["env"] for s in results}, {"prod", "dev"})
 
+    @parameterized.expand(
+        [
+            # The app reads every series, so a browser session keeps the all-zero one.
+            ("app_keeps_every_series", False, {}, {"dev", "prod", "idle"}, None, None),
+            ("mcp_drops_all_zero_series", True, {}, {"dev", "prod"}, 1, None),
+            ("mcp_can_keep_all_zero_series", True, {"dropEmptySeries": False}, {"dev", "prod", "idle"}, None, None),
+            ("limit_keeps_the_largest", False, {"limit": 1}, {"dev"}, None, 2),
+            ("mcp_limit_counts_after_dropping", True, {"limit": 1}, {"dev"}, 1, 1),
+        ]
+    )
+    def test_group_by_via_api_trims_series(
+        self,
+        _name: str,
+        via_mcp: bool,
+        options: dict[str, Any],
+        expected_envs: set[str],
+        omitted_empty: int | None,
+        omitted_by_limit: int | None,
+    ) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 0.0)],
+            labels={"env": "idle"},
+        )
+        headers: dict[str, str] = {}
+        if via_mcp:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}", "user-agent": "posthog/mcp-server"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": [{"key": "env"}],
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                    **options,
+                }
+            },
+            content_type="application/json",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual({s["labels"]["env"] for s in body["results"]}, expected_envs)
+        self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
+        self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
+
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
             series = self._run()
@@ -1815,6 +1873,55 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(points[0]["value"], 0.3)
         # The chart reads the edges to tell how coarse the estimate is.
         self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
+
+    @parameterized.expand(
+        [
+            ("single_query", {"metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}, 1),
+            (
+                "formula",
+                {
+                    "clauses": [
+                        {"name": "a", "metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}
+                    ],
+                    "formula": "a * 1000",
+                },
+                1000,
+            ),
+        ]
+    )
+    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self, _name, query, scale):
+        # Two workloads export one histogram name with different buckets. The coarse layout
+        # holds 0.7% of observations above 8.1, and the fine one holds 1% of them, all below 0.5.
+        self._seed_histogram(
+            [(self.anchor, [900, 50, 30, 7, 6, 7])], temporality="delta", bounds=[0.1, 0.3, 0.9, 2.7, 8.1]
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0])],
+            temporality="delta",
+            bounds=[0.5, 75.0],
+            resource_labels={"k8s.namespace.name": "billing"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    **query,
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [series] = response.json()["results"]
+        [point] = series["points"]
+        # Summing the two layouts by le, as PromQL does, leaves the fine layout out of every bucket from
+        # 0.9 up and puts p99 in +Inf, read as 75. Merged by width, 1003 of 1010 are at or below 8.1.
+        self.assertAlmostEqual(point["value"], (2.7 + 5.4 * 2.9 / 6) * scale)
+        self.assertEqual(series["histogram_layout_count"], 2)
+        self.assertIn("2 bucket layouts", response.json()["hint"])
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(

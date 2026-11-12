@@ -318,6 +318,7 @@ class PromptSetOverview:
     branded_answers: int
     non_branded_answers: int
     engines: tuple[PromptSetEngineCounts, ...]
+    daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]

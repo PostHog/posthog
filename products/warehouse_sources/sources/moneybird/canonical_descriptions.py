@@ -1,0 +1,283 @@
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+_DOCS = "https://developer.moneybird.com/api"
+
+_RECORD_COLUMNS: dict[str, str] = {
+    "id": "Unique identifier of the record. Moneybird ids are large integers.",
+    "administration_id": "ID of the Moneybird administration the record belongs to.",
+    "created_at": "Time the record was created, in UTC.",
+    "updated_at": "Time the record was last changed, in UTC.",
+}
+
+_VERSION_COLUMN: dict[str, str] = {
+    "version": "Unix time of the last change to the record. It goes up every time the record changes.",
+}
+
+_INVOICE_COLUMNS: dict[str, str] = {
+    "contact_id": "ID of the contact the document is for or from.",
+    "state": "Current state of the document, for example `draft`, `open`, `late` or `paid`.",
+    "currency": "ISO 4217 currency code of the amounts.",
+    "due_date": "Date the payment is due.",
+    "reference": "Free-text reference of the document.",
+    "total_price_excl_tax": "Total amount excluding tax, in the document currency.",
+    "total_price_incl_tax": "Total amount including tax, in the document currency.",
+}
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "contacts": {
+        "description": "Customers, suppliers and other business relations in the Moneybird administration, including archived contacts.",
+        "docs_url": f"{_DOCS}/contacts",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "company_name": "Company name of the contact.",
+            "firstname": "First name of the contact person.",
+            "lastname": "Last name of the contact person.",
+            "customer_id": "Customer number of the contact. Moneybird assigns one when it is left empty.",
+            "email": "Email address of the contact.",
+            "country": "ISO 3166 country code of the contact address.",
+            "tax_number": "VAT number of the contact.",
+        },
+    },
+    "sales_invoices": {
+        "description": "Invoices sent to customers for delivered products or services, in every state.",
+        "docs_url": f"{_DOCS}/sales-invoices",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            **_INVOICE_COLUMNS,
+            "invoice_id": "Invoice number. It is null while the invoice is a draft.",
+            "invoice_date": "Date of the invoice.",
+            "recurring_sales_invoice_id": "ID of the recurring sales invoice that created this invoice, if any.",
+            "paid_at": "Date the invoice was paid in full.",
+            "total_unpaid": "Amount that is still unpaid, in the invoice currency.",
+        },
+    },
+    "estimates": {
+        "description": "Estimates (quotes) that propose products or services to clients.",
+        "docs_url": f"{_DOCS}/estimates",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            **_INVOICE_COLUMNS,
+            "estimate_id": "Estimate number. It is null while the estimate is a draft.",
+            "estimate_date": "Date of the estimate.",
+        },
+    },
+    "external_sales_invoices": {
+        "description": "Sales invoices created in other systems and imported into Moneybird.",
+        "docs_url": f"{_DOCS}/external-sales-invoices",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            **_INVOICE_COLUMNS,
+            "date": "Date of the invoice.",
+            "source": "Name of the system the invoice comes from.",
+        },
+    },
+    "recurring_sales_invoices": {
+        "description": "Templates for sales invoices that Moneybird creates at a recurring interval, both active and inactive, including the ones that belong to a subscription.",
+        "docs_url": f"{_DOCS}/recurring-sales-invoices",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "contact_id": "ID of the contact the invoices are for.",
+            "invoice_date": "Date of the next invoice.",
+            "active": "Whether Moneybird still creates invoices from this template.",
+            "auto_send": "Whether Moneybird sends the created invoices automatically.",
+            "frequency_type": "Unit of the interval: `day`, `week`, `month`, `quarter` or `year`.",
+            "frequency": "Number of interval units between two invoices.",
+            "currency": "ISO 4217 currency code of the amounts.",
+            "total_price_incl_tax": "Total amount of each invoice including tax.",
+        },
+    },
+    "purchase_invoices": {
+        "description": "Invoices received from suppliers.",
+        "docs_url": f"{_DOCS}/documents-purchase-invoices",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            **_INVOICE_COLUMNS,
+            "date": "Date of the invoice.",
+            "paid_at": "Date the invoice was paid in full.",
+        },
+    },
+    "receipts": {
+        "description": "Receipts that prove the payment of expenses.",
+        "docs_url": f"{_DOCS}/documents-receipts",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            **_INVOICE_COLUMNS,
+            "date": "Date of the receipt.",
+            "paid_at": "Date the receipt was paid in full.",
+        },
+    },
+    "general_journal_documents": {
+        "description": "Manual bookkeeping entries that correct errors or make adjustments.",
+        "docs_url": f"{_DOCS}/documents-general-journal-documents",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "date": "Date of the journal entry.",
+            "reference": "Free-text reference of the journal entry.",
+            "journal_type": "`fiscal_year_ending` for a year-end closing entry, otherwise null.",
+            "general_journal_document_entries": "The bookings of the journal entry, each with a ledger account and a debit or credit amount.",
+        },
+    },
+    "general_documents": {
+        "description": "Financial documents that are not invoices, receipts, estimates or journal entries.",
+        "docs_url": f"{_DOCS}/documents-general-documents",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "contact_id": "ID of the contact the document belongs to.",
+            "date": "Date of the document.",
+            "due_date": "Due date of the document.",
+            "reference": "Free-text reference of the document.",
+            "state": "Current state of the document.",
+        },
+    },
+    "financial_accounts": {
+        "description": "Active bank accounts, credit cards, payment services and other accounts that hold money. Moneybird does not return archived accounts.",
+        "docs_url": f"{_DOCS}/financial-accounts",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "name": "Name of the account.",
+            "identifier": "Account number, for example the IBAN of a bank account.",
+            "currency": "ISO 4217 currency code of the account.",
+            "active": "Whether the account is active.",
+        },
+    },
+    "financial_mutations": {
+        "description": "Transactions on financial accounts, such as bank transactions, with how each one is booked.",
+        "docs_url": f"{_DOCS}/financial-mutations",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "financial_account_id": "ID of the financial account of the transaction.",
+            "financial_statement_id": "ID of the financial statement the transaction was imported with.",
+            "date": "Date of the transaction.",
+            "amount": "Amount of the transaction. A negative amount is money going out.",
+            "amount_open": "Part of the amount that is not booked yet.",
+            "currency": "ISO 4217 currency code of the amount.",
+            "message": "Description of the transaction, as given by the bank.",
+            "contra_account_name": "Name of the other party of the transaction.",
+            "contra_account_number": "Account number of the other party of the transaction.",
+            "state": "Processing state of the transaction, for example `unprocessed` or `processed`.",
+            "processed_at": "Time the transaction was booked completely.",
+            "payments": "Payments that link the transaction to invoices.",
+            "ledger_account_bookings": "Bookings of the transaction on ledger accounts.",
+        },
+    },
+    "ledger_accounts": {
+        "description": "The categories of the bookkeeping, such as revenue, expenses, assets and liabilities.",
+        "docs_url": f"{_DOCS}/ledger-accounts",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "name": "Name of the ledger account.",
+            "account_type": "Type of the ledger account, for example `revenue`, `expenses` or `current_assets`.",
+            "account_id": "Account code of the ledger account.",
+            "parent_id": "ID of the parent ledger account, if any.",
+            "active": "Whether the ledger account is active.",
+        },
+    },
+    "tax_rates": {
+        "description": "VAT rates that apply to products and services.",
+        "docs_url": f"{_DOCS}/tax-rates",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "name": "Full name of the tax rate.",
+            "percentage": "Tax percentage, for example 21.",
+            "tax_rate_type": "Document type the rate applies to: `sales_invoice`, `purchase_invoice` or `general_journal_document`.",
+            "country": "ISO 3166 country code of a foreign tax rate. It is null for domestic rates.",
+            "active": "Whether the tax rate is active.",
+        },
+    },
+    "products": {
+        "description": "Goods and services that can be added to invoices and estimates, including deactivated products.",
+        "docs_url": f"{_DOCS}/products",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "title": "Title of the product.",
+            "description": "Description of the product, as shown on invoices.",
+            "identifier": "Product code.",
+            "price": "Price of one unit, in the product currency.",
+            "currency": "ISO 4217 currency code of the price.",
+            "frequency_type": "Billing interval unit of a recurring product.",
+            "frequency": "Number of interval units between two billings of a recurring product.",
+            "tax_rate_id": "ID of the tax rate of the product.",
+            "ledger_account_id": "ID of the revenue ledger account of the product.",
+        },
+    },
+    "projects": {
+        "description": "Projects that group time entries and financial data, both active and archived.",
+        "docs_url": f"{_DOCS}/projects",
+        "columns": {
+            "id": "Unique identifier of the project.",
+            "name": "Name of the project.",
+            "state": "State of the project: `active` or `archived`.",
+            "budget": "Budget of the project.",
+        },
+    },
+    "time_entries": {
+        "description": "Time spent on work for contacts and projects, which can be billed to customers.",
+        "docs_url": f"{_DOCS}/time-entries",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "contact_id": "ID of the contact the time was spent for, if any.",
+            "project_id": "ID of the project the time was spent on, if any.",
+            "user_id": "ID of the user who logged the time.",
+            "started_at": "Start time of the time entry.",
+            "ended_at": "End time of the time entry. It is null while the timer runs.",
+            "description": "Description of the work.",
+            "billable": "Whether the time can be billed.",
+        },
+    },
+    "subscription_templates": {
+        "description": "Templates that set the products and prices of subscriptions.",
+        "docs_url": f"{_DOCS}/subscription-templates",
+        "columns": {
+            "id": "Unique identifier of the subscription template.",
+            "administration_id": "ID of the Moneybird administration the template belongs to.",
+            "workflow_id": "ID of the workflow of the invoices the subscription creates.",
+            "products": "Products and prices that a subscription from this template bills.",
+        },
+    },
+    "users": {
+        "description": "Users of the administration, including inactive users and accountants.",
+        "docs_url": f"{_DOCS}/users",
+        "columns": {
+            "id": "Unique identifier of the user.",
+            "name": "Name of the user.",
+            "email": "Email address of the user.",
+            "user_type": "Type of the user, for example `owner`, `employee`, `accountant` or `api_user`.",
+            "permissions": "Permissions of the user in the administration.",
+            "created_at": "Time the user was created, in UTC.",
+            "updated_at": "Time the user was last changed, in UTC.",
+        },
+    },
+    "workflows": {
+        "description": "Workflows that set how invoices and estimates are sent, reminded and collected.",
+        "docs_url": f"{_DOCS}/workflows",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "name": "Name of the workflow.",
+            "type": "Document type the workflow applies to, for example invoices or estimates.",
+            "currency": "ISO 4217 currency code of the workflow.",
+            "language": "Language of the documents the workflow sends.",
+            "active": "Whether the workflow is active.",
+            "default": "Whether this is the default workflow of its type.",
+        },
+    },
+    "custom_fields": {
+        "description": "Custom fields that add extra information to sales invoices, contacts and identities.",
+        "docs_url": f"{_DOCS}/custom-fields",
+        "columns": {
+            "id": "Unique identifier of the custom field.",
+            "administration_id": "ID of the Moneybird administration the custom field belongs to.",
+            "name": "Name of the custom field.",
+            "source": "Record type the custom field belongs to: `sales_invoice`, `estimate`, `contact` or `identity`.",
+        },
+    },
+}

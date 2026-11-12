@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import uuid
@@ -12,6 +13,7 @@ from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
+from http.cookies import SimpleCookie
 from typing import Any, Optional, Union, cast
 
 import pytest
@@ -276,6 +278,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        # A JSON containment filter on an id, such as '{"insight_id": 4}'::jsonb.
+        query = re.sub(r"('\{\"\w+_id\": )\d+(\}'::jsonb)", r"\g<1>99999\2", query)
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
         query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
         query = re.sub(
@@ -1088,6 +1092,18 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
+    _class_login_cookies: Optional[SimpleCookie] = None
+    _class_login_user_id: Optional[int] = None
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        if cls.CLASS_DATA_LEVEL_SETUP and cls.CONFIG_AUTO_LOGIN and cls.user:
+            client = cls.client_class()
+            client.force_login(cls.user)
+            cls._class_login_cookies = client.cookies
+            cls._class_login_user_id = cls.user.pk
+
     def setUp(self):
         super().setUp()
 
@@ -1100,7 +1116,10 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
-            self.client.force_login(self.user)
+            if self._class_login_cookies is not None and self._class_login_user_id == self.user.pk:
+                self.client.cookies = copy.deepcopy(self._class_login_cookies)
+            else:
+                self.client.force_login(self.user)
             get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
