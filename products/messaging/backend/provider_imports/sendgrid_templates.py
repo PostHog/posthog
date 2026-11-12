@@ -1007,7 +1007,6 @@ _LIQUID_TAG = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}|\{%(?:(?!\{%).){0,2000
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
 _RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
 _RAW_CLOSE = re.compile(r"\{%-?\s*endraw\s*-?%\}")
-_RAW_OUTPUT_FILTER = re.compile(r"\s*\|\s*raw\s*\}\}\Z")
 
 
 def _hold_raw_blocks(text: str, tags: list[str]) -> str:
@@ -1020,6 +1019,15 @@ def _hold_raw_blocks(text: str, tags: list[str]) -> str:
         parts.append(f"{text[position : opening.start()]}\x01{len(tags) - 1}\x01")
         position = closing.end()
     return "".join(parts) + text[position:]
+
+
+def _without_raw_filter(tag: str) -> str:
+    if not tag.startswith("{{") or not tag.endswith("}}"):
+        return tag
+    body = tag[2:-2].rstrip()
+    if not body.endswith("raw") or not (head := body[:-3].rstrip()).endswith("|"):
+        return tag
+    return f"{{{{{head[:-1].rstrip()} }}}}"
 
 
 def plain_text_from_html(html: str) -> str:
@@ -1055,7 +1063,7 @@ def plain_text_from_html(html: str) -> str:
     text = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), text)
     # Plain text has no escaping, so `| raw` has nothing to do in it. Only an output's last filter goes, so a tag kept
     # literally can't turn into another one.
-    return _LIQUID_SLOT.sub(lambda match: _RAW_OUTPUT_FILTER.sub(" }}", tags[int(match.group(1))]), text)
+    return _LIQUID_SLOT.sub(lambda match: _without_raw_filter(tags[int(match.group(1))]), text)
 
 
 def convert_version(
