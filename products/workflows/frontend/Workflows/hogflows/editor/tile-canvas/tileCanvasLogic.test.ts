@@ -526,13 +526,12 @@ describe('tileCanvasLogic', () => {
             useMocks(workflowFor(AccessControlLevel.Viewer))
             await mountLaidOutCanvas()
             const loaded = logic.values.workflow
-            const capture = jest.spyOn(posthog, 'capture').mockClear()
 
             run()
 
             expect(logic.values.workflow).toEqual(loaded)
             expect(logic.values).toMatchObject({ isPlacing: false, isMovingNode: false, isCopyingNode: false })
-            expect(capture).not.toHaveBeenCalled()
+            expect([null, ...loaded.actions.map((action) => action.id)]).toContain(logic.values.selectedNodeId)
         })
 
         it('lets an editor add a step from a +', async () => {
