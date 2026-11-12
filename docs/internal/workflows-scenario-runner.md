@@ -13,21 +13,21 @@ Where this document and that code disagree, the code is right and this document 
 On a worktree box with the `nodejs` package installed:
 
 ```bash
-pnpm --filter=@posthog/nodejs scenarios run smoke
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts run smoke
 ```
 
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
-- Several cards run one after the other on one stack: `scenarios run <card> <card>...`. Every card must load before any runs.
+- Several cards run one after the other on one stack: `main.ts run <card> <card>...`. Every card must load before any runs.
 - `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. It keeps its own `name`, which the scorecard records as `profile_name`; the profile hash tells it from the shipped one.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
-| Exit code | Meaning                                                                                                                                                                                                    |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0         | `passed`                                                                                                                                                                                                   |
-| 1         | `failed`: an invariant broke, or the stack did not converge                                                                                                                                                |
-| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load                                                                                                         |
-| 3         | The scorecard variables are set and the scorecard was not read back, or its files could not be written. A run interrupted after the capture keeps its status's code, unless its files could not be written |
+| Exit code | Meaning                                                                                                                          |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 0         | `passed`                                                                                                                         |
+| 1         | `failed`: an invariant broke, or the stack did not converge                                                                      |
+| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load                               |
+| 3         | The scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps its status's code |
 
 With several cards the exit code is the highest of their codes.
 
@@ -37,13 +37,12 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 **Evidence** stays on the box, under `$XDG_CACHE_HOME/posthog-scenarios/<run id>/` (`~/.cache` when the variable is unset), outside the repository:
 
-| File                   | Holds                                                                      |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `journal.json`         | Every unit the generator offered, the intake's answer, and what it expects |
-| `truth.json`           | Every request the provider edge received and how it answered               |
-| `logs/<role>.log`      | Each role's log lines from this run                                        |
-| `scorecard-event.json` | The scorecard event's properties                                           |
-| `scorecard.json`       | The full run result                                                        |
+| File              | Holds                                                                             |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects        |
+| `truth.json`      | Every request the provider edge received and how it answered                      |
+| `logs/<role>.log` | Each role's log lines from this run                                               |
+| `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
@@ -88,7 +87,7 @@ It borrows the personhog test harness's conventions: a journal, bounded converge
 
 ```mermaid
 flowchart TB
-    CLI["main.ts: scenarios run &lt;card&gt;..."] --> Runner
+    CLI["main.ts run &lt;card&gt;..."] --> Runner
     Runner["Runner: up, run, down"] -->|load| Cards["Cards: load"]
     Runner -->|up, reset, health| Environment["Environment: up, reset, role, actuate, health, exits, down"]
     Runner -->|seed, drive| Generator["Generator: seed, drive"]
@@ -116,7 +115,7 @@ The Environment holds everything that differs between a local box and a cloud sl
 | ------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Runner**          | `up`, `run(card)`, `down`                                                                       | The run lifecycle: reset, seed, drive with valves alongside, converge, judge, write evidence, publish. Watching dependency health and role exits during the run. The status.  |
 | **Cards**           | `load`                                                                                          | The YAML schema (zod), the checks across a card and its profile, profiles, and the card and profile hashes.                                                                   |
-| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `health`, `exits`, `groupLag`, `down`              | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits. |
+| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `dependencyHealth`, `exits`, `groupLag`, `down`    | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits. |
 | **Provider edge**   | `startProviderEdge`, `hold`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                             |
 | **Valves**          | `start`, `releaseAll`, `timeline`                                                               | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action, and the timeline of requested, applied, observed and released.        |
 | **Generator**       | `seed`, `drive`                                                                                 | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                 |
@@ -132,7 +131,7 @@ Each valve, traffic kind, invariant and measurement is one definition that holds
 
 ```text
 nodejs/tests/scenarios/
-  main.ts          the CLI: scenarios run <card>... [--profile <file>]
+  main.ts          the CLI: run <card>... [--profile <file>]
   runner/          Runner, status rules and exit codes
   cards/           *.yaml cards, schema.ts, load.ts, definitions.ts
   profiles/        synthetic.yaml, invented numbers only
@@ -145,7 +144,7 @@ nodejs/tests/scenarios/
   scorecard/       properties, provenance, capture and read back
 ```
 
-The `scenarios` script in `nodejs/package.json` runs `tsx tests/scenarios/main.ts`.
+The CLI runs with `tsx`, as `pnpm --dir nodejs exec tsx tests/scenarios/main.ts`; there is no package script.
 `nodejs/src/cdp/_tests/fake-ses.ts` is a thin adapter over `startProviderEdge`, so the email service's Jest suites and the runner share one SES implementation.
 Nothing in the runner runs in production.
 
@@ -251,7 +250,7 @@ sequenceDiagram
     S-->>R: recorded or not
 ```
 
-During drive and convergence the Runner polls `Environment.health()` every 5 seconds.
+During drive and convergence the Runner polls `Environment.dependencyHealth()` every 5 seconds.
 It reads `Environment.exits()` from `Judge.open` on, to tell an exit a valve caused from an unexplained one.
 `Valves.releaseAll` also runs in a `finally`, so no valve outlives its card.
 
@@ -351,7 +350,7 @@ sequenceDiagram
     end
     R->>R: write the evidence first
     R->>S: publish
-    alt variables set and not read back (no interrupt after the capture), or scorecard files not written
+    alt variables set and not read back (no interrupt after the capture)
         S-->>R: problem
         Note over R: exit 3, evidence kept
     end
@@ -459,16 +458,17 @@ export interface Runner {
 }
 ```
 
-- **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `scenarios run` process. Runs on one stack are sequential.
+- **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `main.ts run` process. Runs on one stack are sequential.
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
+- **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
   - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
     An unexplained exit outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
     An exit while `pg.drop_connections` is applied still counts as unexplained; its reason names the drop.
   - `passed` otherwise.
-- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, unless its files could not be written.
+- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
 ### Environment
 
@@ -480,7 +480,7 @@ export interface Environment {
   edgeUrl(): string
   role(name: Role): RoleHandle
   actuate(action: Action): Promise<Actuation>
-  health(): Promise<{ healthy: boolean; down: string[] }>
+  dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
   exits(): RoleExit[]
   groupLag(group: string): Promise<number>
   down(): Promise<void>
@@ -503,7 +503,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - When the dev stack is not up, it writes a dev config with `hogli dev:generate --with workflows --without nodejs` into its state directory and starts it with `hogli up -d --custom <config>`, which leaves the box's saved settings alone. It always waits with `hogli wait`. The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
   - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
 - **`reset` is complete.** It runs before every card, so a failed or crashed run never poisons the next. In order:
-  1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds.
+  1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.
   2. Wait, for up to 45 seconds, until the roles' consumer groups have no members. A killed consumer stays a member until its session times out.
   3. Clear the edge's faults.
   4. Delete unfinished jobs from `cyclotron_jobs`.
@@ -521,7 +521,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
-- **Health.** `health` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`.
+- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`.
 - **The roles' environment.** Every role starts from `src/index.ts` with `tsx` in development mode, as its own process group, with:
   - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
   - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;
@@ -549,6 +549,7 @@ POST   /_faults      { name, params, match?: { host? | recipient? }, dose?: { co
 DELETE /_faults/:id
 DELETE /_faults      clears every fault
 GET    /_truth?after=<seq>&limit=<n>   -> { records: TruthRecord[], next: number }, at most 1000 records a page
+GET    /_truth/head  -> { head }, the last record's seq, 0 when empty
 GET    /_health
 ```
 
@@ -620,7 +621,7 @@ export interface Valves {
 
 ```ts
 // nodejs/tests/scenarios/generator/generator.ts
-export function seed(loaded: LoadedCard, postgres: PostgresRouter): Promise<SeedState>
+export function seed(loaded: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState>
 export function drive(
   loaded: LoadedCard,
   seeded: SeedState,
@@ -660,10 +661,11 @@ export type InvariantResult = {
 }
 ```
 
-- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
+- **Open** starts reading the truth at the edge's `/_truth/head`, so records from earlier cards never enter this card's evidence.
+- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
   - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
-    - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx other than 429.
+    - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
     - A webhook's faulted attempts reached the hogflow worker's `CDP_FETCH_RETRIES`, read from its settings as the worker reads it. The runner passes it to the Judge as `fetchRetries`.
 
     A retried SES code that answers every attempt still counts as missed.
@@ -800,7 +802,7 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 ### One process per invocation
 
-- **Decision.** `scenarios run <card>...` loads every card, then brings the stack up, runs each card, and brings it down in a `finally`, all in one process. There is no separate `up` or `down` command and no ready file.
+- **Decision.** `main.ts run <card>...` loads every card, then brings the stack up, runs each card, and brings it down in a `finally`, all in one process. There is no separate `up` or `down` command and no ready file.
 - **Why.** The Environment supervises the role processes in memory: it restarts killed roles and records exits. A separate `run` process could not reach it without a control channel.
 - **Cost.** Every invocation pays the stack's start-up; run several cards in one invocation to share it.
 
@@ -872,4 +874,4 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 | **Batch workflows and schedules**, with a person seed for audience resolution, and the scheduler and subscription-matcher roles.                                                                                                                                                                 | Needed          | Pulls ClickHouse persons into the seed.                               |
 | **PR runs**: paired base and head runs on one box, the `pr` and `master` origins, and evidence storage.                                                                                                                                                                                          | Needed          | Where they execute is not decided.                                    |
 | **Twilio, FCM and APNs fakes** in the provider edge.                                                                                                                                                                                                                                             | Worth exploring | The first cards exercise SES and webhooks.                            |
-| **A `hogli` command** wrapping the `scenarios` script.                                                                                                                                                                                                                                           | Worth exploring | The pnpm script is enough for agents now.                             |
+| **A `hogli` command** wrapping the scenario CLI.                                                                                                                                                                                                                                                 | Worth exploring | The `tsx` command is enough for agents now.                           |
