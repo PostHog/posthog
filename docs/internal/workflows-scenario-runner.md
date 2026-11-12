@@ -18,7 +18,7 @@ pnpm --filter=@posthog/nodejs scenarios run smoke
 
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
 - Several cards run one after the other on one stack: `scenarios run <card> <card>...`. Every card must load before any runs.
-- `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. Its `name` must be the card's `profile`, so the profile hash tells the two apart.
+- `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. It keeps its own `name`, which the scorecard records as `profile_name`; the profile hash tells it from the shipped one.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
@@ -433,18 +433,20 @@ It rejects:
 - a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
-- a profile setting no role or the load producer reads, a profile whose name is not the card's, and traffic rates that fail their kind's profile schema.
+- a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
 
 **Hashes.**
 The profile hash is the SHA-256 of the profile serialized with sorted keys.
 The card hash is the SHA-256 of the card without `gates` and the profile hash, serialized the same way.
 Gates stay outside the card hash; anything else that changes what runs changes it.
-`runner_version` covers `cards/`, so a committed gate change still changes the fingerprint, and runs on either side of it do not compare.
+`runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
+An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
+An edit to the loader still changes `runner_version`.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
-Settings whose name starts with `KAFKA_PRODUCER_` configure the generator's Kafka producer.
-Every role gets every setting, so these also change the roles' own producers.
+Settings whose name starts with `KAFKA_PRODUCER_` configure the runner's load producer, which sends the generator's events to Kafka.
+Every role gets every setting too, but no CDP role reads that prefix: the roles build their producers from `KAFKA_CDP_PRODUCER_*` and the per-producer config maps.
 A scorecard records the profile's name and hash, never its numbers.
 
 ### Runner
@@ -696,7 +698,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/` and `valves/`                                                                                              |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`                                                 |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
@@ -784,7 +786,7 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 - **Decision.** The repository ships an invented `synthetic` profile with the repository's default settings. A measured profile, with production's settings, is kept outside the repository and passed by path.
 - **Why.** This repository is public, and a measured profile describes production.
-- **Cost.** Capacity numbers mean something only with a measured profile. A measured profile carries the card's profile name, so only `profile_hash` tells it from the shipped one.
+- **Cost.** Capacity numbers mean something only with a measured profile. A measured profile can carry any name, so `profile_hash`, not the name, tells it from the shipped one.
 
 ### Queries past Cyclotron's seam, on purpose
 
@@ -800,7 +802,7 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 ### Versions from git
 
-- **Decision.** The runner, generator and valves versions are git tree hashes of their directories.
+- **Decision.** The runner, generator and valves versions are git tree hashes of their directories. The runner version leaves out the card and profile YAML files, which the card hash and the profile hash cover.
 - **Why.** Nobody has to bump a version by hand, and any change to the code that shapes a run changes the fingerprint.
 - **Cost.** Uncommitted edits do not change a version; `head_dirty` flags those runs.
 
