@@ -95,7 +95,7 @@ export function moveAnnouncementUrl(payload: unknown): string | null {
     }
 }
 
-/** The hidden events that a mode 0 action or cohort editor warns about. Empty until the move is announced. */
+/** The hidden events that a mode 0 action editor warns about. Empty until the move is announced. */
 export function eventsWithMoveNotice(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
     moveNoticesEnabled: boolean

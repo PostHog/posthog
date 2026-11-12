@@ -219,6 +219,13 @@ class _ScanLiteralFinder(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         pass
 
+    def visit_call(self, node: ast.Call) -> None:
+        # The parser turns `NOT (x)` into a call.
+        # A negated comparison excludes flag calls, so the scan does not read them.
+        if node.name.lower() == "not":
+            return
+        super().visit_call(node)
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
@@ -303,20 +310,20 @@ def _mode_2_check(node: ast.SelectQuery, found: _FoundScan, literals: list[Liter
     return _ScanCheck(scan=scan, literals=literals, warning=warning)
 
 
-class _MoveRefusalFinder(ScanVisitor):
+class _MoveWarningFinder(ScanVisitor):
     def __init__(self, union_on: bool) -> None:
         super().__init__()
         self.union_on = union_on
         # The checks of the scans in each enclosing SELECT, innermost last.
         self.frames: list[list[_ScanCheck]] = []
-        self.refusals: dict[LiteralSpan, str] = {}
+        self.warnings: dict[LiteralSpan, str] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.frames.append([])
         super().visit_select_query(node)
         for check in self.frames.pop():
             if check.warning is not None:
-                self.refusals.update(dict.fromkeys(check.literals, check.warning))
+                self.warnings.update(dict.fromkeys(check.literals, check.warning))
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         for found in _events_scans(node, self.ctes):
@@ -336,15 +343,16 @@ class _MoveRefusalFinder(ScanVisitor):
                 check.warning = flag_called_missing_field_warning(missing)
 
 
-def flag_called_move_refusals(node: ast.SelectQuery | ast.SelectSetQuery, *, union_on: bool) -> dict[LiteralSpan, str]:
-    """The warning for each `$feature_flag_called` literal whose query fails once flag calls are only in
-    posthog.flag_evaluations, keyed by the literal's span. `union_on` says whether the union reads the scans that the
-    swap leaves, such as one filtered with `event IN ('$pageview', '$feature_flag_called')` or a sampled flag-call scan.
+def flag_called_move_warnings(node: ast.SelectQuery | ast.SelectSetQuery, *, union_on: bool) -> dict[LiteralSpan, str]:
+    """The warning for each `$feature_flag_called` literal whose query fails, or keeps reading events and misses new
+    flag calls, once flag calls are only in posthog.flag_evaluations, keyed by the literal's span. `union_on` says
+    whether the union reads the scans that the swap leaves, such as one filtered with
+    `event IN ('$pageview', '$feature_flag_called')` or a sampled flag-call scan.
 
-    It reads only the text of the unresolved query. It finds the shapes that the swap and the union refuse and the
-    sub-table fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a refusal that only
+    It reads only the text of the unresolved query. It finds the shapes that the swap and the union refuse, the scans
+    that neither reads, and the sub-table fields, such as `goe_0.properties`, that flag_evaluations lacks. It misses a refusal that only
     resolution shows, such as a name that binds to another column in flag_evaluations.
     """
-    finder = _MoveRefusalFinder(union_on)
+    finder = _MoveWarningFinder(union_on)
     finder.visit(node)
-    return finder.refusals
+    return finder.warnings

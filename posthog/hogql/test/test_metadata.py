@@ -651,6 +651,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 move_message=FLAG_CALLED_STAYS_ON_EVENTS_WARNING,
             ),
             param(
+                "negated_flag_call_comparison_with_the_union_off",
+                "SELECT count() FROM events WHERE NOT (event = '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+            param(
                 "mixed_scan_the_union_would_decline_with_the_union_off",
                 "SELECT goe_0.properties FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
                 True,

@@ -42,7 +42,7 @@ from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_ON_EVENTS_NOTICE,
     FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     LiteralSpan,
-    flag_called_move_refusals,
+    flag_called_move_warnings,
     flag_called_on_events_notices,
     flag_called_spans_read_from_flag_evaluations,
     flag_called_spans_read_from_union,
@@ -362,8 +362,8 @@ def _flag_called_notices(
     reads posthog.flag_evaluations instead, and a notice on each literal whose scan reads events and
     posthog.flag_evaluations together. `prepared_ast` is what the printer ran, so it says which scans it swapped.
 
-    While events still gets flag calls, a literal on events gets a warning only when its query will fail once events
-    stops getting them. Every other such literal gets a notice."""
+    While events still gets flag calls, a literal on events gets a warning when its query will fail, or will miss new
+    flag calls, once events stops getting them. Every other such literal gets a notice."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
@@ -382,7 +382,7 @@ def _flag_called_notices(
         both_tables_message = (
             FLAG_CALLED_FROM_BOTH_TABLES_NOTICE if only_in_flag_evaluations else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
         )
-        refusals: dict[LiteralSpan, str] | None = None
+        move_warning_by_span: dict[LiteralSpan, str] | None = None
         for candidate in candidates:
             span = LiteralSpan(start=candidate.start, end=candidate.end)
             if span in swapped:
@@ -396,13 +396,15 @@ def _flag_called_notices(
                     candidate.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING, "url": url})
                 )
             else:
-                if refusals is None:
-                    # Once events gets no flag calls, the swap raises for each query that this finds.
-                    # The union flag decides the mode 2 read even while the current mode doesn't read flag_evaluations.
+                if move_warning_by_span is None:
+                    # On mode 2 the union reads a mixed scan whenever the union flag is on.
+                    # The team's current mode does not change that.
                     union_on = context.database is not None and context.database.flag_calls_union_enabled
-                    refusals = flag_called_move_refusals(hogql_ast, union_on=union_on)
-                if span in refusals:
-                    move_warnings.append(candidate.model_copy(update={"message": refusals[span], "url": url}))
+                    move_warning_by_span = flag_called_move_warnings(hogql_ast, union_on=union_on)
+                if span in move_warning_by_span:
+                    move_warnings.append(
+                        candidate.model_copy(update={"message": move_warning_by_span[span], "url": url})
+                    )
                 else:
                     on_events_notices.append(
                         candidate.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_NOTICE, "url": url})

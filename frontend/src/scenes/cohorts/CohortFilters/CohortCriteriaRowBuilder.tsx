@@ -7,8 +7,7 @@ import { Field as KeaField } from 'kea-forms'
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
-import { flagCalledRebuildBannerLogic } from 'lib/components/FlagCalledRebuildBanner/flagCalledRebuildBannerLogic'
-import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -24,7 +23,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
-import { flagCallProblemText, moveNoticeProblem } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+import {
+    cohortSkipsFlagCallCheck,
+    flagCallProblemText,
+    moveNoticeProblem,
+} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -47,14 +50,14 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
+    const { cohort } = useValues(cohortEditLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { bannersEnabled } = useValues(flagCalledRebuildBannerLogic)
-    const moveNoticeEvents = eventsWithMoveNotice(
-        currentTeam?.flag_evaluations_mode,
-        useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
-    )
+    const moveNoticesEnabled = useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const flagCallProblem = moveNoticeProblem(criteria, bannersEnabled ? [FEATURE_FLAG_CALLED_EVENT] : moveNoticeEvents)
+    const flagCallProblem =
+        moveNoticesEnabled && !cohortSkipsFlagCallCheck(cohort)
+            ? moveNoticeProblem(criteria, [FEATURE_FLAG_CALLED_EVENT])
+            : null
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.

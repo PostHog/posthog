@@ -89,11 +89,15 @@ function firstGroupProblem(group: CohortCriteriaGroupFilter): FlagCallCriterionP
  * A static cohort keeps the people it already has. An experiment's exposure cohort is left out, because its
  * criterion belongs to the experiment.
  */
+export function cohortSkipsFlagCallCheck(cohort: Pick<CohortType, 'is_static' | 'experiment_set'>): boolean {
+    return !!cohort.is_static || !!cohort.experiment_set?.length
+}
+
 export function cohortFlagCallProblem(
     cohort: Pick<CohortType, 'is_static' | 'filters' | 'experiment_set'>
 ): FlagCallCriterionProblem | null {
     const criteria = cohort.filters?.properties
-    if (cohort.is_static || cohort.experiment_set?.length || !criteria) {
+    if (cohortSkipsFlagCallCheck(cohort) || !criteria) {
         return null
     }
     return firstGroupProblem(criteria)
