@@ -1,8 +1,12 @@
 import clsx from 'clsx'
 import React, { Suspense } from 'react'
 
+import { Spinner as QuillSpinner } from '@posthog/quill'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
+import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
@@ -46,6 +50,8 @@ export type WidgetCardHeaderProps = {
     showEditingControls?: boolean
     shouldHideMoreButton?: boolean
     moreButtonOverlay?: MoreProps['overlay']
+    /** Rows of the quill "more" menu, used instead of `moreButtonOverlay` on a quill surface. */
+    quillMenuItems?: JSX.Element | null
     /** Refresh control revealed on tile hover (dashboard_tile layout only); forwarded to CardMeta. */
     refreshControl?: JSX.Element | null
 }
@@ -70,13 +76,18 @@ function WidgetCardHeaderTitle({
     const displayTitle = title || defaultTitle || 'Untitled'
     const Heading = headingLevel
     const linkTitle = !!titleHref
+    const quillSurface = useQuillSurface()
 
     const titleContent = (
         <>
             <span className={clsx('truncate', linkTitle && 'text-primary')}>{displayTitle}</span>
             {loading && (
                 <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
-                    <Spinner className="mr-1.5 text-base" textColored />
+                    {quillSurface ? (
+                        <QuillSpinner className="mr-1.5 align-middle" />
+                    ) : (
+                        <Spinner className="mr-1.5 text-base" textColored />
+                    )}
                     Loading
                 </span>
             )}
@@ -176,8 +187,10 @@ export function WidgetCardHeader({
     showEditingControls,
     shouldHideMoreButton,
     moreButtonOverlay,
+    quillMenuItems,
     refreshControl,
 }: WidgetCardHeaderProps): JSX.Element {
+    const quillSurface = useQuillSurface()
     const showWidgetType = headerMeta?.showWidgetType ?? true
     const showDateRange = headerMeta?.showDateRange ?? false
     const dateText =
@@ -237,6 +250,22 @@ export function WidgetCardHeader({
             showLoadingSpinner={layout === 'simple'}
         />
     )
+
+    if (layout === 'dashboard_tile' && quillSurface) {
+        return (
+            <QuillCardMeta
+                topHeading={(resolvedTopHeading as JSX.Element | null) ?? null}
+                refreshControl={refreshControl}
+                menuItems={shouldHideMoreButton ? null : quillMenuItems}
+                content={
+                    <>
+                        {titleEl}
+                        {descriptionEl}
+                    </>
+                }
+            />
+        )
+    }
 
     if (layout === 'dashboard_tile') {
         return (

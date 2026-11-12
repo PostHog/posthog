@@ -4,6 +4,8 @@ import React, { Suspense, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useInView } from 'react-intersection-observer'
 
+import { Skeleton } from '@posthog/quill'
+
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
@@ -11,6 +13,9 @@ import {
     DashboardWidgetPlacementMenus,
     type DashboardWidgetPlacementMenusProps,
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
+import { QuillSurfaceContext, useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -42,6 +47,7 @@ import {
     type DashboardWidgetComponentProps,
     type DashboardWidgetDefinition,
 } from '../../widgets/registry'
+import { QuillWidgetCardMenuItems } from '../WidgetCard/QuillWidgetCardMenuItems'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
 import { WidgetCardBody, WidgetCardSharedPlaceholderBody, WidgetLoadingState } from '../WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/WidgetCardHeader'
@@ -210,6 +216,8 @@ function DashboardWidgetItemContent({
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
     const MenuItems = definition?.MenuItems
+    const QuillMenuItems = definition?.QuillMenuItems
+    const quillSurface = useQuillSurface()
 
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
@@ -223,8 +231,64 @@ function DashboardWidgetItemContent({
     // via the always-present "⋯" menu for touch/keyboard). CardMeta's CSS handles the hover reveal.
     const showHoverRefresh =
         !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
-    const refreshControl = showHoverRefresh ? (
+    const refreshControl = !showHoverRefresh ? null : quillSurface ? (
+        <QuillCardMetaRefreshButton
+            onRefresh={onRefresh}
+            lastRefresh={lastFetchedAt}
+            dataAttr="dashboard-widget-refresh"
+        />
+    ) : (
         <CardMetaRefreshButton onRefresh={onRefresh} lastRefresh={lastFetchedAt} dataAttr="dashboard-widget-refresh" />
+    )
+
+    const canAddDescription = !!showEditingControls && !!onUpdateWidgetTile && !showDescription && !description
+    const canToggleDescription = !!showEditingControls && !!toggleShowDescription && !!description
+    const quillMenuItems = quillSurface ? (
+        <QuillWidgetCardMenuItems
+            widgetItems={
+                !showSharedPlaceholder && hasProductAccess && QuillMenuItems ? (
+                    <Suspense fallback={null}>
+                        <QuillMenuItems {...componentProps} />
+                    </Suspense>
+                ) : null
+            }
+            onEdit={showEditingControls && EditModal ? () => setEditOpen(true) : undefined}
+            viewUrl={titleHref}
+            onDuplicate={onDuplicate}
+            description={
+                canAddDescription
+                    ? {
+                          label: 'Add description',
+                          onClick: () => {
+                              toggleShowDescription?.()
+                              setEditOpen(true)
+                          },
+                      }
+                    : canToggleDescription
+                      ? {
+                            label: tile.show_description === false ? 'Show description' : 'Hide description',
+                            onClick: () => toggleShowDescription?.(),
+                        }
+                      : undefined
+            }
+            placement={
+                onMoveToDashboard || onCopyToDashboard
+                    ? {
+                          destinations: copyToDestinations ?? [],
+                          onMoveToDashboard,
+                          onCopyToDashboard,
+                          tileGroupMoveOptions,
+                          onMoveToTileGroup,
+                      }
+                    : undefined
+            }
+            refresh={
+                onRefresh && headerLayout === 'dashboard_tile' && !isUnknownWidgetType
+                    ? { onRefresh, disabledReason: refreshDisabledReason, lastRefresh: lastFetchedAt }
+                    : undefined
+            }
+            onRemove={onRemove}
+        />
     ) : null
 
     return (
@@ -245,6 +309,7 @@ function DashboardWidgetItemContent({
                 showEditingControls={showEditingControls}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
                 refreshControl={refreshControl}
+                quillMenuItems={quillMenuItems}
                 moreButtonOverlay={
                     <>
                         {!showSharedPlaceholder && hasProductAccess && MenuItems && (
@@ -357,6 +422,8 @@ function DashboardWidgetItemContent({
                                 dashboardId={dashboardId}
                             />
                         </ErrorBoundary>
+                    ) : quillSurface ? (
+                        <Skeleton className="min-h-0 w-full flex-1" />
                     ) : (
                         <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
                     )}
@@ -418,6 +485,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         ref
     ): JSX.Element | null {
         const widget = tile.widget
+        const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
         const [editOpen, setEditOpen] = useState(false)
         const exportPlacement = placement === DashboardPlacement.Export
         const { ref: visibilityRef, inView } = useInView({
@@ -473,38 +541,40 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                 showResizeHandles={showResizeHandles}
                 gridChildren={children}
             >
-                <DashboardWidgetItemContent
-                    tile={tile}
-                    placement={placement}
-                    widget={widget}
-                    definition={definition}
-                    headerCatalogEntry={headerCatalogEntry}
-                    isUnknownWidgetType={isUnknownWidgetType}
-                    dashboardId={dashboardId}
-                    result={result}
-                    loading={loading}
-                    error={error}
-                    lastFetchedAt={lastFetchedAt}
-                    dashboardFilters={dashboardFilters}
-                    onRefresh={onRefresh}
-                    onRefreshWidgetData={onRefreshWidgetData}
-                    onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
-                    onUpdateWidgetTile={onUpdateWidgetTile}
-                    onConfigPublished={onConfigPublished}
-                    canEditDashboard={canEditDashboard}
-                    toggleShowDescription={toggleShowDescription}
-                    showEditingControls={showEditingControls}
-                    onDuplicate={onDuplicate}
-                    onRemove={onRemove}
-                    onMoveToDashboard={onMoveToDashboard}
-                    onCopyToDashboard={onCopyToDashboard}
-                    tileGroupMoveOptions={tileGroupMoveOptions}
-                    onMoveToTileGroup={onMoveToTileGroup}
-                    copyToDestinations={copyToDestinations}
-                    editOpen={editOpen}
-                    setEditOpen={setEditOpen}
-                    showBody={showBody}
-                />
+                <QuillSurfaceContext.Provider value={todayRailNav}>
+                    <DashboardWidgetItemContent
+                        tile={tile}
+                        placement={placement}
+                        widget={widget}
+                        definition={definition}
+                        headerCatalogEntry={headerCatalogEntry}
+                        isUnknownWidgetType={isUnknownWidgetType}
+                        dashboardId={dashboardId}
+                        result={result}
+                        loading={loading}
+                        error={error}
+                        lastFetchedAt={lastFetchedAt}
+                        dashboardFilters={dashboardFilters}
+                        onRefresh={onRefresh}
+                        onRefreshWidgetData={onRefreshWidgetData}
+                        onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
+                        onUpdateWidgetTile={onUpdateWidgetTile}
+                        onConfigPublished={onConfigPublished}
+                        canEditDashboard={canEditDashboard}
+                        toggleShowDescription={toggleShowDescription}
+                        showEditingControls={showEditingControls}
+                        onDuplicate={onDuplicate}
+                        onRemove={onRemove}
+                        onMoveToDashboard={onMoveToDashboard}
+                        onCopyToDashboard={onCopyToDashboard}
+                        tileGroupMoveOptions={tileGroupMoveOptions}
+                        onMoveToTileGroup={onMoveToTileGroup}
+                        copyToDestinations={copyToDestinations}
+                        editOpen={editOpen}
+                        setEditOpen={setEditOpen}
+                        showBody={showBody}
+                    />
+                </QuillSurfaceContext.Provider>
             </WidgetCard>
         )
     }
