@@ -40,6 +40,7 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import ConvertedTemplate, convert_template
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -520,7 +521,7 @@ def _email_content(
         email["text"] = converted.text
     reply_to = template.get("reply_to")
     if reply_to:
-        email["replyTo"] = ", ".join(reply_to) if isinstance(reply_to, list) else str(reply_to)
+        email["replyTo"] = literal_liquid(", ".join(reply_to) if isinstance(reply_to, list) else str(reply_to))
     display_name, address = parseaddr(str(template.get("from") or ""))
     if not address:
         return email, ("Resend has no sender for this template. Choose one before you send it.",)
@@ -530,7 +531,7 @@ def _email_content(
     email["from"] = {
         "integrationId": sender.id,
         "email": address,
-        "name": display_name or str(sender.config.get("name") or ""),
+        "name": literal_liquid(display_name) or str(sender.config.get("name") or ""),
     }
     if not sender.config.get("verified"):
         return email, (f"{address} isn't verified in PostHog yet, so this template can't send until it is.",)
