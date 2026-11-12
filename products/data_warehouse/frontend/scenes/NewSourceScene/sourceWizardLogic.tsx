@@ -602,6 +602,7 @@ export interface sourceWizardLogicValues {
         tables: ExternalDataSourceSyncSchema[]
     }[]
     hasWebhookSchemas: boolean
+    incrementalFieldModelEnabled: boolean
     isDirectQueryMode: boolean
     isLoading: boolean
     isManualLinkingSelected: boolean
@@ -610,7 +611,6 @@ export interface sourceWizardLogicValues {
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
     isWrapped: boolean
-    incrementalFieldModelEnabled: boolean
     modalTitle:
         | ''
         | 'Choose destinations'
@@ -2070,7 +2070,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             // A rediscovery, even for the same connector, makes the answer belong to another database.
             const discovery = cache.schemaDiscovery
             const selection = values.connectorSelectionCount
+            // Reading `values` after the wizard unmounts throws, so the disposal check goes first.
             const stillApplies = (): boolean =>
+                !cache.disposables.isDisposed &&
                 cache.schemaDiscovery === discovery &&
                 cache.recommendationsFrozenFor !== discovery &&
                 values.connectorSelectionCount === selection
