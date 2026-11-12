@@ -47,7 +47,7 @@ from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.resolver_utils import table_folds_identifier_case
 from posthog.hogql.utils import is_json_verbatim
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
@@ -223,6 +223,7 @@ def swap_flag_calls(
     database = _swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
+    node = _flag_called_lists_as_arrays(node)
     if names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, view_name)
     else:
@@ -982,8 +983,62 @@ class _FlagCalledConstantFinder(SyntaxVisitor):
         self.found = False
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if node.value == FLAG_CALLED_EVENT:
+        if names_flag_called(node.value):
             self.found = True
+
+
+def names_flag_called(value: object) -> bool:
+    """Whether a constant's value is `$feature_flag_called`, or a list or tuple that holds it at any depth."""
+    if isinstance(value, (list, tuple)):
+        return any(names_flag_called(item) for item in value)
+    return value == FLAG_CALLED_EVENT
+
+
+def _is_flag_called_list(value: object) -> bool:
+    return isinstance(value, (list, tuple)) and names_flag_called(value)
+
+
+def _flag_called_lists_as_arrays(node: _T_AST) -> _T_AST:
+    """`node` with each list or tuple constant that names `$feature_flag_called` written as an array or a tuple of
+    constants. A query builder can write `event IN ['$pageview', '$feature_flag_called']` as one list constant, and
+    the rules that find flag calls read only the items of an array or a tuple. Both forms match the same rows."""
+    if not _has_flag_called_list(node):
+        return node
+    return _FlagCalledListExpander().visit(node)
+
+
+def _has_flag_called_list(node: ast.AST) -> bool:
+    finder = _FlagCalledListFinder()
+    finder.visit(node)
+    return finder.found
+
+
+class _FlagCalledListFinder(SyntaxVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if _is_flag_called_list(node.value):
+            self.found = True
+
+
+class _FlagCalledListExpander(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+
+    def visit_constant(self, node: ast.Constant) -> ast.Expr:
+        if _is_flag_called_list(node.value):
+            return _as_expr(node.value, node)
+        return super().visit_constant(node)
+
+
+def _as_expr(value: object, source: ast.Constant) -> ast.Expr:
+    if isinstance(value, list):
+        return ast.Array(start=source.start, end=source.end, exprs=[_as_expr(item, source) for item in value])
+    if isinstance(value, tuple):
+        return ast.Tuple(start=source.start, end=source.end, exprs=[_as_expr(item, source) for item in value])
+    return ast.Constant(value=value, is_sensitive=source.is_sensitive)
 
 
 class ScanVisitor(SyntaxVisitor):

@@ -36,6 +36,7 @@ from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoi
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -221,6 +222,19 @@ def _long_with() -> ast.SelectQuery:
         f"c{n}": ast.CTE(name=f"c{n}", expr=ast.Constant(value=name), cte_type="column") for n, name in enumerate(names)
     }
     return select
+
+
+def _scan_of_events_in(events: list[str] | tuple[str, ...]) -> ast.SelectQuery:
+    events_match = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=events)
+    )
+    return cast(
+        ast.SelectQuery,
+        parse_select(
+            "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 1 DAY AND {events_match}",
+            placeholders={"events_match": events_match},
+        ),
+    )
 
 
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
@@ -1057,6 +1071,31 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert sql == self._sql(query, mode=ONLY, union=False)
         assert "UNION ALL" not in sql
         assert "flag_evaluations AS " in sql
+
+    @parameterized.expand(
+        [
+            ("mixed_list", ["$feature_flag_called", "$experiment_exposure"], True, "UNION ALL"),
+            ("mixed_tuple", ("$pageview", "$feature_flag_called"), True, "UNION ALL"),
+            ("flag_call_list", ["$feature_flag_called"], False, "FROM flag_evaluations AS events"),
+        ]
+    )
+    def test_mode_2_reads_flag_calls_that_a_query_builder_names_in_one_list_constant(
+        self, _name: str, events: list[str] | tuple[str, ...], union: bool, expected: str
+    ):
+        sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
+
+        assert expected in sql
+
+    @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
+    def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(
+        self, _name: str, events: list[str] | tuple[str, ...]
+    ):
+        _set_mode(self.organization, FlagEvaluationsMode.EVENTS)
+        executor = HogQLQueryExecutor(query=_scan_of_events_in(events), team=self.team)
+        executor.generate_clickhouse_sql()
+
+        assert executor.clickhouse_prepared_ast is not None
+        assert count_flag_calls_read_from_events(executor.clickhouse_prepared_ast) == 1
 
     def test_mode_2_self_join_reads_its_mixed_side_from_the_union_and_its_flag_call_side_from_flag_evaluations(
         self,

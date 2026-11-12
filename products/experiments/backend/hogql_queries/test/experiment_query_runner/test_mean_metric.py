@@ -1,11 +1,19 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 
 import time_machine
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from posthog.test.base import (
+    _create_event,
+    _create_flag_evaluations,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -22,6 +30,8 @@ from posthog.test.test_journeys import journeys_for
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -126,6 +136,67 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 120)
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    # Before EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so the default exposure reads $feature_flag_called.
+    @time_machine.travel("2026-08-20T12:00:00Z", tick=False)
+    def test_counts_flag_call_exposures_that_only_flag_evaluations_holds(self, _name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.start_date = timezone.now() - timedelta(days=2)
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        called_at = timezone.now() - timedelta(days=1)
+        for variant, purchasers in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                distinct_id = f"user_{variant}_{i}"
+                person = _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_flag_evaluations(
+                    self.team.pk,
+                    feature_flag.key,
+                    timestamp=called_at,
+                    distinct_id=distinct_id,
+                    person_id=person.uuid,
+                    response=variant,
+                )
+                if i < purchasers:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=called_at + timedelta(minutes=1),
+                    )
+        flush_persons_and_events()
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+        ):
+            result = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                    team=self.team,
+                ).calculate(),
+            )
+
+        assert result.is_precomputed == use_precomputation
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        assert (result.baseline.number_of_samples, result.baseline.sum) == (10, 6)
+        assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (10, 8)
 
     @parameterized.expand(
         [

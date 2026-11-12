@@ -8,6 +8,7 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -77,7 +78,7 @@ def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
 
 def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
     if isinstance(expr, ast.Constant):
-        return [expr] if expr.value == FLAG_CALLED_EVENT else []
+        return [expr] if names_flag_called(expr.value) else []
     if isinstance(expr, (ast.Tuple, ast.Array)):
         return [constant for sub in expr.exprs for constant in _flag_called_constants(sub)]
     return []
