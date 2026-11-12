@@ -39,6 +39,7 @@ from posthog.schema import (
     QueryStatusResponse,
     RevenueAnalyticsEventItem,
     RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -391,6 +392,13 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
                 True,
                 "Claude Code",
             ),
+            (
+                "session_filter",
+                [*PROPERTIES, SessionPropertyFilter(key="$session_duration", value=0, operator=PropertyOperator.GTE)],
+                False,
+                True,
+                "Acme Agent",
+            ),
             ("batch", PROPERTIES, True, True, "Acme Agent"),
         ]
     )
@@ -405,7 +413,7 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         sections = list(MCPDashboardSection)
 
         def rows_by_section() -> dict[MCPDashboardSection, Any]:
-            rows = {}
+            rows: dict[MCPDashboardSection, Any] = {}
             for request in [sections] if batch else [[section] for section in sections]:
                 runner = self._runner(request, properties=properties)
                 response = self._run(request, runner, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
