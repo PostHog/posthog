@@ -21,8 +21,6 @@ import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflow
 import { EmailSendingPausedBanner } from '../Workflows/EmailSendingPausedBanner'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
-import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
-import { workflowLogic } from '../Workflows/workflowLogic'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
@@ -645,17 +643,6 @@ export function BroadcastSummary(): JSX.Element {
                                     columns={batchJobColumns}
                                     channel={channel}
                                 />
-                            ),
-                        },
-                        {
-                            key: 'logs',
-                            'data-attr': 'broadcast-summary-tab-logs',
-                            label: 'Logs',
-                            content: (
-                                // The invocations view reads the flow off workflowLogic, so it binds the broadcast's id.
-                                <BindLogic logic={workflowLogic} props={{ id: broadcastId ?? '' }}>
-                                    <WorkflowInvocations id={broadcastId ?? ''} />
-                                </BindLogic>
                             ),
                         },
                     ]}

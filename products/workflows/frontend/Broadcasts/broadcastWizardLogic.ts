@@ -375,7 +375,7 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
     return !base || !objectsEqual(read(latest), read(base))
 }
 
-export type BroadcastSummaryTab = 'overview' | 'content' | 'runs' | 'logs'
+export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
 
 /** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
 export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
