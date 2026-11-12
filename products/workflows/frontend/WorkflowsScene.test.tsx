@@ -233,7 +233,7 @@ describe('WorkflowsScene', () => {
         expect(input).toHaveValue('')
     })
 
-    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
+    it('pages past the first 100 rows, and a new filter starts again on page one without redrawing kept rows', async () => {
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -255,12 +255,18 @@ describe('WorkflowsScene', () => {
         // The folder view spends one row of each page on the ".." row.
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 099 odd'))
         expect(shownRowNames()).toHaveLength(100)
+        const nameCell = (name: string): Element | undefined =>
+            Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).find(
+                (el) => el.textContent === name
+            )
+        const keptCell = nameCell('Flow 101 odd')
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
         await waitForSearch('odd')
         expect(shownRowNames()[0]).toEqual('Flow 001 odd')
         expect(shownRowNames().every((name) => name.endsWith('odd'))).toBe(true)
+        expect(nameCell('Flow 101 odd')).toBe(keptCell)
     })
 
     it('keeps the sort order when a filter changes', async () => {
