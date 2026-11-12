@@ -25800,6 +25800,49 @@ export namespace Schemas {
       noCategoriesCount: number;
     }
 
+    export interface CdcDisableResponse {
+      /** Whether CDC is now disabled on the source. */
+      success: boolean;
+      /** True when CDC was already off, so nothing changed. */
+      already_disabled?: boolean;
+    }
+
+    /**
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed
+     */
+    export type CdcManagementModeEnum = typeof CdcManagementModeEnum[keyof typeof CdcManagementModeEnum];
+
+
+    export const CdcManagementModeEnum = {
+      Posthog: 'posthog',
+      SelfManaged: 'self_managed',
+    } as const;
+
+    export interface CdcEnableRequest {
+      /** Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.
+       *
+       * * `posthog` - PostHog
+       * * `self_managed` - Self managed */
+      cdc_management_mode?: CdcManagementModeEnum;
+      /** Name of the replication slot to use. Defaults to a name derived from the source id. */
+      cdc_slot_name?: string;
+      /** Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode. */
+      cdc_publication_name?: string;
+      /** Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true. */
+      cdc_auto_drop_slot?: boolean;
+      /**
+         * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+         * @minimum 1
+         */
+      cdc_lag_warning_threshold_mb?: number;
+      /**
+         * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+         * @minimum 1
+         */
+      cdc_lag_critical_threshold_mb?: number;
+    }
+
     export interface CdcEnableResponse {
       /** Whether CDC was enabled on the source. */
       success: boolean;
@@ -25840,26 +25883,19 @@ export namespace Schemas {
       errors: string[];
     }
 
-    /**
-     * * `posthog` - posthog
-     * * `self_managed` - self_managed
-     */
-    export type ManagementModeEnum = typeof ManagementModeEnum[keyof typeof ManagementModeEnum];
-
-
-    export const ManagementModeEnum = {
-      Posthog: 'posthog',
-      SelfManaged: 'self_managed',
-    } as const;
+    export interface CdcResumeResponse {
+      /** Whether the extraction schedule was unpaused. */
+      success: boolean;
+    }
 
     export interface CdcStatus {
       /** Whether CDC is enabled on this source. */
       enabled: boolean;
       /** Who owns the slot and publication: PostHog or the customer.
        *
-       * * `posthog` - posthog
-       * * `self_managed` - self_managed */
-      management_mode?: ManagementModeEnum;
+       * * `posthog` - PostHog
+       * * `self_managed` - Self managed */
+      management_mode?: CdcManagementModeEnum;
       /** Replication slot PostHog consumes from. Empty when unset. */
       slot_name?: string;
       /** Publication PostHog reads changes from. Empty when unset. */
@@ -25896,6 +25932,28 @@ export namespace Schemas {
       CdcOnly: 'cdc_only',
       Both: 'both',
     } as const;
+
+    export interface CdcUpdateSettingsRequest {
+      /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
+      cdc_auto_drop_slot?: boolean;
+      /**
+         * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+         * @minimum 1
+         */
+      cdc_lag_warning_threshold_mb?: number;
+      /**
+         * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+         * @minimum 1
+         */
+      cdc_lag_critical_threshold_mb?: number;
+    }
+
+    export interface CdcUpdateSettingsResponse {
+      /** Whether the request was accepted. */
+      success: boolean;
+      /** True when the request held no setting to change, so nothing was written. */
+      unchanged?: boolean;
+    }
 
     /**
      * * `certified` - certified
@@ -135373,10 +135431,6 @@ export namespace Schemas {
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
-    };
-
-    export type ExternalDataSourcesResumeCdcCreate200 = {
-      success?: boolean;
     };
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {
