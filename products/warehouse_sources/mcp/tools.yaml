@@ -194,10 +194,9 @@ tools:
             a table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the
             table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails
             the same way; a later run that succeeds, or fails for another reason, clears it. That field's description
-            lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default
-            (`compact: true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at
-            and a truncated latest_error; pass `compact: false` for the full sync configuration, including
-            `incremental_sync_blocked`.
+            lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default (`compact:
+            true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated
+            latest_error; pass `compact: false` for the full sync configuration, including `incremental_sync_blocked`.
         param_overrides:
             compact:
                 description: >
@@ -540,8 +539,8 @@ tools:
         param_overrides:
             compact:
                 description: >
-                    Return source health only: status, latest_error, last_run_at and one summary row per table.
-                    Defaults to true. Set to false for connection settings and full source configuration.
+                    Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults
+                    to true. Set to false for connection settings and full source configuration.
                 default: true
     external-data-sources-partial-update:
         operation: external_data_sources_partial_update
@@ -648,10 +647,10 @@ tools:
         description: >
             Get a single data warehouse source by ID. By default (`compact: true`) it returns source health: source
             type, prefix, status, latest error, last sync timestamp, and one summary row per table (id, name,
-            should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Pass
-            `include_schemas: false` to leave out the tables. Pass `compact: false` for connection settings (secrets
-            redacted) and the full sync configuration of each table; per-table column definitions are still omitted —
-            use external-data-schemas-retrieve for a single table's columns.
+            should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Pass `include_schemas:
+            false` to leave out the tables. Pass `compact: false` for connection settings (secrets redacted) and the
+            full sync configuration of each table; per-table column definitions are still omitted — use
+            external-data-schemas-retrieve for a single table's columns.
         param_overrides:
             id:
                 aliases:
@@ -659,9 +658,8 @@ tools:
                     - sourceId
             compact:
                 description: >
-                    Return source health only: status, latest_error, last_run_at and one summary row per table.
-                    Defaults to true. Set to false for connection settings and the full sync configuration of each
-                    table.
+                    Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults
+                    to true. Set to false for connection settings and the full sync configuration of each table.
                 default: true
         response:
             exclude:
