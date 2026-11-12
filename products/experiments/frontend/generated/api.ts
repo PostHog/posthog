@@ -38,6 +38,7 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentSetupContextInputApi,
     ExperimentSetupContextResponseApi,
+    ExperimentTimeseriesResultsApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -795,6 +796,11 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * for a cause that a setting fixes, because the calculation after the fix reads the events up
  * to the end. It is info otherwise.
  *
+ * A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+ * after its start date, when the daily calculation leaves it out, with `days_running` from the
+ * start date in `evidence`.
+ * It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
+ *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -1324,11 +1330,14 @@ export const experimentsTimeseriesResultsRetrieve = async (
     id: number,
     params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ExperimentTimeseriesResultsApi> => {
+    return apiMutator<ExperimentTimeseriesResultsApi>(
+        getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {

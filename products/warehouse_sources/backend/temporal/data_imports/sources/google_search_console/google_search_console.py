@@ -1,3 +1,4 @@
+import re
 import time
 import datetime as dt
 import threading
@@ -142,6 +143,8 @@ def is_search_console_ui_url(site: str) -> bool:
 
 _PASTED_QUOTES = "'\"`\u2018\u2019\u201c\u201d"
 
+_DOMAIN_PROPERTY_PATTERN = re.compile(r"sc-domain\s*:(.*)", re.IGNORECASE | re.DOTALL)
+
 
 def normalize_site_url(raw: str) -> str:
     """Coerce a user-entered property URL toward Google's canonical form.
@@ -170,6 +173,12 @@ def normalize_site_url(raw: str) -> str:
     # Decode percent-encoding ('sc-domain%3A...', 'https%3A%2F%2F...%2F') copied from a URL.
     if "%" in site:
         site = unquote(site).strip()
+
+    # Google lists domain properties as 'sc-domain:<lowercase domain>' and matches byte for byte.
+    # Mobile keyboards capitalise the prefix, and domain names are case-insensitive, so rewrite it.
+    domain_match = _DOMAIN_PROPERTY_PATTERN.fullmatch(site)
+    if domain_match:
+        return "sc-domain:" + domain_match.group(1).strip().rstrip("/").strip().lower()
 
     # URL-prefix properties are canonically stored with a lowercase scheme and host and a
     # trailing slash. Schemes and hostnames are case-insensitive, so a value like
@@ -760,6 +769,25 @@ def google_search_console_source(
                 resume_start_row = resume.start_row
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
+
+        if "searchAppearance" in dimensions:
+            # A property without rich results never gets a watermark, so the walk below would make one
+            # slow call per day of the full history. One call over the window says whether any day has rows.
+            probe_start = max(start_date.isoformat(), resume_date or "")
+            probe_end = end_date.isoformat()
+            if probe_start > probe_end:
+                return
+            if probe_start < probe_end and not _query_search_analytics(
+                session=session,
+                site_url=site_url,
+                start_date=probe_start,
+                end_date=probe_end,
+                dimensions=dimensions,
+                start_row=0,
+                data_state=data_state,
+                search_type=search_type,
+            ):
+                return
 
         for current in _iter_dates(start_date, end_date):
             iso = current.isoformat()

@@ -14,6 +14,9 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
+import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
@@ -219,6 +222,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         def __init__(self) -> None:
             self.copy_calls: list[tuple[list[str], list[str], int]] = []
 
+        def invalidate_cache(self, path: str | None = None) -> None:
+            pass
+
         def find(self, prefix: str, detail: bool = False):
             files = {
                 f"{prefix}/_ph_partition_key=2026-07/a.parquet": {"Size": 100, "type": "file"},
@@ -370,6 +376,41 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_copy_prepared_files_sees_a_rotating_folder_rewritten_after_an_earlier_copy(monkeypatch) -> None:
+    def local_s3() -> s3fs.S3FileSystem:
+        return s3fs.S3FileSystem(
+            key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            skip_instance_cache=True,
+        )
+
+    worker_s3 = local_s3()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: worker_s3)
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    prefix = f"{bucket}/test_copy_rotating_folder_{uuid.uuid4().hex}"
+    source_folder = f"{prefix}/source/table__query_a"
+    partition_folder = f"{source_folder}/_ph_partition_key=2026-07"
+    writer_s3 = local_s3()
+    try:
+        writer_s3.pipe(f"{partition_folder}/old.parquet", b"old")
+        registration_module._copy_prepared_parquet_files(f"s3://{source_folder}", f"s3://{prefix}/first")
+
+        writer_s3.rm(f"{partition_folder}/old.parquet")
+        writer_s3.pipe(f"{partition_folder}/new.parquet", b"new")
+        landing_paths, copied_bytes = registration_module._copy_prepared_parquet_files(
+            f"s3://{source_folder}", f"s3://{prefix}/second"
+        )
+
+        expected = f"s3://{prefix}/second/_ph_partition_key=2026-07/new.parquet"
+        assert landing_paths == [expected]
+        assert copied_bytes == 3
+        assert writer_s3.cat(expected.removeprefix("s3://")) == b"new"
+        assert not writer_s3.exists(f"{prefix}/second/_ph_partition_key=2026-07/old.parquet")
+    finally:
+        writer_s3.rm(prefix, recursive=True)
 
 
 def test_production_register_connection_requests_right_sized_duckgres_worker(
@@ -1501,6 +1542,7 @@ def _register_through_trino(
     *,
     hive_partition_columns: tuple[str, ...] = (),
     should_publish: bool = True,
+    before_add_files: Callable[[], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
 ) -> trino_module.TrinoRegistrationResult:
@@ -1518,6 +1560,7 @@ def _register_through_trino(
         hive_partition_columns=hive_partition_columns,
         filesystem=_LocalFilesystem(),
         should_publish=lambda: should_publish,
+        before_add_files=before_add_files,
         deadline_monotonic=deadline_monotonic,
         canary=canary,
     )
@@ -1558,6 +1601,7 @@ def test_trino_registration_runs_the_expected_statements(
         }
     )
     fake = _FakeTrino(row_count=4)
+    statements_before_add_files: list[int] = []
 
     result = _register_through_trino(
         monkeypatch,
@@ -1565,6 +1609,7 @@ def test_trino_registration_runs_the_expected_statements(
         tmp_path,
         dict.fromkeys(relative_paths, table),
         hive_partition_columns=hive_partition_columns,
+        before_add_files=lambda: statements_before_add_files.append(len(fake.statements)),
         canary=canary,
     )
 
@@ -1582,6 +1627,8 @@ def test_trino_registration_runs_the_expected_statements(
         assert "WITH (" not in create
     add_files = fake.statements_matching("EXECUTE add_files")
     assert len(add_files) == 1
+    assert statements_before_add_files == [fake.statements.index(add_files[0])]
+    assert fake.statements.index(create) < statements_before_add_files[0]
     assert f"import_id => '{ATTEMPT_TOKEN}_00000'" in add_files[0]
     assert f"hive_partitioning => {hive_partitioning}" in add_files[0]
     assert (
@@ -1669,6 +1716,7 @@ def test_trino_registration_compares_row_counts_against_the_file_footers(
     [
         ("utf8", pa.string(), "VARCHAR"),
         ("large_utf8", pa.large_string(), "VARCHAR"),
+        ("utf8_view", pa.string_view(), "VARCHAR"),
         ("int64", pa.int64(), "BIGINT"),
         ("int32", pa.int32(), "INTEGER"),
         ("int16", pa.int16(), "SMALLINT"),
@@ -1679,6 +1727,7 @@ def test_trino_registration_compares_row_counts_against_the_file_footers(
         ("date32", pa.date32(), "DATE"),
         ("binary", pa.binary(), "VARBINARY"),
         ("large_binary", pa.large_binary(), "VARBINARY"),
+        ("binary_view", pa.binary_view(), "VARBINARY"),
         ("timestamp_us", pa.timestamp("us"), "TIMESTAMP(6)"),
         ("timestamp_us_tz", pa.timestamp("us", tz="UTC"), "TIMESTAMP(6) WITH TIME ZONE"),
         ("timestamp_us_named_tz", pa.timestamp("us", tz="America/New_York"), "TIMESTAMP(6) WITH TIME ZONE"),
@@ -1705,7 +1754,7 @@ def test_staging_schema_unions_file_columns_and_appends_hive_partitions() -> Non
     schema = trino_module.staging_table_schema(
         [
             _footer("a.parquet", id=pa.int64(), name=pa.string()),
-            _footer("b.parquet", id=pa.int64(), created_at=pa.timestamp("us")),
+            _footer("b.parquet", id=pa.int64(), name=pa.string_view(), created_at=pa.timestamp("us")),
         ],
         ["_ph_partition_key"],
     )
@@ -1743,6 +1792,7 @@ def test_trino_registration_refuses_files_it_cannot_register_before_any_catalog_
     _name: str, footers: list[trino_module.ParquetFooter], hive_columns: list[str], message: str, monkeypatch
 ) -> None:
     connect = MagicMock()
+    before_add_files = MagicMock()
     monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
     monkeypatch.setattr(trino_module, "read_parquet_footers", lambda filesystem, paths: footers)
 
@@ -1759,10 +1809,12 @@ def test_trino_registration_refuses_files_it_cannot_register_before_any_catalog_
             hive_partition_columns=hive_columns,
             filesystem=_LocalFilesystem(),
             should_publish=lambda: True,
+            before_add_files=before_add_files,
         )
 
     assert error.value.non_retryable is True
     connect.assert_not_called()
+    before_add_files.assert_not_called()
 
 
 def test_read_parquet_footers_reads_row_counts_and_types_from_the_files(tmp_path) -> None:
@@ -2103,12 +2155,118 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
         "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         f"1234567890_abcdef12/{kwargs['attempt_token']}"
     )
-    assert copy_calls[0][1] == [f"{attempt_prefix}/k=1/a.parquet"]
-    assert kwargs["landing_paths"] == [f"s3://{attempt_prefix}/k=1/a.parquet"]
+    landing_prefix = re.fullmatch(rf"({re.escape(attempt_prefix)}/[0-9a-f]{{16}})/k=1/a\.parquet", copy_calls[0][1][0])
+    assert landing_prefix
+    assert kwargs["landing_paths"] == [f"s3://{landing_prefix.group(1)}/k=1/a.parquet"]
     assert kwargs["hive_partition_columns"] == ["k"]
     assert kwargs["filesystem"] is s3
     assert kwargs["canary"] is trino_canary
     assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
+
+
+class _FakeS3:
+    def __init__(self, keys: set[str], *, partial_copy_fails: bool = False, rm_mode: str = "works") -> None:
+        self.keys = set(keys)
+        self.partial_copy_fails = partial_copy_fails
+        self.rm_mode = rm_mode
+        self.copy_destinations: list[str] = []
+
+    def invalidate_cache(self, path: str | None = None) -> None:
+        pass
+
+    def find(self, prefix: str, detail: bool = False) -> Any:
+        folder = prefix.rstrip("/") + "/"
+        found = sorted(key for key in self.keys if key.startswith(folder))
+        return {key: {"Size": 10, "type": "file"} for key in found} if detail else found
+
+    def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+        copied = destinations[:1] if self.partial_copy_fails else destinations
+        self.keys.update(copied)
+        self.copy_destinations.extend(copied)
+        if self.partial_copy_fails:
+            raise RuntimeError("copy failed")
+
+    def rm(self, paths: list[str]) -> None:
+        if self.rm_mode == "raises":
+            raise RuntimeError("delete failed")
+        if self.rm_mode == "works":
+            self.keys.difference_update(paths)
+
+
+@pytest.mark.parametrize(
+    "registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted",
+    [
+        pytest.param(
+            "fails_before_add_files", False, "works", "footer type error", None, True, id="fails_before_add_files"
+        ),
+        pytest.param("fails_before_add_files", True, "works", "copy failed", None, True, id="partial_copy_raises"),
+        pytest.param(
+            "fails_after_add_files_started",
+            False,
+            "works",
+            "add files failed",
+            None,
+            False,
+            id="fails_after_add_files_started",
+        ),
+        pytest.param("unpublished", False, "works", None, False, False, id="stale_skip"),
+        pytest.param("published", False, "works", None, True, False, id="published"),
+        pytest.param("fails_before_add_files", False, "raises", "footer type error", None, False, id="rm_raises"),
+        pytest.param(
+            "fails_before_add_files", False, "does_nothing", "footer type error", None, False, id="rm_leaves_files"
+        ),
+    ],
+)
+def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
+    monkeypatch, registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted
+) -> None:
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/k=1/a.parquet", f"{source_prefix}/k=2/b.parquet"}
+    fake_s3 = _FakeS3(source_keys, partial_copy_fails=partial_copy_fails, rm_mode=rm_mode)
+    capture = MagicMock()
+
+    def fake_register(**kwargs: Any) -> trino_module.TrinoRegistrationResult:
+        if registration == "fails_before_add_files":
+            raise ApplicationError("footer type error", non_retryable=True)
+        kwargs["before_add_files"]()
+        if registration == "fails_after_add_files_started":
+            raise RuntimeError("add files failed")
+        return trino_module.TrinoRegistrationResult(published=registration == "published", row_count=3)
+
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(registration_module, "capture_exception", capture)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=fake_register)
+    )
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
+        registration_table_names=registration_module._new_trino_registration_table_names(
+            dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
+        ),
+    )
+
+    if expected_error is not None:
+        with pytest.raises((ApplicationError, RuntimeError), match=expected_error):
+            copy_and_register_ducklake_data_imports_activity(inputs)
+    else:
+        assert copy_and_register_ducklake_data_imports_activity(inputs) is expected_result
+
+    assert source_keys <= fake_s3.keys
+    if files_deleted:
+        assert fake_s3.keys == source_keys
+    else:
+        assert fake_s3.copy_destinations
+        assert set(fake_s3.copy_destinations) <= fake_s3.keys
+    if rm_mode == "does_nothing":
+        capture.assert_called_once()
+        assert isinstance(capture.call_args.args[0], RuntimeError)
 
 
 def test_trino_copy_activity_refuses_names_older_than_the_start_delay(monkeypatch) -> None:

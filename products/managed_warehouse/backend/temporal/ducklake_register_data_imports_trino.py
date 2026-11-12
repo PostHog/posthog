@@ -52,9 +52,12 @@ _PARTITION_COLUMN_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # add_files compares each file's Parquet type with the type DuckLake writes for the column, and never widens.
 # Each Arrow type here reads back from a Parquet type that the mapped Trino type writes the same way.
+# The view types come only from the Arrow schema that some writers store in the footer. The Parquet column
+# under them is the same byte array as for string and binary, so they map to the same Trino type.
 _TRINO_TYPES: dict[pa.DataType, str] = {
     pa.string(): "VARCHAR",
     pa.large_string(): "VARCHAR",
+    pa.string_view(): "VARCHAR",
     pa.int64(): "BIGINT",
     pa.int32(): "INTEGER",
     pa.int16(): "SMALLINT",
@@ -65,6 +68,7 @@ _TRINO_TYPES: dict[pa.DataType, str] = {
     pa.date32(): "DATE",
     pa.binary(): "VARBINARY",
     pa.large_binary(): "VARBINARY",
+    pa.binary_view(): "VARBINARY",
 }
 _DECIMAL_TYPES = (pa.Decimal32Type, pa.Decimal64Type, pa.Decimal128Type, pa.Decimal256Type)
 _TRINO_MAX_DECIMAL_PRECISION = 38
@@ -351,6 +355,7 @@ def register_prepared_files_through_trino(
     hive_partition_columns: Sequence[str],
     filesystem: ParquetFilesystem,
     should_publish: Callable[[], bool],
+    before_add_files: Callable[[], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
 ) -> TrinoRegistrationResult:
@@ -359,7 +364,8 @@ def register_prepared_files_through_trino(
     `landing_paths` are this attempt's copied files. The columns and the expected row count come from their Parquet
     footers, because add_files compares each file's own types exactly. The import ids derive from `attempt_token`,
     so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the `time.monotonic()` value
-    at which the running statement is cancelled.
+    at which the running statement is cancelled. `before_add_files` runs once before the first add_files statement.
+    Until then no table can reference the landing files.
     """
     sorted_paths = sorted(landing_paths)
     # A type error fails here, before any catalog work.
@@ -376,6 +382,8 @@ def register_prepared_files_through_trino(
     ) as statements:
         statements.run(f"CREATE SCHEMA IF NOT EXISTS {statements.qualified(ducklake_schema)}")
         statements.run(_create_table_statement(statements, ducklake_schema, shadow_name, staging_schema))
+        if before_add_files is not None:
+            before_add_files()
         for index, batch in enumerate(add_files_batches(sorted_paths)):
             rows = statements.run(
                 _add_files_statement(

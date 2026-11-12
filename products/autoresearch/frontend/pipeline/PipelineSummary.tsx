@@ -1,16 +1,18 @@
 import { useValues } from 'kea'
 
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { modelQuality } from '../modelQuality'
+import { dominantDriver, modelQuality } from '../modelQuality'
 import { ModelQualityTag } from '../ModelQualityTag'
 import { PipelineStatusTag } from '../PipelineStatusTag'
 
 /** The line under the model's question: status, quality verdict, and how many people the model scored. */
 export function PipelineSummary(): JSX.Element | null {
-    const { pipeline } = useValues(autoresearchPipelineLogic)
+    const { pipeline, champion } = useValues(autoresearchPipelineLogic)
     if (!pipeline) {
         return null
     }
@@ -21,6 +23,7 @@ export function PipelineSummary(): JSX.Element | null {
         isPreliminary: pipeline.champion_is_preliminary,
         target: pipeline.target_event,
     })
+    const dominant = dominantDriver(champion?.model_explanation?.top_features)
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <PipelineStatusTag status={pipeline.status} />
@@ -33,6 +36,13 @@ export function PipelineSummary(): JSX.Element | null {
                     />
                     <span className="text-secondary">{quality.sentence}</span>
                 </span>
+            )}
+            {dominant && (
+                <Tooltip
+                    title={`${dominant} carries most of the prediction. See "What drives the live model" on the Accuracy tab.`}
+                >
+                    <LemonTag type="default">Mostly one signal</LemonTag>
+                </Tooltip>
             )}
             <span className="text-secondary">
                 {pipeline.people_scored != null

@@ -182,6 +182,10 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'implementation_button_clicked'
+    | 'monitor'
+    | 'reopen'
+    | 'change_priority'
     | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
@@ -194,6 +198,7 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
 
@@ -501,7 +506,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal'
+    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -1012,7 +1017,7 @@ export function captureSignalSourceAlertPatternsChanged(params: {
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
  * a product problem rather than a failure — hence its own bucket. `limited` means the server
- * refused the request with a limit 429; `limit_code` says which limit.
+ * refused the request with a usage, billing, or task limit; `limit_code` says which limit.
  */
 export function captureInboxReportActionCompleted(params: {
     report: SignalReport
@@ -1020,8 +1025,10 @@ export function captureInboxReportActionCompleted(params: {
     outcome: InboxReportActionOutcome
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
-    /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
+    /** Only set for `limited`: the server's error code. */
     limitCode?: string | null
+    status?: number | null
+    code?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
@@ -1029,6 +1036,8 @@ export function captureInboxReportActionCompleted(params: {
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
         ...(params.limitCode ? { limit_code: params.limitCode } : {}),
+        ...(params.status != null ? { status: params.status } : {}),
+        ...(params.code ? { code: params.code } : {}),
     })
 }
 

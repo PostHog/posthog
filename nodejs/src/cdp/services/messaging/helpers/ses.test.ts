@@ -587,7 +587,12 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com'],
+                diagnostic: 'temp',
+                bounceTimestamp: '2025-10-03T12:04:00Z',
+            },
         ])
     })
 
@@ -1245,6 +1250,18 @@ describe('SesWebhookHandler', () => {
             const result = await handler.handleWebhook({ body, headers: {} })
 
             expect(result.emailStatusUpdates).toEqual(expected)
+        })
+
+        it.each([
+            ['a transactional email', {}, true],
+            ['an email from a workflow step', { tags: baseMail.tags }, undefined],
+        ])('marks the event of %s as transactional', async (_desc, mailOverrides, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
         })
     })
 

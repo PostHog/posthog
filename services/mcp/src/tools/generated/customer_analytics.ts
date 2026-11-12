@@ -756,6 +756,7 @@ const announcementsCreatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             actionLabel: 'send announcement',
             messageTemplate:
                 "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
@@ -775,8 +776,8 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AnnouncementsCreateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })

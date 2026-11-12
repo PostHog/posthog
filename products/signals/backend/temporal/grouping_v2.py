@@ -13,10 +13,15 @@ from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricGauge, RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.models import Team
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
@@ -57,6 +62,13 @@ class CollectedBatch:
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
+async def check_signals_ai_consent_activity(team_id: int) -> bool:
+    return await Team.objects.filter(id=team_id, organization__is_ai_data_processing_approved=True).aexists()
+
+
+@activity.defn
+@scoped_temporal()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
     raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key)
     if raw is None:
@@ -66,6 +78,21 @@ async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSi
     signals = [EmitSignalInputs(**item) for item in data]
 
     return ReadSignalsFromS3Output(signals=signals)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def discard_signal_batches_activity(object_keys: list[str]) -> None:
+    for object_key in object_keys:
+        batch = await read_signals_from_s3_activity(ReadSignalsFromS3Input(object_key=object_key))
+        for signal in batch.signals:
+            if signal.signal_id:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=signal.team_id,
+                    signal_id=signal.signal_id,
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
 
 
 @temporalio.workflow.defn(name="team-signal-grouping-v2")
@@ -266,6 +293,25 @@ class TeamSignalGroupingV2Workflow:
             await self._run_impl(input)
 
     async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
+        if workflow.patched("signals-grouping-ai-consent-v1"):
+            ai_approved = await workflow.execute_activity(
+                check_signals_ai_consent_activity,
+                input.team_id,
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+            if not ai_approved:
+                self._batch_key_buffer.extend(input.pending_batch_keys)
+                while self._batch_key_buffer:
+                    object_keys = self._batch_key_buffer[:]
+                    self._batch_key_buffer.clear()
+                    await workflow.execute_activity(
+                        discard_signal_batches_activity,
+                        object_keys,
+                        start_to_close_timeout=timedelta(minutes=5),
+                    )
+                workflow.logger.info("signals_grouping_skipped_ai_consent", extra={"team_id": input.team_id})
+                return
+
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._failed_rounds_by_batch_key.update(input.failed_rounds_by_batch_key)

@@ -22,7 +22,6 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
@@ -103,7 +102,7 @@ async def ateam(aorganization):
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_quota_gate_payload_requires_admission() -> None:
+def test_legacy_quota_gate_payload_remains_decodable() -> None:
     payloads = pydantic_data_converter.payload_converter.to_payloads(
         [{"team_id": 1, "report_id": str(uuid.uuid4()), "stage": "summary_entry"}]
     )
@@ -112,89 +111,23 @@ def test_legacy_quota_gate_payload_requires_admission() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_check_activity_returns_enforced(ateam, enforced):
-    with (
-        patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
-        ),
-        patch("products.signals.backend.quota.posthoganalytics.capture"),
-    ):
-        result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
-        )
-    assert result is enforced
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
-    # The daily report limit must pause the run on its own: it has no enforcement flag, so
-    # `limited` alone blocks even while the billing quota gate stays clear.
-    with (
-        patch(
-            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
-            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
-        ),
-        patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
-    ):
-        result = await check_report_quota_gate_activity(
-            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
-        )
-    assert result is True
-    assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
-    properties = capture.call_args.kwargs["properties"]
-    assert properties["stage"] == "summary_entry"
-    assert properties["limit"] == 3
-    assert properties["reports_today"] == 3
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 @pytest.mark.parametrize(
-    "stage,admitted,paused",
-    [
-        ("summary_entry", False, True),
-        ("pre_repo_selection", False, False),
-        ("pre_research", False, False),
-        ("summary_entry", True, False),
-    ],
+    "stage,admitted",
+    [("summary_entry", False), ("pre_repo_selection", False), ("pre_research", False), ("summary_entry", True)],
 )
-async def test_limits_only_block_admission_not_later_stages(ateam, stage, admitted, paused):
+async def test_summary_does_not_recheck_limits(stage, admitted):
     with (
+        patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as billing,
         patch(
-            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-        ),
-        patch(
-            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            "products.signals.backend.daily_limit.daily_report_limit_gate",
             return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
-        ),
+        ) as daily,
     ):
-        assert (
-            await check_report_quota_gate_activity(
-                CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
-            )
-            is paused
+        assert not await check_report_quota_gate_activity(
+            CheckReportQuotaGateInput(team_id=1, report_id=str(uuid.uuid4()), stage=stage, admitted=admitted)
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_check_activity_fails_open_when_team_lookup_errors():
-    # The never-raises contract: a failure inside the gate check must resolve to "proceed", not
-    # bubble into the workflow's except handler and mark the report failed.
-    result = await check_report_quota_gate_activity(
-        CheckReportQuotaGateInput(team_id=99_999_999, report_id=str(uuid.uuid4()), stage="summary_entry")
-    )
-    assert result is False
-
-
-# ---------------------------------------------------------------------------
-# revert_report_to_candidate_activity
-# ---------------------------------------------------------------------------
+    billing.assert_not_called()
+    daily.assert_not_called()
 
 
 @pytest.mark.asyncio

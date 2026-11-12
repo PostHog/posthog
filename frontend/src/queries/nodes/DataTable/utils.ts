@@ -1,4 +1,5 @@
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+import type { Sorting } from 'lib/lemon-ui/LemonTable'
 
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema/schema-general'
@@ -123,6 +124,22 @@ export function extractAsAlias(query: string): string | null {
 export function orderByForSelectKey(key: string, select: readonly string[]): string {
     const matchingRaw = select.find((s) => s === key) ?? select.find((s) => extractAsAlias(s) === key) ?? key
     return removeAsAlias(matchingRaw)
+}
+
+/** Find the column that the first `orderBy` entry sorts, so the table header can show it */
+export function sortingForOrderBy(
+    orderBy: readonly string[] | undefined,
+    columns: readonly string[],
+    select: readonly string[]
+): Sorting | null {
+    const firstOrderBy = orderBy?.[0]
+    if (!firstOrderBy) {
+        return null
+    }
+    const isDescending = firstOrderBy.endsWith(' DESC')
+    const orderKey = isDescending ? firstOrderBy.replace(/\n? DESC$/, '') : firstOrderBy
+    const columnKey = columns.find((key) => orderByForSelectKey(key, select) === orderKey)
+    return columnKey ? { columnKey, order: isDescending ? -1 : 1 } : null
 }
 
 /** Get display label for an expression, trying AS alias first, then comment syntax */

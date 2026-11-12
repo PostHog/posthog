@@ -2,23 +2,38 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
+    from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
+
 import pydantic
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
+
+@frozen
+class AlertLimitRefusal:
+    """A plan limit a write would break, and the request field the API reports it on."""
+
+    field: str
+    message: str
+
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -237,6 +252,33 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         compare, but it sends nothing for it."""
         return self.owner == PlatformAlertOwner.PLATFORM
 
+    @classmethod
+    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+        """An unsaved alert that presents a platform alert with no insight row the way an insight row
+        does, or None when its insight is gone. Its `save` and `delete` raise."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alert,
+        )
+
+        return presented_alert(view, team_id=team_id)
+
+    @classmethod
+    def from_platform_views(
+        cls, views: Collection[PlatformAlertConfigurationView], *, team_id: int
+    ) -> dict[UUID, AlertConfiguration]:
+        """`from_platform_view` for a page of alerts, keyed by id, with one query for their insights
+        and one for their creators. An alert whose insight is gone is left out."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alerts,
+        )
+
+        return presented_alerts(views, team_id=team_id)
+
+    @property
+    def has_no_insight_row(self) -> bool:
+        """Whether `from_platform_view` built this alert, because only the platform keeps it."""
+        return self._state.adding and self.platform_owned
+
     @property
     def platform_owned_since(self) -> datetime | None:
         """When the platform took this alert over, or None while the insight stack owns it.
@@ -357,6 +399,36 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def team_alert_count(cls, team_id: int) -> int:
+        """Every insight alert of a team, as the limits count them."""
+        return cls._counted(team_id)
+
+    @classmethod
+    def create_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+    ) -> AlertLimitRefusal | None:
+        """The plan limit a new alert would break, or None. Call it inside the create's transaction:
+        it holds the team's insight alert lock until the transaction ends, the lock the platform's own
+        creates take, so two creates cannot both pass the count."""
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        if message := cls.check_alert_limit(team_id, organization):
+            return AlertLimitRefusal(field="alert", message=message)
+        if message := cls.real_time_alert_validation_error(
+            team_id=team_id, organization=organization, calculation_interval=calculation_interval, enabled=enabled
+        ):
+            return AlertLimitRefusal(field="calculation_interval", message=message)
+        return None
+
+    @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
         """The team's insight alerts: each insight row, and each platform alert with no insight row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
@@ -375,6 +447,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             native_only=True,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            # An alert with no insight row carries its platform alert's id.
+            exclude_id=UUID(exclude_id) if exclude_id else None,
         )
         return rows.count() + native
 
@@ -465,18 +539,58 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         active real-time count — an alert that already was an enabled real_time alert
         doesn't re-count against it.
         """
-        if calculation_interval != AlertCalculationInterval.REAL_TIME:
-            return None
-        if not enabled:
-            return None
-        already_active_real_time = (
-            existing is not None
-            and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
-            and existing.enabled
-        )
-        if already_active_real_time:
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
             return None
         return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk) if existing else None)
+
+    @classmethod
+    def update_limit_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration,
+    ) -> str | None:
+        """The real-time limit an update would break, or None. `existing` is the alert as it was before
+        the update.
+
+        Call it inside the update's transaction, after the update has written the alert and its platform
+        copy: the platform takes a copy's row lock before this lock, so taking this one first could
+        deadlock with it. An update that adds an active real-time alert holds the team's insight alert
+        lock until the transaction ends, so two updates cannot both pass the count. Any other update
+        takes no lock."""
+        if not cls._adds_active_real_time(
+            calculation_interval=calculation_interval, enabled=enabled, existing=existing
+        ):
+            return None
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+
+    @staticmethod
+    def _adds_active_real_time(
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration | None,
+    ) -> bool:
+        # An alert that already was an enabled real-time alert doesn't count against the limit again.
+        return (
+            calculation_interval == AlertCalculationInterval.REAL_TIME
+            and enabled
+            and not (
+                existing is not None
+                and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
+                and existing.enabled
+            )
+        )
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

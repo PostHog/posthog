@@ -28,6 +28,8 @@ import type {
     PulseSlotApi,
 } from 'products/today/frontend/generated/api.schemas'
 
+import { type ProductNumberKind, productNumberKind } from './todayPulseProductNumbers'
+
 export const HIGHLIGHTS_POLL_MS = 2_000
 const MAX_HIDDEN_PULSE_NUMBERS = 50
 const HIGHLIGHTS_WAIT_MS = 2_000
@@ -44,7 +46,6 @@ interface PulseLoad {
     startedAt: number
     firstCardAt: number | null
     firstResponseAt: number | null
-    loadingMode: 'progressive' | 'complete' | null
     firstNumberAt: number | null
     requestCount: number
     responseCount: number
@@ -93,7 +94,6 @@ function capturePulseLoad(
         first_card_duration_ms: load.firstCardAt === null ? null : Math.round(load.firstCardAt - load.startedAt),
         first_response_duration_ms:
             load.firstResponseAt === null ? null : Math.round(load.firstResponseAt - load.startedAt),
-        loading_mode: load.loadingMode,
         first_number_duration_ms: load.firstNumberAt === null ? null : Math.round(load.firstNumberAt - load.startedAt),
         request_count: load.requestCount,
         response_count: load.responseCount,
@@ -140,19 +140,6 @@ export interface PulsePlace {
 export interface PulsePlacement {
     slots: PulseSlotApi[]
     places: PulsePlace[]
-}
-
-export function pulseSlotsOf(highlights: HighlightsApi | null): PulseSlotApi[] {
-    return (
-        highlights?.pulse_slots ??
-        (highlights?.pulse ?? []).map((metric) => ({
-            key: metric.key,
-            name: metric.name,
-            url: metric.url,
-            interval: metric.interval,
-            status: 'ready',
-        }))
-    )
 }
 
 function needsStandIn(place: PulsePlace, present: boolean, isHidden: (key: string) => boolean): boolean {
@@ -210,8 +197,8 @@ export function placePulseSlots(
     return { slots: shown, places: nextPlaces }
 }
 
-function pulseKind(key: string): 'insight' | 'key_metric' {
-    return key.startsWith('insight:') ? 'insight' : 'key_metric'
+function pulseKind(key: string): 'insight' | 'key_metric' | ProductNumberKind {
+    return key.startsWith('insight:') ? 'insight' : (productNumberKind(key) ?? 'key_metric')
 }
 
 function hiddenHighlightKey(projectId: number | string, key: string): string {
@@ -706,7 +693,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 if (!pulsePinsSettled) {
                     return { slots: [], places: pulsePlaces }
                 }
-                const slots = pulseSlotsOf(highlights)
+                const slots = highlights?.pulse_slots ?? []
                 const pinnedKeys = new Set(pulsePins.map((pin) => pin.key))
                 const pinned = pulsePins
                     .slice(0, PULSE_TILES)
@@ -819,7 +806,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 startedAt: performance.now(),
                 firstCardAt: null,
                 firstResponseAt: null,
-                loadingMode: null,
                 firstNumberAt: null,
                 requestCount: values.highlightsLoading ? 1 : 0,
                 responseCount: 0,
@@ -1153,7 +1139,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             const load = cache.pulseLoad as PulseLoad | undefined
             if (load && !load.finished) {
                 load.firstResponseAt ??= performance.now()
-                load.loadingMode = highlights?.pulse_slots == null ? 'complete' : 'progressive'
                 load.responseCount += 1
                 load.initialStatus ??= highlights?.status ?? null
             }

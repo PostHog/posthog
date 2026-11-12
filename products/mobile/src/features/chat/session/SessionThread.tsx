@@ -12,7 +12,7 @@ import { ChatErrorBubble } from '../ChatErrorBubble'
 import { ChatMarkdown } from '../ChatMarkdown'
 import { ChatProgressLine } from '../ChatProgressLine'
 import { CopyMessageButton } from '../CopyMessageButton'
-import { type ChatFeedbackContext, type ChatFeedbackTarget, chatFeedbackTargets } from '../chatFeedback'
+import { type ChatFeedbackContext, type ChatReplyActions, chatReplyActions } from '../chatFeedback'
 import { MessageFeedbackActions } from '../MessageFeedbackActions'
 import { UserBubble } from '../UserBubble'
 import { ActivityGroupRow } from './ActivityGroupRow'
@@ -43,18 +43,13 @@ interface SessionThreadProps {
 }
 
 const AssistantRow = memo(
-    function AssistantRow({
-        item,
-        feedback,
-    }: {
-        item: SessionAssistantItem
-        feedback?: ChatFeedbackTarget
-    }): ReactElement {
+    function AssistantRow({ item, actions }: { item: SessionAssistantItem; actions?: ChatReplyActions }): ReactElement {
         const styles = useStyles()
+        const feedback = actions?.feedback
         return (
-            <View style={item.complete ? undefined : styles.assistant} testID="session-assistant">
+            <View style={actions ? undefined : styles.assistantWithoutActions} testID="session-assistant">
                 <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
-                {item.complete ? (
+                {actions ? (
                     <View style={styles.actions}>
                         <CopyMessageButton text={item.text} messageRole="assistant" />
                         {feedback ? (
@@ -72,11 +67,12 @@ const AssistantRow = memo(
         previous.item.text === next.item.text &&
         previous.item.complete === next.item.complete &&
         previous.item.projectUrl === next.item.projectUrl &&
-        previous.feedback?.sessionId === next.feedback?.sessionId &&
-        previous.feedback?.runtime === next.feedback?.runtime &&
-        previous.feedback?.traceId === next.feedback?.traceId &&
-        previous.feedback?.runId === next.feedback?.runId &&
-        previous.feedback?.turnIndex === next.feedback?.turnIndex
+        Boolean(previous.actions) === Boolean(next.actions) &&
+        previous.actions?.feedback?.sessionId === next.actions?.feedback?.sessionId &&
+        previous.actions?.feedback?.runtime === next.actions?.feedback?.runtime &&
+        previous.actions?.feedback?.traceId === next.actions?.feedback?.traceId &&
+        previous.actions?.feedback?.runId === next.actions?.feedback?.runId &&
+        previous.actions?.feedback?.turnIndex === next.actions?.feedback?.turnIndex
 )
 
 const ErrorRow = memo(function ErrorRow({ item }: { item: SessionErrorItem }): ReactElement {
@@ -110,9 +106,9 @@ export function SessionThread({
     const positioned = useRef(false)
     const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
-    const feedbackTargets = useMemo(
-        () => chatFeedbackTargets(session.items, feedbackContext),
-        [session.items, feedbackContext]
+    const replyActions = useMemo(
+        () => chatReplyActions(session.items, feedbackContext, session.phase),
+        [session.items, feedbackContext, session.phase]
     )
     const pauseFollowing = useCallback((): void => {
         following.current = false
@@ -151,7 +147,7 @@ export function SessionThread({
             case 'user':
                 return <UserBubble key={item.id} text={item.text} attachments={item.attachments} />
             case 'assistant':
-                return <AssistantRow key={item.id} item={item} feedback={feedbackTargets.get(item.id)} />
+                return <AssistantRow key={item.id} item={item} actions={replyActions.get(item.id)} />
             case 'activity':
                 return (
                     <ActivityGroupRow
@@ -217,7 +213,7 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 12,
         gap: 14,
     },
-    assistant: {
+    assistantWithoutActions: {
         // Markdown blocks end with a 10pt bottom margin; this keeps the thread gap even.
         marginBottom: -10,
     },

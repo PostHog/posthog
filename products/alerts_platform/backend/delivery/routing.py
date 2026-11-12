@@ -5,7 +5,6 @@ that fails retries on its own and can never cost those destinations their messag
 """
 
 from dataclasses import replace
-from typing import Final
 
 import structlog
 
@@ -17,7 +16,12 @@ from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
-from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, EvaluationAnnouncement, MessageLink
+from products.alerts_platform.backend.facade.contracts import (
+    ROUTING_FLAG,
+    AlertDeliveryRequest,
+    EvaluationAnnouncement,
+    MessageLink,
+)
 from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.alert_routes import RoutedReceiver, routed_receivers
@@ -25,8 +29,6 @@ from products.alerts_platform.backend.logic.platform_alert_events import announc
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 logger = structlog.get_logger(__name__)
-
-ROUTING_FLAG: Final = "platform-alerts-routing"
 
 
 def routing_is_enabled(team: Team) -> bool:

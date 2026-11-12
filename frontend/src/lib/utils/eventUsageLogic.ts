@@ -49,6 +49,7 @@ import {
     isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
     Node,
@@ -75,7 +76,6 @@ import type { Realm, UserType } from '../../types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
-    DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
     Hotkey = 'hotkey',
@@ -86,8 +86,6 @@ export enum DashboardEventSource {
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
-    CardEdgeHover = 'card_edge_hover',
-    CardDragHandle = 'card_drag_handle',
     DashboardFilters = 'dashboard_filters',
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
@@ -491,6 +489,14 @@ export function getEventPropertiesForMetric(
             return {
                 ...base,
                 ...getSourceProperties(metric.source),
+            }
+        }
+
+        if (isExperimentQuantileMetric(metric)) {
+            return {
+                ...base,
+                ...getSourceProperties(metric.source),
+                quantile: metric.quantile,
             }
         }
 
@@ -1914,7 +1920,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
+            posthog.capture('time to see data', { ...payload, $update_person_last_seen_at: false })
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')

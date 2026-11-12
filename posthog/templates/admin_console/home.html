@@ -23,7 +23,7 @@
                            type="search"
                            name="q"
                            value="{{ query|default:'' }}"
-                           placeholder="Team ID, project API token, or team or organization name"
+                           placeholder="Team ID or UUID, organization ID, project API token, user email, or team or organization name"
                            aria-describedby="team-search-hint"
                            autofocus />
                     <button type="submit"
@@ -32,7 +32,7 @@
                     </button>
                 </form>
                 <p id="team-search-hint" class="m-0 mt-2 text-xs text-muted-foreground">
-                    A team ID, an API token or a name with one match opens the team right away. Press / on any page to jump here.
+                    A team ID or UUID, an API token or a name with one match opens the team right away. An organization ID opens the organization, and a user's email opens the user. Press / on any page to jump here.
                 </p>
             </div>
         </section>
@@ -56,7 +56,7 @@
                     <div class="quill-empty__content flex flex-col items-center gap-1">
                         <div class="quill-empty__title" data-slot="empty-title">No teams match "{{ query }}"</div>
                         <div class="quill-empty__description" data-slot="empty-description">
-                            Try a team ID, the full project API token, or a shorter part of the name.
+                            Try a team ID or UUID, an organization ID, the full project API token, or a shorter part of the name.
                         </div>
                     </div>
                 </div>

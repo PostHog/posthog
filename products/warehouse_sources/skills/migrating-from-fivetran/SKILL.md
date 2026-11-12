@@ -114,11 +114,16 @@ project yet. Tell the user that and stop.
 4. **Set up the destination before apply.** When an item's `proposal.destination` is set, settle it as its own step
    before you apply that item. Recommend writing to the same destination type as Fivetran, into the schema
    `posthog_<prefix>` (the item's `proposal.prefix`), so the two tools never write into the same tables while both
-   run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with the item's
-   `proposal.destination.type`, and tell the user the host, port, database and user from `proposal.destination` so
-   they can type them on the page. Poll `external-data-destinations-connect-link-status` until it is `connected`,
-   and confirm its `display_name` with the user. Then create the destination with `external-data-destinations-create`,
-   passing that `integration_id` and the schema `posthog_<prefix>`, and pass its id as `destination_ids` to apply.
+   run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with
+   `migration_item_id` set to the item and `destination_type` set to its `proposal.destination.type`. The page fills
+   in the connection settings it supports from Fivetran, so the user types only the secret. For any setting the page
+   leaves empty, tell the user the value from `proposal.destination`. The page does not set the schema. Poll
+   `external-data-destinations-connect-link-status` until it is `connected`, and confirm its `display_name` with the
+   user. Then create the destination with `external-data-destinations-create`: pass that `integration_id`, the link's
+   `suggested_config` (database and the `posthog_<prefix>` schema) as the target config, and the same
+   `migration_item_id`. Creation fails if the saved connection changed a prefilled setting. If the user chose "Set up
+   a new destination instead" and connected another server, leave `migration_item_id` out. Pass the new
+   destination's id as `destination_ids` to apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user

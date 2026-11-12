@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
@@ -7,6 +8,7 @@ from requests import Response
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
+    IncrementalConfig,
     JSONResponseCursorPaginator,
     Resource,
     RESTAPIConfig,
@@ -26,6 +28,8 @@ PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. Server API keys are environment-wide,
 # so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/customers"
+# Versioned packages: the listing has one row per version, but their sub-resources take only the id.
+_VERSIONED_PARENTS = frozenset({"plans", "addons"})
 
 
 @frozen
@@ -86,9 +90,8 @@ def _partition_kwargs(config: StiggEndpointConfig) -> dict[str, Any]:
 
 def _parent_filter(parent_name: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     # Stigg ids are user-defined slugs, so they are percent-encoded before they go into a path
-    # or a query string. The plans listing has one row per plan version, but the plan
-    # sub-resources take only the plan id, so a repeated id is dropped to keep one request
-    # (and one set of child rows) per plan.
+    # or a query string. A versioned package repeats its id once per version, so a repeated id
+    # is dropped to keep one request (and one set of child rows) per package.
     seen: set[str] = set()
 
     def _map(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -96,7 +99,7 @@ def _parent_filter(parent_name: str) -> Callable[[dict[str, Any]], list[dict[str
         if parent_id is None:
             return []
         parent_id = str(parent_id)
-        if parent_name == "plans":
+        if parent_name in _VERSIONED_PARENTS:
             if parent_id in seen:
                 return []
             seen.add(parent_id)
@@ -115,6 +118,22 @@ def _lift_entitlement_keys(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _format_incremental_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return utc_value.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if isinstance(value, date):
+        return _format_incremental_value(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
+    return str(value)
+
+
+def _incremental_window(cursor_path: str, db_incremental_field_last_value: Optional[Any]) -> IncrementalConfig | None:
+    # A first incremental sync has no watermark, so it reads the whole ledger and still merges.
+    if db_incremental_field_last_value is None:
+        return None
+    return {"cursor_path": cursor_path, "start_param": "startDate", "convert": _format_incremental_value}
+
+
 def _fanout_source(
     api_key: str,
     endpoint: str,
@@ -122,6 +141,9 @@ def _fanout_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[StiggResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: Optional[str],
 ) -> SourceResponse:
     assert config.fanout is not None
 
@@ -151,7 +173,12 @@ def _fanout_source(
         path_format_values={},
         team_id=team_id,
         job_id=job_id,
-        db_incremental_field_last_value=None,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        incremental_config_factory=lambda cursor_path: _incremental_window(
+            cursor_path, db_incremental_field_last_value
+        ),
         # Only some child endpoints document `limit`, so the page size goes in per endpoint below.
         page_size_param=None,
         parent_endpoint_extra={"data_selector": "data", "data_selector_malformed_retryable": True},
@@ -179,12 +206,26 @@ def stigg_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[StiggResumeConfig],
+    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = STIGG_ENDPOINTS[endpoint]
+    if not should_use_incremental_field:
+        db_incremental_field_last_value = None
 
     if config.fanout is not None:
-        return _fanout_source(api_key, endpoint, config, team_id, job_id, resumable_source_manager)
+        return _fanout_source(
+            api_key,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field=incremental_field,
+        )
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),

@@ -22,21 +22,21 @@
         "@storybook/csf": "^0.1.12",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "catalog:",
-        "@storybook/test-runner": "^0.24.4",
+        "@storybook/test-runner": "^0.26.0",
         "@tailwindcss/vite": "4.3.0",
-        "@types/jest-image-snapshot": "^6.4.0",
+        "@types/jest-image-snapshot": "^6.4.2",
         "buffer": "^6.0.3",
         "history": "^5.0.1",
-        "jest-image-snapshot": "^6.4.0",
+        "jest-image-snapshot": "^6.5.2",
         "mockdate": "^3.0.5",
         "posthog-js-lite": "4.13.3",
-        "sass": "^1.26.2",
+        "sass": "^1.107.1",
         "storybook": "catalog:",
         "vite": "catalog:"
     },
     "devDependencies": {
         "@playwright/test": "catalog:",
         "http-server": "^14.1.1",
-        "wait-on": "^7.2.0"
+        "wait-on": "^9.5.1"
     }
 }

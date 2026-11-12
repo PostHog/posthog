@@ -1,6 +1,3 @@
-// Every page reads one repository, and the URL names it: /engineering-analytics/repos/:owner/:name/...
-// These rules decide which repository a repo-less URL forwards to, and where switching repository lands.
-
 import type { GitHubSourceApi } from '../generated/api.schemas'
 import { repoPrefix } from './repoUrls'
 
@@ -22,7 +19,6 @@ function decodeSegment(segment: string): string {
     }
 }
 
-/** The 'owner/name' a repo path names, or null for a repo-less path. */
 export function repoFromPath(pathname: string): string | null {
     const match = REPO_PATH.exec(pathname)
     return match ? `${decodeSegment(match[1])}/${decodeSegment(match[2])}` : null
@@ -56,7 +52,6 @@ export function pickForwardRepo(
     )
 }
 
-/** The repo path a repo-less product path forwards to: /engineering-analytics/<rest> keeps its <rest>. */
 export function repoPathFor(pathname: string, repo: string): string {
     const [repoOwner, repoName] = repo.split('/')
     const rest = pathname.startsWith(PRODUCT_ROOT) ? pathname.slice(PRODUCT_ROOT.length) : ''

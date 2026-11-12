@@ -67,7 +67,6 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType, default=NodeType.TABLE)
-    description = models.TextField(max_length=1024, default="", blank=True)
     source_control_path = models.TextField(
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
     )

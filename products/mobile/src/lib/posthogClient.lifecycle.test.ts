@@ -6,8 +6,8 @@ import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 
 import { setAnalyticsClient } from './analytics'
-import { initAnalytics } from './posthogClient'
 
+const sdkPrototype = jest.requireActual<typeof import('posthog-react-native')>('posthog-react-native').default.prototype
 let mockSdkOptions: PostHogOptions = {}
 
 jest.mock('posthog-react-native', () => {
@@ -27,6 +27,16 @@ jest.mock('posthog-react-native', () => {
     }
 })
 
+function initAnalytics(): void {
+    jest.isolateModules(() => {
+        jest.doMock('posthog-react-native', () => ({ __esModule: true, default: PostHog }))
+        jest.doMock('@/auth/authStore', () => ({ useAuthStore }))
+        jest.doMock('@/demo/demoMode', () => ({ useDemoMode }))
+        jest.doMock('./analytics', () => ({ setAnalyticsClient }))
+        jest.requireActual<typeof import('./posthogClient')>('./posthogClient').initAnalytics()
+    })
+}
+
 interface QueuedEvent {
     message: { event: string; properties: Record<string, unknown> }
 }
@@ -41,7 +51,7 @@ describe('mobile SDK analytics privacy', () => {
     ])('omits the initial URL from the SDK queue for %s', async (url) => {
         const originalKey = process.env.EXPO_PUBLIC_POSTHOG_KEY
         process.env.EXPO_PUBLIC_POSTHOG_KEY = 'phc_example_mobile_test'
-        const network = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+        const network = jest.spyOn(sdkPrototype, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
         const initialURL = jest.spyOn(Linking, 'getInitialURL').mockResolvedValue(url)
         const authSubscribe = jest.spyOn(useAuthStore, 'subscribe').mockReturnValue(() => {})
         const demoSubscribe = jest.spyOn(useDemoMode, 'subscribe').mockReturnValue(() => {})
@@ -86,7 +96,7 @@ describe('mobile SDK analytics privacy', () => {
         async ({ status, preference }) => {
             const originalKey = process.env.EXPO_PUBLIC_POSTHOG_KEY
             process.env.EXPO_PUBLIC_POSTHOG_KEY = 'phc_example_mobile_test'
-            const network = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+            const network = jest.spyOn(sdkPrototype, 'fetch').mockImplementation(async (input) => {
                 const url = String(input)
                 return new Response(
                     JSON.stringify(url.includes('/flags') ? { featureFlags: {} } : { hasFeatureFlags: true }),

@@ -1,7 +1,7 @@
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
-import { isProdEnv } from '~/common/utils/env-utils'
+import { isHostedCloud, isProdEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import {
     getDefaultSessionRecordingApiConfig,
@@ -86,7 +86,9 @@ export class RecordingApiServer implements NodeServer {
     private async startServices(): Promise<void> {
         assertRecordingApiRoleAuthConfigured({
             role: this.role,
-            isProd: isProdEnv(),
+            // DEBUG makes isProdEnv false, so a deployed pod with DEBUG set still counts as production here.
+            isProd: isProdEnv() || isHostedCloud(),
+            deployed: isHostedCloud(),
             blocksJwtSecret: this.config.RECORDING_API_BLOCKS_JWT_SECRET,
             jwtSecret: this.config.RECORDING_API_JWT_SECRET,
         })

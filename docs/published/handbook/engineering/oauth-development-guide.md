@@ -377,6 +377,15 @@ To try these screens locally, run `generate_demo_data`. It registers the Claude 
 
 Analytics: `/login` and `/signup` render the same page, which asks for the email first and then opens the login or the signup password under it. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
 
+### Signed-out device logins
+
+The device approval page `/device` follows the same path. A visitor without a session who opens `/device?code=<user code>` is redirected to `/login?next=<the device URL>`, so the code comes back with them after login, signup, and email verification. A visitor who opens `/device` without a code sees the code form first, and submitting it loads `/device?code=<user code>`, which redirects the same way.
+
+- The redirect sets the same cookie when the code belongs to a pending grant of a verified app. It adds `"flow": "device"`, and it never carries the user code.
+- The redirect looks up the code without a session, so it is limited per IP address. Past the limit, the redirect still happens, without the cookie.
+- An account created while that cookie is present gets `onboarding_skipped_reason` set to `device_login` instead of `connector`. It skips onboarding and goes to `/welcome` the same way.
+- Approving or denying the device login clears the cookie.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`

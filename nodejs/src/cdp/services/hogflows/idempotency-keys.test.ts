@@ -48,6 +48,17 @@ describe('IdempotencyKeys', () => {
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
+    it('replays the fields recorded with the run', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })
+
+        expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            replayFields: { attachment_count: 2, attachment_bytes: 4_096 },
+        })
+    })
+
     it('frees a key only for the request that holds it', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
 

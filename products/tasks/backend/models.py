@@ -32,6 +32,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
+from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -343,15 +344,17 @@ class ChannelMembership(TeamScopedRootMixin):
 def clear_channel_repositories_on_github_integration_delete(
     sender: type[Integration], instance: Integration, **kwargs: Any
 ) -> None:
-    if instance.kind != Integration.IntegrationKind.GITHUB:
+    # The SDK calls the integration hook itself. This receiver is for the deletes that do not use the SDK.
+    if instance.kind != Integration.IntegrationKind.GITHUB or sdk_runs_hooks():
         return
+    clear_channel_repositories_of_github_integration(instance.team_id, instance.id)
 
+
+def clear_channel_repositories_of_github_integration(team_id: int, integration_id: int) -> None:
     affected = list(
-        Channel.objects.for_team(instance.team_id)
-        .filter(github_integration_id=instance.id)
-        .values_list("id", "repositories")
+        Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).values_list("id", "repositories")
     )
-    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+    Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).update(
         github_integration=None,
         repositories=[],
     )
@@ -362,13 +365,13 @@ def clear_channel_repositories_on_github_integration_delete(
     from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
 
     capture_repository_config_changed(
-        team=instance.team,
+        team=Team.objects.get(id=team_id),
         user_id=None,
         subject="space",
         trigger="github_integration_disconnected",
         previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
         repositories=[],
-        previous_integration_id=instance.id,
+        previous_integration_id=integration_id,
         integration_id=None,
         affected_space_count=len(affected),
     )
@@ -424,6 +427,25 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        IDLE = "idle", "Idle"
+        DONE = "done", "Done"
+
+    class StatusReason(models.TextChoices):
+        TURN_CLOSED = "turn_closed", "Turn closed"
+        USER_STOPPED = "user_stopped", "User stopped"
+        PROVISION_FAILED = "provision_failed", "Provision failed"
+        UNEXPECTED_FAILURE = "unexpected_failure", "Unexpected failure"
+        TIMED_OUT = "timed_out", "Timed out"
+        BUDGET_SPENT = "budget_spent", "Budget spent"
+        CREDIT_SPENT = "credit_spent", "Credit spent"
+        ACCESS_CHANGED = "access_changed", "Access changed"
+        FINISHED = "finished", "Finished"
+        CLOSED = "closed", "Closed"
+        CANCELLED = "cancelled", "Cancelled"
 
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -610,6 +632,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     source_id = models.CharField(max_length=64, null=True, blank=True)
     idempotency_key = models.CharField(max_length=128, null=True, blank=True)
 
+    status = models.CharField(max_length=16, choices=Status, default=Status.IDLE, null=True, blank=True)
+    status_reason = models.CharField(max_length=32, choices=StatusReason, null=True, blank=True)
+    status_detail = models.TextField(null=True, blank=True)
+    status_changed_by = models.CharField(max_length=64, null=True, blank=True)
+    head_branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
+
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
@@ -700,6 +729,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 condition=models.Q(source_kind__isnull=False),
                 name="posthog_task_source_idx",
             ),
+            models.Index(
+                fields=["status"],
+                condition=models.Q(status__in=["queued", "running"]),
+                name="posthog_task_live_status_idx",
+            ),
+            models.Index(
+                fields=["head_branch"],
+                condition=models.Q(head_branch__isnull=False),
+                name="posthog_task_head_branch_idx",
+            ),
+            GinIndex(fields=["pr_urls"], name="posthog_task_pr_urls_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -889,6 +929,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 all_properties["signal_report_id"] = str(self.signal_report_source_id)
             if properties:
                 all_properties.update(properties)
+            if self.profile == "context_layer.dream" and event in {"task_created", "task_run_created"}:
+                all_properties["$update_person_last_seen_at"] = False
             (capture_fn or posthoganalytics.capture)(
                 distinct_id=distinct_id,
                 event=event,
@@ -1215,6 +1257,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     origin=task.origin_product,
                     stage=state.get("ai_stage") or "implementation",
                     report_id=task.signal_report_source_id,
+                    task_runtime=task.runtime,
+                    model_access=model_access.kind,
                 )
             task_run = TaskRun.objects.create(
                 id=run_id,
@@ -1396,6 +1440,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     error_message="This scheduled run was canceled because the task was deleted.",
                     updated_at=deleted_at,
                 )
+                from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
+
+                sync_task_statuses_on_commit([self.id])
             self.deleted = True
             self.deleted_at = deleted_at
             self.save(update_fields=["deleted", "deleted_at", "updated_at"])
@@ -1649,6 +1696,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             source_kind=source.kind.value if source is not None else None,
             source_id=source.id if source is not None else None,
             idempotency_key=origin_key,
+            head_branch=wizard_head_branch or self_driving_head_branch or None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -3494,6 +3542,13 @@ class TaskRun(models.Model):
             all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
+            if self.task.profile == "context_layer.dream" and event in {
+                "task_run_created",
+                "task_run_completed",
+                "task_run_failed",
+                "task_run_structured_result",
+            }:
+                all_properties["$update_person_last_seen_at"] = False
             capture_kwargs: dict = {
                 "distinct_id": distinct_id,
                 "event": event,
@@ -3828,6 +3883,25 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskStatusChange(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="status_changes", db_constraint=False, db_index=False
+    )
+    run_id = models.UUIDField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Task.Status)
+    reason = models.CharField(max_length=32, choices=Task.StatusReason, null=True, blank=True)
+    detail = models.TextField(null=True, blank=True)
+    changed_by = models.CharField(max_length=64)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_status_change"
+        indexes = [
+            models.Index(fields=["task", "-created_at"], name="task_status_change_task_idx"),
+        ]
 
 
 class TaskRunGatewayRequest(TeamScopedRootMixin, UUIDModel):

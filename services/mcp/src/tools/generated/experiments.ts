@@ -834,6 +834,7 @@ const experimentList = (): ToolBase<
                         event: params.event,
                         excluded_tags: params.excluded_tags,
                         feature_flag_id: params.feature_flag_id,
+                        feature_flag_ids: params.feature_flag_ids,
                         limit: params.limit,
                         offset: params.offset,
                         order: params.order,
@@ -1428,12 +1429,15 @@ const ExperimentTimeseriesResultsSchema = () => {
     )
 }
 
-const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTimeseriesResultsSchema>, unknown> => ({
+const experimentTimeseriesResults = (): ToolBase<
+    ReturnType<typeof ExperimentTimeseriesResultsSchema>,
+    Schemas.ExperimentTimeseriesResults
+> => ({
     name: 'experiment-timeseries-results',
     schema: ExperimentTimeseriesResultsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentTimeseriesResultsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.ExperimentTimeseriesResults>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
             query: {

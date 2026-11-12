@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from django.core.cache import cache
@@ -13,9 +13,10 @@ import posthoganalytics
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.common.errors import NonReportableError
 
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION, STANDARD_TRIAL_LIMITS, TrialLimits
@@ -32,9 +33,17 @@ class TrialRefused(APIException):
     status_code = 402
     default_code = "self_driving_trial_unavailable"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, detail: str | None = None) -> None:
         self.reason = reason
-        super().__init__(f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+        super().__init__(detail or f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+
+
+class TrialExecutionRefused(TrialRefused, NonReportableError):
+    def __init__(self) -> None:
+        super().__init__(
+            "accounted_execution_required",
+            detail="Self-driving trials require the PostHog AI gateway. Choose Claude Code or Codex with PostHog model access to start this run.",
+        )
 
 
 @frozen
@@ -78,6 +87,15 @@ def pricing_flag_distinct_id(organization_id: UUID) -> str:
     return distinct_id or str(organization_id)
 
 
+def spend_billing_starts_later(organization_id: UUID) -> bool:
+    cutoff = (
+        Organization.objects.filter(id=organization_id)
+        .values_list("usage__signals_spend_credits__billing_start_date", flat=True)
+        .first()
+    )
+    return isinstance(cutoff, str) and date.fromisoformat(cutoff) > timezone.now().date()
+
+
 def lock_organization_trial(organization_id: UUID) -> None:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-trial:{organization_id}"])
@@ -91,15 +109,21 @@ class TrialPolicy:
 
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
+        decision: bool | None
         try:
-            # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
-            decision = posthoganalytics.feature_enabled(
-                TRIAL_FLAG,
-                pricing_flag_distinct_id(self.organization_id),
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                send_feature_flag_events=False,
-            )
+            # Billing has not moved this organization to usage-based pricing yet, so the trial does not apply.
+            # The flag cannot exclude an organization that is evaluated as the org id, which no cohort matches.
+            if spend_billing_starts_later(self.organization_id):
+                decision = False
+            else:
+                # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
+                decision = posthoganalytics.feature_enabled(
+                    TRIAL_FLAG,
+                    pricing_flag_distinct_id(self.organization_id),
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    send_feature_flag_events=False,
+                )
         except Exception:
             decision = None
         confirmed = type(decision) is bool

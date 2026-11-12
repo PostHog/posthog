@@ -58,7 +58,7 @@ class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Stigg server API key to pull your pricing, packaging, and monetization data into the PostHog Data warehouse.
 
-You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, coupons, entitlements, charges, and credit grants.
+You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, coupons, entitlements, charges, credit grants, and the credit ledger.
 """,
             iconPath="/static/services/stigg.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stigg",
@@ -99,10 +99,9 @@ You can find your server API key under **Settings → Integrations → API keys*
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only. Stigg's list endpoints filter by `createdAt` but
+        # Only the credit ledger is incremental. The other list endpoints filter by `createdAt` but
         # expose no updated-since filter, and billing objects mutate in place, so there is no
-        # incremental cursor that would also capture updates. INCREMENTAL_FIELDS is empty, so
-        # build_endpoint_schemas marks every endpoint full refresh (supports_incremental=False).
+        # incremental cursor that would also capture updates.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -129,5 +128,7 @@ You can find your server API key under **Settings → Integrations → API keys*
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Stigg endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )

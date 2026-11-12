@@ -171,6 +171,7 @@ class CustomerIOImportService:
             "details": "Starting CSV processing...",
             "failed_imports": [],  # List of failed imports with email and error
         }
+        email_has_optouts: dict[str, bool] = {}
 
         try:
             # Load topic mapping from existing categories
@@ -208,11 +209,11 @@ class CustomerIOImportService:
                     # Add to our global set of processed users (combines with API users)
                     self.all_processed_users.add(result["email"])
 
-                if result["status"] == "success" and result["opted_out_categories"]:
-                    current_batch.append((result["email"], result["opted_out_categories"]))
-                    csv_progress["users_with_optouts"] += 1
-                elif result["status"] == "success":
-                    csv_progress["users_skipped"] += 1
+                if result["status"] == "success":
+                    email, opted_out_categories = result["email"], result["opted_out_categories"]
+                    email_has_optouts[email] = email_has_optouts.get(email, False) or bool(opted_out_categories)
+                    if opted_out_categories:
+                        current_batch.append((email, opted_out_categories))
                 if result.get("error"):
                     csv_progress["parse_errors"] += 1
                     csv_progress["failed_imports"].append(
@@ -243,6 +244,8 @@ class CustomerIOImportService:
             csv_progress["details"] = f"CSV processing failed: {str(e)}"
             logger.exception("CSV processing failed")
 
+        csv_progress["users_with_optouts"] = sum(email_has_optouts.values())
+        csv_progress["users_skipped"] = len(email_has_optouts) - csv_progress["users_with_optouts"]
         return csv_progress
 
     def _process_csv_row(self, row: dict) -> dict:
