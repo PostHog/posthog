@@ -48,6 +48,7 @@ MERGE_CHECK_BUDGET = Budget(burst=200, per_hour=34)
 MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
+DOCS_CHECK_WAITERS_PER_TELL = 50
 GITHUB_READ_ERRORS = (
     requests.RequestException,
     GitHubIntegrationError,
@@ -283,8 +284,8 @@ class MergeCheckWorkflow:
         told_count = 0
         # A waiter can arrive while the last one is told; the workflow only closes once none is left.
         while told_count < len(self._waiter_ids):
-            waiter_ids = tuple(self._waiter_ids[told_count:])
-            told_count = len(self._waiter_ids)
+            waiter_ids = tuple(self._waiter_ids[told_count : told_count + DOCS_CHECK_WAITERS_PER_TELL])
+            told_count += len(waiter_ids)
             await workflow.execute_activity(
                 tell_docs_check_waiters_activity,
                 replace(finished, waiter_ids=waiter_ids),
