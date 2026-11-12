@@ -43,6 +43,7 @@ const TITLES: Record<TabKey, string> = {
     replay: 'Sessions',
     web_analytics: 'Web analytics',
     live: 'Live',
+    experiments: 'Experiments',
 }
 
 interface TabsHeaderProps {

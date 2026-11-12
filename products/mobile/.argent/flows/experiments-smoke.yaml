@@ -1,0 +1,73 @@
+# Experiments walkthrough in the demo. Starts and ends on the sign-in screen with demo mode off, so it can run
+# again right away. Experiments sits behind the mobile-experiments flag, so run it on a development bundle started
+# with EXPO_PUBLIC_FEATURE_FLAGS=mobile-experiments. How to run it: products/mobile/docs/TESTING.md, with
+# experiments-smoke in place of demo-smoke.
+steps:
+    - echo: Restart PostHog. Expect the sign-in screen with demo mode off
+    - launch: com.posthog.code.mobile
+    - await: { visible: { id: try-demo }, timeout: 25000 }
+    - await: { idle: true }
+
+    - echo: On sign-in. Tap Try the demo. Expect the inbox
+    - tap: { id: try-demo }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open Views from the bottom bar. Expect the pinned list
+    - tap: { id: inbox-nav-views }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
+    - echo: On Views. Scroll to Browse and open Experiments. Expect the Running segment
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.8, toX: 0.5, toY: 0.25, durationMs: 300 }
+    - await: { visible: { id: views-browse-experiments } }
+    - tap: { id: views-browse-experiments }
+    - await: { visible: { id: experiments-screen-stack } }
+    - await: { visible: { id: experiment-row-101 } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: experiment-row-101 }, contains: Checkout CTA copy } }
+
+    - echo: On the list. Wait for the first row's result. Expect Ready to ship
+    - await: { visible: { id: experiment-badge-ship }, timeout: 10000 }
+
+    - echo: On the list. Open Checkout CTA copy. Expect the experiment screen
+    - tap: { id: experiment-row-101 }
+    - await: { visible: { id: experiment-screen } }
+    - await: { idle: true }
+
+    - echo: On the experiment. Go back. Expect the list
+    - tap: { text: Back }
+    - await: { visible: { id: experiments-screen-stack } }
+    - await: { idle: true }
+
+    - echo: On the list. Open Drafts. Expect the draft with its Launch button
+    - tap: { id: experiments-segment-draft }
+    - await: { visible: { id: experiment-launch-106 } }
+    - await: { idle: true }
+
+    - echo: On Drafts. Go back. Expect Views
+    - tap: { text: Back }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
+    - echo: On Views. Go to Home from the bottom bar. Expect the inbox
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open the menu. Expect Settings in it
+    - tap: { text: More }
+    - await: { visible: { id: nav-settings } }
+    - await: { idle: true }
+
+    - echo: Menu open. Open Settings. Expect Exit demo
+    - tap: { id: nav-settings }
+    - scroll-to: { target: { id: settings-exit-demo } }
+    - await: { visible: { id: settings-exit-demo } }
+    - await: { idle: true }
+
+    - echo: On Settings. Tap Exit demo. Expect the sign-in screen
+    - tap: { id: settings-exit-demo }
+    - await: { visible: { id: try-demo }, timeout: 10000 }
+    - await: { hidden: { id: settings-exit-demo } }

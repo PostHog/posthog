@@ -6,6 +6,7 @@ import type { NavPin } from '@/features/tabs/navPinStore'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
 import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
+import { FlaskIcon } from '@/ui/icons/FlaskIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { LineChartIcon } from '@/ui/icons/LineChartIcon'
 import { LiveIcon } from '@/ui/icons/LiveIcon'
@@ -17,7 +18,7 @@ import { radii, type } from '@/ui/tokens'
 import { useMenuTrigger } from './useMenuTrigger'
 import { GroupFrame, type GroupPosition } from './ViewRow'
 
-export type BrowseEntry = 'dashboards' | 'insights' | 'web' | 'live' | 'replay' | 'errors'
+export type BrowseEntry = 'dashboards' | 'insights' | 'web' | 'live' | 'replay' | 'errors' | 'experiments'
 
 const LABELS: Record<BrowseEntry, string> = {
     dashboards: 'Dashboards',
@@ -26,15 +27,25 @@ const LABELS: Record<BrowseEntry, string> = {
     live: 'Live',
     replay: 'Sessions',
     errors: 'Errors',
+    experiments: 'Experiments',
 }
 
-export const BROWSE_ENTRIES: readonly BrowseEntry[] = ['dashboards', 'insights', 'web', 'live', 'replay', 'errors']
+export const BROWSE_ENTRIES: readonly BrowseEntry[] = [
+    'dashboards',
+    'insights',
+    'web',
+    'live',
+    'replay',
+    'errors',
+    'experiments',
+]
 
 const PINS: Partial<Record<BrowseEntry, NavPin>> = {
     web: 'web_analytics',
     live: 'live',
     replay: 'replay',
     errors: 'errors',
+    experiments: 'experiments',
 }
 
 export function browseEntryLabel(entry: BrowseEntry): string {
@@ -66,6 +77,8 @@ function EntryIcon({ entry }: { entry: BrowseEntry }): ReactElement {
             return <RecordingIcon size={17} color={colors.muted} />
         case 'errors':
             return <ErrorTriangleIcon size={17} color={colors.muted} />
+        case 'experiments':
+            return <FlaskIcon size={17} color={colors.muted} />
     }
 }
 

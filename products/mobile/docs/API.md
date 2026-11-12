@@ -206,11 +206,23 @@ Without `repository`, the server skips the cleanup PR for an `ambiguous` target,
 The app never sends `set_repository_as_team_default` (needs `project:write` and project admin) or `disable_feature_flag` on archive (needs `feature_flag:write`).
 A 403 for a missing `experiment:*` scope goes to `reportScopeError(error, 'experiments')`.
 A missing `task:write` shows as an error in the sheet.
+The writes for one experiment run one at a time, so a late response cannot overwrite a later action.
+
+The Ship preset ranks variants like the variant picker, so it prefers an improvement over a significant regression.
+A rule-linked experiment can end on the phone. Ship, pause, resume and rollout changes stay on the flag's web page.
+When a ship needs approval, the sheet and the waiting banner offer Finish shipping.
+After approval on the web, Finish shipping resends the saved request with all its choices.
 
 ### Experiment screen
 
 `src/features/experiments/ExperimentScreen.tsx` uses the reads above through `hooks.ts` and `detailHooks.ts`.
 It needs no scope that the list does not need.
+A web link keeps its project and host.
+A link to another project reads that project and does not change the selected project.
+A link to another host asks the person to sign in there first.
+Offline, an uncached list or detail shows a connection state and loads when the connection returns.
+If the final results reload fails, the screen keeps the old results and asks for a pull to refresh.
+The detail clock stops while the screen is unfocused.
 
 | Moment                        | Calls                                                                                                                    | Cadence                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -235,5 +247,8 @@ The numbers follow the web's `MetricsView/shared/utils.ts`:
 - The sample ratio warning shows when `sample_ratio_mismatch.p_value` is below 0.001, the threshold in the web's `exposureHealth.ts`.
   It does not show when the `srm` health check is `not_applicable`.
 - `sample_ratio_mismatch.expected` holds counts. The screen shows them as shares.
+- With an `ABSOLUTE` `difference_type`, a share shows percentage points (`+1.2 pts`), and other metrics show their own units (`+3.50`).
+  A list row does not know the metric kind, so it leaves out an absolute change.
 
 Chat opens `/chat` with `objectType: 'experiment'` and the experiment id, as the web's `SummarizeExperimentButton.tsx` does.
+For a link to another project, Chat first moves the session to that project. If the session cannot move, the web opens the experiment.

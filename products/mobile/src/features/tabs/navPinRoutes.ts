@@ -5,13 +5,14 @@ import type { ViewEntry } from '@/model/views'
 
 import type { NavPin } from './navPinStore'
 
-// Errors and Sessions share their public list URLs with their tabs. Explicit groups keep a pushed list from resolving
+// Errors, Sessions and Experiments share their public list URLs with their tabs. Explicit groups keep a pushed list from resolving
 // to a hidden tab. Web analytics and Live keep their pushed `/views/...` routes, which deep links also open.
 const TAB_HREFS: Record<NavPin, Href> = {
     errors: '/(tabs)/errors',
     replay: '/(tabs)/replay',
     web_analytics: '/(tabs)/web-analytics',
     live: '/(tabs)/live',
+    experiments: '/(tabs)/experiments',
 }
 
 function stackHref(pin: NavPin, from: ViewEntry | undefined): Href {
@@ -20,6 +21,8 @@ function stackHref(pin: NavPin, from: ViewEntry | undefined): Href {
             return '/(stack)/errors'
         case 'replay':
             return '/(stack)/replay'
+        case 'experiments':
+            return '/(stack)/experiments'
         case 'web_analytics':
             return webAnalyticsHref({ from })
         case 'live':

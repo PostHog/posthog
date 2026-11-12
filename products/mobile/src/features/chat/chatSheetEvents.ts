@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { track } from '@/lib/analytics'
 import type { ChatOrigin } from '@/model/types'
 
-import { ISSUE_OBJECT_TYPE, RECORDING_OBJECT_TYPE } from './objectContext'
+import { EXPERIMENT_OBJECT_TYPE, ISSUE_OBJECT_TYPE, RECORDING_OBJECT_TYPE } from './objectContext'
 
 export const CHAT_SHEET_ENTRIES = [
     'chats_list',
@@ -16,6 +16,7 @@ export const CHAT_SHEET_ENTRIES = [
     'task',
     'issue',
     'replay',
+    'experiment',
 ] as const
 
 export type ChatSheetEntry = (typeof CHAT_SHEET_ENTRIES)[number]
@@ -48,6 +49,9 @@ export function chatSheetSource(params: {
     }
     if (params.objectType === RECORDING_OBJECT_TYPE) {
         return { entry: 'replay', origin }
+    }
+    if (params.objectType === EXPERIMENT_OBJECT_TYPE) {
+        return { entry: 'experiment', origin }
     }
     if (params.taskId) {
         return { entry: 'task', origin }

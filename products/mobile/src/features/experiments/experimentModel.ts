@@ -424,16 +424,23 @@ export function resultOf(
     }
 }
 
+/** `stats_config.<method>.difference_type`, which the server reads as relative when it is missing. */
+export function differenceTypeOf(
+    experiment: ExperimentApi,
+    latest?: ExperimentResultsRunApi | null
+): ExperimentDifferenceType {
+    const config = experiment.stats_config
+    const method = methodOf(experiment, latest) === 'freq' ? 'frequentist' : 'bayesian'
+    const settings = isRecord(config) ? config[method] : undefined
+    return isRecord(settings) && settings.difference_type === 'ABSOLUTE' ? 'absolute' : 'relative'
+}
+
 export function primaryResultOf(
     experiment: ExperimentApi,
     latest: ExperimentResultsRunApi | null | undefined
 ): PrimaryResult | null {
     const metric = primaryMetricsOf(experiment)[0]
-    const config = experiment.stats_config
-    const method = methodOf(experiment, latest) === 'freq' ? 'frequentist' : 'bayesian'
-    const settings = isRecord(config) ? config[method] : undefined
-    const differenceType = isRecord(settings) && settings.difference_type === 'ABSOLUTE' ? 'absolute' : 'relative'
-    return metric ? resultOf(metric, metricResultOf(latest, metric), differenceType) : null
+    return metric ? resultOf(metric, metricResultOf(latest, metric), differenceTypeOf(experiment, latest)) : null
 }
 
 export function exposuresOf(primary: PrimaryResult): number {

@@ -252,3 +252,36 @@ by the mobile footer change:
 - **A filtered overview is cached on the device,** like the unfiltered one, so its cache key holds the filter values.
 - **A pinned tab keeps its trend canvas while another tab is focused.** The Views tab gives its canvases back through
   `ChartCanvasBudget`; the Web analytics and Live charts take no canvas slot, so each keeps one Skia canvas mounted.
+
+## Experiments
+
+### Experiments list
+
+- **The app cannot tell who started a run.** The server does not serialize `trigger`.
+  The app tells only the daily run (`result_source: timeseries_fallback`) from a recalculation.
+  Backend ask: `trigger` on the latest and run serializers.
+- **A row costs two reads.** Backend ask: a compact `latest_headline` (leader, change, significance, exposures, `query_to`) on `ExperimentBasicSerializer`.
+- **Running costs three requests a page.** Backend ask: a comma-separated `status=`.
+- **"Days to target" in a row is an estimate** from the saved running-time calculation.
+- **A row leaves out an absolute change**, because the row does not know the metric kind.
+- **Experiments cannot be the start page.** As with Errors and Sessions, a person can pin it but not choose it in Settings.
+- **Not on the phone:** create, tags, the created-by filter, sort and the archived list.
+
+### Experiment screen
+
+- **No "Notify me when significant".** `$experiment_metric_significant` goes only to Slack and webhooks.
+  Backend ask: a mobile push with `{ type: 'experiment', experiment_id, project_id }`.
+- **The conclusion note has no author or date.** Backend ask: both on the experiment serializer.
+- **How a variant shipped comes from the flag**, because the experiment does not store "experiment population" or "all users".
+- **Recalculation progress counts metrics, not rows.** The run has `rows_read` and `estimated_rows_total`, but a metric count never moves backwards.
+- **Not on the phone:** timeseries charts, breakdowns, recordings and variant screenshots.
+  Also missing: the health drill-down and `checks`, holdouts, shared metric editing, the running time calculator, and hypothesis or metric editing.
+
+### Experiment actions
+
+- **A pending approval lasts only for the session.** After a restart, or on another device, the detail does not show "Waiting for approval".
+  Backend ask: `pending_change_request` (id, action, created at) on the experiment serializer, or change requests readable with `experiment:read`.
+- **No project default for the cleanup repository.** `set_repository_as_team_default` needs `project:write` and project admin.
+- **Archive never disables the flag**, because that needs `feature_flag:write`. Unarchive, Reset and Freeze exposure are not on the phone.
+- **No cleanup PR progress.** The phone shows a toast, and the PR link arrives the usual way. `flag_cleanup_task/` could show progress later.
+- **A group-aggregated flag says "groups"**, because the app does not read group type names.

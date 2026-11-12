@@ -5,6 +5,7 @@ import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
+import { FlaskIcon } from '@/ui/icons/FlaskIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
 import { LiveIcon } from '@/ui/icons/LiveIcon'
@@ -53,11 +54,16 @@ function LiveNavIcon(props: IconProps): ReactElement {
     return <LiveIcon strokeWidth={2} {...props} />
 }
 
+function ExperimentsNavIcon(props: IconProps): ReactElement {
+    return <FlaskIcon strokeWidth={2} {...props} />
+}
+
 const PIN_SLOTS: Record<NavPin, { label: string; Icon: ComponentType<IconProps> }> = {
     errors: { label: 'Errors', Icon: ErrorsNavIcon },
     replay: { label: 'Sessions', Icon: ReplayNavIcon },
     web_analytics: { label: 'Web analytics', Icon: WebAnalyticsNavIcon },
     live: { label: 'Live', Icon: LiveNavIcon },
+    experiments: { label: 'Experiments', Icon: ExperimentsNavIcon },
 }
 
 interface NavSlotProps {

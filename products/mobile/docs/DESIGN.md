@@ -351,3 +351,49 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
   With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
   Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.
+- **Experiments list** (`features/experiments/ExperimentsListScreen.tsx`): one body in two chromes, like the Errors list.
+  The pushed screen opens from the Experiments row in Views › Browse (flask icon). It has Back, More, a 28 pt title and a status line.
+  As a pinned tab, the tabs header draws the title and the status line.
+  The status line gives the age of the oldest result on screen (Running), "Final results" (Done) or "Not launched yet" (Drafts).
+  Below it are the search field, when a segment has rows, and the Running, Done and Drafts pill.
+  A row (`ExperimentListRow.tsx`) is one tap target with three lines: the name with a badge, the result and the meta.
+  A blue dot and a bold name mark a changed result.
+  The badges are New, Paused, Frozen, Ready to ship (green) and Losing (red).
+  A result that is still loading is a gray bar. A draft row has a Launch pill.
+  A page holds 20 rows, with a Load more footer.
+  Loading, the error, sign-in, the empty state of each segment and "no matches" with Clear search are separate screens.
+  More (pushed screen only) holds Pin or Unpin and Open on web.
+- **Experiment** (`features/experiments/ExperimentScreen.tsx`): floating Back and More, and the name as the scroll title.
+  The header has a status chip, the name, a clock byline and a flag byline with the method.
+  The chip colors are green (Running), orange (Paused), blue (Exposure frozen), gray (Draft) and purple (Complete).
+  The cards follow in this order:
+  - The hypothesis card, clamped to two lines with More.
+  - The results status card: one line, with a dot whose color gives the age of the results, and the recalculation progress.
+  - Progress toward the sample target.
+  - The primary metric cards, then Secondary metrics, collapsed.
+  - Exposures, then Health (only with findings), then the feature flag row and Open on the web.
+
+  A metric card has Value, Change and Chance to win (or p-value) columns, a baseline block, and one block per variant.
+  The Change cell has an interval bar (`IntervalBar.tsx`) on one axis per card.
+  A significant variant shows a green check or a red arrow.
+  Each cell and column label opens "About this number" (`AboutNumberSheet.tsx`).
+  The sheet shows the number as a title, one plain sentence, the interval with labeled ends, the exact values and a note.
+  A launch less than 2 hours old adds the blue Watching card. A complete experiment adds the conclusion card at the top.
+  A draft shows what it measures, the variants, the audience and the flag.
+  Loading is `ExperimentSkeleton.tsx`. The load error, a missing experiment and sign-in are separate screens.
+
+- **Experiment action bar** (`ExperimentActionBar.tsx`): the issue's layout, a pill of one-word verbs and the round ink Chat button.
+  Running or frozen shows Ship and End. Paused shows Resume and End. Draft shows Launch.
+  Complete shows no verbs, and the bar states the outcome. A rule-linked experiment hides Ship, Pause and Resume.
+  Each verb opens a sheet. More adds Pause or Resume, Edit conclusion and Archive (`experimentMenu.ts`).
+  After a 409, the detail shows the blue "Waiting for approval." card (`PendingApprovalBanner`) under the hypothesis.
+  A tap on the card finishes the ship with the saved choices.
+- **Finish sheet** (`FinishSheet.tsx`): "Ship a variant" or "End experiment", and one line that says what happens.
+  Full-width radio cards, with a 2 pt ink border when picked, hold the variant, the release and the conclusion.
+  A variant card shows its result and a green "Leading" tag. A conclusion card can show a "Suggested by the results" tag.
+  Then come the comment, the cleanup PR checkbox with its repository, info banners and the flag line.
+  The footer does not scroll. It holds the disabled reason, Cancel and the primary button.
+  The primary button is orange for Ship and ink for End, with a spinner while the request runs.
+  After a 409, the sheet shows "Needs approval" and Finish shipping, which resends the saved request after approval on the web.
+- **Launch, Pause, Resume, Archive and Edit conclusion sheets** (`LaunchSheet.tsx`, `PauseResumeSheet.tsx`, `EditConclusionSheet.tsx`) use the web's modals and words.
+  Launch says what goes live. Pause is disabled when no flag is linked. Save in Edit conclusion waits for a conclusion.

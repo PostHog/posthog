@@ -376,6 +376,9 @@ A pass prints one line per step and exits with code 0. Locally, `demo-smoke` too
 `views-smoke` about 80 seconds on Xcode 27.1 / iOS 27.0. A fresh native compile took about 8 minutes,
 with simulator setup adding more time.
 If more than one simulator is booted, add `--device <udid>` (see `xcrun simctl list devices booted`).
+`experiments-smoke` needs the `mobile-experiments` flag.
+Start the development bundle with `EXPO_PUBLIC_FEATURE_FLAGS=mobile-experiments`, or turn on the flag for the device.
+Without the flag, the flow fails at the Browse row.
 
 Two `idle` steps can warn that a small part of the screen was still changing, such as the text caret.
 The step after each one waits for a stable element, so these warnings are expected.

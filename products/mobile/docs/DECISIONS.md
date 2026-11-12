@@ -423,3 +423,54 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Events use `mobile_replay_*`.** `mobile_session_*` already names chat sessions (`mobile_session_sent`), so the
   session screen's events are `mobile_replay_session_opened`, `mobile_replay_full_replay_opened` and so on. The
   reauth state reuses `mobile_views_reauth_shown` with `feature: 'replay'`.
+
+## Experiments
+
+### Experiments list
+
+- **A Browse row first, a tab after a pin.** Experiments is a row in Views › Browse, like Errors and Sessions, and a long press pins it.
+  The `mobile-experiments` flag controls it. Unlike Errors and Sessions, it works in the demo.
+- **Three segments and search, no filters.** Running, Done and Drafts. No tags, created-by or sort controls.
+  Search filters the loaded rows by name and flag key, and asks the server only when the segment has more pages.
+- **Running includes paused and frozen experiments.** A paused row says Paused.
+- **Rows read their results lazily**, two at a time. The list never starts a recalculation.
+- **Running puts a decision first:** a significant result or a reached target, then a changed result, then the newest launch.
+  Rows sort again only when the visible results settle, so a row moves at most once.
+- **"Changed" is local to the phone.** The first result the phone sees is the baseline, and opening the experiment marks it seen.
+  The phone keeps up to 500 seen results and clears them at sign-out.
+- **"Days to target" uses the saved estimate** (`recommended_sample_size`), because a third read for each row costs too much.
+- **A draft row has a Launch button** that opens the same sheet as the draft screen.
+
+### Experiment screen
+
+- **Pull is the only refresh**, as on the issue screen. On a live experiment it starts a recalculation ([cadence](API.md#experiment-screen)).
+  After 2 minutes the status card says "Still working" and keeps the old results.
+- **The status card names the run, not the action.** The dot is green, amber after 6 hours and red after 12 hours.
+  "Your refresh" shows only for a run this phone started, because the API does not return the trigger.
+- **Every number opens "About this number".** The copy follows the method and its configured level.
+- **Significance uses the server's rule.** A Bayesian variant can be significant while its interval crosses 0 (`is_decisive`).
+  So the Bayesian copy talks about the chance to win, not the interval.
+- **The change is a best estimate**, the midpoint of the interval, and the copy says so.
+- **One axis per card**, at the widest end rounded up to 5%. A bar is green or red only when the whole interval is on one side of 0.
+- **Secondary metrics start collapsed.** The same read loads them, so opening them costs nothing.
+- **A launch less than 2 hours old shows the Watching card**, which reads results and exposures every 60 seconds.
+- **The conclusion card shows no author**, because the API stores none.
+  What shipped comes from the flag: the variant at 100% of the split, to all users when the first release condition is 100% without filters.
+- **Drafts are read-only.**
+
+### Experiment actions
+
+- **One finish sheet with two presets**, because the web has one End experiment modal.
+  Ship picks the leader, the experiment population and Won. End picks no variant and the suggested conclusion.
+  With a variant the app calls `ship_variant/`, and without one it calls `end/`.
+- **The sheet copies the web's modal**: the same words and the same disabled reasons in the same order.
+  "Roll out to all users" has no second confirmation, as on the web.
+- **"Leading" marks only a variant that is ahead in the good direction**, so the tag never recommends a worse variant.
+- **Launch, ship and end wait for the server**, and a 409 means nothing changed.
+  Pause, resume, archive and the conclusion edit change the screen at once and roll back on an error.
+  A ship or an end has no Undo, because the flag changed.
+- **A 409 on ship or launch shows "Needs approval".** The detail shows "Waiting for approval" for the rest of the session, because no read in the app's scopes lists change requests.
+  A 409 on pause or resume shows a toast.
+- **The cleanup target loads when the sheet opens**, as on the web. The cleanup row hides without `task:write`.
+- **Rare actions are in More and confirm in a sheet:** Pause and Resume while live, and Edit conclusion and Archive after the end.
+- **Toasts fit one line.** "· cleanup PR started" shows only when the response has `flag_cleanup_task_id`.

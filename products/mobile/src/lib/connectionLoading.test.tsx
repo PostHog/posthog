@@ -6,6 +6,7 @@ import { AppState } from 'react-native'
 import { setAuthProvider } from '@/api/client'
 import { useAuthStore } from '@/auth/authStore'
 import { useChatList } from '@/features/chats/hooks'
+import { useExperiment, useExperimentsList } from '@/features/experiments/hooks'
 import { useInboxItems } from '@/features/inbox/hooks'
 import { useReport } from '@/features/report/hooks'
 import { useBrowseDashboards } from '@/features/views/browseHooks'
@@ -90,6 +91,8 @@ describe('paused reads without cached data', () => {
 
     test.each<[string, () => QueryState<unknown>]>([
         ['inbox', () => useInboxItems()],
+        ['experiment', () => useExperiment('7')],
+        ['experiments list', () => useExperimentsList('running', '')],
         ['chats', () => useChatList()],
         ['report', () => useReport('offline-report')],
         ['pinned views', () => usePins().pins],

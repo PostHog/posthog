@@ -16,6 +16,7 @@ const NAV_LIST_PATHS: Record<NavPin, string> = {
     replay: '/replay/home',
     web_analytics: '/web',
     live: '/web/live',
+    experiments: '/experiments',
 }
 
 /** The web page of a list that can sit in the navigation. */

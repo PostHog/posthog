@@ -29,8 +29,9 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
 import { demoExperimentsSource } from '@/demo/experiments'
 import { reportScopeError, useFeatureAccess, type ViewsAccess } from '@/features/views/useViewsAccess'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 
 import { trackExperimentsRefreshed } from './analytics'
@@ -90,11 +91,13 @@ export async function readExperiments<T>(load: () => Promise<T>): Promise<T> {
     }
 }
 
-function stateOf<T>(query: UseQueryResult<T, unknown>): QueryState<T> {
+function stateOf<T>(query: UseQueryResult<T, unknown>, offline: boolean): QueryState<T> {
     if (query.data !== undefined) {
         return successQuery(query.data, { isRefetching: query.isRefetching, refetch: query.refetch })
     }
-    return query.isError ? errorQuery(toError(query.error), query.refetch) : loadingQuery()
+    return query.isError
+        ? errorQuery(toError(query.error), query.refetch)
+        : connectionLoadingQuery(offline, query.refetch)
 }
 
 /** Lets a fixed number of reads run at once and queues the rest in call order. */
@@ -143,7 +146,8 @@ export function useExperiment(id: string): QueryState<ExperimentApi> {
         staleTime: EXPERIMENT_STALE_MS,
         retry: retryUnlessMissing,
     })
-    return stateOf(query)
+    const offline = useConnectivity((state) => state.status === 'offline')
+    return stateOf(query, offline)
 }
 
 /** The stored results. `null` data means the experiment has none yet. Never starts a recalculation. */
@@ -156,7 +160,8 @@ export function useLatestResults(id: string): QueryState<ExperimentResultsRunApi
         staleTime: EXPERIMENT_STALE_MS,
         retry: retryUnlessMissing,
     })
-    return stateOf(query)
+    const offline = useConnectivity((state) => state.status === 'offline')
+    return stateOf(query, offline)
 }
 
 /**
@@ -369,6 +374,7 @@ export function useExperimentsList(
     visibleIds: readonly string[] = []
 ): ExperimentsListState {
     const { scope, dataScope, ready, source } = useExperimentsContext()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const queryClient = useQueryClient()
     const baseInput = useMemo<ExperimentsListInput>(() => ({ status: segment }), [segment])
     const base = useInfiniteQuery(listInfiniteOptions(scope, baseInput, source, ready))
@@ -501,8 +507,8 @@ export function useExperimentsList(
     return {
         data: rows,
         isLoading: active.isLoading,
-        isError: active.isError && !active.data,
-        error: active.error ? toError(active.error) : null,
+        isError: (active.isError || offline) && !active.data,
+        error: active.error ? toError(active.error) : offline ? connectionLoadingQuery(true).error : null,
         isRefetching: active.isRefetching && !isFetchingNextPage,
         refetch,
         updatedAt,

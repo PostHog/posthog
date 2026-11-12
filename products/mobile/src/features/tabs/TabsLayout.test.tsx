@@ -222,6 +222,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
                     replay: null,
                     web_analytics: null,
                     live: null,
+                    experiments: null,
                 },
             })
             await renderRouter(

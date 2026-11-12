@@ -1,12 +1,14 @@
 import { OBJECT_KIND_DATA } from './objectKinds.generated'
 
 // The item types the web's context block uses for these objects: the issue scene attaches `error_tracking_issue`
-// (`ErrorTrackingIssueScene.tsx`), and the replay player attaches `session_recording` (`debugReplayPrompt.ts`). The
-// agent reads the same item lines from a phone message as from a web one.
+// (`ErrorTrackingIssueScene.tsx`), the replay player attaches `session_recording` (`debugReplayPrompt.ts`), and the
+// experiment page attaches `experiment` (`SummarizeExperimentButton.tsx`). The agent reads the same item lines from a
+// phone message as from a web one.
 export const ISSUE_OBJECT_TYPE = 'error_tracking_issue'
 export const RECORDING_OBJECT_TYPE = 'session_recording'
+export const EXPERIMENT_OBJECT_TYPE = 'experiment'
 
-export type ChatObjectType = typeof ISSUE_OBJECT_TYPE | typeof RECORDING_OBJECT_TYPE
+export type ChatObjectType = typeof ISSUE_OBJECT_TYPE | typeof RECORDING_OBJECT_TYPE | typeof EXPERIMENT_OBJECT_TYPE
 
 export interface ChatObjectContext {
     type: ChatObjectType
@@ -17,6 +19,7 @@ export interface ChatObjectContext {
 const FALLBACK_LABELS: Record<ChatObjectType, string> = {
     [ISSUE_OBJECT_TYPE]: OBJECT_KIND_DATA.error.kindLabel,
     [RECORDING_OBJECT_TYPE]: OBJECT_KIND_DATA.replay.kindLabel,
+    [EXPERIMENT_OBJECT_TYPE]: OBJECT_KIND_DATA.experiment.kindLabel,
 }
 
 // Build-time strings only: they go in the trusted block, so the id and the label never enter them. The recording
@@ -31,10 +34,15 @@ const OBJECT_INSTRUCTIONS: Record<ChatObjectType, string> = {
         'session ID of that recording, and "this replay" or "this recording" means that session. Load the ' +
         'investigating-replay skill and fetch the recording with session-recording-get. Do not ask the user for the ' +
         'session ID.',
+    [EXPERIMENT_OBJECT_TYPE]:
+        "The user has an experiment open in the PostHog mobile app. The experiment item's key is the ID of that " +
+        'experiment, and "this experiment" means that experiment. Read its latest results with ' +
+        'experiment-results-get, and load the diagnosing-experiment-health skill for questions about its health. Do ' +
+        'not ask the user for the experiment ID.',
 }
 
 function isObjectType(value: string | undefined): value is ChatObjectType {
-    return value === ISSUE_OBJECT_TYPE || value === RECORDING_OBJECT_TYPE
+    return value === ISSUE_OBJECT_TYPE || value === RECORDING_OBJECT_TYPE || value === EXPERIMENT_OBJECT_TYPE
 }
 
 export function objectContextFromParams(params: {
