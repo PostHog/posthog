@@ -400,10 +400,7 @@ export class SymbolSetClient {
                 primaryTransportErrors = 0
             }
             if (!response.ok) {
-                throw new HogError(
-                    'upload_failed',
-                    `Object storage answered ${response.status}: ${await response.text()}`
-                )
+                throw new HogError('upload_failed', await storageFailure(response, target))
             }
             if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
@@ -440,6 +437,26 @@ export class SymbolSetClient {
             skipRateLimit: true,
         })
     }
+}
+
+// A presigned URL carries temporary storage credentials in its query, and S3 can echo them back in
+// an error's Message or CanonicalRequest. The failure keeps only the path, the Code and the RequestId.
+async function storageFailure(response: Response, target: Target): Promise<string> {
+    const url = target.kind === 'put' ? target.url : target.form.url
+    const summary = storageErrorSummary(await response.text())
+    return `Object storage answered ${response.status} for ${withoutQuery(url)}${summary ? ` (${summary})` : ''}.`
+}
+
+function withoutQuery(url: string): string {
+    return url.split(/[?#]/, 1)[0]!
+}
+
+function storageErrorSummary(body: string): string | undefined {
+    const fields = ['Code', 'RequestId'].flatMap((name) => {
+        const value = body.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1]
+        return value === undefined ? [] : [`${name}=${value}`]
+    })
+    return fields.length > 0 ? fields.join(' ') : undefined
 }
 
 function describe(error: unknown): string {

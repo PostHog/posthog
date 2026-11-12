@@ -19,6 +19,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
@@ -1234,3 +1235,60 @@ class BaseMergeProofTests(SimpleTestCase):
             assert self._proven(self.base, head, master) is False
         else:
             assert self._proven(approved, head, self.base) is False
+
+
+def _fingerprint_context() -> dict:
+    return {
+        "pr": {
+            "number": 7,
+            "title": "feat: add a helper",
+            "updated_at": "2026-11-09T10:00:00Z",
+            "mergeable_state": "blocked",
+            "labels": [{"name": "backend"}],
+            "base": {"ref": "master", "sha": "base1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+            "head": {"ref": "feat/x", "sha": "head1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+        },
+        "discussion": [{"user": {"login": "maintainer"}, "body": "Looks fine.", "reactions": {"+1": 0}}],
+        "check_runs": [{"name": "Migration risk", "status": "completed", "conclusion": "success"}],
+        "pr_reactions": [],
+    }
+
+
+class TestDecisionFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("trigger_label_added", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("routing_fork_label_added", lambda c: c["pr"]["labels"].append({"name": "needs-devex"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="2026-11-09T11:00:00Z"), True),
+            ("repo_pushed_to", lambda c: c["pr"]["base"]["repo"].update(pushed_at="t2"), True),
+            ("checks_went_red", lambda c: c["pr"].update(mergeable_state="unstable"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("human_reacted", lambda c: c["pr_reactions"].append({"user": "someone", "content": "rocket"}), True),
+            ("other_check_ran", lambda c: c["check_runs"].append({"name": "Lint", "status": "completed"}), True),
+            ("merge_conflict", lambda c: c["pr"].update(mergeable_state="dirty"), False),
+            ("other_label_added", lambda c: c["pr"]["labels"].append({"name": "hotfix"}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("migration_check_rerun", lambda c: c["check_runs"][0].update(conclusion="failure"), False),
+            (
+                "reviewer_bot_reacted",
+                lambda c: c["pr_reactions"].append({"user": "greptile-apps[bot]", "content": "eyes"}),
+                False,
+            ),
+            ("engine_deployed", lambda c: c.update(engine_digest="engine2"), False),
+        ]
+    )
+    def test_only_decision_inputs_move_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return decision_fingerprint(
+                context,
+                head_sha="head1",
+                ignored_labels={"stamphog", "needs-devex"},
+                engine_digest=context.get("engine_digest", "engine1"),
+            )
+
+        context = _fingerprint_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same

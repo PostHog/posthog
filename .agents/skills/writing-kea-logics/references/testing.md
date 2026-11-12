@@ -39,7 +39,8 @@ describe('fooLogic', () => {
   `organizationLogic`). Pass `mountCommonLogic = false` only if your test needs to
   control those manually.
 - `useMocks(...)` (in `frontend/src/mocks/jest.ts`) is the MSW handler registration. The
-  matcher supports path parameters and HTTP methods. Unhandled requests log a warning.
+  matcher supports path parameters and HTTP methods. Unhandled requests are silent and
+  get an empty paginated `{ results: [] }`, so count requests in a handler you register.
 - `ReturnType<typeof fooLogic.build>` is the conventional way to type the local variable
   for both keyed and unkeyed logics.
 
@@ -63,10 +64,28 @@ await expectLogic(logic, () => {
     fooLoading: false,
   })
 
-// Assert an action did NOT fire
+// Assert a no-op: no request reached the MSW fake and the values did not change
+let requests = 0
+useMocks({
+  get: {
+    '/api/projects/:team_id/foos/': () => {
+      requests += 1
+      return [200, { results: [] }]
+    },
+  },
+})
+// A real change first, so the counter is proven to watch the path the logic calls
 await expectLogic(logic, () => {
-  logic.actions.setQuery(logic.values.query) // same value, should be a no-op
-}).toNotHaveDispatchedActions(['loadResults'])
+  logic.actions.setQuery('hello')
+}).toFinishAllListeners()
+expect(requests).toBe(1)
+const { results } = logic.values
+await expectLogic(logic, () => {
+  logic.actions.setQuery('hello') // same value, should be a no-op
+})
+  .toFinishAllListeners()
+  .toMatchValues({ results })
+expect(requests).toBe(1)
 
 // Router-driven action
 import { router } from 'kea-router'
@@ -124,18 +143,18 @@ describe.each([
 })
 ```
 
-## Mocking non-HTTP async work
+## Loaders behind a helper
 
-For loaders backed by code that isn't an HTTP call (e.g. `performQuery`,
-`api.foos.bar` helpers that wrap multiple calls), use `jest.mock` at the top of the
-file — jest hoists these above imports:
+Helpers such as `performQuery`, or an `api.foos.bar` helper that wraps several calls, still end in HTTP requests.
+Serve those requests from MSW with the response shape the endpoint returns.
+Don't `jest.mock` the helper: the test then skips the request the logic builds, so it passes when that request is wrong.
 
 ```ts
-jest.mock('~/queries/query', () => ({
-  __esModule: true,
-  ...jest.requireActual('~/queries/query'),
-  performQuery: jest.fn().mockResolvedValue({ result: [] }),
-}))
+useMocks({
+  post: {
+    '/api/projects/:team_id/query/:kind': () => [200, { results: [['2026-01-01', 3]], columns: ['day', 'count'] }],
+  },
+})
 ```
 
 ## Intentional loader failures

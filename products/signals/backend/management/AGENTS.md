@@ -344,6 +344,10 @@ A build with no ready activity summary, or for an organization that has not appr
 When a limit refuses a build, the read serves the latest row as stale, or the candidates in inbox order with `fallback_reason: rate_limited`.
 The scheduled tick spends from the same bucket.
 
+When the activity summary tick stores a person's first summary and the person has no list, it queues the same Celery task with `trigger: first_summary`, so the first list does not wait for the personal ranking tick.
+That build takes the per-person lock, needs `"enabled"` in the payload, and runs only when it calls the model, so it also needs candidates and AI approval, and it spends the shared `max_builds_per_day`.
+It does not need tick enrollment. A build that a gate refuses leaves the pair to the tick.
+
 ### Scheduled personal ranking tick
 
 `personal-inbox-ranking-tick` (`../personal_ranking/tick.py`) is a Temporal schedule on `SELF_DRIVING_TASK_QUEUE` with overlap `SKIP`.
@@ -380,7 +384,7 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 
 Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
 It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
-`personal inbox ranking built` and the model call's trace carry `trigger` (`tick` or `on_demand`), so cost can be split by what started a build.
+`personal inbox ranking built` and the model call's trace carry `trigger` (`tick`, `on_demand` or `first_summary`), so cost can be split by what started a build.
 
 `due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.
 A healthy tick reads `oldest_due_hours` a little above `target_interval_minutes`, and one old list that just became due makes it spike, so do not alert on it.

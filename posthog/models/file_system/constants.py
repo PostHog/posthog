@@ -12,7 +12,10 @@ if TYPE_CHECKING:
 WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
 
 
-def workflows_list_v2_enabled(team: "Team", user: "User", *, only_evaluate_locally: bool = False) -> bool:
+# File reads evaluate the flag locally only, so that file navigation never waits on the flag service.
+# Only a create or restore into a requested folder may ask the service, so that its placement survives
+# when local evaluation cannot decide.
+def workflows_list_v2_enabled(team: "Team", user: "User", *, allow_remote_evaluation: bool = False) -> bool:
     # The browser shows the list from this flag, so the server must evaluate it with the identity the app sends.
     # Otherwise a project-targeted rollout shows the new list with counts and files from the old one.
     identity = flag_identity(user, team, team.organization)
@@ -24,7 +27,7 @@ def workflows_list_v2_enabled(team: "Team", user: "User", *, only_evaluate_local
         groups=identity.groups,
         person_properties=identity.person_properties,
         group_properties=identity.group_properties,
-        only_evaluate_locally=only_evaluate_locally,
+        only_evaluate_locally=not allow_remote_evaluation,
         send_feature_flag_events=False,
     )
 

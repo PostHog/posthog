@@ -1,12 +1,15 @@
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import QuerySet
 from django.http import JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -14,7 +17,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_token
+from posthog.api.utils import MAX_LISTED_IDS, get_token, parse_id_list
 from posthog.exceptions import generate_exception_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -529,6 +532,27 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     queryset = EarlyAccessFeature.objects.select_related(
         "feature_flag", "created_by", "assigned_user", "assigned_role"
     ).all()
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            ids = parse_id_list(self.request.query_params.get("ids"), name="ids", parse=UUID)
+            if ids is not None:
+                queryset = queryset.filter(id__in=ids)
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=f"Comma-separated early access feature IDs, at most {MAX_LISTED_IDS}.",
+            )
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST":

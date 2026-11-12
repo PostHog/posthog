@@ -910,7 +910,7 @@ export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Return the project's autoresearch limits and how much of each it is using: sandbox training runs in the last 24 hours against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
+ * Return the project's autoresearch limits and how much of each it is using: sandbox training runs against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
  * @summary Read the project's limits
  */
 export const autoresearchLimitsRetrieve = async (

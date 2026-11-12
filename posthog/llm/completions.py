@@ -13,6 +13,8 @@ from posthoganalytics.ai.openai import OpenAI
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 
+REASONING_MODEL_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
 
 @cache
 def _get_openai_client() -> Optional[OpenAI]:
@@ -43,6 +45,11 @@ def hit_openai(
         optional_params["timeout"] = timeout
     if response_format is not None:
         optional_params["response_format"] = response_format
+    # A reasoning model left at its default effort is several times slower than the gpt-4.1
+    # default these callers were written for. OPENAI_MODEL can name a non-reasoning model or a
+    # deployment alias, which rejects the parameter, so it is only sent for known families.
+    if settings.OPENAI_MODEL.startswith(REASONING_MODEL_PREFIXES) and "chat" not in settings.OPENAI_MODEL:
+        optional_params["reasoning_effort"] = "low"
 
     if resolve_ai_gateway_config() is not None:
         properties = posthog_properties or {}
@@ -55,7 +62,6 @@ def hit_openai(
         with gateway_client:
             result = gateway_client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                temperature=0,
                 messages=messages,
                 user=user,
                 **optional_params,
@@ -68,7 +74,6 @@ def hit_openai(
 
     result = openai_client.chat.completions.create(
         model=settings.OPENAI_MODEL,
-        temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
         posthog_distinct_id=distinct_id,

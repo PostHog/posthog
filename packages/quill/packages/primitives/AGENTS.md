@@ -22,6 +22,10 @@ function App() {
 
 For RTL apps, wrap with `DirectionProvider` (re-exported from Base UI) — directional pieces (Collapsible chevrons, menu alignment) read it via `useDirection`.
 
+Every workspace package that imports a quill package lists that exact package in its own `package.json` `dependencies`, for example `"@posthog/quill": "workspace:*"` in `products/<name>/package.json`.
+pnpm links only the packages a workspace declares, so an undeclared import fails in Vite with `Failed to resolve import`, even when another quill package is declared there.
+Run `pnpm install` after you add one, and commit the `pnpm-lock.yaml` change with it.
+
 ---
 
 ## The `render` prop
@@ -323,6 +327,21 @@ Grouped fields with fieldset:
     </InputGroupButton>
   </InputGroupAddon>
 </InputGroup>
+```
+
+`InputGroupInput`'s `placeholder` also takes a node, for a hint with markup or motion that a native placeholder can't hold.
+The node covers the input's own box with the input's padding, so it starts where the caret sits whatever the addons do, and hides once the input has a value.
+It is visual only, so give the input an `aria-label`.
+
+```tsx
+<InputGroupInput
+  aria-label="Search"
+  placeholder={
+    <>
+      Search… try <span className="font-medium">is:dashboard</span>
+    </>
+  }
+/>
 ```
 
 ### Checkbox / Switch
@@ -1311,6 +1330,27 @@ Live text: a highlight sweeping a line to say work is still in flight. Put it on
 - **Text only.** `background-clip: text` can't reach an SVG stroke, so an icon needs its own treatment.
 - **Retune** with `--quill-shimmer-base` / `--quill-shimmer-highlight`; defaults read as muted brightening to full.
 - Reduced motion hands the color back rather than just stopping — otherwise the text would stay invisible.
+
+### `quill-scroll-fade`
+
+Edge fades for a scroller that keeps a visible scrollbar. Put it on the scrolling element.
+
+```tsx
+<div className="quill-scroll-fade overflow-y-auto [--quill-scroll-fade-top-offset:1.25rem]">{/* rows */}</div>
+```
+
+- **Use it instead of `scroll-mask-*` when the scrollbar shows.** A mask fades everything the scroller paints, its scrollbar included. These fades are sticky gradients inside the content box, which ends at the scrollbar.
+- **Tune** with `--quill-scroll-fade-size` (default `1rem`), `--quill-scroll-fade-top-offset` (start the top fade below a sticky header, so the header stays solid) and `--quill-scroll-fade-color` (default `--card`; it must match the scroller's background).
+- Each fade shows only while content is past its edge, driven by scroll-driven animations. Firefox and reduced motion get no fade, and the content scrolls normally.
+- It sets `scroll-padding-block` from the offset and size, so a row scrolled into view stops clear of the fades and the header. A `scroll-p*` utility overrides it.
+
+### `quill-fade-cycle`
+
+One cycle of a rotating example, such as the `is:` hint in a search placeholder: it fades and slides in over 250ms, holds, then fades out over 200ms (2.5s in all).
+
+- Rotate a list by remounting on `key` and moving to the next item in `onAnimationEnd`. Count cycles, not indexes, so returning to the first item still animates.
+- Add `quill-fade-cycle--settled` to the first item only: it shows at once instead of fading in each time its surface opens.
+- Reduced motion drops the animation, so `animationend` never fires and the first item stays. See the `AnimatedPlaceholder` story in Input.
 
 ### Inverted surface — `data-quill-inverted`
 
