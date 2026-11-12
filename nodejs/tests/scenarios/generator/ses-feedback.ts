@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
-import type { TruthPage, TruthRecord } from '../provider-edge'
+import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 
 export interface SesFeedback {
     settled(unitId: string, signal: AbortSignal): Promise<string | undefined>
@@ -18,9 +18,23 @@ export type SesFeedbackOptions = {
 
 const FEEDBACK_ANSWERED = 200
 
-export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500 }: SesFeedbackOptions): SesFeedback {
+async function truthHead(edgeUrl: string): Promise<number> {
+    const response = await internalFetch(`${edgeUrl}/_truth/head`)
+    const text = await response.text()
+    if (response.status !== 200) {
+        throw new Error(`The edge answered /_truth/head with ${response.status}: ${text}`)
+    }
+    return (parseJSON(text) as TruthHead).head
+}
+
+export async function watchSesFeedback({
+    edgeUrl,
+    lag,
+    withinMs = 60_000,
+    pollMs = 500,
+}: SesFeedbackOptions): Promise<SesFeedback> {
     const answers = new Map<string, Pick<TruthRecord, 'status' | 'detail'>>()
-    let cursor = 0
+    let cursor = await truthHead(edgeUrl)
     let reading: Promise<boolean> | undefined
     let readsDone = 0
 

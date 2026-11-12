@@ -305,7 +305,10 @@ export function createRunner(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
-                const sesFeedback = watchSesFeedback({ edgeUrl, lag: () => environment.groupLag(SES_WEBHOOKS_GROUP) })
+                const sesFeedback = await watchSesFeedback({
+                    edgeUrl,
+                    lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
+                })
                 const units = await drive(loaded, seeded, judge, signal, {
                     producer,
                     eventsTopic,

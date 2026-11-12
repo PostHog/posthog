@@ -14,12 +14,19 @@ function truthRecord(seq: number, record: Feedback): TruthRecord {
     return { seq, at: new Date(0).toISOString(), kind: 'ses.feedback', fault: 'ses.reject', ...record }
 }
 
-function startEdge(feedback: Feedback[] | 'never drained'): Promise<{ url: string; close(): Promise<void> }> {
+function startEdge(
+    feedback: Feedback[] | 'never drained',
+    recordedBeforeOpen = 0
+): Promise<{ url: string; close(): Promise<void> }> {
     const pageAfter = (after: number): TruthRecord[] =>
         feedback === 'never drained'
             ? [truthRecord(after + 1, { unitId: 'run-a-2', status: 200, detail: {} })]
             : feedback.map((record, i) => truthRecord(i + 1, record)).slice(after)
     const server = http.createServer((req, res) => {
+        if (req.url === '/_truth/head') {
+            res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ head: recordedBeforeOpen }))
+            return
+        }
         const after = Number(new URL(req.url!, 'http://edge').searchParams.get('after'))
         const page = pageAfter(after)
         res.writeHead(200, { 'content-type': 'application/json' }).end(
@@ -37,7 +44,7 @@ function startEdge(feedback: Feedback[] | 'never drained'): Promise<{ url: strin
 }
 
 describe('watchSesFeedback', () => {
-    it.each<[string, Feedback[], number[], string | undefined]>([
+    it.each<[string, Feedback[], number[], string | undefined, number?]>([
         [
             'settles once cdp-api answered 200 and the consumer caught up',
             [{ unitId: UNIT, status: 200, detail: {} }],
@@ -69,16 +76,23 @@ describe('watchSesFeedback', () => {
             'the edge recorded no SES feedback within 1s',
         ],
         [
+            'gives up when only feedback recorded before it opened names the unit',
+            [{ unitId: UNIT, status: 200, detail: {} }],
+            [0],
+            'the edge recorded no SES feedback within 1s',
+            1,
+        ],
+        [
             'gives up when the consumer stays behind',
             [{ unitId: UNIT, status: 200, detail: {} }],
             [4],
             'the SES webhooks consumer was 4 messages behind after 1s',
         ],
-    ])('%s', async (_story, feedback, lags, expected) => {
-        const edge = await startEdge(feedback)
+    ])('%s', async (_story, feedback, lags, expected, recordedBeforeOpen = 0) => {
+        const edge = await startEdge(feedback, recordedBeforeOpen)
         const lag = (): Promise<number> => Promise.resolve(lags.length > 1 ? lags.shift()! : lags[0])
         try {
-            const watch = watchSesFeedback({ edgeUrl: edge.url, lag, withinMs: 1000, pollMs: 5 })
+            const watch = await watchSesFeedback({ edgeUrl: edge.url, lag, withinMs: 1000, pollMs: 5 })
 
             expect(await watch.settled(UNIT, NEVER_ABORTED)).toBe(expected)
         } finally {
@@ -89,7 +103,7 @@ describe('watchSesFeedback', () => {
     it('gives up at the deadline while the edge keeps recording other units', async () => {
         const edge = await startEdge('never drained')
         try {
-            const watch = watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(0), withinMs: 50 })
+            const watch = await watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(0), withinMs: 50 })
 
             expect(await Promise.race([watch.settled(UNIT, NEVER_ABORTED), sleep(1000, 'still reading')])).toBe(
                 'the edge recorded no SES feedback within 0.05s'
@@ -104,7 +118,7 @@ describe('watchSesFeedback', () => {
         const edge = await startEdge(feedback)
         const consumerBehindOnSecondBounce = (): Promise<number> => Promise.resolve(feedback.length > 1 ? 4 : 0)
         try {
-            const watch = watchSesFeedback({
+            const watch = await watchSesFeedback({
                 edgeUrl: edge.url,
                 lag: consumerBehindOnSecondBounce,
                 withinMs: 200,
@@ -128,7 +142,7 @@ describe('watchSesFeedback', () => {
     ])('stops at an abort %s', async (_story, feedback) => {
         const edge = await startEdge(feedback)
         try {
-            const watch = watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(4), pollMs: 5 })
+            const watch = await watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(4), pollMs: 5 })
 
             await expect(
                 Promise.race([watch.settled(UNIT, AbortSignal.timeout(50)), sleep(1000, 'still waiting')])
