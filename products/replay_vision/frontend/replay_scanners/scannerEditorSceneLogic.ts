@@ -1,10 +1,8 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import { GuidedWizardStep } from 'lib/components/GuidedWizard/GuidedWizardStepper'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -14,36 +12,17 @@ import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 
 export type ScannerEditorStep = 'goal' | 'overview' | 'details' | 'configure' | 'triggers' | 'budget'
 // The manual wizard's stepper; overview belongs to the goal-based flow only, so it stays out.
-const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['goal', 'details', 'configure', 'triggers', 'budget']
-// The recordings-first experiment arm asks which recordings to watch before what to look for in them.
-const RECORDINGS_FIRST_SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
-    'goal',
-    'details',
-    'triggers',
-    'configure',
-    'budget',
-]
-
-export function scannerEditorSteps(recordingsFirst: boolean): readonly ScannerEditorStep[] {
-    return recordingsFirst ? RECORDINGS_FIRST_SCANNER_EDITOR_STEPS : SCANNER_EDITOR_STEPS
-}
+export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['goal', 'details', 'configure', 'triggers', 'budget']
 
 /** Position of every step, with the goal flow's overview between the goal and the manual steps. */
-export function scannerEditorStepOrder(recordingsFirst: boolean): Record<ScannerEditorStep, number> {
-    const [first, ...rest] = scannerEditorSteps(recordingsFirst)
-    return Object.fromEntries([first, 'overview', ...rest].map((step, index) => [step, index])) as Record<
-        ScannerEditorStep,
-        number
-    >
-}
+export const SCANNER_EDITOR_STEP_ORDER = Object.fromEntries(
+    [SCANNER_EDITOR_STEPS[0], 'overview', ...SCANNER_EDITOR_STEPS.slice(1)].map((step, index) => [step, index])
+) as Record<ScannerEditorStep, number>
 
 /** The step after `step` in the stepper, or null on the last step and on the overview, which is outside it. */
-export function nextScannerEditorStep(
-    step: ScannerEditorStep,
-    steps: readonly ScannerEditorStep[]
-): ScannerEditorStep | null {
-    const index = steps.indexOf(step)
-    return index === -1 ? null : (steps[index + 1] ?? null)
+export function nextScannerEditorStep(step: ScannerEditorStep): ScannerEditorStep | null {
+    const index = SCANNER_EDITOR_STEPS.indexOf(step)
+    return index === -1 ? null : (SCANNER_EDITOR_STEPS[index + 1] ?? null)
 }
 
 export const STEP_LABELS: Record<ScannerEditorStep, string> = {
@@ -54,26 +33,13 @@ export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     triggers: 'Recordings',
     budget: 'Budget',
 }
-const RECORDINGS_FIRST_STEP_LABELS: Record<ScannerEditorStep, string> = {
-    ...STEP_LABELS,
-    configure: 'Prompt & output',
-    triggers: 'Target recordings',
-    budget: 'Sampling & limits',
-}
 
-export function scannerStepLabels(recordingsFirst: boolean): Record<ScannerEditorStep, string> {
-    return recordingsFirst ? RECORDINGS_FIRST_STEP_LABELS : STEP_LABELS
-}
-
-export function scannerStepperSteps(recordingsFirst: boolean): GuidedWizardStep<ScannerEditorStep>[] {
-    const labels = scannerStepLabels(recordingsFirst)
-    return scannerEditorSteps(recordingsFirst).map((step) => ({
-        step,
-        label: labels[step],
-        // pinned: data-attr for autocapture, renaming breaks dashboards, so the goal step keeps its old name
-        dataAttr: `vision-editor-step-${step === 'goal' ? 'template' : step}`,
-    }))
-}
+export const SCANNER_STEPPER_STEPS: GuidedWizardStep<ScannerEditorStep>[] = SCANNER_EDITOR_STEPS.map((step) => ({
+    step,
+    label: STEP_LABELS[step],
+    // pinned: data-attr for autocapture, renaming breaks dashboards, so the goal step keeps its old name
+    dataAttr: `vision-editor-step-${step === 'goal' ? 'template' : step}`,
+}))
 
 export interface ScannerFieldErrors {
     scanner_config?: unknown
@@ -115,33 +81,14 @@ export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEdi
 }
 
 /** Earliest step rendering an errored field, so a failed submit lands where the user can fix it. */
-export function firstErroredScannerStep(
-    errors: ScannerFieldErrors,
-    steps: readonly ScannerEditorStep[] = SCANNER_EDITOR_STEPS
-): ScannerEditorStep | null {
+export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEditorStep | null {
     const stepErrors = scannerStepErrors(errors)
-    return steps.find((step) => stepErrors[step].length > 0) ?? null
+    return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step].length > 0) ?? null
 }
 
-/**
- * Whether Next can leave `step` without running whole-form validation. In the recordings-first arm the
- * required prompt comes after the recordings step, so only this step's and earlier steps' fields may hold it back.
- */
-export function advancesWithoutSubmit(
-    step: ScannerEditorStep,
-    recordingsFirst: boolean,
-    errors: ScannerFieldErrors
-): boolean {
-    if (!recordingsFirst) {
-        return UNVALIDATED_SCANNER_STEPS.includes(step)
-    }
-    const steps = scannerEditorSteps(true)
-    const index = steps.indexOf(step)
-    if (index === -1 || index === steps.length - 1) {
-        return false
-    }
-    const stepErrors = scannerStepErrors(errors)
-    return steps.slice(0, index + 1).every((s) => stepErrors[s].length === 0)
+/** Whether Next can leave `step` without running whole-form validation. */
+export function advancesWithoutSubmit(step: ScannerEditorStep): boolean {
+    return UNVALIDATED_SCANNER_STEPS.includes(step)
 }
 
 /**
@@ -196,7 +143,7 @@ interface RouterPayload {
 
 const LEAVE_EDITOR_POPSTATE_TIMEOUT_MS = 10000
 
-// The goal flow's overview sits outside the manual stepper. Membership only, so either arm's order works.
+// The goal flow's overview sits outside the manual stepper.
 const EDITOR_PATH_SEGMENTS = new Set<string>([...SCANNER_EDITOR_STEPS, 'overview'])
 
 export function isScannerEditorPath(pathname: string): boolean {
@@ -237,15 +184,10 @@ function trackEditorHistory(
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scannerEditorSceneLogicValues {
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     breadcrumbs: Breadcrumb[]
     isNew: boolean
-    recordingsFirst: boolean
     scannerId: string
     step: ScannerEditorStep
-    stepLabels: Record<ScannerEditorStep, string>
-    stepperSteps: GuidedWizardStep<ScannerEditorStep>[]
-    steps: readonly ScannerEditorStep[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -265,15 +207,10 @@ export interface scannerEditorSceneLogicActions {
 export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
-        recordingsFirst: (isNew: boolean, featureFlags: FeatureFlagsSet) => boolean
-        steps: (recordingsFirst: boolean) => readonly ScannerEditorStep[]
-        stepLabels: (recordingsFirst: boolean) => Record<ScannerEditorStep, string>
-        stepperSteps: (recordingsFirst: boolean) => GuidedWizardStep<ScannerEditorStep>[]
         breadcrumbs: (
             scannerId: string,
             isNew: boolean,
             step: ScannerEditorStep,
-            stepLabels: Record<ScannerEditorStep, string>,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
     }
@@ -315,10 +252,6 @@ export type scannerEditorSceneLogicType = MakeLogicType<
 export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerEditorSceneLogic']),
 
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
-
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
         setStep: (step: ScannerEditorStep) => ({ step }),
@@ -342,31 +275,12 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
 
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
-        // Creation only, so the experiment exposes people who start a scanner rather than everyone who edits one.
-        recordingsFirst: [
-            (s) => [s.isNew, s.featureFlags],
-            (isNew: boolean, featureFlags: FeatureFlagsSet): boolean =>
-                isNew && featureFlags[FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST] === 'test',
-        ],
-        steps: [
-            (s) => [s.recordingsFirst],
-            (recordingsFirst: boolean): readonly ScannerEditorStep[] => scannerEditorSteps(recordingsFirst),
-        ],
-        stepLabels: [
-            (s) => [s.recordingsFirst],
-            (recordingsFirst: boolean): Record<ScannerEditorStep, string> => scannerStepLabels(recordingsFirst),
-        ],
-        stepperSteps: [
-            (s) => [s.recordingsFirst],
-            (recordingsFirst: boolean): GuidedWizardStep<ScannerEditorStep>[] => scannerStepperSteps(recordingsFirst),
-        ],
         breadcrumbs: [
-            (s) => [s.scannerId, s.isNew, s.step, s.stepLabels, router.selectors.searchParams],
+            (s) => [s.scannerId, s.isNew, s.step, router.selectors.searchParams],
             (
                 scannerId: string,
                 isNew: boolean,
                 step: ScannerEditorStep,
-                stepLabels: Record<ScannerEditorStep, string>,
                 searchParams: Record<string, any>
             ): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
@@ -385,11 +299,11 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                             const { from: _from, ...overviewParams } = searchParams
                             crumbs.push({
                                 key: 'new-scanner-overview',
-                                name: stepLabels.overview,
+                                name: STEP_LABELS.overview,
                                 path: scannerStepUrlWithParams('overview', scannerId, overviewParams),
                             })
                         }
-                        crumbs.push({ key: 'new-scanner-step', name: stepLabels[step] })
+                        crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
                     }
                     return crumbs
                 }
