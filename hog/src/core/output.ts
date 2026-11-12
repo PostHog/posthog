@@ -2,7 +2,7 @@ import Table from 'cli-table3'
 import { styleText } from 'node:util'
 
 import type { Mode } from './agent'
-import type { HogError } from './errors'
+import { type HogError, SERVER_DETAIL_HIDDEN, withServerDetail } from './errors'
 import type { Runtime } from './runtime'
 
 export type Style = 'bold' | 'dim' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan'
@@ -115,16 +115,29 @@ export class Output {
     }
 
     error(error: HogError): void {
+        const { message, hint } = printedFailure(error, this.mode.isCI)
         if (this.mode.format === 'json') {
-            const payload = { error: { ...error.details, code: error.code, message: error.message, hint: error.hint } }
+            const payload = { error: { ...error.details, code: error.code, message, hint } }
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
             return
         }
-        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(error.message)}\n`)
-        if (error.hint) {
-            this.runtime.writeStderr(`${this.style(escapeControls(error.hint), 'dim')}\n`)
+        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(message)}\n`)
+        if (hint) {
+            this.runtime.writeStderr(`${this.style(escapeControls(hint), 'dim')}\n`)
         }
     }
+}
+
+// PostHog's reason is useful at a terminal, but it can repeat values from the request, and CI logs
+// are often public. In CI the reason is left out and the hint says where to see it.
+function printedFailure(error: HogError, isCI: boolean): { message: string; hint: string | undefined } {
+    if (error.serverDetail === undefined) {
+        return { message: error.message, hint: error.hint }
+    }
+    if (isCI) {
+        return { message: error.message, hint: [error.hint, SERVER_DETAIL_HIDDEN].filter(Boolean).join(' ') }
+    }
+    return { message: withServerDetail(error.message, error.serverDetail), hint: error.hint }
 }
 
 // posthog-cli prints JSON through serde_json without `preserve_order`, so object keys come

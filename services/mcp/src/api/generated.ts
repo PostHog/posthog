@@ -1431,7 +1431,6 @@ export namespace Schemas {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1560,7 +1559,6 @@ export namespace Schemas {
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
       User: 'user',
-      UserInterview: 'user_interview',
       VisionAction: 'vision_action',
       VisionAlert: 'vision_alert',
       VisualReview: 'visual_review',
@@ -1689,7 +1687,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -1941,7 +1938,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -2362,7 +2358,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -16128,6 +16123,70 @@ export namespace Schemas {
          * @nullable
          */
       delete_verified_at: string | null;
+    }
+
+    export interface AttachmentUploadFile {
+      /**
+         * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      sha256: string;
+      /**
+         * Size of the file in bytes.
+         * @minimum 1
+         */
+      size: number;
+    }
+
+    /**
+     * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+     */
+    export type AttachmentUploadSlotHeaders = {[key: string]: string};
+
+    /**
+     * * `present` - Present
+     * * `upload` - Upload
+     */
+    export type AttachmentUploadStatusEnum = typeof AttachmentUploadStatusEnum[keyof typeof AttachmentUploadStatusEnum];
+
+
+    export const AttachmentUploadStatusEnum = {
+      Present: 'present',
+      Upload: 'upload',
+    } as const;
+
+    export interface AttachmentUploadSlot {
+      /** SHA-256 of the file, as sent. */
+      sha256: string;
+      /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+       *
+       * * `present` - Present
+       * * `upload` - Upload */
+      status: AttachmentUploadStatusEnum;
+      /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+      expires_at?: string;
+      /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+      url?: string;
+      /** For an `upload` file: the HTTP method, `PUT`. */
+      method?: string;
+      /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+      headers?: AttachmentUploadSlotHeaders;
+      /** For an `upload` file: when `url` stops accepting the upload. */
+      url_expires_at?: string;
+    }
+
+    export interface AttachmentUploadsRequest {
+      /**
+         * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+         * @minItems 1
+         * @maxItems 10
+         */
+      files: AttachmentUploadFile[];
+    }
+
+    export interface AttachmentUploadsResponse {
+      /** One answer per requested file, in request order. */
+      files: AttachmentUploadSlot[];
     }
 
     export interface Author {
@@ -38902,12 +38961,15 @@ export namespace Schemas {
 
     export interface EmailAttachment {
       /**
+         * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      sha256: string;
+      /**
          * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
          * @maxLength 255
          */
       filename: string;
-      /** The file's bytes as standard base64, without line breaks. */
-      content: string;
       /**
          * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
          * @maxLength 78
@@ -69056,7 +69118,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -76685,7 +76746,7 @@ export namespace Schemas {
      * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
      *
      * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
-     * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+     * repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
      * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
      * access must not read. Only the terminal decision is exposed.
      */
@@ -110176,7 +110237,7 @@ export namespace Schemas {
       /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
       bcc?: string | string[] | null;
       /**
-         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
          * @maxItems 10
          * @nullable
          */
@@ -118927,6 +118988,49 @@ export namespace Schemas {
       content: TraceNodeContent;
     }
 
+    export type TraceParserTestErrorSourceEnum = typeof TraceParserTestErrorSourceEnum[keyof typeof TraceParserTestErrorSourceEnum];
+
+
+    export const TraceParserTestErrorSourceEnum = {
+      ExistingRecipes: 'existing_recipes',
+      Candidate: 'candidate',
+    } as const;
+
+    export interface TraceParserTestError {
+      /** Whose parsers failed on the side: the project's saved ones, so the side fails with or without the parser under test, or the parser under test. */
+      source: TraceParserTestErrorSourceEnum;
+      /** Why the parsers stopped, such as running out of time or work budget. */
+      message: string;
+    }
+
+    export interface TraceParserTestSide {
+      /** The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON or as one message holding its JSON. */
+      neededFixing: boolean;
+      /** The side needed fixing, and the parser under test makes it recognized. */
+      fixed: boolean;
+      /** The project's saved parsers parse the side, and with the parser under test added it is no longer parsed, for example because the parser uses up the time the side needed. */
+      broken: boolean;
+      /** Set when parsing the side failed instead of finishing. */
+      error: TraceParserTestError | null;
+    }
+
+    export interface TraceNodeParserTest {
+      /** The node's input and output as they would render with the parser under test saved. */
+      content: TraceNodeContent;
+      input: TraceParserTestSide;
+      output: TraceParserTestSide;
+      /** At least one side needed fixing, the parser under test fixes every side that did, and it breaks no side. Nothing is saved either way. */
+      passed: boolean;
+    }
+
+    export interface TraceNodeParserTestRequest {
+      /**
+         * The parser recipe to test, as raw YAML in the custom parser DSL.
+         * @maxLength 100000
+         */
+      source: string;
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -124471,7 +124575,7 @@ export namespace Schemas {
          * @nullable
          */
       promql?: string | null;
-      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo. */
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
@@ -128385,6 +128489,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint: string;
+    };
+
+    export type AiObservabilityTracesNodesParserTestCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
     };
 
     export type AiObservabilityTracesNodesRawRetrieveParams = {
@@ -138294,7 +138405,31 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
+     *
+     * * `logs` - Logs
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
+     * * `traces` - Traces
+     * @minLength 1
+     */
+    source_kind?: PlatformAlertsListSourceKind;
     };
+
+    export type PlatformAlertsListSourceKind = typeof PlatformAlertsListSourceKind[keyof typeof PlatformAlertsListSourceKind];
+
+
+    export const PlatformAlertsListSourceKind = {
+      Logs: 'logs',
+      Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
+      Traces: 'traces',
+    } as const;
 
     export type PluginConfigsLogsListParams = {
     /**
