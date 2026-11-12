@@ -34,6 +34,8 @@ export async function runtimeRoleRefusal(pool: Pool, config: DatabaseConfig): Pr
     // partition tree is checked, including column-level UPDATE grants. MEMBER, unlike USAGE, also
     // counts a NOINHERIT membership, which still allows SET ROLE to the owner. The owner of a schema
     // can drop it with every table in it, so owning the schema of any audit table counts as owning it.
+    // The export marks rows through its one grant on `exported_at`, so that column is the only one that
+    // may be updatable.
     const result = await pool.query<{ owns: boolean; can_modify: boolean }>(
         `WITH tree AS (
             SELECT relid FROM pg_partition_tree(to_regclass('audit_log'))
@@ -48,7 +50,11 @@ export async function runtimeRoleRefusal(pool: Pool, config: DatabaseConfig): Pr
                 has_table_privilege(t.relid, 'DELETE')
                 OR has_table_privilege(t.relid, 'UPDATE')
                 OR has_table_privilege(t.relid, 'TRUNCATE')
-                OR has_any_column_privilege(t.relid, 'UPDATE')
+                OR EXISTS (
+                    SELECT 1 FROM pg_attribute a
+                    WHERE a.attrelid = t.relid AND a.attnum > 0 AND NOT a.attisdropped
+                      AND a.attname <> 'exported_at'
+                      AND has_column_privilege(t.relid, a.attnum, 'UPDATE'))
             ), false) AS can_modify
         FROM tree t
         JOIN pg_class c ON c.oid = t.relid

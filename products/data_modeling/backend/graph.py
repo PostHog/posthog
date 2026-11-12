@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.db.models import Q
 
+from products.data_modeling.backend.facade.contracts import NodeLineageCounts
 from products.data_modeling.backend.logic.graph_traversal import reachable
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
@@ -79,13 +80,15 @@ class Graph:
     def get_downstream_count(self, node_id: str | UUID) -> int:
         return len(self.get_downstream(node_id))
 
-    def batch_counts(self, node_ids: list[str]) -> dict[str, tuple[int, int]]:
-        """Compute (upstream_count, downstream_count) for a batch of nodes.
 
-        Returns a dict of node_id -> (upstream_count, downstream_count).
-        """
-        result: dict[str, tuple[int, int]] = {}
-        for nid in node_ids:
-            key = str(nid)
-            result[key] = (self.get_upstream_count(key), self.get_downstream_count(key))
-        return result
+def node_lineage_counts(
+    team_id: int, node_ids: list[str], hidden_types: frozenset[str] = frozenset()
+) -> dict[str, NodeLineageCounts]:
+    """The upstream and downstream count of each node, from one load of the team's edges."""
+    graph = Graph(team_id=team_id, hidden_types=hidden_types)
+    return {
+        node_id: NodeLineageCounts(
+            upstream=graph.get_upstream_count(node_id), downstream=graph.get_downstream_count(node_id)
+        )
+        for node_id in node_ids
+    }

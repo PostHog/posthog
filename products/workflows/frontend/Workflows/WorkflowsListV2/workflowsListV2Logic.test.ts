@@ -969,7 +969,12 @@ describe('workflowsListV2Logic', () => {
             'a Customer.io import',
             () => {
                 customerioImportLogic.mount()
-                customerioImportLogic.actions.runImportSuccess({ content_fetched: true, dryRun: false, results: [] })
+                customerioImportLogic.actions.runImportSuccess({
+                    content_fetched: true,
+                    dryRun: false,
+                    results: [],
+                    segment_cohorts: [],
+                })
             },
         ],
     ])('shows a new workflow from %s that only the server search matches', async (_, create) => {

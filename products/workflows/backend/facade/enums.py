@@ -91,6 +91,13 @@ class WorkflowImportStatus(LabeledStrEnum):
     FAILED = "failed", "Failed"
 
 
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"

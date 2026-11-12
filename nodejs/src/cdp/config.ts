@@ -63,7 +63,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
     CDP_CYCLOTRON_BOUNDED_POLLS: boolean
+    CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -186,6 +188,8 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: string
+    SES_SANDBOX_FROM_ADDRESS: string
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -209,6 +213,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -346,7 +351,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
         CDP_CYCLOTRON_BOUNDED_POLLS: false,
+        CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
@@ -458,6 +465,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: 'posthog-messaging-untracked',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_SANDBOX_FROM_ADDRESS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
         EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
@@ -467,6 +476,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
         CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
