@@ -490,7 +490,8 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
 
         self.publish(records, "organization")
         assert self.status_body(sender)["status"] == "verified"
-        assert self.verify(sender).status_code == status.HTTP_200_OK
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
         assert not Integration.objects.filter(id=self.other_sender.id).exists()
         self.create_sender(f"news@{DOMAIN}")
@@ -507,6 +508,14 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
 
         assert first["value"] == second["value"]
         assert first["value"].endswith(Integration.objects.get(id=sender).config["organization_proof_token"])
+
+    def test_a_claim_still_needs_its_own_record_after_the_other_claim_is_gone(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        Integration.objects.filter(id=sender).delete()
+
+        assert EmailIntegration(Integration.objects.get(id=self.other_sender.id)).verify()["status"] == "pending"
+        assert not self.is_verified(self.other_sender.id)
 
     def test_a_domain_another_organization_verified_does_not_verify_again(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
