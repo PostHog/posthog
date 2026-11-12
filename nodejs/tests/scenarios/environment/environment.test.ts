@@ -1050,10 +1050,13 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            if (describes) {
-                fs.appendFileSync(path.join(__dirname, 'describes'), '.')
+            const held = path.join(__dirname, 'dead-member-held')
+            const leaving = path.join(__dirname, 'dead-member-leaving')
+            if (describes && fs.existsSync(leaving)) {
+                fs.rmSync(held, { force: true })
+                fs.rmSync(leaving)
             }
-            const members = fs.existsSync(path.join(__dirname, 'dead-member-held')) ? 1 : 0
+            const members = fs.existsSync(held) ? 1 : 0
             if (seeks) {
                 const answer = path.join(__dirname, 'seek')
                 if (fs.existsSync(answer)) {
@@ -1075,6 +1078,9 @@ describe('scenario environment', () => {
                 fs.writeFileSync(offsets, JSON.stringify(groups))
                 process.stdout.write('TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n')
                 process.exit(0)
+            }
+            if (members > 0) {
+                fs.writeFileSync(path.join(__dirname, 'held-member-seen'), '')
             }
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
@@ -1147,12 +1153,12 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const holdDeadMember = (): void => writeFileSync(path.join(fakes, 'dead-member-held'), '')
-        const releaseDeadMember = (): void => rmSync(path.join(fakes, 'dead-member-held'))
-        const describeCount = (): number => {
-            const describes = path.join(fakes, 'describes')
-            return existsSync(describes) ? readFileSync(describes, 'utf8').length : 0
+        const holdDeadMember = (): void => {
+            rmSync(path.join(fakes, 'held-member-seen'), { force: true })
+            writeFileSync(path.join(fakes, 'dead-member-held'), '')
         }
+        const releaseDeadMember = (): void => writeFileSync(path.join(fakes, 'dead-member-leaving'), '')
+        const heldMemberSeen = (): boolean => existsSync(path.join(fakes, 'held-member-seen'))
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -1299,12 +1305,13 @@ describe('scenario environment', () => {
                 () => 'up',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(2), 20_000, 50)
+            await waitForExpect(() => expect(heldMemberSeen()).toBe(true), 20_000, 50)
             releaseDeadMember()
+            const outcome = await up
 
             expect({
                 rolesSpawnedWhileHeld,
-                up: await up,
+                up: outcome,
                 apiHealth: await healthOf('cdp-api'),
             }).toEqual({
                 rolesSpawnedWhileHeld: 0,
@@ -1599,13 +1606,12 @@ describe('scenario environment', () => {
             environment = environmentOf()
             await environment.up()
             holdDeadMember()
-            const describesBefore = describeCount()
 
             const reset = environment.reset({}).then(
                 () => 'reset',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(describesBefore + 2), 20_000, 50)
+            await waitForExpect(() => expect(heldMemberSeen()).toBe(true), 20_000, 50)
             releaseDeadMember()
 
             expect({ reset: await reset, offsets: offsetsOf() }).toEqual({
