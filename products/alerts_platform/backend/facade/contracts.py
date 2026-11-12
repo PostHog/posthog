@@ -376,6 +376,8 @@ class PlatformAlertUpsert:
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
     created_by_id: int | None = None
+    # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
+    first_enabled_at: datetime | None = None
 
 
 @frozen
