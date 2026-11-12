@@ -23,6 +23,8 @@ from urllib.parse import parse_qs, urlparse
 ACCOUNT = json.loads((Path(__file__).parent / "fixtures" / "sendgrid_account.json").read_text())
 ALL_READ_SCOPES = [
     "asm.groups.read",
+    "suppression.read",
+    "design_library.read",
     "suppression.bounces.read",
     "suppression.blocks.read",
     "suppression.invalid_emails.read",
@@ -44,18 +46,16 @@ _SCOPES_BY_KEY = {
     EU_KEY: ALL_READ_SCOPES,
     SECOND_ACCOUNT_KEY: ALL_READ_SCOPES,
     EMPTY_ACCOUNT_KEY: ALL_READ_SCOPES,
-    NARROW_KEY: ["suppression.bounces.read", "suppression.invalid_emails.read", "suppression.spam_reports.read"],
+    NARROW_KEY: ["suppression.read"],
     NO_SCOPE_KEY: [],
 }
 
-# The scope each path needs, per https://www.twilio.com/docs/sendgrid/api-reference/api-key-permissions.
+# The scope each path needs, as the real API enforces it. It refuses the suppression lists to the per-list scopes.
 _PATH_SCOPES = (
-    (r"/v3/asm/groups(/\d+/suppressions)?", "asm.groups.read"),
-    (r"/v3/suppression/bounces", "suppression.bounces.read"),
-    (r"/v3/suppression/blocks", "suppression.blocks.read"),
-    (r"/v3/suppression/invalid_emails", "suppression.invalid_emails.read"),
-    (r"/v3/suppression/spam_reports", "suppression.spam_reports.read"),
-    (r"/v3/suppression/unsubscribes", "suppression.unsubscribes.read"),
+    (r"/v3/asm/groups", "asm.groups.read"),
+    (r"/v3/asm/groups/\d+/suppressions", "suppression.read"),
+    (r"/v3/suppression/.*", "suppression.read"),
+    (r"/v3/designs(/[^/]+)?", "design_library.read"),
     (r"/v3/templates", "templates.read"),
     (r"/v3/templates/[^/]+/versions/[^/]+", "templates.versions.read"),
     (r"/v3/marketing/.*", "marketing.read"),

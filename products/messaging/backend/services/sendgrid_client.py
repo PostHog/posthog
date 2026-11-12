@@ -23,6 +23,7 @@ REQUESTS_PER_SECOND = 2
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RATE_LIMIT_WAIT_SECONDS = 120
 DEFAULT_RATE_LIMIT_WAIT_SECONDS = 5.0
+RELATIVE_RESET_LIMIT_SECONDS = 86_400
 DEFAULT_TIMEOUT_SECONDS = 30
 USER_AGENT = "posthog-messaging-import/1.0"
 
@@ -177,11 +178,13 @@ def _next_page_token(body: dict[str, Any]) -> str | None:
 
 def _seconds_until_reset(response: requests.Response) -> float:
     try:
-        reset_at = float(response.headers.get("X-RateLimit-Reset", ""))
+        reset = float(response.headers.get("X-RateLimit-Reset", ""))
     except ValueError:
         return DEFAULT_RATE_LIMIT_WAIT_SECONDS
+    # Most endpoints send a Unix time, and the suppression lists send the seconds left in the window.
+    wait = reset if reset < RELATIVE_RESET_LIMIT_SECONDS else reset - time.time()
     # A reset already in the past means the clocks disagree, so wait a moment rather than not at all.
-    return min(max(reset_at - time.time(), 1.0), MAX_RATE_LIMIT_WAIT_SECONDS)
+    return min(max(wait, 1.0), MAX_RATE_LIMIT_WAIT_SECONDS)
 
 
 def _parse(response: requests.Response, path: str) -> Any:

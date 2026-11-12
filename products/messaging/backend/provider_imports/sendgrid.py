@@ -71,19 +71,17 @@ MAIL_FROM_DEFAULT = "feedback"
 OPT_OUT_PAGE_SIZE = 500
 MAX_SAMPLE_DATA_LENGTH = 2000
 
-# A step's scopes per https://www.twilio.com/docs/sendgrid/api-reference/api-key-permissions. A tuple means any one of
-# them is enough. Designs and verified senders are missing because SendGrid names no scope for them, so a key that can't
-# read those fails on the step itself with a message naming it.
+# A step's scopes, as SendGrid enforces them. A tuple means any one of them is enough. SendGrid refuses the suppression
+# lists and group members to a key with only the per-list scopes its docs name, so these need suppression.read. Verified
+# senders are missing because no restricted scope reads them, so a key that can't read those fails on the step itself
+# with a message naming it.
 STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "suppression_groups": (("asm.groups.read",),),
-    "suppressions": (
-        ("suppression.bounces.read", "suppression.read"),
-        ("suppression.invalid_emails.read", "suppression.read"),
-        ("suppression.spam_reports.read", "suppression.read"),
-    ),
-    "global_unsubscribes": (("suppression.unsubscribes.read", "suppression.read"),),
-    "group_unsubscribes": (("asm.groups.read",),),
+    "suppressions": (("suppression.read",),),
+    "global_unsubscribes": (("suppression.read",),),
+    "group_unsubscribes": (("asm.groups.read",), ("suppression.read",)),
     "templates": (("templates.read",), ("templates.versions.read",)),
+    "designs": (("design_library.read",),),
     "single_sends": (("marketing.read",),),
     "lists": (("marketing.read",),),
     "domains": (("whitelabel.read",),),
@@ -138,10 +136,7 @@ class SendGridImportProvider(ImportProvider):
         ImportStepSpec(
             key="suppressions",
             label="Bounces, invalid addresses and spam reports",
-            description=(
-                "Adds these to your PostHog suppression list. Needs suppression.bounces.read, "
-                "suppression.invalid_emails.read and suppression.spam_reports.read."
-            ),
+            description="Adds these to your PostHog suppression list. Needs suppression.read.",
             count_labels=(
                 ("bounced", "Bounces, which block all email"),
                 ("invalid_addresses", "Invalid addresses, which block all email"),
@@ -155,14 +150,16 @@ class SendGridImportProvider(ImportProvider):
             label="Global unsubscribes",
             description=(
                 "Opts these people out of all marketing email. SendGrid also stops transactional email to them, and "
-                "PostHog doesn't. Needs suppression.unsubscribes.read."
+                "PostHog doesn't. Needs suppression.read."
             ),
             count_labels=(("opted_out", "Newly opted out"), ("invalid", "Skipped because the address isn't valid")),
         ),
         ImportStepSpec(
             key="group_unsubscribes",
             label="Group unsubscribes",
-            description="Opts people out of the category for each group they left. Needs asm.groups.read.",
+            description=(
+                "Opts people out of the category for each group they left. Needs asm.groups.read and suppression.read."
+            ),
             count_labels=(("opted_out", "People with a new opt-out"), ("invalid", "Skipped, address isn't valid")),
         ),
         ImportStepSpec(
@@ -183,7 +180,7 @@ class SendGridImportProvider(ImportProvider):
         ImportStepSpec(
             key="designs",
             label="Design Library",
-            description="Copies each design you saved into your PostHog library as a template.",
+            description="Copies each design you saved into your PostHog library as a template. Needs design_library.read.",
             count_labels=(
                 ("created", "New templates"),
                 ("needs_review", "New templates to review"),
@@ -536,7 +533,15 @@ def _save_templates(context: ImportContext, templates: list[tuple[dict[str, Any]
         name = str(template.get("name") or key)[:400]
         if key in taken:
             counts["already_present"] += 1
-            items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
             continue
         if version is None:
             counts["no_version"] += 1
@@ -634,7 +639,15 @@ def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> Save
         name = str(design.get("name") or key)[:400]
         if key in taken:
             counts["already_present"] += 1
-            items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
             continue
         converted = convert_version(design)
         notes = (*converted.notes, *converted.send_notes, _SENDER_NOTE)
@@ -693,7 +706,15 @@ def _save_single_sends(
         name = str(single_send.get("name") or key)[:400]
         if key in taken:
             counts["already_present"] += 1
-            items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
             continue
         config = single_send.get("email_config") or {}
         version = {**config, **{k: v for k, v in (design or {}).items() if v not in (None, "")}}
@@ -900,4 +921,6 @@ def _dns_hosts(domain: dict[str, Any]) -> list[str]:
     dns = domain.get("dns")
     if not isinstance(dns, dict):
         return []
-    return [str(record["host"]) for record in dns.values() if isinstance(record, dict) and record.get("host")]
+    hosts = [str(record["host"]) for record in dns.values() if isinstance(record, dict) and record.get("host")]
+    # A custom SPF record and the mail server record share a host.
+    return list(dict.fromkeys(hosts))
