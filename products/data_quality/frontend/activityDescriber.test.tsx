@@ -62,7 +62,35 @@ describe('dataQualityCheckActivityDescriber', () => {
                 },
             })
         )
-        expect(textOf(result.description)).toContain('changed the check type from not_null to unique')
+        expect(textOf(result.description)).toContain('changed the check type from Not null to Unique')
+    })
+
+    it('shows an empty column as empty', () => {
+        const result = dataQualityCheckActivityDescriber(
+            logItem({
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'orders_customer_id_not_null',
+                    changes: [change(ActivityScope.DATA_QUALITY_CHECK, 'column_name', '', 'customer_id')],
+                },
+            })
+        )
+        expect(textOf(result.description)).toContain('changed the column from empty to customer_id')
+    })
+
+    it('keeps an update to a field without a custom description', () => {
+        const result = dataQualityCheckActivityDescriber(
+            logItem({
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'orders_customer_id_not_null',
+                    changes: [change(ActivityScope.DATA_QUALITY_CHECK, 'reasoning', 'old', 'new')],
+                },
+            })
+        )
+        expect(result.description).not.toBeNull()
     })
 
     it('hides an update that only touched fields the runner writes', () => {

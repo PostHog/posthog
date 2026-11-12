@@ -9,28 +9,38 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
-const INTERVAL_LABELS: Record<string, string> = {
-    '1hour': 'every hour',
-    '6hour': 'every 6 hours',
-    '12hour': 'every 12 hours',
-    '24hour': 'daily',
-    '7day': 'weekly',
+import { ActivityScope } from '~/types'
+
+import { checkTypeLabel } from './checksConstants'
+import { DataQualityCheckSeverityEnumApi, DataQualityScheduleIntervalEnumApi } from './generated/api.schemas'
+
+const INTERVAL_LABELS: Record<DataQualityScheduleIntervalEnumApi, string> = {
+    [DataQualityScheduleIntervalEnumApi['1hour']]: 'every hour',
+    [DataQualityScheduleIntervalEnumApi['6hour']]: 'every 6 hours',
+    [DataQualityScheduleIntervalEnumApi['12hour']]: 'every 12 hours',
+    [DataQualityScheduleIntervalEnumApi['24hour']]: 'daily',
+    [DataQualityScheduleIntervalEnumApi['7day']]: 'weekly',
 }
 
-const SEVERITY_LABELS: Record<string, string> = {
-    error: 'error',
-    warn: 'warning',
+const SEVERITY_LABELS: Record<DataQualityCheckSeverityEnumApi, string> = {
+    [DataQualityCheckSeverityEnumApi.Error]: 'error',
+    [DataQualityCheckSeverityEnumApi.Warn]: 'warning',
 }
 
-const intervalLabel = (value: ActivityChange['after']): string => INTERVAL_LABELS[String(value)] ?? String(value)
+// Written by the runner on every run, not by a person or agent editing the check.
+const RUNNER_FIELDS = new Set(['failing_since', 'last_succeeded_at', 'updated_at'])
 
-const severityLabel = (value: ActivityChange['after']): string => SEVERITY_LABELS[String(value)] ?? String(value)
+const intervalLabel = (value: ActivityChange['after']): string =>
+    INTERVAL_LABELS[String(value) as DataQualityScheduleIntervalEnumApi] ?? String(value)
 
-const changed = (field: string, change: ActivityChange): ChangeMapping => ({
+const severityLabel = (value: ActivityChange['after']): string =>
+    SEVERITY_LABELS[String(value) as DataQualityCheckSeverityEnumApi] ?? String(value)
+
+const changed = (field: string, change: ActivityChange, label: (value: string) => string = String): ChangeMapping => ({
     description: [
         <>
-            changed the {field} from <strong>{String(change.before ?? 'empty')}</strong> to{' '}
-            <strong>{String(change.after ?? 'empty')}</strong>
+            changed the {field} from <strong>{change.before ? label(String(change.before)) : 'empty'}</strong> to{' '}
+            <strong>{change.after ? label(String(change.after)) : 'empty'}</strong>
         </>,
     ],
     summary: [`Changed the ${field}`],
@@ -59,7 +69,7 @@ const CHECK_CHANGES: Record<string, (change: ActivityChange) => ChangeMapping | 
         summary: ['Changed the severity'],
     }),
     enabled: (change) => simple(change.after ? 'turned the check on' : 'turned the check off'),
-    check_type: (change) => changed('check type', change),
+    check_type: (change) => changed('check type', change, checkTypeLabel),
     column_name: (change) => changed('column', change),
     config: () => simple('changed the configuration'),
     tags: () => simple('changed the tags'),
@@ -80,7 +90,7 @@ const SCHEDULE_CHANGES: Record<string, (change: ActivityChange) => ChangeMapping
 }
 
 export function dataQualityCheckActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    if (logItem.scope !== 'DataQualityCheck') {
+    if (logItem.scope !== ActivityScope.DATA_QUALITY_CHECK) {
         console.error('data quality check describer received a different scope')
         return { description: null }
     }
@@ -99,12 +109,15 @@ export function dataQualityCheckActivityDescriber(logItem: ActivityLogItem, asNo
     }
 
     if (logItem.activity === 'updated') {
-        // The runner also saves the check, so an update with no user-editable field in it is
-        // bookkeeping and stays out of the history.
+        // The runner also saves the check; an update that only touched its bookkeeping fields stays
+        // out of the history. Any other field still gets an entry, even without a custom description.
+        const changes = logItem.detail.changes ?? []
+        if (changes.length > 0 && changes.every((change) => RUNNER_FIELDS.has(change.field ?? ''))) {
+            return { description: null }
+        }
         return (
-            describeMappedChanges(logItem, CHECK_CHANGES, name, <>on the check {name}</>, asNotification) ?? {
-                description: null,
-            }
+            describeMappedChanges(logItem, CHECK_CHANGES, name, <>on the check {name}</>, asNotification) ??
+            defaultDescriber(logItem, asNotification, name)
         )
     }
 
@@ -115,7 +128,7 @@ export function dataQualityCheckScheduleActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
 ): HumanizedChange {
-    if (logItem.scope !== 'DataQualityCheckSchedule') {
+    if (logItem.scope !== ActivityScope.DATA_QUALITY_CHECK_SCHEDULE) {
         console.error('data quality check schedule describer received a different scope')
         return { description: null }
     }

@@ -237,7 +237,7 @@ export function CheckEditorModal(): JSX.Element {
                 <LemonField
                     name="severity"
                     label="Severity"
-                    help="Errors notify you when the check starts failing, and block publishing when 'Block materialization on failing checks' is on. Warnings only show as a warning and never notify or block."
+                    help="Errors notify you when the check starts failing. On a view, they also block materialization when 'Block materialization on failing checks' is on. Warnings show in the status but never notify or block."
                 >
                     <LemonSegmentedButton
                         options={[

@@ -1,10 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonMenu,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CheckRunsTable } from './CheckRunsTable'
 import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
@@ -135,9 +143,7 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                                 {
                                     label: 'Run now',
                                     onClick: () => runCheck(check.id),
-                                    disabledReason: pendingCheckActions.running[check.id]
-                                        ? 'This check is already starting'
-                                        : undefined,
+                                    disabledReason: isRunning(check) ? 'This check is already running' : undefined,
                                 },
                                 { label: 'Edit', onClick: () => openEditor(check, props, columns, outputSchema) },
                                 {
