@@ -284,10 +284,11 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
     })
 
-    it.each<[string, JournalEntry['answer'], number | undefined, object]>([
-        ['accepted', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
+    it.each<[string, JournalEntry['kind'], JournalEntry['answer'], number | undefined, object]>([
+        ['accepted', 'transactional', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
         [
             'refused with a status',
+            'transactional',
             { accepted: false, status: 422, outcome: 'recipient_suppressed' },
             undefined,
             {
@@ -299,6 +300,7 @@ describe('judge', () => {
         ],
         [
             'never reached',
+            'transactional',
             { accepted: false, transportError: 'connect ECONNREFUSED' },
             undefined,
             {
@@ -307,9 +309,22 @@ describe('judge', () => {
                 violation: `${UNIT}: the intake could not be reached: connect ECONNREFUSED`,
             },
         ],
-        ['refused under a gate of one', { accepted: false, status: 503 }, 1, { passed: true, observed: 1 }],
-    ])('refused_at_intake for a unit %s', async (_story, answer, gate, expected) => {
-        judge.record(offered(answer))
+        [
+            'refused under a gate of one',
+            'transactional',
+            { accepted: false, status: 503 },
+            1,
+            { passed: true, observed: 1 },
+        ],
+        [
+            'of events the runner could not produce, which no intake answered',
+            'event',
+            { accepted: false, transportError: 'Local: Message timed out' },
+            undefined,
+            { passed: true, observed: 0, unitIds: [] },
+        ],
+    ])('refused_at_intake for a unit %s', async (_story, kind, answer, gate, expected) => {
+        judge.record({ ...offered(answer), kind })
 
         const [result] = await judge.check(
             [{ name: 'refused_at_intake', params: {} }],
