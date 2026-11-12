@@ -3046,6 +3046,26 @@ describe('CDP API', () => {
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                 })
 
+                it('keeps a scheduled send recorded in Valkey until it is due when a reused key finds it only at the claim', async () => {
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(5) })
+                    const winner = (await claimFingerprint(sent.body.invocation_id))!
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    const ttlSeconds = await valkey().useClient({ name: 'test' }, (client) =>
+                        client.ttl(valkeyKey(keyed.idempotency_key as string))
+                    )
+                    // Past the day after it is due, so an older pod still replays it instead of queueing a second run.
+                    expect(ttlSeconds).toBeGreaterThan((6 * DAY_MS) / 1000)
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(team.id, keyed.idempotency_key as string, winner, randomUUID())
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id })
+                })
+
                 it('replays the id an older pod queued and recorded only in Valkey', async () => {
                     const sent = await sendKeyed()
                     const key = valkeyKey(keyed.idempotency_key as string)

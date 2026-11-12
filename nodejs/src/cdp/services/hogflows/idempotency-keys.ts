@@ -23,6 +23,7 @@ const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.deco
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
 // It also rewrites a record of the same run, which an earlier attempt can leave without its answer.
+// It never shortens the record's TTL, so a scheduled send keeps its longer replay window.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) local owner = v and cjson.decode(v).invocationId if (not v) or owner == ARGV[2] or owner == ARGV[4] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
 const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2

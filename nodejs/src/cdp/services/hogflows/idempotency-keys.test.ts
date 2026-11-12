@@ -163,6 +163,27 @@ describe('IdempotencyKeys', () => {
         })
     })
 
+    it('keeps the longer replay window when a run it recorded is recorded again', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await keys.markQueued(
+            1,
+            key,
+            'request-a',
+            'run-1',
+            'lease-1',
+            undefined,
+            undefined,
+            new Date(Date.now() + 72 * HOUR_MS)
+        )
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
+            client.ttl(keys['redisKey'](1, key))
+        )
+        expect(ttlSeconds).toBeGreaterThan((96 * HOUR_MS) / 1000 - 60)
+    })
+
     it('frees a key only for the request that holds it', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
 

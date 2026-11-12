@@ -395,7 +395,8 @@ export class TransactionalSends {
                     leaseToken,
                     replayed ? attachmentTotals : undefined,
                     replayed ? scheduledAt?.toISOString() : undefined,
-                    replayed && scheduledAt ? latestDueAt : undefined,
+                    // The other send may be scheduled up to the latest time this one could be, so keep it that long.
+                    !replayed || scheduledAt ? latestDueAt : undefined,
                     replayed ? senderKind : undefined
                 )
             }
