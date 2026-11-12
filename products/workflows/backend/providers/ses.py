@@ -730,9 +730,13 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+        mail_from = self._read_mail_from_attributes(domain, self.ses_client) if keep_existing_mail_from else None
+        ses_mail_from_subdomain = self._mail_from_subdomain_in(mail_from, domain)
+        setup_expired = mail_from is not None and mail_from.get("MailFromDomainStatus") == "Failed"
+        if ses_mail_from_subdomain is not None:
             mail_from_subdomain = ses_mail_from_subdomain
-        else:
+        # SES stops looking for the MX record 72 hours after a MAIL FROM setup, and only a new setup looks again.
+        if ses_mail_from_subdomain is None or setup_expired:
             try:
                 self.ses_client.set_identity_mail_from_domain(
                     Identity=domain,
@@ -925,7 +929,12 @@ class SESProvider:
         return ses.get_identity_mail_from_domain_attributes(Identities=[domain])["MailFromDomainAttributes"].get(domain)
 
     def get_mail_from_subdomain(self, domain: str) -> str | None:
-        mail_from_for_domain = self._read_mail_from_attributes(domain, self.ses_client)
+        return self._mail_from_subdomain_in(self._read_mail_from_attributes(domain, self.ses_client), domain)
+
+    @staticmethod
+    def _mail_from_subdomain_in(
+        mail_from_for_domain: "IdentityMailFromDomainAttributesTypeDef | None", domain: str
+    ) -> str | None:
         mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
         suffix = f".{domain}"
         if mail_from_domain and mail_from_domain.endswith(suffix):
