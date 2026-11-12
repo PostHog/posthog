@@ -30,57 +30,49 @@ const HAND_BUILT_WEBHOOK = {
     filters: { events: [{ id: '$pageview', type: 'events' }] },
 }
 
+const SERVER_PAGE_SIZE = 2
+
+const STORED_TEMPLATES = [
+    {
+        id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-receipt',
+        has_draft: false,
+    },
+    { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null, has_draft: false },
+    { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset', has_draft: false },
+    {
+        id: '0190e3a1-aaaa-7000-8000-00000000ef01',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-receipt-copy',
+        has_draft: false,
+    },
+]
+
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
     let requestedTeamIds: Set<string>
+    let serverFiltersTransactional: boolean
     const environment = { ...MOCK_DEFAULT_TEAM, id: 2001 }
 
     beforeEach(() => {
         created = []
+        serverFiltersTransactional = true
         requestedTeamIds = new Set()
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
                     requestedTeamIds.add(String(params.team_id))
-                    const offset = new URL(request.url).searchParams.get('offset')
-                    return offset === '0'
-                        ? [
-                              200,
-                              {
-                                  next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
-                                  results: [
-                                      {
-                                          id: '0190e3a1-aaaa-7000-8000-00000000abcd',
-                                          name: 'Receipt',
-                                          transactional_hog_flow_id: 'flow-receipt',
-                                      },
-                                      {
-                                          id: 'template-newsletter',
-                                          name: 'Newsletter',
-                                          transactional_hog_flow_id: null,
-                                      },
-                                  ],
-                              },
-                          ]
-                        : [
-                              200,
-                              {
-                                  next: null,
-                                  results: [
-                                      {
-                                          id: 'template-reset',
-                                          name: 'Password reset',
-                                          transactional_hog_flow_id: 'flow-reset',
-                                      },
-                                      {
-                                          id: '0190e3a1-aaaa-7000-8000-00000000ef01',
-                                          name: 'Receipt',
-                                          transactional_hog_flow_id: 'flow-receipt-copy',
-                                      },
-                                  ],
-                              },
-                          ]
+                    const query = new URL(request.url).searchParams
+                    const matching = serverFiltersTransactional
+                        ? STORED_TEMPLATES.filter(
+                              (template) => query.get('transactional') !== 'true' || template.transactional_hog_flow_id
+                          )
+                        : STORED_TEMPLATES.map(({ has_draft, ...template }) => template)
+                    const offset = Number(query.get('offset') ?? 0)
+                    const limit = Math.min(Number(query.get('limit') ?? 100), SERVER_PAGE_SIZE)
+                    return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]
                 },
                 '/api/environments/:team_id/hog_functions/': ({ request }) => {
                     const groups = JSON.parse(new URL(request.url).searchParams.get('filter_groups') ?? '[]')
@@ -110,10 +102,17 @@ describe('deliveryWebhooksLogic', () => {
         logic.unmount()
     })
 
-    it.each<[string, string[], string[] | undefined]>([
-        ['every transactional email', [], undefined],
-        ['the picked transactional emails', ['Password reset'], ['flow-reset']],
-    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
+    it.each<[string, string[], string[] | undefined, boolean]>([
+        ['every transactional email', [], undefined, true],
+        ['the picked transactional emails', ['Password reset'], ['flow-reset'], true],
+        [
+            'emails picked from a server that ignores the transactional filter',
+            ['Password reset'],
+            ['flow-reset'],
+            false,
+        ],
+    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds, filters) => {
+        serverFiltersTransactional = filters
         const list = hogFunctionsListLogic(DELIVERY_WEBHOOK_LIST_PROPS)
         list.mount()
         logic.actions.openAddModal()

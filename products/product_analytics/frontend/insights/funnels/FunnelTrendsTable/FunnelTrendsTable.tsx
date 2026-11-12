@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -22,9 +23,10 @@ import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { hasBreakdown } from '../funnelUtils'
 import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 import { buildFunnelTrendsActorsQuery } from './funnelTrendsTableUtils'
+import { QuillFunnelTrendsTable } from './QuillFunnelTrendsTable'
 
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
-type FunnelTrendSeries = {
+export type FunnelTrendSeries = {
     id: number
     colorIndex: number
     data: number[]
@@ -33,6 +35,12 @@ type FunnelTrendSeries = {
     breakdown_value?: BreakdownKeyType
     compare?: boolean
     compare_label?: 'current' | 'previous'
+}
+
+export interface FunnelTrendsPeriod {
+    date: string
+    secondaryDate?: string
+    isInProgress: boolean
 }
 
 function unwrapBreakdownValue(breakdownValue: BreakdownKeyType | undefined): BreakdownKeyType | undefined {
@@ -55,6 +63,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const quillSurface = useQuillSurface()
 
     const seriesRows = indexedSteps as unknown as FunnelTrendSeries[]
 
@@ -102,45 +111,64 @@ export function FunnelTrendsTable(): JSX.Element | null {
         openPersonsModal({ title, query })
     }
 
-    const periodColumns = Array.from(
+    const periods = Array.from(
         { length: periodCount },
-        (_, index): LemonTableColumn<FunnelTrendSeries, keyof FunnelTrendSeries | undefined> => {
-            const isInProgress = index >= periodCount + incompletenessOffsetFromEnd
-            return {
-                key: `period_${index}`,
-                align: 'right',
-                title: (
-                    <DateDisplay
-                        interval={interval || 'day'}
-                        resolvedDateRange={insightData?.resolved_date_range}
-                        timezone={timezone}
-                        weekStartDay={weekStartDay}
-                        date={(currentSeries.days || currentSeries.labels)[index]}
-                        secondaryDate={
-                            previousSeries ? (previousSeries.days || previousSeries.labels)[index] : undefined
-                        }
-                        hideWeekRange
-                    />
-                ),
-                render: (_, row) => {
-                    const value = `${humanFriendlyNumber(row.data[index] ?? 0, 1)}%`
-                    const cell = canOpenPersonModal ? (
-                        <ValueInspectorButton onClick={() => openModalForCell(row, index)}>
-                            {value}
-                        </ValueInspectorButton>
-                    ) : (
-                        value
-                    )
-                    return isInProgress ? (
-                        <Tooltip title="This period is still in progress">
-                            <span className="text-secondary">{cell}</span>
-                        </Tooltip>
-                    ) : (
-                        cell
-                    )
-                },
-            }
-        }
+        (_, index): FunnelTrendsPeriod => ({
+            date: (currentSeries.days || currentSeries.labels)[index],
+            secondaryDate: previousSeries ? (previousSeries.days || previousSeries.labels)[index] : undefined,
+            isInProgress: index >= periodCount + incompletenessOffsetFromEnd,
+        })
+    )
+
+    // getFunnelsColor positions colors by `order`, which trend rows don't carry. Feed
+    // colorIndex into that slot so each series gets the same color as its line in the chart.
+    const rowColor = (row: FunnelTrendSeries): string =>
+        getFunnelsColor({ ...row, order: row.colorIndex } as unknown as FunnelStepWithConversionMetrics)
+
+    if (quillSurface) {
+        return (
+            <QuillFunnelTrendsTable
+                rows={seriesRows}
+                periods={periods}
+                loading={insightLoading}
+                seriesLabel={seriesLabel}
+                rowColor={rowColor}
+                onOpenPersons={canOpenPersonModal ? openModalForCell : undefined}
+            />
+        )
+    }
+
+    const periodColumns = periods.map(
+        (period, index): LemonTableColumn<FunnelTrendSeries, keyof FunnelTrendSeries | undefined> => ({
+            key: `period_${index}`,
+            align: 'right',
+            title: (
+                <DateDisplay
+                    interval={interval || 'day'}
+                    resolvedDateRange={insightData?.resolved_date_range}
+                    timezone={timezone}
+                    weekStartDay={weekStartDay}
+                    date={period.date}
+                    secondaryDate={period.secondaryDate}
+                    hideWeekRange
+                />
+            ),
+            render: (_, row) => {
+                const value = `${humanFriendlyNumber(row.data[index] ?? 0, 1)}%`
+                const cell = canOpenPersonModal ? (
+                    <ValueInspectorButton onClick={() => openModalForCell(row, index)}>{value}</ValueInspectorButton>
+                ) : (
+                    value
+                )
+                return period.isInProgress ? (
+                    <Tooltip title="This period is still in progress">
+                        <span className="text-secondary">{cell}</span>
+                    </Tooltip>
+                ) : (
+                    cell
+                )
+            },
+        })
     )
 
     const columns: LemonTableColumns<FunnelTrendSeries> = [
@@ -165,11 +193,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
             rowKey="id"
             data-attr="funnel-trends-table"
             firstColumnSticky
-            // getFunnelsColor positions colors by `order`, which trend rows don't carry. Feed
-            // colorIndex into that slot so each series gets the same color as its line in the chart.
-            rowRibbonColor={(row) =>
-                getFunnelsColor({ ...row, order: row.colorIndex } as unknown as FunnelStepWithConversionMetrics)
-            }
+            rowRibbonColor={rowColor}
         />
     )
 }

@@ -167,7 +167,7 @@ The recovery action depends on root cause, not just status. Match the user's sit
   the source side. Status may still read `Completed` because the bulk sync (the safety-net cadence) is succeeding —
   the problem is the push path.
 - Action:
-  1. `external-data-sources-webhook-info-retrieve({source_id})`.
+  1. `external-data-sources-webhook-info-retrieve({id})`.
   2. If `exists: false` → the webhook was never registered, or was deleted. Call `create-webhook-create` to
      register it.
   3. If `exists: true` but `external_status.error` is set → typically "API key doesn't have permission to read
@@ -175,7 +175,7 @@ The recovery action depends on root cause, not just status. Match the user's sit
   4. If `external_status.status` isn't `"enabled"` → the source disabled the webhook (usually after repeated
      delivery failures). Re-enable or re-register.
   5. If payloads are arriving but failing signature verification → the signing secret was rotated. Get the new
-     one from the source's dashboard and call `update-webhook-inputs-create({source_id}, {inputs:
+     one from the source's dashboard and call `update-webhook-inputs-create({id}, {inputs:
 {signing_secret: "..."}})`.
 - After any fix, check the source's webhook logs (on their side) to confirm PostHog is now responding 2xx.
 

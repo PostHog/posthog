@@ -985,6 +985,44 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert data["users"][2]["access_level"] == "editor"  # user4 (default)
         assert data["users"][3]["access_level"] == "viewer"  # user2
 
+    def _count_users_with_access_queries(self, expected_total_count: int) -> int:
+        captures = [CaptureQueriesContext(connections[db]) for db in self.databases]
+        with ExitStack() as stack:
+            for capture in captures:
+                stack.enter_context(capture)
+            res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["total_count"] == expected_total_count
+        return sum(len(capture.captured_queries) for capture in captures)
+
+    def test_query_count_does_not_grow_with_member_count(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        RoleMembership.objects.create(
+            user=self.user2,
+            role=self.role,
+            organization_member=self.user2.organization_memberships.get(organization=self.organization),
+        )
+        res = self._put_notebook_access_control(
+            self.notebook.short_id, {"role": str(self.role.id), "access_level": "viewer"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user3.organization_memberships.get(organization=self.organization).id),
+                "access_level": "editor",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        self._get_users_with_access()  # warm one-off caches
+        queries_with_four_members = self._count_users_with_access_queries(expected_total_count=4)
+
+        for index in range(10):
+            self._create_user(f"member{index}@example.com")
+
+        assert self._count_users_with_access_queries(expected_total_count=14) == queries_with_four_members
+
     def test_endpoint_requires_permission(self):
         """Test that the endpoint requires appropriate permissions"""
         # Set project-level access to "none" as admin first
