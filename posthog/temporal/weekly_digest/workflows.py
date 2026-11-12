@@ -115,7 +115,6 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 digest=digest,
                 common=input.common,
                 organization_ids=input.organization_ids,
-                workflows_only=input.workflows_only,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
             execution_timeout=timedelta(hours=15),
@@ -197,7 +196,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
 
         organization_id_ranges = await workflow.execute_activity(
             list_organization_id_ranges,
-            input.common,
+            args=[input.common, None],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -258,7 +257,6 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         digest=input.digest,
                         common=input.common,
                         organization_ids=input.organization_ids,
-                        workflows_only=input.workflows_only,
                     ),
                     # Batches share the pace of the captures for Workflows, so a batch can wait well past 30 minutes.
                     start_to_close_timeout=timedelta(hours=2),

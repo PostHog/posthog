@@ -1,5 +1,6 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -8,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import * as api from 'products/product_analytics/frontend/generated/api'
 import type {
     EventsRetentionApi,
+    EventsRetentionMonthsEnumApi,
     OrganizationEventsRetentionApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
@@ -111,7 +113,7 @@ export const eventsRetentionSettingsLogic = kea<eventsRetentionSettingsLogicType
                         return values.projectRetention
                     }
                     return await api.eventsRetentionUpdate(String(values.currentTeamId), {
-                        retention_months: retentionMonths,
+                        retention_months: retentionMonths as EventsRetentionMonthsEnumApi | null,
                     })
                 },
             },
@@ -130,7 +132,7 @@ export const eventsRetentionSettingsLogic = kea<eventsRetentionSettingsLogicType
                         return values.organizationRetention
                     }
                     return await api.organizationEventsRetentionUpdate(values.currentOrganizationId, {
-                        retention_months: retentionMonths,
+                        retention_months: retentionMonths as EventsRetentionMonthsEnumApi | null,
                     })
                 },
             },
@@ -139,10 +141,12 @@ export const eventsRetentionSettingsLogic = kea<eventsRetentionSettingsLogicType
     listeners(({ actions }) => ({
         updateProjectRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
+            posthog.capture('events retention updated', { level: 'project' })
             dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
         },
         updateOrganizationRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
+            posthog.capture('events retention updated', { level: 'organization' })
             actions.loadProjectRetention()
             dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
         },

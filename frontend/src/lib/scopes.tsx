@@ -196,6 +196,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'transactional_email:read',
     'transactional_email:write',
     'llm_prompt:read',
+    'logs:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -213,19 +214,23 @@ const API_KEY_CREATION_RENDERABLE_SCOPES = new Set(
 )
 
 // Actions the manual key-creation UI withholds from Personal API Keys
-// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
+// (e.g. file_system:write, user:write) — see `disabledActions`
 // above.
 export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
+// Writes a person can choose in a picker but no preset adds. integration:write creates and deletes
+// project integrations, which hold stored third-party credentials.
+const OPT_IN_ONLY_SCOPES: ReadonlySet<string> = new Set(['integration:write'])
+
 // A preset must not set a level the key picker cannot show, or the picker shows the level on a
 // disabled segment. A write on a write-disabled object falls back to read, which write implies on the
-// server anyway. A scope with no allowed level is dropped.
+// server anyway, and so does an opt-in-only write. A scope with no allowed level is dropped.
 export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
     ...new Set(
         scopes.flatMap((scope) => {
-            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope) && !OPT_IN_ONLY_SCOPES.has(scope)) {
                 return [scope]
             }
             const [object, action] = scope.split(':')
@@ -248,7 +253,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'source_map_upload',
         label: 'Source map upload',
-        scopes: ['organization:read', 'error_tracking:write'],
+        scopes: ['error_tracking:write'],
     },
     {
         value: 'zapier',

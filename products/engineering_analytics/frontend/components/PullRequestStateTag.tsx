@@ -3,8 +3,7 @@ import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { PRState } from '../scenes/engineeringAnalyticsLogic'
 
-// GitHub's state palette: open green, draft grey, merged purple, closed red. Draft is a lens over open
-// PRs, so it gets its own entry though it isn't a PRState.
+// Draft is a lens over open PRs, so it gets its own entry though it isn't a PRState.
 const STATE_CONFIG: Record<PRState | 'draft', { label: string; type: LemonTagType; icon: JSX.Element }> = {
     open: { label: 'Open', type: 'success', icon: <IconPullRequest /> },
     draft: { label: 'Draft', type: 'muted', icon: <IconPullRequest /> },

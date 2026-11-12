@@ -114,7 +114,7 @@ account_meetings: PostgresTable = PostgresTable(
     description="Internal table of account meetings. Use `system.accounts.meetings` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Meeting UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "account_id": UUIDDatabaseField(name="account_id", nullable=True),
         "title": StringDatabaseField(name="title"),
         "start_time": DateTimeDatabaseField(name="start_time"),
@@ -133,7 +133,7 @@ account_channel_summaries: PostgresTable = PostgresTable(
     description="Internal table of account Slack summaries. Use `system.accounts.slack_summaries` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Summary UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "account_id": UUIDDatabaseField(name="account_id"),
         "slack_channel_id": StringDatabaseField(name="slack_channel_id"),
         "cadence": StringDatabaseField(name="cadence"),
@@ -155,7 +155,7 @@ account_email_threads: PostgresTable = PostgresTable(
     description="Internal table of customer email threads. Use `system.accounts.email_threads` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Email thread UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "subject": StringDatabaseField(name="subject"),
         "first_message_at": DateTimeDatabaseField(name="first_message_at", nullable=True),
         "last_message_at": DateTimeDatabaseField(name="last_message_at", nullable=True),
@@ -175,7 +175,7 @@ account_email_thread_links: PostgresTable = PostgresTable(
     description="Internal table linking customer email threads to accounts. Use `system.accounts.email_threads` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Email thread account link UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "thread_id": UUIDDatabaseField(name="thread_id"),
         "account_id": StringDatabaseField(name="account_id"),
     },
@@ -202,7 +202,7 @@ account_custom_property_values: PostgresTable = PostgresTable(
     ],
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "definition_id": UUIDDatabaseField(
             name="definition_id", description="Custom property definition this value is for."
         ),
@@ -234,7 +234,7 @@ account_custom_property_values_history: PostgresTable = PostgresTable(
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "definition_id": UUIDDatabaseField(
             name="definition_id", description="Custom property definition this value is for."
         ),
@@ -1008,7 +1008,7 @@ account_relationship_definitions: PostgresTable = PostgresTable(
     description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(
             name="name", description="Human-readable name of the relationship; unique within the team."
         ),
@@ -1043,7 +1043,7 @@ account_relationships: PostgresTable = PostgresTable(
     description="User-to-account relationship assignments (CSM, Account executive, ...), one row per assignment with its effective range — `ended_at` is NULL while active, set when the assignment ends, so historical account management is queryable. Active assignments per account are also exposed as a JSON object via the `system.accounts.relationships` lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship assignment UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "definition_id": UUIDDatabaseField(
             name="definition_id",
             description="Relationship definition this assignment is for; join to `system.account_relationship_definitions.id`.",
@@ -1075,7 +1075,7 @@ accounts: PostgresTable = PostgresTable(
     description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Account UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "external_id": StringDatabaseField(
             name="external_id", nullable=True, description="Identifier of the account in the source system."
         ),
@@ -1138,7 +1138,7 @@ feature_request_product_areas: PostgresTable = PostgresTable(
     description="Product areas used to categorize Customer analytics feature requests, one row per team-defined area.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Product area UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Team-maintained product area name."),
         "display_order": IntegerDatabaseField(
             name="display_order", description="Position in product area selectors. Lower values appear first."
@@ -1170,7 +1170,7 @@ feature_request_account_links: PostgresTable = PostgresTable(
     description="Active links between Customer analytics feature requests and affected accounts, one row per request and account pair.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Feature request account link UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "feature_request_id": UUIDDatabaseField(
             name="feature_request_id",
             description="Feature request this link belongs to. Join to `system.feature_requests.id`.",
@@ -1195,7 +1195,7 @@ feature_requests: PostgresTable = PostgresTable(
     description="Customer analytics feature requests linked to at least one account the caller can access, one row per request.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Feature request UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "title": StringDatabaseField(name="title", description="Customer-facing request title."),
         "description": StringDatabaseField(name="description", description="Customer-facing description in Markdown."),
         "status": StringDatabaseField(
@@ -1234,7 +1234,7 @@ feature_request_evidence: PostgresTable = PostgresTable(
     description="Evidence recorded for active feature request account links, one row per evidence item.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Evidence UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "account_link_id": UUIDDatabaseField(
             name="account_link_id",
             description="Request and account pair this evidence supports. Join to `system.feature_request_account_links.id`.",
@@ -1276,7 +1276,7 @@ feature_request_product_area_links: PostgresTable = PostgresTable(
     description="Links between visible feature requests and product areas, one row per request and area pair.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Feature request product area link UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "feature_request_id": UUIDDatabaseField(
             name="feature_request_id", description="Feature request. Join to `system.feature_requests.id`."
         ),
@@ -1296,7 +1296,7 @@ feature_request_history: PostgresTable = PostgresTable(
     description="Change history for visible Customer analytics feature requests, one row per successful save.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Feature request history entry UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "feature_request_id": UUIDDatabaseField(
             name="feature_request_id", description="Feature request that changed. Join to `system.feature_requests.id`."
         ),
@@ -1331,7 +1331,7 @@ custom_property_definitions: PostgresTable = PostgresTable(
     description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(
             name="name", description="Human-readable name of the custom property; unique within the team."
         ),

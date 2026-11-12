@@ -159,7 +159,8 @@ export class RerunPaginatorService {
         const { function_kind, function_id, progress } = state
 
         try {
-            const rows = await this.fetchPage(teamId, state)
+            const idPages = this.splitInvocationIds(state)
+            const rows = await this.fetchPage(teamId, state, idPages?.page)
 
             // Stop early if the user's max_count or our hard server cap is reached.
             const remainingBudget = this.remainingBudget(state)
@@ -279,8 +280,8 @@ export class RerunPaginatorService {
             const nextProgress: RerunJobProgress = {
                 queued: progress.queued + queued - conflictSkipped,
                 skipped: progress.skipped + skipped + conflictSkipped,
-                cursor: this.advanceCursor(state, toProcess),
-                done: this.isDone(state, rows.length, toProcess.length),
+                cursor: idPages ? null : this.advanceCursor(state, toProcess),
+                done: this.isDone(state, rows.length, toProcess.length, idPages?.rest),
                 last_error: undefined,
                 pages_processed: (progress.pages_processed ?? 0) + 1,
             }
@@ -296,7 +297,16 @@ export class RerunPaginatorService {
             // reach the catch below would count a page that did its work as a
             // page error, hold the cursor back, and on a persistent write outage
             // eventually mark a rerun failed that actually ran.
-            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined).catch((writeErr) => {
+            const nextState: RerunJobState = {
+                ...state,
+                // Remove covered IDs from the state itself. A worker from before this change ignores any other
+                // position marker and would start over, sending these runs again.
+                request: idPages
+                    ? { ...state.request, filter: { ...state.request.filter, invocation_ids: idPages.rest } }
+                    : state.request,
+                progress: nextProgress,
+            }
+            await this.writeWrapperUpdate(teamId, nextState, context, nextProgress, undefined).catch((writeErr) => {
                 logger.warn('Rerun paginator could not write the wrapper progress row', {
                     rerun_function_kind: function_kind,
                     rerun_function_id: function_id,
@@ -304,7 +314,7 @@ export class RerunPaginatorService {
                 })
             })
 
-            return { state: { ...state, progress: nextProgress } }
+            return { state: nextState }
         } catch (err) {
             const errMessage = err instanceof Error ? err.message : String(err)
             logger.error('Rerun paginator page failed', {
@@ -373,10 +383,14 @@ export class RerunPaginatorService {
             ? `Re-run finished. queued=${nextProgress.queued} skipped=${nextProgress.skipped}`
             : pageErrorMessage
               ? `Re-run page failed: ${pageErrorMessage}. Worker will retry.`
-              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} cursor=${
-                    nextProgress.cursor
-                        ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
-                        : 'end'
+              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} ${
+                    state.request.filter.invocation_ids?.length && !nextProgress.cursor
+                        ? `ids_left=${state.request.filter.invocation_ids.length}`
+                        : `cursor=${
+                              nextProgress.cursor
+                                  ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
+                                  : 'end'
+                          }`
                 }`
 
         this.monitoringService.queueLogs(
@@ -447,10 +461,32 @@ export class RerunPaginatorService {
         return Math.max(0, cap - state.progress.queued - state.progress.skipped)
     }
 
-    private isDone(state: RerunJobState, fetchedCount: number, processedCount: number): boolean {
+    private isDone(
+        state: RerunJobState,
+        fetchedCount: number,
+        processedCount: number,
+        idsLeft: string[] | undefined
+    ): boolean {
         const budgetSpent = this.remainingBudget(state) <= processedCount
-        const pageWasPartial = fetchedCount < RERUN_PAGE_SIZE
-        return budgetSpent || pageWasPartial
+        const noMorePages = idsLeft ? idsLeft.length === 0 : fetchedCount < RERUN_PAGE_SIZE
+        return budgetSpent || noMorePages
+    }
+
+    /**
+     * Splits the ID list into this page and the rest. A page holds at most RERUN_PAGE_SIZE IDs, so it can't overflow
+     * the LIMIT, and it stays under ClickHouse's `http_max_field_value_size`.
+     *
+     * Returns undefined for a window-only job, and for a job that already holds a cursor: that job started before IDs
+     * were split, and starting over would send runs again that it already reran.
+     */
+    private splitInvocationIds(state: RerunJobState): { page: string[]; rest: string[] } | undefined {
+        const ids = state.request.filter.invocation_ids
+        if (!ids?.length || state.progress.cursor) {
+            return undefined
+        }
+        // A repeated ID in a later page would rerun again, unlike a repeat inside one `IN` list.
+        const uniqueIds = [...new Set(ids)]
+        return { page: uniqueIds.slice(0, RERUN_PAGE_SIZE), rest: uniqueIds.slice(RERUN_PAGE_SIZE) }
     }
 
     private advanceCursor(state: RerunJobState, processed: InvocationRow[]): RerunJobState['progress']['cursor'] {
@@ -545,7 +581,11 @@ export class RerunPaginatorService {
         return new Set(rows.map((r) => r.invocation_id))
     }
 
-    private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
+    private async fetchPage(
+        teamId: number,
+        state: RerunJobState,
+        idsForPage: string[] | undefined
+    ): Promise<InvocationRow[]> {
         const filter = state.request.filter
         const requestedStatus = this.requestedStatus(state)
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
@@ -582,9 +622,8 @@ export class RerunPaginatorService {
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
         // of the time window, which is still required.
-        const invocationIdsClause = filter.invocation_ids?.length
-            ? 'AND invocation_id IN {invocation_ids:Array(String)}'
-            : ''
+        const invocationIds = idsForPage ?? filter.invocation_ids ?? []
+        const invocationIdsClause = invocationIds.length ? 'AND invocation_id IN {invocation_ids:Array(String)}' : ''
 
         const result = await this.clickhouse.query({
             query: `/* team_id:${teamId} query_type:hog_invocation_rerun_page */
@@ -627,7 +666,7 @@ export class RerunPaginatorService {
                 error_kind: filter.error_kind ?? [],
                 error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
-                invocation_ids: filter.invocation_ids ?? [],
+                invocation_ids: invocationIds,
                 cursor_scheduled_at: cursorScheduledAt,
                 cursor_invocation_id: cursor?.invocation_id ?? '',
                 limit: RERUN_PAGE_SIZE,
@@ -854,15 +893,15 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
-            // The cohort lookup counters are dropped too. A run that aborted after its last
-            // lookup attempt would otherwise restart with no retries left, and the leftover
-            // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
+            // Drop the cohort lookup and render timeout state too, so the rerun gets fresh retries and a
+            // stale cohortLookupFailed flag can't turn an unrelated error on that step into an abort.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
+                renderTimeoutAttempts: _renderTimeoutAttempts,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 

@@ -126,6 +126,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
+    # GitHub security alerts
+    (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

@@ -65,6 +65,42 @@ describe('externalDataSourcesDbSchema', () => {
         expect(body.host).toBe('db.example.com')
         expect(body.source_type).toBe('MySQL')
     })
+
+    it('forwards credential_id from the payload as a flat body field', async () => {
+        const requestMock = vi.fn().mockResolvedValue([])
+        const context = createMockContext(requestMock)
+        const tool = externalDataSourcesDbSchema()
+
+        await tool.handler(context, {
+            source_type: 'Stripe',
+            payload: { credential_id: '8b0e2c9e-0000-4000-8000-000000000000' },
+        })
+
+        expect(requestMock.mock.calls[0]![0].body).toEqual({
+            source_type: 'Stripe',
+            credential_id: '8b0e2c9e-0000-4000-8000-000000000000',
+        })
+    })
+
+    it.each([
+        ['omitted', {}],
+        ['an explicit empty object', { payload: {} }],
+    ])('treats payload as optional when it is %s', async (_name, extra) => {
+        const requestMock = vi.fn().mockResolvedValue([])
+        const context = createMockContext(requestMock)
+        const tool = externalDataSourcesDbSchema()
+
+        const parsed = tool.schema.safeParse({ source_type: 'Stripe', ...extra })
+        expect(parsed.success).toBe(true)
+        await tool.handler(context, parsed.data as any)
+
+        expect(requestMock.mock.calls[0]![0].body).toEqual({ source_type: 'Stripe' })
+    })
+
+    it('still requires source_type', () => {
+        const parsed = externalDataSourcesDbSchema().schema.safeParse({ payload: { credential_id: 'abc' } })
+        expect(parsed.success).toBe(false)
+    })
 })
 
 describe('externalDataSourcesPreview', () => {

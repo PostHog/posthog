@@ -6,17 +6,18 @@ Screens render the view models in `src/model/views.ts` and never call the API th
 
 ## Requests
 
-| Use                                       | Request                                                                                                  | Scope                                       | Module                                                             |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ |
-| Pin list                                  | `GET file_system_shortcut/?limit=100`                                                                    | `file_system_shortcut:read` (from `:write`) | `src/api/shortcuts.ts`                                             |
-| Pin, unpin                                | `POST file_system_shortcut/`, `DELETE file_system_shortcut/{id}/`                                        | `file_system_shortcut:write`                | `src/api/shortcuts.ts`                                             |
-| Dashboard                                 | `GET dashboards/{id}/?refresh=force_cache[&filters_override=]`                                           | `dashboard:read`                            | `src/api/dashboards.ts`                                            |
-| Browse and Recent dashboards              | `GET dashboards/?ordering=-last_viewed_at&limit=30&offset=`, `limit=10` for Recent, `search=`            | `dashboard:read`                            | `src/api/dashboards.ts`                                            |
-| Insight                                   | `GET insights/{id}/?refresh=blocking\|force_blocking\|force_cache[&from_dashboard=][&filters_override=]` | `insight:read`                              | `src/api/insights.ts`                                              |
-| Insight metadata for previews             | `GET insights/?short_id={short_id}&basic=true&refresh=force_cache`                                       | `insight:read`                              | `src/api/insights.ts`                                              |
-| Browse insights                           | `GET insights/?basic=true&saved=true&order=-last_modified_at&limit=30&offset=`, `search=`                | `insight:read`                              | `src/api/insights.ts`                                              |
-| Insight opened                            | `POST insights/viewed/ {insight_ids}` once per open                                                      | `insight:read`                              | `src/api/insights.ts`                                              |
-| Web analytics, compare, people at a point | `POST query/` with `refresh: blocking` or `force_blocking`, never polled                                 | `query:read`                                | `src/api/webAnalytics.ts`, `src/api/actors.ts`, `src/api/query.ts` |
+| Use                           | Request                                                                                                                                                                               | Scope                                       | Module                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------- |
+| Pin list                      | `GET file_system_shortcut/?limit=100`                                                                                                                                                 | `file_system_shortcut:read` (from `:write`) | `src/api/shortcuts.ts`                  |
+| Pin, unpin                    | `POST file_system_shortcut/`, `DELETE file_system_shortcut/{id}/`                                                                                                                     | `file_system_shortcut:write`                | `src/api/shortcuts.ts`                  |
+| Dashboard                     | `GET dashboards/{id}/?refresh=force_cache[&filters_override=]`                                                                                                                        | `dashboard:read`                            | `src/api/dashboards.ts`                 |
+| Browse and Recent dashboards  | `GET dashboards/?ordering=-last_viewed_at&limit=30&offset=`, `limit=10` for Recent, `search=`                                                                                         | `dashboard:read`                            | `src/api/dashboards.ts`                 |
+| Insight                       | `GET insights/{id}/?refresh=blocking\|force_blocking\|force_cache[&from_dashboard=][&filters_override=]`                                                                              | `insight:read`                              | `src/api/insights.ts`                   |
+| Insight metadata for previews | `GET insights/?short_id={short_id}&basic=true&refresh=force_cache`                                                                                                                    | `insight:read`                              | `src/api/insights.ts`                   |
+| Browse insights               | `GET insights/?basic=true&saved=true&order=-last_modified_at&limit=30&offset=`, `search=`                                                                                             | `insight:read`                              | `src/api/insights.ts`                   |
+| Insight opened                | `POST insights/viewed/ {insight_ids}` once per open                                                                                                                                   | `insight:read`                              | `src/api/insights.ts`                   |
+| Web analytics                 | `POST query/` with `WebOverviewQuery`, `TrendsQuery`, `WebStatsTableQuery`, `WebExternalClicksTableQuery` and `RetentionQuery`, `refresh: blocking` or `force_blocking`, never polled | `query:read`                                | `src/api/webAnalytics.ts`               |
+| Compare, people at a point    | `POST query/` with `refresh: blocking` or `force_blocking`, never polled                                                                                                              | `query:read`                                | `src/api/actors.ts`, `src/api/query.ts` |
 
 Cache reads send `refresh=force_cache` explicitly.
 The app never sends `async_except_on_cache_miss`, which the insight endpoint turns into a cache-only read.
@@ -95,7 +96,8 @@ The "SQL views" dashboard (`demo-dash-sql`) has a SQL table, a SQL line chart, a
 
 ## The Views tab
 
-The third slot of the bottom bar opens the Views tab (`app/(tabs)/views.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The third slot of the bottom bar opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The slot after it holds one pinned list from Browse: Errors, Sessions, Web analytics or Live (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
@@ -151,30 +153,36 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Sessions and Errors open the app's own lists, as a pushed screen or, when pinned, as a slot in the nav pill. A long press on either row offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+Browse has Dashboards, Insights, Web analytics, Live, Sessions and Errors. Web analytics, Live, Sessions and Errors open as a pushed screen or, when pinned, as a slot in the nav pill. A long press on any of these four rows offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics and Live have demo data.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
 Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
 
 ### Routes
 
-| View              | Route                                                          |
-| ----------------- | -------------------------------------------------------------- |
-| Dashboard         | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]`    |
-| Insight           | `/views/insight/{short_id}?from={entry}[&mode={display mode}]` |
-| Web analytics     | `/views/web-analytics?from={entry}`                            |
-| Full-screen chart | `/views/chart/{short_id}[?key={cache key}]`                    |
-| Browse lists      | `/views/browse/dashboards`, `/views/browse/insights`           |
+| View               | Route                                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| Dashboard          | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]`                                           |
+| Insight            | `/views/insight/{short_id}?from={entry}[&mode={display mode}]`                                        |
+| Web analytics      | `/views/web-analytics?from={entry}`                                                                   |
+| Web analytics list | `/views/web-analytics/list?tile={pages, sources, devices or locations}&breakdown={WebStatsBreakdown}` |
+| Live               | `/views/live?from={entry}`                                                                            |
+| Pinned tabs        | `/web-analytics`, `/live` (`app/(tabs)/web-analytics/`, `app/(tabs)/live/`)                           |
+| Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
+| Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard` or `widget`) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, or `web_analytics` for the Live chip) for `mobile_view_opened`; `mode` is the pin's display mode.
+A pinned tab opens with `from: tab`, which never travels in a route.
+`mobile_view_opened` also sends `chrome`: `tab` for the pinned Web analytics tab, `stack` for every pushed view.
+The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
 A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
-Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `chartHref`), never by hand.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `webAnalyticsListHref`, `liveHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
-Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
+Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`, `posthog://views/live`.
 
 ## View screens
 
-The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`, `app/views/insight/[shortId].tsx`, `app/views/web-analytics.tsx`) share one frame:
+The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`, `app/views/insight/[shortId].tsx`, `app/views/web-analytics/index.tsx` and `list.tsx`) share one frame:
 
 - `ViewScreenFrame` puts an `OverlayHost` above `ChartSheetsProvider` and `ChartSelectionProvider`. View screens are pushed above the tabs, so they bring their own host for sheets and toasts. The sheets draw outside the chart selection, so a pinned tooltip stays behind an open Point sheet.
 - `ViewChrome` is the floating top row: Back (`view-back`) and More (`view-more`, "Open on web"). The More sheet sends `mobile_view_more_opened` (`view_type`) when it opens.
@@ -186,7 +194,7 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Dashboard     | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a SQL table, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). When the dashboard date control is visible, tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
 | Insight       | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`).                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Web analytics | The overview cards, the trend of the selected card, Pages, Sources, Devices and Locations, Retention, Active hours and links to the tiles that stay on the web. See [Web analytics](#web-analytics).                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Chart clock times follow the device’s 12-hour or 24-hour preference, including hourly axes, tooltip headings, retention details and the “Data until” note. This changes only the display format; date ranges and bucket timezones keep their existing behavior.
 
@@ -194,6 +202,30 @@ A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and 
 People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet drops a query that has not started. In demo, rows that open the web say "Not available in the demo".
 An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides from the saved query, so a tile keeps its display while it loads; see [Kinds that still open the web](#kinds-that-still-open-the-web).
 A drawable tile that the cache-only dashboard read found without a cache says "Not loaded yet" with Load (`view-tile-load-{tileId}`), which reads that tile only. It shows a skeleton while its read runs. A result with nothing to draw says "No data for this range" (`view-tile-empty-{tileId}`, `view-insight-empty`, `chart-fullscreen-empty`), or "No data" without a range. `insightRenderState()` returns `pending`, `empty` or `ready`.
+
+## Web analytics
+
+`src/features/views/webAnalytics/` holds the screen, its cards and `hooks.ts` (`useWebAnalyticsScreen`, `useWebBreakdownList`, `useWebAnalyticsActions`).
+The queries port the web's tiles in `webAnalyticsLogic.tsx` (`src/api/webAnalytics.ts`). The adapters are in `src/model/adapters/webAnalytics.ts` and `webAnalyticsBreakdowns.ts`.
+
+| Card                               | Query                                                                                    | Shows                                                                                                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview                           | `WebOverviewQuery`, compare on                                                           | Visitors, Page views, Sessions, Session duration, Bounce rate, each with its change and "vs N prior". The cards are the trend's series switcher; the selected card has an ink outline.                                     |
+| Trend                              | `TrendsQuery` for the selected metric, compare on, the web's series and math             | A line chart of the current period and the previous period, dotted gray. The bucket that contains now is dashed. A tap on the pinned tooltip opens the Point sheet without "About this chart"; "Open on web" opens `/web`. |
+| Pages, Sources, Devices, Locations | `WebStatsTableQuery` (`limit: 10`), or `WebExternalClicksTableQuery` for Outbound clicks | The title opens the web's tabs in a sheet. Six rows with visitors, views (or clicks) and a bar, then "+N more" or "Show all" for the full list (`limit: 50`).                                                              |
+| Retention                          | `RetentionQuery`, five weekly cohorts of first-time visitors                             | `RetentionGrid`                                                                                                                                                                                                            |
+| Active hours                       | `TrendsQuery` drawn as a calendar heatmap, unique visitors by session start              | `HeatGrid`: weekdays by hour in the project's timezone. A tap shows the cell under the grid; with nothing selected the line names the busiest hour.                                                                        |
+
+- **Interval.** The web's default for the range (`interval.ts`): hours for today, yesterday and 24 or 48 hours, months for 180 days, this year and all time, days otherwise. A custom range takes weeks from 14 days and months from about two months.
+- **Filters.** A tap on a row filters every card by its value, as a click does on the web (`breakdownFilter`, ported from `webStatsBreakdownToPropertyName` and the web's row handler). A missing value filters by "is not set"; a viewport sets its width and height; a time zone sets the browser's offset. A language filters by its base code across all locales. A new filter moves the tile to the web's drill-down tab (Channel to Referring domain, UTM source to medium to campaign, Country to Region to City, Device type to Browser to OS to Viewport). Another value of the same property replaces the filter, and the same value again turns it off. A toast confirms each change with Undo. Outbound clicks have no row filter, as on the web, and their card says so.
+- **Chips.** Active filters show as chips above the overview, including while the overview is loading or has failed. A tap removes one and "Clear all" removes all, each with Undo. Filters, the selected metric and the tabs last for the session, per project, in memory (`webAnalyticsStore.ts`), and are sent as `properties` on every query.
+- **Refresh.** Each card is one `RefreshItem` in screen order, overview first. Every card counts as visible, so one screen open reads up to 8 queries through the shared queue. A range or filter change is a new open path (`rangeKey`), like a range change on other screens; a metric or tab change drops any queued reads for the replaced card and reads the newly selected one. The full list is its own screen with one item.
+- **States.** The whole screen shows the skeleton until the overview arrives, and the error state when the overview fails. Each card then has its own skeleton, "No data for this range." and "Couldn't load this data. Pull down to try again.", and dims its values when its last read failed.
+- **Demo.** `src/demo/webAnalytics.ts` answers every query with invented hedgebox.net data that follows the range and the filters: a filter scales the counts by the share of the row it came from, so the overview with "Path: /pricing" shows the visitors of the /pricing row.
+- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen has "Pin to navigation" (`view-nav-pin`, or `view-nav-unpin`) above "Open on web"; on the tab, the tabs menu has "Unpin from navigation" and "Open on web".
+- **Live chip.** A pill with a green dot and the users online count (`web-analytics-live-chip`) sits right of the title, or right of the range button on the tab. It reads "Live" until a count arrives. A tap pushes Live with `from=web_analytics`. The count comes from `useLiveUsersOnline` (`src/features/live/hooks.ts`): the live events stats read on Cloud, else the HogQL count on the `live` budget, every 30 seconds, only while the screen is focused and the app is in the foreground. It never runs Live's full read.
+
+Events: `mobile_web_analytics_metric_selected` (`metric`), `mobile_web_analytics_breakdown_changed` (`tile`, `breakdown`, `from`: `card` or `list`, `source`: `user` for a picked tab or `drill_down` for the tab a new row filter moves the tile to), `mobile_web_analytics_filter_added` (`property`, `source`: `card`, `list` or `undo`), `mobile_web_analytics_filter_removed` (`property`, `source`: `chip`, `clear_all`, `undo` or `row`), `mobile_web_analytics_list_opened` (`tile`, `breakdown`) and `mobile_web_analytics_web_tile_opened` (`tile`). Filter events name the property, never the value.
 
 ## Date range control
 
@@ -204,7 +236,7 @@ On mixed dashboards, the control stays visible and tiles that ignore it keep the
 
 - **Header row** (`ViewRangeControl`): the range button (`view-range`) opens the date range sheet. The resolved dates show under the button. Changing the range updates its label without a save-status indicator or previous/next period buttons.
 - **Steps:** a swipe on the button (right for the earlier period) steps through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. Forward steps stop at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
-- **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips and presets apply at once and keep the sheet open; Done (`sheet-done`) closes it.
+- **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips, presets, and reset apply at once and close the sheet. Selecting the current preset also closes it. The sheet has no Done button. Comparison changes apply at once and keep the sheet open. Swipe down or tap outside to close it.
 - **Custom range** (`RangeCalendar`, `range-calendar`): a month grid in the project timezone. The first tap sets the start, the second the end (taps in reverse order swap), and a third starts over. Future days are disabled. ‹ › (`range-month-prev`, `range-month-next`) or a swipe change the month, and Apply (`range-apply`) sends date-only strings.
 - **Compare:** available on trends insights, and off for All time. SQL, retention and other insight kinds leave out the comparison control. Turning off a saved comparison reads a separate result with `compareFilter.compare: false`, so its number and delta describe the single period. On a trends insight it runs the compare query from the data layer. The query takes `query.source` from any read of the insight, so a range change with compare on sends only the compare query. An insight saved with compare shows its saved range from the retrieve, which already carries both periods. Opened from a tile, the insight shares the dashboard's range but keeps its own compare toggle. On a dashboard the switch stays disabled with "Compare works on single insights. Open a chart to compare." while `DASHBOARD_COMPARE_SUPPORTED` is false. Web analytics has no compare row.
 
@@ -300,7 +332,7 @@ These show the "This chart opens on the web." card, on tiles and on the insight 
 - Retention with a breakdown, or with a sum or average aggregation (amounts, not people).
 - Web analytics query tiles on a dashboard, and any other query kind.
 
-The web analytics screen shows the overview numbers only. Its top lists open on the web, because the data layer reads only the overview query.
+On the web analytics screen, Goals, Web vitals, Error tracking, Session replay and Frustrating pages open on the web, and the web's world map is the Country tab.
 
 ## What waits on the backend
 

@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -27,6 +28,7 @@ from products.slack_app.backend.services.slack_messages import (
     encode_slack_file_refs,
     parse_slack_file_refs,
 )
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.slack_app.backend.temporal import (
     PostHogCodeSlackMentionWorkflowInputs,
     create_posthog_code_task_for_repo_activity,
@@ -124,6 +126,29 @@ class TestSlackThreadTaskMapping(TestCase):
             team=self.team,
             status=self.TaskRun.Status.IN_PROGRESS,
         )
+
+    def test_context_without_team_id_resolves_the_team_from_the_mapping(self):
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=self.task,
+            task_run=self.task_run,
+        )
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "1234.5678"}
+
+        handler = SlackThreadHandler(SlackThreadContext.from_dict(old_payload))
+
+        assert handler.team_id == self.team.id
+        assert handler._get_integration().id == self.integration.id
+
+    def test_context_without_team_id_and_mapping_fails_cleanly(self):
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "9.9"}
+
+        with self.assertRaises(IntegrationNotFound):
+            SlackThreadHandler(SlackThreadContext.from_dict(old_payload))._get_integration()
 
     def test_create_mapping(self):
         mapping = SlackThreadTaskMapping.objects.create(

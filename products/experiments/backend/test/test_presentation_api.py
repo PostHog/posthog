@@ -12,6 +12,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -889,6 +890,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "ensure_experience_continuity": False,
             },
         )
+        if _name == "condition_added_after_launch":
+            conditions = next(c for c in health["checks"] if c["key"] == "release_conditions_changed_mid_run")
+            self.assertEqual([row["before_exposure"] for row in conditions["rows"]], [False])
 
     @parameterized.expand(
         [
@@ -1061,20 +1065,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("staff_session", True, None, status.HTTP_200_OK, ("read", [120, 880], "ok", "ok")),
+            ("staff_session", True, None, status.HTTP_200_OK, (True, True, "read", [120, 880], "ok", "ok")),
             (
                 "staff_token_without_query_scope",
                 True,
                 ["experiment:read", "activity_log:read"],
                 status.HTTP_200_OK,
-                ("no_query_access", None, "ok", "skipped"),
+                (False, None, "no_query_access", None, "ok", "skipped"),
             ),
             (
                 "staff_denied_a_flag_call_property",
                 True,
                 None,
                 status.HTTP_200_OK,
-                ("denied_properties", None, "ok", "ok"),
+                (True, True, "denied_properties", None, "ok", "ok"),
                 "$feature_flag_reason",
             ),
             (
@@ -1082,7 +1086,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 True,
                 None,
                 status.HTTP_200_OK,
-                ("read", [120, 880], "ok", "skipped"),
+                (True, True, "read", [120, 880], "ok", "skipped"),
                 "$lib",
             ),
             ("not_staff", False, None, status.HTTP_403_FORBIDDEN, None),
@@ -1094,7 +1098,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         is_staff: bool,
         token_scopes: list[str] | None,
         expected_status: int,
-        expected: tuple[str, list[int] | None, str, str] | None,
+        expected: tuple[bool, bool | None, str, list[int] | None, str, str] | None,
         denied_property: str | None = None,
     ) -> None:
         self.user.is_staff = is_staff
@@ -1129,17 +1133,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
             [(1, "test"), (2, None)],
         )
+        self.assertEqual(inputs["exposure_events"]["required_flag_key"], f"health-inputs-{_name}")
+        traffic = inputs["condition_set_traffic"]
         self.assertEqual(
             (
                 inputs["flag_last_called_at"] is not None,
                 inputs["flag_called_during_run"],
-                inputs["exposure_events"]["required_flag_key"],
-            ),
-            (True, True, f"health-inputs-{_name}"),
-        )
-        traffic = inputs["condition_set_traffic"]
-        self.assertEqual(
-            (
                 inputs["condition_set_traffic_status"],
                 [people["people"] for people in traffic["people_by_set"]] if traffic else None,
                 inputs["project"]["team_defaults"]["status"],
@@ -5715,6 +5714,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["configuration_by_day"] == {start.date().isoformat(): "current"}
 
     @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
     def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(
@@ -6692,56 +6692,56 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "single_repo",
                 None,
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
             ),
             (
                 "ambiguous",
                 None,
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "explicit",
                 "acme/api",
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "stale_explicit_needs_a_new_choice",
                 "gone/repo",
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
             (
                 "stale_explicit_with_empty_cache",
                 "gone/repo",
                 None,
-                [],
+                {},
                 {"repository": None, "source": "no_integration", "candidates": []},
             ),
             (
                 "team_default",
                 None,
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"acme/web": "acme/web", "acme/api": "Acme/API"},
                 {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
             ),
             (
                 "stale_team_default_falls_through",
                 None,
                 "gone/repo",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
         ]
     )
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_flag_cleanup_target_endpoint(
-        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_repository_names
     ):
         exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
         if stored_repository:
@@ -6750,12 +6750,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
             config.flag_cleanup_repository = team_default
             config.save()
-        if cached_repos is None:
-            mock_resolve_github.return_value = None
-        else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+        mock_repository_names.return_value = cached_repos
 
         resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
 
@@ -6786,13 +6781,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "Acme/Web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
 
@@ -6809,13 +6802,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
         exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
@@ -7380,6 +7371,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             cohort = response.json()
         self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
 
+    # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.

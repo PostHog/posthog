@@ -10,8 +10,7 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary import mcp_buffer
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
@@ -20,12 +19,19 @@ from products.signals.backend.activity_summary.logic import (
     ActivitySummaryUpdate,
     UpdateStatus,
     build_summary_as_of,
+    render_as_of,
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.activity_summary.render import MCP_HEADER, RENDER_VERSION, Product, RenderLimits
-from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    UserActivitySummary,
+    UserActivitySummaryVersion,
+)
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
@@ -175,11 +181,11 @@ class TestUpdateActivitySummary(BaseTest):
         assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
 
     def test_insights_on_a_dashboard_render_as_one_line_for_the_dashboard(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Quality review")
-        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard.id))
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Quality review")
+        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard_id))
         for index, name in enumerate(["Records judged per day", "Suggestion defect rates"]):
             insight = Insight.objects.create(team=self.team, name=name)
-            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
             self._change(name, days_ago=1.1 - index / 100, item_id=str(insight.id))
 
         result = self._update(FakeLLM([ANSWER]), dry_run=True, min_units=1)
@@ -240,14 +246,56 @@ class TestUpdateActivitySummary(BaseTest):
 
     @parameterized.expand(
         [
-            ("an older prompt version", {"prompt_version": PROMPT_VERSION - 1}, {}, True),
-            ("an older render version", {"render_version": RENDER_VERSION - 1}, {}, True),
-            ("a rebuild_before after generated_at", {}, {"rebuild_before": NOW - datetime.timedelta(hours=1)}, True),
-            ("a rebuild_before before generated_at", {}, {"rebuild_before": NOW - datetime.timedelta(days=3)}, False),
+            (
+                "a prompt version below the floor",
+                {"prompt_version": PROMPT_VERSION - 1},
+                {},
+                PROMPT_VERSION,
+                True,
+                True,
+            ),
+            (
+                "a render version below the floor",
+                {"render_version": RENDER_VERSION - 1},
+                {},
+                PROMPT_VERSION,
+                True,
+                True,
+            ),
+            (
+                "an older prompt version at the floor",
+                {"prompt_version": PROMPT_VERSION - 1},
+                {},
+                PROMPT_VERSION - 1,
+                False,
+                True,
+            ),
+            (
+                "a rebuild_before after generated_at",
+                {},
+                {"rebuild_before": NOW - datetime.timedelta(hours=1)},
+                PROMPT_VERSION,
+                True,
+                False,
+            ),
+            (
+                "a rebuild_before before generated_at",
+                {},
+                {"rebuild_before": NOW - datetime.timedelta(days=3)},
+                PROMPT_VERSION,
+                False,
+                False,
+            ),
         ]
     )
-    def test_a_stale_summary_rebuilds_from_the_full_window(
-        self, _name: str, stored_fields: dict[str, Any], kwargs: dict[str, Any], rebuilt: bool
+    def test_a_stale_or_outdated_summary_rebuilds_from_the_full_window(
+        self,
+        _name: str,
+        stored_fields: dict[str, Any],
+        kwargs: dict[str, Any],
+        min_prompt_version: int,
+        rebuilt: bool,
+        outdated: bool,
     ) -> None:
         for index in range(3):
             self._change(f"Old dashboard {index}", days_ago=5 + index / 100)
@@ -263,26 +311,32 @@ class TestUpdateActivitySummary(BaseTest):
         self._changes(3, days_ago=1)
         llm = FakeLLM([ANSWER])
 
-        result = self._update(llm, **kwargs)
+        with (
+            patch("products.signals.backend.activity_summary.logic.MIN_PROMPT_VERSION", min_prompt_version),
+            patch("products.signals.backend.activity_summary.logic.MIN_RENDER_VERSION", RENDER_VERSION),
+        ):
+            result = self._update(llm, **kwargs)
 
-        assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
+        assert (result.status, result.rebuilt, result.outdated) == (UpdateStatus.OK, rebuilt, outdated)
         sent = json.dumps(llm.requests[0]["messages"])
-        assert ("Old stored summary." not in sent) == rebuilt
-        assert ("Old dashboard" in sent.split("Recent activity")[1]) == rebuilt
+        assert ("Old stored summary." not in sent) == (rebuilt or outdated)
+        assert ("Old dashboard" in sent.split("Recent activity")[1]) == (rebuilt or outdated)
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
 
     @parameterized.expand(
         [
-            ("stale, too few units", True, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.NOT_READY),
-            ("stale, empty profile", True, 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.NOT_READY),
-            ("stale, failed", True, 3, FakeLLM([(ANSWER, "length")], usage=False), ActivitySummaryStatus.READY),
-            ("current, too few units", False, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
+            ("stale, too few units", "stale", 2, FakeLLM([ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, empty profile", "stale", 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, failed", "stale", 3, FakeLLM([(ANSWER, "length")], usage=False), ActivitySummaryStatus.READY),
+            ("outdated, too few units", "outdated", 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
+            ("outdated, empty profile", "outdated", 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.READY),
+            ("current, too few units", "current", 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
         ]
     )
     def test_a_skipped_rebuild_of_a_stale_summary_reads_not_ready_until_a_good_build(
-        self, _name: str, stale: bool, changes: int, llm: FakeLLM, read_status: ActivitySummaryStatus
+        self, _name: str, version: str, changes: int, llm: FakeLLM, read_status: ActivitySummaryStatus
     ) -> None:
         old_summary = json.loads(ANSWER) | {"headline": "Old stored summary."}
         UserActivitySummary.objects.for_team(self.team.id).create(
@@ -292,14 +346,18 @@ class TestUpdateActivitySummary(BaseTest):
             summary=old_summary,
             generated_at=NOW - datetime.timedelta(days=2),
             input_watermark=NOW - datetime.timedelta(days=2),
-            prompt_version=PROMPT_VERSION - 1 if stale else PROMPT_VERSION,
+            prompt_version=PROMPT_VERSION if version == "current" else PROMPT_VERSION - 1,
             render_version=RENDER_VERSION,
             version=1,
         )
         self._changes(changes, days_ago=1)
         config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
+        min_prompt_version = PROMPT_VERSION - 1 if version == "outdated" else PROMPT_VERSION
 
-        with patch("products.signals.backend.activity_summary.read.read_config", return_value=config):
+        with (
+            patch("products.signals.backend.activity_summary.read.read_config", return_value=config),
+            patch("products.signals.backend.activity_summary.logic.MIN_PROMPT_VERSION", min_prompt_version),
+        ):
             self._update(llm)
             skipped = get_summary(self.team, self.user.id)
             self._changes(3, days_ago=0.5)
@@ -310,7 +368,7 @@ class TestUpdateActivitySummary(BaseTest):
         assert skipped is not None and rebuilt is not None and stored is not None
         assert skipped.status == read_status
         if read_status == ActivitySummaryStatus.READY:
-            assert (skipped.headline, skipped.stale) == ("Old stored summary.", stale)
+            assert (skipped.headline, skipped.stale) == ("Old stored summary.", version == "stale")
         assert (rebuilt.status, rebuilt.headline, rebuilt.stale) == (
             ActivitySummaryStatus.READY,
             "Builds the signup funnel.",
@@ -463,6 +521,56 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(llm).status == UpdateStatus.SKIPPED_AI_NOT_APPROVED
         assert llm.requests == []
+
+    def _report(self, title: str, status: str = "ready") -> SignalReport:
+        return SignalReport.objects.create(team=self.team, status=status, title=title, summary="Summary")
+
+    def _artefact(
+        self, report: SignalReport, kind: str, content: dict[str, Any], days_ago: float, **fields: Any
+    ) -> None:
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=kind, content=json.dumps(content), created_by=self.user, **fields
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=NOW - datetime.timedelta(days=days_ago))
+
+    def test_inbox_activity_reaches_the_input_and_the_inbox_exclusion_drops_it(self) -> None:
+        self._changes(2)
+        pricing = self._report("Pageview drop on pricing")
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team, report=pricing, user=self.user, type="view", last_at=NOW
+        )
+        SignalReportAction.objects.for_team(self.team.id).filter(id=action.id).update(
+            first_at=NOW - datetime.timedelta(days=4), last_at=NOW - datetime.timedelta(days=1)
+        )
+        self._artefact(
+            pricing,
+            "dismissal",
+            {"state": "suppressed", "reason": "wontfix_irrelevant", "note": "internal test traffic"},
+            days_ago=0.5,
+        )
+        self._artefact(pricing, "note", {"note": "agent wrote this"}, days_ago=0.5, actor_kind="agent")
+        self._artefact(self._report("Deleted report", status="deleted"), "note", {"note": "gone"}, days_ago=1)
+        llm = FakeLLM([ANSWER])
+
+        result = self._update(llm)
+
+        assert result.status == UpdateStatus.OK
+        assert result.rendered_input is not None
+        assert (
+            '- 2026-10-19 "Pageview drop on pricing": dismissed it as not interested '
+            '(not relevant to this project, "internal test traffic"), opened it on more than one day'
+        ) in result.rendered_input
+        assert "agent wrote this" not in result.rendered_input and "Deleted report" not in result.rendered_input
+        stored = self._stored()
+        assert stored is not None
+        assert (stored.inputs_used["inbox_lines"], stored.inputs_used["drops"]) == (1, {"inbox_agent_actor": 1})
+        assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
+
+        excluded = render_as_of(self.team.id, self.user.id, NOW, exclude_products=frozenset({Product.INBOX}))
+
+        assert excluded is not None
+        assert "Pageview drop on pricing" not in excluded.rendered.text
+        assert excluded.inputs_used["drops"]["excluded_product"] == 3
 
     def test_a_build_as_of_a_past_date_reads_only_the_rows_before_it_and_writes_nothing(self) -> None:
         self._changes(3, days_ago=11)

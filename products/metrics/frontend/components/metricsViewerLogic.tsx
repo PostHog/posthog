@@ -1528,7 +1528,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         queryResults: [
             [] as MetricsViewerSeries[],
             {
-                fetchQueryResults: async (_, breakpoint) => {
+                fetchQueryResults: async (_, breakpoint): Promise<MetricsViewerSeries[]> => {
                     if (!canViewMetrics()) {
                         return []
                     }

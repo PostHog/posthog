@@ -68,6 +68,12 @@ export const ExternalDataDestinationsCreateBody = () => zod.object({
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         ),
+    migration_item_id: zod
+        .string()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
+        ),
 })
 
 /**
@@ -154,6 +160,12 @@ export const ExternalDataDestinationsConnectLinkRetrieveQueryParams = () => zod.
         .optional()
         .describe(
             "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' (the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar."
+        ),
+    migration_item_id: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional warehouse migration item whose planned destination this link sets up. The page then shows the destination's non-secret settings from the vendor, so the user only enters the secret, and the instructions give the target config to create the destination with."
         ),
 })
 

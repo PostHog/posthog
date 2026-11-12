@@ -12,6 +12,68 @@ Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification. Issue-created is capped per team per hour (see
 [Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
+## Shared exception counters (processing mode)
+
+`modes/processing/ledger.rs` counts a team's batch of exceptions per issue in one script call and returns the recent counts.
+Rules that limit or alert on exceptions decide from that result, so they do not need Redis keys of their own.
+The adaptive ingestion stage is its first caller.
+
+The caller chooses the windows.
+A window is a number of fixed buckets of one width, for example 12 buckets of 5 minutes or 24 buckets of one hour.
+Buckets follow the processing clock, not the event timestamp.
+
+| Key | Type | Fields | Expiry |
+| --- | --- | --- | --- |
+| `et:c1:{team_id}:b:<width>:<bucket>` | hash | `_n`: the team's exceptions in the bucket; one field per issue ID: that issue's exceptions in the bucket | `buckets + 2` widths after the first exception in the bucket |
+
+`<width>` is the bucket width in seconds, and `<bucket>` is the Unix time divided by the width.
+The `{team_id}` hash tag keeps all the keys of a team in one slot.
+The number of fields minus one is the number of issues with an exception in the bucket.
+A window can also keep the team total only, in which case its buckets hold the `_n` field alone.
+
+A rolling count is the sum of the buckets inside the window, plus the bucket before them weighted by the share of it that the window still covers.
+For that reason the ledger stores one bucket more than the window holds.
+The estimate assumes that the events of that oldest bucket were spread evenly.
+
+## Adaptive ingestion (processing mode)
+
+Adaptive ingestion marks the exceptions of a spike. It runs in shadow mode only: it never drops or samples an exception.
+It is off by default.
+A project is included when `ADAPTIVE_INGESTION_MODE=shadow` and its `adaptive_ingestion_enabled` setting is true.
+
+The stage runs after the manual rate limits and counts the exceptions they admit, through the shared counters above.
+It compares rolling counts with the project's typical day: the median of the days that had exceptions among the previous 29 UTC days.
+A project has no typical day, and so no lines, until 14 of those days had exceptions.
+A typical day is never taken below 1,000 exceptions a month.
+
+| Line | An exception is over it when |
+| --- | --- |
+| Issue | its issue's rolling hour is above 12 typical hours and holds 20 exceptions or more, or its issue's rolling 24 hours is above 2 typical days |
+| Project | the project's rolling 24 hours is above 3 typical days |
+
+Within a batch, only the exceptions that arrive after a line is crossed are over it.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ADAPTIVE_INGESTION_MODE` | `off` | Set to `shadow` to record what the lines say. |
+| `ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE` | `12` | Issue line, in typical hours per rolling hour. |
+| `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
+
+Each exception of an included project that has a typical day gets these properties.
+The lines are not stored on the exception: a query applies any threshold to the ratios.
+Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so only processing sets them.
+
+| Property | Value |
+| --- | --- |
+| `$adaptive_ingestion_typical_day` | the typical day |
+| `$adaptive_ingestion_issue_hour_ratio` | the issue's rolling hour divided by the typical hour |
+| `$adaptive_ingestion_issue_day_ratio` | the issue's rolling 24 hours divided by the typical day |
+| `$adaptive_ingestion_project_day_ratio` | the project's rolling 24 hours divided by the typical day |
+
+When the counters fail, the exception is kept and gets no property.
+`cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token
@@ -50,14 +112,11 @@ are named for what is actually capped. Only issue-created is charged.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` | none | Required. The service does not start without it. |
-| `ERROR_TRACKING_NOTIFICATIONS_SHADOW_REDIS_URL` | unset | Optional destination for best-effort shadow charges and refunds. Must be a different Redis instance from the primary. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR` | `1000` | Bucket size, and the tokens a team earns back per hour. Zero or less disables the limit. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
 
-Processing mode can set `ERROR_TRACKING_PROCESSING_SHADOW_REDIS_URL` to copy issue and team spike counters, unique-issue sets, cooldown locks and releases, lifecycle event properties, and event rate-limiter charges to a separate Redis instance. Both shadow URLs are optional and unset by default. The primary Redis still supplies every decision and read. A shadow connection failure at startup disables shadow writes on that pod; runtime errors and the 200 ms shadow deadline are counted in `cymbal_shadow_redis_operations_total` by `operation` and `outcome`, without changing the primary result. Failure warnings are limited to one per 30 seconds per pod. Do not use a DNS alias of any primary Redis URL for the shadow: non-idempotent counters and token buckets would be charged twice. The URL guard detects equivalent host, port and database settings, but cannot prove that different hostnames resolve to different instances.
-
-A shadow write is submitted after a successful primary write, with the same keys, bytes, expiry and Lua arguments. It runs in a bounded background task so it does not delay ingestion; at most 128 shadow writes run per pod, and excess submissions increment the `dropped` outcome rather than queue without a bound. After a timeout, the shadow circuit drops new writes until it can replace the connection; retries occur at most every five seconds while traffic continues. This stops timed-out requests from accumulating in the old connection. The `circuit_open` and `reconnect` outcomes record this state. Background writes can reorder or be lost when a pod exits, and an immediate shadow read is not read-after-write consistent. No historical keys are copied. A 48-hour warm-up covers event properties at their default TTL and the shorter-lived spike buckets only if all pods have a healthy shadow connection for the entire window and no writes fail, time out or drop. It does not guarantee parity for a higher configured TTL, independently advancing token buckets and cooldown locks, or writes that complete in a different order. Cooldown locks are mirrored only when the primary grants them; existing primary locks are not copied. A shadow that fails to connect at startup remains disabled on that pod until restart. Validate key and TTL coverage before switching any reader; this option never switches readers.
+Processing mode uses `ISSUE_BUCKETS_REDIS_URL` for spike counters, unique-issue sets, cooldown locks, and lifecycle event properties. When the event rate limiter is enabled, it uses `ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL`. Notifications mode uses `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` for issue-created rate limiting.
 
 The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
 far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then

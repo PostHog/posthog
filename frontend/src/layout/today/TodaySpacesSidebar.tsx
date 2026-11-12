@@ -10,6 +10,7 @@ import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
+import { TodayRecentLoadMore } from './TodayRecentLoadMore'
 import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { selectionClick } from './todaySessionSelection'
@@ -34,13 +35,22 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentFiltersActive,
         recentLoading,
         recentTasksUnavailable,
+        recentTasksHasMore,
+        recentLoadingMore,
+        recentLoadMoreFailed,
         collapsedSections,
         unreadSessionIds,
         phoneSection,
         pinnedTasksLoading,
     } = useValues(todaySpacesLogic)
-    const { loadRecentTasks, toggleSection, setRecentQuery, clearRecentSearchAndFilters, setPhoneSection } =
-        useActions(todaySpacesLogic)
+    const {
+        loadRecentTasks,
+        loadMoreRecentTasks,
+        toggleSection,
+        setRecentQuery,
+        clearRecentSearchAndFilters,
+        setPhoneSection,
+    } = useActions(todaySpacesLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
     const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
@@ -150,6 +160,16 @@ export function TodaySpacesSidebar(): JSX.Element {
             </Button>
         )
 
+    const loadMore = (
+        <TodayRecentLoadMore
+            hasMore={recentTasksHasMore}
+            loading={recentLoadingMore}
+            failed={recentLoadMoreFailed}
+            shownCount={recentItems.length}
+            onLoadMore={loadMoreRecentTasks}
+        />
+    )
+
     const pinnedRows = shownPinnedItems.map((item) => renderItem(item, 'pinned', 'today-pinned-session', true))
 
     const recentBody =
@@ -162,17 +182,20 @@ export function TodaySpacesSidebar(): JSX.Element {
                 Chats you start show up here. Start one with New chat.
             </Text>
         ) : recentState === 'no-matches' ? (
-            notice(
-                'No matches',
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={clearRecentSearchAndFilters}
-                    data-attr="today-recent-clear-filters"
-                >
-                    {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
-                </Button>
-            )
+            <>
+                {notice(
+                    'No matches',
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearRecentSearchAndFilters}
+                        data-attr="today-recent-clear-filters"
+                    >
+                        {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
+                    </Button>
+                )}
+                {loadMore}
+            </>
         ) : (
             <>
                 {recentTasksUnavailable && loadError('Some chats didn’t load.', loadRecentTasks, 'today-recent-retry')}
@@ -188,6 +211,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </Fragment>
                 ))}
+                {loadMore}
             </>
         )
 

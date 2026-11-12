@@ -58,9 +58,9 @@ class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
             label="tawk.to",
             releaseStatus=ReleaseStatus.GA,
             keywords=["tawkto", "live chat"],
-            caption="""Enter your tawk.to REST API key to pull your chats, tickets, properties, and property members into the PostHog Data warehouse.
+            caption="""Enter your tawk.to REST API key to pull your chats, tickets, properties, property members, and knowledge base articles into the PostHog Data warehouse.
 
-tawk.to's REST API is available by request: submit the [REST API Access Request Form](https://help.tawk.to/article/rest-api), then generate an API key under **Edit Profile → REST API Keys**. The key needs read access to properties, chat history, tickets, and members.""",
+tawk.to's REST API is available by request: submit the [REST API Access Request Form](https://help.tawk.to/article/rest-api), then generate an API key under **Edit Profile → REST API Keys**. The key needs read access to properties, chat history, tickets, members, and the knowledge base.""",
             iconPath="/static/services/tawk_to.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tawk-to",
             fields=cast(

@@ -140,6 +140,7 @@ _STANDARD_THREE_YEAR_RETENTION = [
 
 
 class TestBillingManager(BaseTest):
+    @patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "https://billing.posthog.com")
     @patch(
         "ee.billing.billing_manager.http_session.get",
         return_value=MagicMock(
@@ -153,7 +154,7 @@ class TestBillingManager(BaseTest):
         BillingManager(license=None).get_billing(organization)
         assert billing_patch_request_mock.call_count == 1
         billing_patch_request_mock.assert_called_with(
-            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
+            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}, timeout=None
         )
 
     def test_get_billing_adds_todays_usage_to_usage_summary(self):
@@ -697,6 +698,7 @@ class TestBillingManager(BaseTest):
                     "distinct_id": self.user.distinct_id,
                     "event": "events retention period shortened",
                     "properties": {
+                        "$update_person_last_seen_at": False,
                         "organization_name": organization.name,
                         "previous_retention_months": 84,
                         "retention_months": expected_team_months,

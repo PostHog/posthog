@@ -43,7 +43,7 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.oauth_pending_connection import (
-    apply_connector_signup_onboarding_skip,
+    apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
@@ -370,7 +370,7 @@ class SignupSerializer(serializers.Serializer):
         user = self._user
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
-            apply_connector_signup_onboarding_skip(user, self._organization)
+            apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
 
         report_user_signed_up(
             user,
@@ -782,7 +782,7 @@ class InviteSignupSerializer(serializers.Serializer):
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:
-                apply_connector_signup_onboarding_skip(user, invite.organization)
+                apply_pending_connection_onboarding_skip(user, invite.organization, oauth_connection)
 
             verify_email_or_login(self.context["request"], user)
 
@@ -1312,7 +1312,7 @@ def social_create_user(
     # A delegated invitee is the teammate asked to run onboarding, so they keep it.
     is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
     if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
-        apply_connector_signup_onboarding_skip(user, user.organization)
+        apply_pending_connection_onboarding_skip(user, user.organization, oauth_connection)
 
     report_user_signed_up(
         user,

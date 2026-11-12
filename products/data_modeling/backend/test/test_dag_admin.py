@@ -6,6 +6,8 @@ from django.contrib import admin
 from django.test import override_settings
 from django.urls import reverse
 
+from parameterized import parameterized
+
 from posthog.admin import register_all_admin
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
@@ -54,34 +56,38 @@ class TestDataModelingDAGAdminTiers(BaseTest):
             workflow_run_id="run-1",
         )
 
-        response = self.client.get(reverse("admin:data_modeling_dag_tiers", args=[self.dag.id]))
+        response = self.client.get(f"/admin/console/tools/dag-tiers/?dag={self.dag.id}")
         content = response.content.decode()
 
         assert response.status_code == 200
         assert "daily_model" in content
         assert "1day" in content
-        # the summary table resolves counts through a dict lookup, which Django renders as "" on a
-        # miss rather than raising — so a renamed status constant would silently blank it
-        assert 'id="tier-86400"' in content and 'id="tier-3600"' in content
+        assert f"schedules/execute-dag-{self.dag.id}:3600" in content
         assert f"https://temporal.example.com/namespaces/prod/schedules/execute-dag-{self.dag.id}:86400" in content
         assert "https://temporal.example.com/namespaces/prod/workflows/materialize-view-child/run-1" in content
 
     def test_tiers_page_renders_for_a_dag_with_no_targets(self):
         self._node("untargeted_model", None)
 
-        response = self.client.get(reverse("admin:data_modeling_dag_tiers", args=[self.dag.id]))
+        response = self.client.get(f"/admin/console/tools/dag-tiers/?dag={self.dag.id}")
         content = response.content.decode()
 
         assert response.status_code == 200
         assert "has no tiers" in content
         assert "untargeted_model" in content
 
-    def test_an_unknown_dag_id_is_a_404_not_a_crash(self):
-        response = self.client.get(
-            reverse("admin:data_modeling_dag_tiers", args=["019f98c1-0000-0000-0000-000000000000"])
-        )
+    @parameterized.expand([("unknown", "019f98c1-0000-0000-0000-000000000000"), ("malformed", "not-a-uuid")])
+    def test_an_unknown_dag_id_shows_where_to_start_not_a_crash(self, _name: str, dag_id: str):
+        response = self.client.get(f"/admin/console/tools/dag-tiers/?dag={dag_id}")
 
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert "Find a DAG" in response.content.decode()
+
+    def test_the_old_tiers_url_redirects_to_the_console(self):
+        response = self.client.get(f"/admin/data_modeling/dag/{self.dag.id}/tiers/")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/tools/dag-tiers/?dag={self.dag.id}"
 
     def test_admin_shows_dags_but_cannot_create_change_or_delete_them(self):
         assert self.client.get(reverse("admin:data_modeling_dag_changelist")).status_code == 200
@@ -101,7 +107,7 @@ class TestDataModelingDAGAdminTiers(BaseTest):
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(reverse("admin:data_modeling_dag_tiers", args=[self.dag.id]))
+        response = self.client.get(f"/admin/console/tools/dag-tiers/?dag={self.dag.id}")
 
         assert response.status_code == 302
         assert "/admin/login/" in response["Location"]

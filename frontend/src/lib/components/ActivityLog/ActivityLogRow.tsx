@@ -205,9 +205,11 @@ function RowActor({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Eleme
 export const ActivityLogRow = ({
     logItem,
     highlighted,
+    actions,
 }: {
     logItem: HumanizedActivityLogItem
     highlighted?: boolean
+    actions?: JSX.Element | null
 }): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
@@ -235,6 +237,7 @@ export const ActivityLogRow = ({
             <div className={clsx('ActivityLogRow flex gap-2 py-3', logItem.unread && 'ActivityLogRow--unread')}>
                 <RowActor logItem={logItem} />
                 <RowBody logItem={logItem} isExpanded={isExpanded} />
+                {actions}
                 {logItem.id && <CopyLinkButton onCopy={handleCopyLink} />}
                 <ExpandButton
                     isExpanded={isExpanded}

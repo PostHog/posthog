@@ -4,6 +4,7 @@ from products.data_catalog.backend.presentation.views import (
     CertificationViewSet,
     MetricViewSet,
     RelationshipProposalViewSet,
+    UsageSnapshotViewSet,
 )
 
 
@@ -19,5 +20,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"data_catalog/relationship_proposals",
         RelationshipProposalViewSet,
         "environment_data_catalog_relationship_proposals",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"data_catalog/usage",
+        UsageSnapshotViewSet,
+        "environment_data_catalog_usage",
         ["team_id"],
     )

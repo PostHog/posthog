@@ -4,7 +4,7 @@ import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceNodeApi, TraceStepFeedbackApi } from '../../../generated/api.schemas'
 import { EvalRollupOutcome } from '../types'
 import { EvalOutcomeMarker } from './EvalOutcomeMarker'
 import { FeedbackMarker } from './FeedbackMarker'
@@ -17,9 +17,9 @@ export interface TraceTreeRowProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
-    evalOutcomes: Record<string, EvalRollupOutcome>
+    evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
     /** Feedback entries per step id, trace-level ones on the root. */
-    feedbackCountByNodeId?: Record<string, number>
+    stepFeedback?: ReadonlyMap<string, TraceStepFeedbackApi>
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     /** Changes on each step to a match, which scrolls the selected row into view. */
@@ -33,7 +33,7 @@ export function TraceTreeRow({
     onSelectNode,
     onPrefetchNode,
     evalOutcomes,
-    feedbackCountByNodeId,
+    stepFeedback,
     matchingNodeIds = null,
     matchStepCount = 0,
 }: TraceTreeRowProps): JSX.Element {
@@ -44,10 +44,8 @@ export function TraceTreeRow({
             rowRef.current?.scrollIntoView({ block: 'nearest' })
         }
     }, [isSelected, matchStepCount])
-    // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
-    const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
-    const feedbackCount =
-        feedbackCountByNodeId && Object.hasOwn(feedbackCountByNodeId, node.id) ? feedbackCountByNodeId[node.id] : 0
+    const evalOutcome = evalOutcomes.get(node.id) ?? null
+    const feedbackCount = stepFeedback?.get(node.id)?.total ?? 0
     return (
         <li>
             <button
@@ -94,7 +92,7 @@ export function TraceTreeRow({
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
                             evalOutcomes={evalOutcomes}
-                            feedbackCountByNodeId={feedbackCountByNodeId}
+                            stepFeedback={stepFeedback}
                             matchingNodeIds={matchingNodeIds}
                             matchStepCount={matchStepCount}
                         />

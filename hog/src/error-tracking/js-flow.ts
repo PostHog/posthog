@@ -216,12 +216,6 @@ export function resolveJsRelease(
     if (git) {
         name ??= git.repo_name
         version ??= git.commit_id
-    } else if (!complete && (fields.name !== undefined || fields.version !== undefined || fields.build !== undefined)) {
-        throw new HogError(
-            'release_incomplete',
-            'The release needs both a name and a version, and there is no git repository to fill in the missing one.',
-            'Pass both --release-name and --release-version, or run from a git repository.'
-        )
     }
     return name !== undefined && version !== undefined ? { name, version, git } : undefined
 }

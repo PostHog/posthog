@@ -17,7 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { thresholdColorToken } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -38,7 +38,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     // A single card fills the tile, and the tile title already names it. Grouped cards need their labels.
     const single = rows.length === 1
     const valueColor = display.thresholds?.length
-        ? (v: number): string => getColorVar(thresholdColor(v, display.thresholds, FALLBACK_COLOR))
+        ? (v: number): string => getColorVar(thresholdColorToken(v, display.thresholds, FALLBACK_COLOR))
         : undefined
 
     if (rows.length === 0) {
@@ -53,7 +53,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 .join(', ') ||
             row.metricName ||
             fallbackName
-        const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+        const color = getColorVar(thresholdColorToken(value, display.thresholds, FALLBACK_COLOR))
         const data = row.series.points.map((p) => p.value ?? 0)
         // The headline shows the hovered sparkline point, so it shares one scale with every point.
         const formatValue = metricValuesFormatter(row.series.unit ?? undefined, [...data, value ?? 0])

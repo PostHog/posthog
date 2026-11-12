@@ -356,7 +356,7 @@ properties.foo['bar-baz']
 ##### Unsupported/changed functions
 
 Don't use | Use instead
-`toFloat64OrNull()`, `toFloat64()` | `toFloat()`
+`toInt32()`, `toUInt8()`, `toFloat32()` and other non-64-bit widths | `toInt()`, `toFloat()` (`toInt64()` and `toFloat64()` work as aliases)
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
 `count(*)` | `count()`

@@ -17,6 +17,8 @@ describe('navPinStore', () => {
 
     test('a saved list from another app version keeps only known pins, once each', () => {
         expect(sanitizedNavPins(['pulse', 'replay', 'replay', 'errors'])).toEqual(['replay'])
+        expect(sanitizedNavPins(['pulse', 'web_analytics'])).toEqual(['web_analytics'])
+        expect(sanitizedNavPins(['live'])).toEqual(['live'])
         expect(sanitizedNavPins('errors')).toEqual([])
     })
 })

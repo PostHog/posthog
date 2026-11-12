@@ -270,7 +270,13 @@ When authorizing an application, users can scope access to:
 
 This is configured during the authorization step, not in the application settings.
 
-OAuth bearer requests, including provisioning requests, must satisfy the IP restrictions of every organization the user belongs to. Token access scopes do not narrow this policy. Staff impersonation retains its existing exemption.
+OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. OAuth consent, automatic approval, and first-party approval check every organization reachable by the grant before issuing an authorization code. Declining consent remains available. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
+
+Personal API key creation, scope changes, expiry changes, and rotation check the organizations named by both organization and project scopes. Unscoped keys check all of the owner's current organizations. A denied request leaves the credential unchanged. New GitHub team integrations require project membership; updating an existing integration requires management access. Both paths check the target organization's IP policy before consuming authorization state.
+
+Organization listing and account recovery remain available from a blocked IP. Blocked organizations expose only their ID, name, slug, and membership level in these responses; their team and project lists are empty, and their credentials and settings are omitted. The selected team is null when its organization blocks the request. Plain app and toolbar requests enforce the current team's organization policy even when the selected organization differs. Creating a project or environment updates both selections together. Updating an allowlist rechecks the resulting policy under its configuration-row lock before saving. GitHub team OAuth returns recheck project access and the target organization's policy before consuming authorization state. MCP OAuth callbacks check the installation's organization before consuming state or exchanging the authorization code, including development callbacks.
+
+The blocked-organization decision is reused only within the same request, principal, authentication context, and client IP.
 
 The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
 
@@ -370,6 +376,15 @@ While the cookie is present, the auth page pins the data region to the region th
 To try these screens locally, run `generate_demo_data`. It registers the Claude and ChatGPT connectors from their public client ID metadata documents, the same way production registers them. Then open **Login tools** on `/login` and pick a connector under **Start an OAuth connection**. That sets the cookie and a `next` link to the consent screen, as the redirect above does. **Clear** deletes the cookie again.
 
 Analytics: `/login` and `/signup` render the same page, which asks for the email first and then opens the login or the signup password under it. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
+
+### Signed-out device logins
+
+The device approval page `/device` follows the same path. A visitor without a session who opens `/device?code=<user code>` is redirected to `/login?next=<the device URL>`, so the code comes back with them after login, signup, and email verification. A visitor who opens `/device` without a code sees the code form first, and submitting it loads `/device?code=<user code>`, which redirects the same way.
+
+- The redirect sets the same cookie when the code belongs to a pending grant of a verified app. It adds `"flow": "device"`, and it never carries the user code.
+- The redirect looks up the code without a session, so it is limited per IP address. Past the limit, the redirect still happens, without the cookie.
+- An account created while that cookie is present gets `onboarding_skipped_reason` set to `device_login` instead of `connector`. It skips onboarding and goes to `/welcome` the same way.
+- Approving or denying the device login clears the cookie.
 
 ## Endpoints
 

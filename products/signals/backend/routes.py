@@ -12,6 +12,7 @@ from products.signals.backend.presentation.spend import (
     SignalSourceSpendViewSet,
     SignalSpendViewSet,
 )
+from products.signals.backend.presentation.trial import SelfDrivingTrialViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
@@ -19,6 +20,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutMembersViewSet,
     SignalScoutMetadataViewSet,
     SignalScoutNoteViewSet,
+    SignalScoutReportDiscussionsViewSet,
     SignalScoutRunViewSet,
     SignalScoutViewSet,
     SignalScratchpadViewSet,
@@ -34,6 +36,7 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/source_spend", SignalSourceSpendViewSet, "project_signals_source_spend", ["team_id"]
     )
     routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(r"signals/trial", SelfDrivingTrialViewSet, "project_signals_trial", ["team_id"])
     routers.projects.register(
         r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
     )
@@ -112,6 +115,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/members",
         SignalScoutMembersViewSet,
         "project_signals_scout_members",
+        ["team_id"],
+    )
+    # Discussions on the calling scout's own reports. Internal scope → sandbox-only, like the roster.
+    routers.projects.register(
+        r"signals/scout/report_discussions",
+        SignalScoutReportDiscussionsViewSet,
+        "project_signals_scout_report_discussions",
         ["team_id"],
     )
     # Scout chat kickoff: server-minted tasks with the reserved SIGNALS_CHAT origin, so the

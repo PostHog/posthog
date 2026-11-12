@@ -45,21 +45,6 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='hog_function'
-    AND metric_name IN ('succeeded',
-                        'failed')
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id,
-           metric_name
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.101
-  '''
-  
-  SELECT team_id,
-         SUM(count) as count
-  FROM app_metrics2
-  WHERE app_source='hog_function'
     AND metric_name IN ('fetch')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
@@ -67,7 +52,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.102
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.101
   '''
   
   SELECT team_id,
@@ -82,7 +67,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.103
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.102
   '''
   
   SELECT team_id,
@@ -96,6 +81,18 @@
        AND time_bucket < '2022-01-10 23:59:59'
      GROUP BY team_id,
               pattern_version)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.103
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND startsWith(event, '$mcp_')
   GROUP BY team_id
   '''
 # ---
@@ -1221,17 +1218,6 @@
   '''
   
   SELECT team_id,
-         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
-  FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
-  AND timestamp < '2022-01-10 23:59:59'
-  WHERE event = '$mcp_tool_call'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.55
-  '''
-  
-  SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -1251,7 +1237,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.56
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.55
   '''
   
   SELECT team_id,
@@ -1274,7 +1260,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.57
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.56
   '''
   
   SELECT team_id,
@@ -1297,7 +1283,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.58
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.57
   '''
   
   SELECT team_id,
@@ -1320,7 +1306,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.59
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.58
   '''
   
   SELECT team_id,
@@ -1329,6 +1315,29 @@
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-python',
+                                                                              'posthog-dotnet',
+                                                                              'posthog-aspnetcore')
+    AND replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
+                                                                                 '@posthog/pi',
+                                                                                 'posthog-ai')
+  GROUP BY team_id,
+           sdk_lib,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.59
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
+         replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events PREWHERE timestamp >= '2022-01-10 10:00:00'
+  AND timestamp < '2022-01-10 12:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
                                                                               'posthog-python',
@@ -1363,29 +1372,6 @@
          replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
-  FROM events PREWHERE timestamp >= '2022-01-10 10:00:00'
-  AND timestamp < '2022-01-10 12:00:00'
-  AND startsWith(event, '$ai_')
-  WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
-                                                                              'posthog-python',
-                                                                              'posthog-dotnet',
-                                                                              'posthog-aspnetcore')
-    AND replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
-                                                                                 'posthog-opencode',
-                                                                                 '@posthog/pi',
-                                                                                 'posthog-ai')
-  GROUP BY team_id,
-           sdk_lib,
-           ai_lib
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.61
-  '''
-  
-  SELECT team_id,
-         replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') AS sdk_lib,
-         replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
-         count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
   AND startsWith(event, '$ai_')
@@ -1402,7 +1388,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.62
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.61
   '''
   
   SELECT team_id,
@@ -1425,7 +1411,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.63
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.62
   '''
   
   SELECT team_id,
@@ -1448,7 +1434,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.64
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.63
   '''
   
   SELECT team_id,
@@ -1471,7 +1457,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.65
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.64
   '''
   
   SELECT team_id,
@@ -1494,7 +1480,7 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.66
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.65
   '''
   
   SELECT team_id,
@@ -1517,26 +1503,26 @@
            ai_lib
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.67
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.66
   '''
-  
+  WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
   SELECT team_id,
-         event,
-         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+         uniqExactIf(event_key, event = '$mcp_tool_call') AS mcp_tool_call_events,
+         uniqExactIf(event_key, event = '$mcp_missing_capability') AS mcp_missing_capability_events,
+         uniqExactIf(event_key, event = '$mcp_initialize') AS mcp_initialize_events,
+         uniqExactIf(event_key, event = '$mcp_tools_list') AS mcp_tools_list_events,
+         uniqExactIf(event_key, event = '$mcp_resource_read') AS mcp_resource_read_events,
+         uniqExactIf(event_key, event = '$mcp_resources_list') AS mcp_resources_list_events,
+         uniqExactIf(event_key, event = '$mcp_prompt_get') AS mcp_prompt_get_events,
+         uniqExactIf(event_key, event = '$mcp_prompts_list') AS mcp_prompts_list_events,
+         uniqExactIf(event_key, if(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp', 0)) AS web_mcp_events
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 23:59:59'
-  WHERE event IN ('$mcp_missing_capability',
-                  '$mcp_initialize',
-                  '$mcp_tools_list',
-                  '$mcp_resource_read',
-                  '$mcp_resources_list',
-                  '$mcp_prompt_get',
-                  '$mcp_prompts_list')
-  GROUP BY team_id,
-           event
+  AND startsWith(event, '$mcp_')
+  GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.68
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.67
   '''
   
   SELECT JSONExtractInt(log_comment, 'team_id') team_id,
@@ -1552,7 +1538,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.69
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.68
   '''
   
   SELECT team_id,
@@ -1563,6 +1549,22 @@
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.69
+  '''
+  
+  SELECT team_id,
+         metric_name,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE app_source='traces'
+    AND metric_name IN ('bytes_ingested',
+                        'records_ingested')
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           metric_name
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
@@ -1585,22 +1587,6 @@
          metric_name,
          SUM(count) as count
   FROM app_metrics2
-  WHERE app_source='traces'
-    AND metric_name IN ('bytes_ingested',
-                        'records_ingested')
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id,
-           metric_name
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.71
-  '''
-  
-  SELECT team_id,
-         metric_name,
-         SUM(count) as count
-  FROM app_metrics2
   WHERE app_source='metrics'
     AND metric_name IN ('bytes_ingested',
                         'records_ingested')
@@ -1610,7 +1596,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.72
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.71
   '''
   
   SELECT team_id,
@@ -1628,7 +1614,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.73
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.72
   '''
   
   SELECT team_id,
@@ -1646,7 +1632,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.74
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.73
   '''
   
   SELECT team_id,
@@ -1664,7 +1650,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.75
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.74
   '''
   
   SELECT team_id,
@@ -1682,7 +1668,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.76
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.75
   '''
   
   SELECT team_id,
@@ -1700,7 +1686,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.77
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.76
   '''
   
   SELECT team_id,
@@ -1718,7 +1704,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.78
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.77
   '''
   
   SELECT team_id,
@@ -1736,7 +1722,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.79
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.78
   '''
   
   SELECT team_id,
@@ -1744,6 +1730,24 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND NOT startsWith(event, '$ai_')
+    AND ($group_0 != ''
+         OR $group_1 != ''
+         OR $group_2 != ''
+         OR $group_3 != ''
+         OR $group_4 != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.79
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
     AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
@@ -1773,24 +1777,6 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 16:00:00'
-    AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
-    AND NOT startsWith(event, '$ai_')
-    AND ($group_0 != ''
-         OR $group_1 != ''
-         OR $group_2 != ''
-         OR $group_3 != ''
-         OR $group_4 != '')
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.81
-  '''
-  
-  SELECT team_id,
-         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-  FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
     AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
@@ -1803,7 +1789,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.82
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.81
   '''
   
   SELECT team_id,
@@ -1821,7 +1807,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.83
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.82
   '''
   
   SELECT team_id,
@@ -1839,7 +1825,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.84
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.83
   '''
   
   SELECT team_id,
@@ -1850,7 +1836,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.85
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.84
   '''
   
   SELECT team_id,
@@ -1873,7 +1859,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.86
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.85
   '''
   
   SELECT team_id,
@@ -1897,7 +1883,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.87
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.86
   '''
   
   SELECT team_id,
@@ -1921,7 +1907,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.88
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.87
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -1940,13 +1926,32 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.89
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.88
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
          sum(read_rows) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
+    AND access_method = ''
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.89
+  '''
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -1978,25 +1983,6 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND event_time >= 'today 00:00:00'
-    AND event_time < '2022-01-11 05:59:59'
-    AND query_start_time >= '2022-01-10 00:00:00'
-    AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.91
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
          sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
@@ -2010,7 +1996,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.92
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.91
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -2029,7 +2015,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.93
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.92
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -2048,13 +2034,33 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.94
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.93
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
          sum(read_bytes) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
+    AND access_method = ''
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.94
+  '''
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2074,7 +2080,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -2094,26 +2100,6 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
-    AND event_time >= 'today 00:00:00'
-    AND event_time < '2022-01-11 05:59:59'
-    AND query_start_time >= '2022-01-10 00:00:00'
-    AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.97
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
          sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
@@ -2128,7 +2114,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.98
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.97
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -2148,7 +2134,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.99
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.98
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -2166,5 +2152,20 @@
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.99
+  '''
+  
+  SELECT team_id,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE app_source='hog_function'
+    AND metric_name IN ('succeeded',
+                        'failed')
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           metric_name
   '''
 # ---

@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    capture_exception,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -88,22 +89,34 @@ def _format_time_value(value: Any) -> str:
     return str(value)
 
 
+_INVALID_TOKEN_ERROR = (
+    "Your Koyeb API token is invalid or has been revoked. Create a new token in the Koyeb console under API "
+    "settings, then reconnect."
+)
+_UNAUTHORIZED_TOKEN_ERROR = (
+    "Your Koyeb API token is not authorized for this organization. Check the token's organization, then reconnect."
+)
+_UNVERIFIED_TOKEN_ERROR = "PostHog couldn't verify your Koyeb API token. Check the token, then try again."
+
+
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
-    """Confirm the API token is genuine via GET /v1/account/profile — the cheapest authenticated
-    probe. Koyeb tokens are organization-scoped with no per-resource permissions, so one probe
-    covers every endpoint."""
+    """Confirm the API token is genuine with a single-row GET /v1/apps, the same call the Koyeb CLI
+    uses to validate organization tokens. GET /v1/account/profile only works for user tokens, so it
+    would reject the organization tokens this source normally syncs with."""
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
-        f"{KOYEB_BASE_URL}/v1/account/profile",
+        f"{KOYEB_BASE_URL}/v1/apps?limit=1",
         headers=_get_headers(api_token),
     )
     if ok:
         return True, None
-    if status in (401, 403):
-        return False, "Invalid or unauthorized Koyeb API token"
-    if status is None:
-        return False, "Could not reach the Koyeb API"
-    return False, f"Koyeb API error: {status}"
+    if status == 401:
+        return False, _INVALID_TOKEN_ERROR
+    if status == 403:
+        return False, _UNAUTHORIZED_TOKEN_ERROR
+    if status is not None:
+        capture_exception(Exception(f"Unexpected Koyeb credential validation response ({status})"))
+    return False, _UNVERIFIED_TOKEN_ERROR
 
 
 def koyeb_source(

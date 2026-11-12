@@ -18,8 +18,8 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
-from posthog.integrations import IntegrationManager, IntegrationRecord
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
@@ -320,10 +320,16 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
                 return
             claimed_team_ids |= sibling_team_ids
 
-        Integration.objects.filter(
-            team__organization_id=integration.organization_id,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).exclude(team_id__in=claimed_team_ids).delete()
+        unclaimed_team_ids = Team.objects.filter(organization_id=integration.organization_id).exclude(
+            pk__in=claimed_team_ids
+        )
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(unclaimed_team_ids.values_list("id", flat=True)))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                pass  # Another request deleted the resource after the list.
         integration.delete()
 
 
@@ -420,6 +426,9 @@ class VercelConnectLinkSerializer(serializers.Serializer):
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
     """API endpoint to complete the Vercel connectable account linking."""
 
+    # Linking resolves a submitted organization; session discovery filters each candidate organization.
+    _ip_restrictions_use_view_scope = True
+
     permission_classes = [permissions.IsAuthenticated]
 
     @decorators.action(detail=False, methods=["post"], url_path="complete")
@@ -437,6 +446,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         development_team_id = env_mapping.get("development", production_team_id)
 
         cached_data = _load_browser_bound_session(request, session_key)
+
+        enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=str(organization_id))
 
         jti = cached_data.get("jti")
         if not jti or not _mark_token_used(jti):
@@ -651,10 +662,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
-        memberships = OrganizationMembership.objects.filter(
-            user=user,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        ).select_related("organization")
+        memberships = (
+            OrganizationMembership.objects.filter(user=user, level__gte=OrganizationMembership.Level.ADMIN)
+            .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
+            .select_related("organization")
+        )
 
         org_ids = [m.organization_id for m in memberships]
         vercel_integrations = {
@@ -681,12 +693,12 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         for team in Team.objects.filter(organization_id__in=org_ids).order_by("name"):
             teams_by_org.setdefault(team.organization_id, []).append(team)
 
-        teams_with_vercel = set(
-            Integration.objects.filter(
-                team__organization_id__in=org_ids,
-                kind=Integration.IntegrationKind.VERCEL,
-            ).values_list("team_id", flat=True)
-        )
+        teams_with_vercel = {
+            resource.team_id
+            for resource in IntegrationManager.vercel.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(team.pk for teams in teams_by_org.values() for team in teams))
+            )
+        }
 
         organizations = [
             {

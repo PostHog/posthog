@@ -1,14 +1,20 @@
 import os
 import json
+import base64
+import datetime as dt
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
+    CachedLogsQueryResponse,
     DateRange,
     FilterLogicalOperator,
     HogQLFilters,
@@ -31,6 +37,7 @@ from posthog.test.persons import create_person
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.presentation.views.api import LogsViewSet
 
 
 class TestAttributeFilters(APIBaseTest):
@@ -1603,3 +1610,89 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
         )
         self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
         self.assertEqual(group_by_response.json()["total_logs"], 1)
+
+
+class TestLogsQueryCachedResponse(APIBaseTest):
+    def test_cursor_from_cached_string_timestamps(self):
+        rows = [
+            {"uuid": uuid, "timestamp": timestamp}
+            for uuid, timestamp in [
+                ("01", "2026-06-02T08:00:00.300000+00:00"),
+                ("02", "2026-06-02T08:00:00.200000+00:00"),
+                ("03", "2026-06-02T08:00:00.100000+00:00"),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {"query": {"limit": 2, "dateRange": {"date_from": "-10m"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
+        self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", "uuid": "02"})
+
+
+_IS_SET_LEAF = {"key": "k", "operator": "is_set", "type": "log_attribute"}
+
+
+class TestFilterAnalyticsProps(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_group", None, False),
+            ("empty_group_from_app", {"type": "AND", "values": []}, False),
+            ("empty_nested_group_from_app", {"type": "AND", "values": [{"type": "AND", "values": []}]}, False),
+            ("valueless_filter", {"type": "AND", "values": [{"type": "AND", "values": [_IS_SET_LEAF]}]}, True),
+            ("empty_flat_list_from_mcp", [], False),
+            ("flat_list_from_mcp", [_IS_SET_LEAF], True),
+        ]
+    )
+    def test_has_filter_group_ignores_empty_groups(self, _name, filter_group, expected):
+        props = LogsViewSet._filter_analytics_props({"filterGroup": filter_group})
+        self.assertEqual(props["has_filter_group"], expected)
+
+
+class TestLogsQueryExecutedEvent(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("plain", {"filterGroup": {"type": "AND", "values": []}}, "none"),
+            ("session_scoped", {"sessionId": "some-session"}, "session"),
+            ("person_scoped", {"personId": "some-person"}, "person"),
+        ]
+    )
+    def test_event_reports_query_scope(self, _name, query_extra, scope):
+        now = dt.datetime.now(dt.UTC)
+        empty = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=[],
+        )
+        with (
+            patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=empty),
+            patch("products.logs.backend.presentation.views.api.team_has_logs", return_value=True),
+            patch("products.logs.backend.presentation.views.api.report_user_action") as mock_report,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {"query": {"dateRange": {"date_from": "-10m"}, **query_extra}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        event, properties = mock_report.call_args[0][1:3]
+        self.assertEqual(event, "logs query executed")
+        self.assertEqual(
+            {"scope": properties["scope"], "has_filter_group": properties["has_filter_group"]},
+            {"scope": scope, "has_filter_group": False},
+        )

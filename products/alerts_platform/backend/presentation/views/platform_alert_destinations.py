@@ -12,6 +12,8 @@ from django.db import models
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -161,16 +163,7 @@ class PlatformAlertCreateDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        destination_type = DestinationType(attrs["type"])
-        # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
-        data = cast(
-            AlertDestinationData,
-            {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
-        )
-        data["type"] = destination_type
-        # Checked before the view reads them, so a missing field answers 400 with its name.
-        if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
-            raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
+        data = destination_data(attrs)
         routing_key = data.get("pagerduty_routing_key")
         if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
             raise ValidationError(
@@ -192,6 +185,31 @@ class PlatformAlertDeleteDestinationSerializer(serializers.Serializer):
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="IDs of the destinations to delete, as the list endpoint returns them.",
     )
+
+
+def destination_data(attrs: dict[str, Any]) -> AlertDestinationData:
+    """The fields of the chosen type from a validated request. Fields of other types are dropped."""
+    destination_type = DestinationType(attrs["type"])
+    # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
+    data = cast(
+        AlertDestinationData,
+        {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
+    )
+    data["type"] = destination_type
+    # Checked before the view reads them, so a missing field answers 400 with its name.
+    if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
+        raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
+    return data
+
+
+def check_slack_workspace(team_id: int, data: AlertDestinationData) -> None:
+    if data["type"] != DestinationType.SLACK:
+        return
+    # The accessor native delivery sends through, so a destination it would refuse is never saved.
+    try:
+        IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
+    except IntegrationNotFound:
+        raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
 
 
 def serialized_destination(destination: StoredAlertDestination) -> dict[str, Any]:

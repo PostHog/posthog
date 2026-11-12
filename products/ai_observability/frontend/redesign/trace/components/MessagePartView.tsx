@@ -17,13 +17,7 @@ export function MessagePartView({ part, highlightQuery = null }: MessagePartView
             return <ThinkingPart text={part.text} />
         case 'toolCall':
             return (
-                <ToolCallPart
-                    name={part.name}
-                    args={part.args}
-                    result={part.result}
-                    isError={part.isError}
-                    highlightQuery={highlightQuery}
-                />
+                <ToolCallPart name={part.name} args={part.args} result={part.result} highlightQuery={highlightQuery} />
             )
         case 'attachment':
             return (

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useState } from 'react'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
@@ -9,82 +8,59 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
-import { PostHogErrorBoundary } from '@posthog/react'
 
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { lazyWithRetry } from 'lib/utils/retryImport'
-import { projectLogic } from 'scenes/projectLogic'
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
+import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
-
-// Flag-gated, so users without the flag skip the wizard chunk.
-const WizardRunsUnseenDot = lazyWithRetry(() =>
-    import('products/wizard/frontend/views/run-sidebar/WizardRunsUnseenDot').then(({ WizardRunsUnseenDot }) => ({
-        default: WizardRunsUnseenDot,
-    }))
-)
-const WizardRunsMoreMenuItem = lazyWithRetry(() =>
-    import('products/wizard/frontend/views/run-sidebar/WizardRunsMoreMenuItem').then(({ WizardRunsMoreMenuItem }) => ({
-        default: WizardRunsMoreMenuItem,
-    }))
-)
+import { TodayTabBarTab } from './TodayTabBarTab'
+import { todayTourLogic } from './todayTourLogic'
 
 /**
- * The rail's "More" menu. The help menu shortcut opens it too.
+ * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
  * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
  */
-export function TodayMoreMenu(): JSX.Element {
+export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'tab-bar' }): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
-    const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
-    const { currentProjectId } = useValues(projectLogic)
-    const [hasUnseenWizardRuns, setHasUnseenWizardRuns] = useState(false)
+    const { switchAvailable } = useValues(navSwitchLogic)
+    const { tourActive } = useValues(todayTourLogic)
+    const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
 
     return (
-        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
+        // The tour opens this menu and shows its card beside it. A modal menu would swallow the first click on the card.
+        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen} modal={!tourActive}>
             <DropdownMenuTrigger
                 render={
-                    <TodayRailTile
+                    <Tile
                         label="More"
                         icon={
-                            <>
-                                {statusSeverity === 'ok' ? (
-                                    <IconEllipsis />
-                                ) : (
-                                    <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
-                                )}
-                                {wizardUiEnabled &&
-                                    currentProjectId !== null && (
-                                        // A local boundary keeps a failed wizard chunk from reaching the shell's
-                                        // ChunkLoadErrorBoundary, which reloads the whole app.
-                                        <PostHogErrorBoundary fallback={<></>}>
-                                            <Suspense fallback={null}>
-                                                <WizardRunsUnseenDot
-                                                    projectId={String(currentProjectId)}
-                                                    onUnseenChange={setHasUnseenWizardRuns}
-                                                />
-                                            </Suspense>
-                                        </PostHogErrorBoundary>
-                                    )}
-                            </>
+                            statusSeverity === 'ok' ? (
+                                <IconEllipsis />
+                            ) : (
+                                <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
+                            )
                         }
                         active={isHelpMenuOpen}
                         dataAttr="help-menu-button"
                         severity={moreSeverity}
-                        aria-label={hasUnseenWizardRuns ? `${moreLabel}, new Wizard runs` : moreLabel}
+                        aria-label={moreLabel}
                     />
                 }
             />
-            <DropdownMenuContent side="right" align="end" className="w-56">
+            <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
+                <TodayMoreMenuSupportItem />
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem(statusPageUrl, { external: true })}
                     description={
@@ -108,13 +84,7 @@ export function TodayMoreMenu(): JSX.Element {
                 >
                     Health
                 </DropdownMenuItem>
-                {wizardUiEnabled && currentProjectId !== null && (
-                    <PostHogErrorBoundary fallback={<></>}>
-                        <Suspense fallback={null}>
-                            <WizardRunsMoreMenuItem projectId={String(currentProjectId)} />
-                        </Suspense>
-                    </PostHogErrorBoundary>
-                )}
+                {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}

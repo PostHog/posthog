@@ -6,7 +6,7 @@ moving. The platform's runtime rows and check history say where the alert stands
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -22,7 +22,6 @@ from products.alerts.backend.facade.contracts import (
     MovedAlertRuntime,
     MovedAlertStatus,
 )
-from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import insight_state_of_platform
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
@@ -32,10 +31,10 @@ from products.alerts_platform.backend.facade.api import (
     checks_with_detail_by_public_id,
     last_check_by_public_id,
     runtime_by_public_id,
-    source_suppressed_holds_by_legacy_id,
+    source_suppressed_holds_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 
 # The detail key a detector check that fired on a point stores its dates under.
 FIRED_DATES_KEY: Final = "triggered_dates"
@@ -47,17 +46,15 @@ _EARLIEST: Final = datetime(1970, 1, 1, tzinfo=UTC)
 _LATEST: Final = datetime(2100, 1, 1, tzinfo=UTC)
 
 
-def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: datetime) -> dict[UUID, MovedAlertStatus]:
-    """Each moved alert's state, schedule and last check as the platform has them.
+def moved_alert_statuses(
+    *, team_id: int, snoozed_until: Mapping[UUID, datetime | None], now: datetime
+) -> dict[UUID, MovedAlertStatus]:
+    """Each named alert's state, schedule and last check as the platform has them, from the alerts
+    the platform owns and each one's snooze as the API shows it.
 
-    Alerts the platform does not own are left out. Up to three Postgres queries and one ClickHouse
-    query. A ClickHouse failure leaves out the last check, and the response still goes out.
+    Up to two Postgres queries and one ClickHouse query. A ClickHouse failure leaves out the last
+    check, and the response still goes out.
     """
-    snoozed_until = dict(
-        AlertConfiguration.objects.filter(
-            team_id=team_id, id__in=alert_ids, owner=PlatformAlertOwner.PLATFORM
-        ).values_list("id", "snoozed_until")
-    )
     if not snoozed_until:
         return {}
     moved = list(snoozed_until)
@@ -101,8 +98,6 @@ def moved_alert_check_page(
     when the alert's own checks are the ones to show: the platform does not own it, or its history
     could not be read.
     """
-    if not AlertConfiguration.objects.filter(team_id=team_id, id=alert_id, owner=PlatformAlertOwner.PLATFORM).exists():
-        return None
     try:
         page = check_page_by_public_id(
             team_id=team_id,
@@ -126,9 +121,7 @@ def moved_alert_check_page(
         .select_related("notebook")
         .only("evaluation_key", "status", "verdict", "summary", "notebook__short_id")
     }
-    suppressed_holds = source_suppressed_holds_by_legacy_id(
-        team_id=team_id, legacy_configuration_id=alert_id, evaluation_keys=keys
-    )
+    suppressed_holds = source_suppressed_holds_by_public_id(team_id=team_id, public_id=alert_id, evaluation_keys=keys)
     return MovedAlertCheckPage(
         total=page.total,
         checks=tuple(

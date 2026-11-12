@@ -10,7 +10,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner,
 import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -553,7 +553,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {overBudget && freeCreditsOnly ? (
                     <LemonBanner type="info">
                         Your free credits cover about <span>{freeCreditsCoverage(budgetCredits, monthlyCredits)}</span>{' '}
-                        of the month. After that it pauses until they reset.
+                        of the month, then it stops.
                     </LemonBanner>
                 ) : overBudget ? (
                     <LemonBanner type="warning">
@@ -602,7 +602,7 @@ const MESSAGE_INTERVAL_MS = 2500
 
 /** The rotating orange loading bar shown while the draft generates. */
 function DraftLoadingBar(): JSX.Element {
-    const frozen = inStorybook() || inStorybookTestRunner()
+    const frozen = inStorybook()
     const [messageIndex, setMessageIndex] = useState(() =>
         frozen ? 0 : Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
     )

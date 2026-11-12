@@ -62,7 +62,10 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         assert deleted_team_activity_response.status_code == 404
 
         # We can't query by API but can prove the deletion was recorded in the activity log
-        activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
+        activity = [
+            a.__dict__
+            for a in ActivityLog.objects.filter(team_id=team.pk, activity__in=["created", "deleted"]).order_by("scope")
+        ]
         assert activity == [
             {
                 "_state": ANY,

@@ -26,7 +26,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Spinner,
     Text,
 } from '@posthog/quill'
 
@@ -256,14 +255,6 @@ function AnalyticsListContent(): JSX.Element {
                             empty={EMPTY_COLLECTION}
                         />
                     </Card>
-                )}
-                {hasMore && (
-                    <div className="flex items-center justify-center gap-2 py-3" aria-busy>
-                        <Spinner />
-                        <Text size="xs" variant="muted">
-                            Loading more…
-                        </Text>
-                    </div>
                 )}
             </div>
         )

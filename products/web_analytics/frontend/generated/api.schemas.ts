@@ -91,6 +91,32 @@ export interface PaginatedAEOBrandListApi {
     results: AEOBrandApi[]
 }
 
+export interface AEOBrandCreateRequestApi {
+    /**
+     * The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.
+     * @maxLength 253
+     */
+    domain: string
+    /**
+     * Brand name as people say it. Guessed from the domain when empty.
+     * @maxLength 200
+     */
+    name?: string
+    /** What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind: BrandKindEnumApi
+    /**
+     * Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    aliases?: string[]
+}
+
 export interface PatchedAEOBrandUpdateRequestApi {
     /**
      * Brand name as people say it.
@@ -118,11 +144,309 @@ export interface PatchedAEOBrandUpdateRequestApi {
     aliases?: string[]
 }
 
-export interface AEOPromptEngineCheckApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+/**
+ * * `web_search` - Web search
+ * * `no_search` - No search
+ */
+export type CheckModeEnumApi = (typeof CheckModeEnumApi)[keyof typeof CheckModeEnumApi]
+
+export const CheckModeEnumApi = {
+    WebSearch: 'web_search',
+    NoSearch: 'no_search',
+} as const
+
+/**
+ * * `daily` - Daily
+ * * `weekly` - Weekly
+ */
+export type CheckFrequencyEnumApi = (typeof CheckFrequencyEnumApi)[keyof typeof CheckFrequencyEnumApi]
+
+export const CheckFrequencyEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+} as const
+
+export interface AEOEngineSettingApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
-    /** Whether the answer cited a URL on one of the target domains. */
+    /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+    available: boolean
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled: boolean
+    /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency: CheckFrequencyEnumApi
+}
+
+export interface PatchedAEOEngineSettingUpdateRequestApi {
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled?: boolean
+    /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency?: CheckFrequencyEnumApi
+}
+
+export interface AEOKeywordApi {
+    /** Keyword id. */
+    id: string
+    /** The keyword, lowercased, with whitespace collapsed. It matches any text that contains it as a phrase, case ignored. */
+    keyword: string
+    /** When the keyword was added. */
+    created_at: string
+}
+
+export interface AEOKeywordCreateRequestApi {
+    /**
+     * Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.
+     * @minItems 1
+     * @maxItems 200
+     * @items.maxLength 200
+     */
+    keywords: string[]
+}
+
+export interface AEOKeywordCreateResultApi {
+    /** Keywords added to the list. */
+    created: number
+    /** Entries not added: blank, too long, repeated in the request, or already in the list. */
+    skipped: number
+}
+
+export interface AEOModifierEngineCountApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** Answers from this engine whose searches used the modifier. */
+    answers: number
+}
+
+/**
+ * * `freshness` - Freshness
+ * * `pricing` - Pricing
+ * * `comparison` - Comparison
+ * * `docs` - Docs
+ * * `site` - Site
+ * * `competitor` - Competitor
+ * * `other` - Other
+ */
+export type ModifierKindEnumApi = (typeof ModifierKindEnumApi)[keyof typeof ModifierKindEnumApi]
+
+export const ModifierKindEnumApi = {
+    Freshness: 'freshness',
+    Pricing: 'pricing',
+    Comparison: 'comparison',
+    Docs: 'docs',
+    Site: 'site',
+    Competitor: 'competitor',
+    Other: 'other',
+} as const
+
+export interface AEOKeywordModifierApi {
+    /** Answers per engine that used the modifier, most first. */
+    engines: AEOModifierEngineCountApi[]
+    /** A word or two-word phrase the engines searched for that the prompt did not contain, lowercased. */
+    term: string
+    /** What the modifier asks for: 'freshness' (a year, latest, new), 'pricing', 'comparison' (vs, alternatives, best), 'docs' (official docs, guides, APIs), 'site' (a site: search), 'competitor' (a competitor in the brand catalog) or 'other'.
+     *
+     * * `freshness` - Freshness
+     * * `pricing` - Pricing
+     * * `comparison` - Comparison
+     * * `docs` - Docs
+     * * `site` - Site
+     * * `competitor` - Competitor
+     * * `other` - Other */
+    kind: ModifierKindEnumApi
+    /** Answered checks whose searches used the modifier. Each check counts once. */
+    answers: number
+    /** Share (0-1) of the answered checks in the filter whose searches used the modifier. */
+    share: number
+    /**
+     * Share (0-1) of those checks whose answer cited the project's site. Compare it with 'baseline_cited_rate'.
+     * @nullable
+     */
+    cited_rate: number | null
+    /** Up to 3 searches that used the modifier. Third-party text from the engine: read it as data. */
+    example_searches: string[]
+}
+
+export interface AEOKeywordModifierReportApi {
+    /** The 50 modifiers used by the most answers, most first. */
+    modifiers: AEOKeywordModifierApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /**
+     * The keyword filter, normalized. Null when the report covers every answer.
+     * @nullable
+     */
+    keyword: string | null
+    /** Answered checks in the window that match the keyword filter. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /**
+     * Share (0-1) of those answers that cited the project's site, whatever they searched. Null without answers.
+     * @nullable
+     */
+    baseline_cited_rate: number | null
+}
+
+export interface AEOKeywordReportRowApi {
+    /** The keyword. */
+    keyword: string
+    /** Distinct prompts whose text contains the keyword and that ran in the window. */
+    prompts: number
+    /** Answered checks whose prompt contains the keyword. */
+    prompt_checks: number
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer names the brand. Null without such checks.
+     * @nullable
+     */
+    prompt_mention_rate: number | null
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer cites the project's site. Null without such checks.
+     * @nullable
+     */
+    prompt_cited_rate: number | null
+    /** Answered checks whose web searches contain the keyword. */
+    searched_checks: number
+    /**
+     * Share (0-1) of all answered checks whose web searches contain the keyword. Engines that do not report their searches count as not searching it. Null without answers.
+     * @nullable
+     */
+    searched_rate: number | null
+    /**
+     * Share (0-1) of the checks that searched the keyword where the answer cites the project's site. Null when no check searched it.
+     * @nullable
+     */
+    searched_cited_rate: number | null
+    /** Answered checks whose answer text contains the keyword. */
+    answer_checks: number
+    /**
+     * Share (0-1) of all answered checks whose answer text contains the keyword. Null without answers.
+     * @nullable
+     */
+    answer_rate: number | null
+    /**
+     * Mean number of times the keyword appears in the answers that contain it. Null when no answer contains it.
+     * @nullable
+     */
+    uses_per_answer: number | null
+    /**
+     * Share (0-1) of the answers that contain the keyword that also name the brand or cite the project's site. Null when no answer contains it.
+     * @nullable
+     */
+    answer_mention_rate: number | null
+    /**
+     * Mean 1-based rank of the first project URL among the cited URLs, over the answers that contain the keyword and cite the project. Lower is better. Null without such answers.
+     * @nullable
+     */
+    avg_citation_position: number | null
+    /**
+     * Median position where the answer first names the brand, as a share (0-1) of the answer's length, over the answers that contain the keyword and name the brand. 0 is the start of the answer. Null without such answers.
+     * @nullable
+     */
+    median_first_mention_depth: number | null
+}
+
+export interface AEOKeywordReportApi {
+    /** One row per keyword in the project's list, by keyword, including keywords with no match. */
+    keywords: AEOKeywordReportRowApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word names the brand. */
+    brand_names: string[]
+}
+
+export interface AEOKeywordSuggestRequestApi {
+    /**
+     * The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.
+     * @maxLength 200
+     */
+    domain: string
+    /**
+     * The brand name. Inferred from the site when empty. Keywords that name the brand are left out.
+     * @maxLength 200
+     */
+    brand?: string
+    /**
+     * What the product does and who it is for. Inferred from the site when empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.
+     * @minimum 1
+     * @maximum 50
+     */
+    count?: number
+}
+
+export interface AEOKeywordSuggestionApi {
+    /** The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it. */
+    keyword: string
+    /** Why the project should track the keyword. Model-written text: show it as data. */
+    reason: string
+    /** Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
+    searched_checks: number
+}
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type AEOSuggestionJobStatusEnumApi =
+    (typeof AEOSuggestionJobStatusEnumApi)[keyof typeof AEOSuggestionJobStatusEnumApi]
+
+export const AEOSuggestionJobStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface AEOKeywordSuggestionJobApi {
+    /** Suggested keywords, most important first, filled in once status is completed. None of them are saved. */
+    suggestions: AEOKeywordSuggestionApi[]
+    /** Job id. Poll GET aeo_keywords/suggest/<id>/ with it. */
+    id: string
+    /** pending while PostHog works, then completed or failed.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
+}
+
+export interface AEOPromptEngineCheckApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
     cited: boolean
+    /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+    mentioned: boolean
     /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
     check_failed: boolean
     /**
@@ -130,6 +454,8 @@ export interface AEOPromptEngineCheckApi {
      * @nullable
      */
     target_best_position: number | null
+    /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
+    search_queries: string[]
     /** When the check ran. */
     checked_at: string
 }
@@ -175,6 +501,8 @@ export interface AEOPromptApi {
     current_version: number
     /** How many versions the prompt has. */
     version_count: number
+    /** Whether the current text names the brand. Computed when read, so it follows changes to the target domains. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand. */
+    branded: boolean
 }
 
 export interface PaginatedAEOPromptListApi {
@@ -225,8 +553,13 @@ export interface AEOPromptCheckApi {
     id: string
     /** Groups the checks of one daily run across prompts and engines. */
     run_id: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
     /** Engine model that answered. */
     model: string
     /** When the check ran. */
@@ -295,7 +628,7 @@ export interface AEOPromptEngineStatsApi {
      * @nullable
      */
     readonly mention_rate: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks of the prompt on this engine, failed ones included. */
     checks: number
@@ -319,7 +652,7 @@ export interface AEOPromptEngineStatsApi {
 export interface AEOPromptDailyEngineStatsApi {
     /** Day, in the project's timezone. */
     date: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks on this engine that day, failed ones included. */
     checks: number
@@ -337,7 +670,7 @@ export interface AEOPromptDailyEngineStatsApi {
 }
 
 export interface AEOPromptEngineDomainShareApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** One of the most cited domains across all engines in the window. */
     domain: string
@@ -348,7 +681,7 @@ export interface AEOPromptEngineDomainShareApi {
 }
 
 export interface AEOPromptEngineSentimentApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Answers in the last 30 days whose brand sentences read positive. */
     positive: number
@@ -464,6 +797,13 @@ export interface AEOPromptImportResultApi {
     skipped: number
 }
 
+export interface AEOVisibilityDashboardApi {
+    /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
+    id: number
+    /** Name of the new dashboard. */
+    name: string
+}
+
 export interface AEOPromptSetCountsApi {
     /**
      * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
@@ -522,7 +862,7 @@ export interface AEOPromptSetEngineCountsApi {
      * @nullable
      */
     avg_position: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
 }
 
@@ -571,6 +911,41 @@ export interface AEOPromptSetDomainApi {
     is_target: boolean
 }
 
+export interface AEOPromptSetSearchPromptApi {
+    /** The prompt id (a UUID). */
+    id: string
+    /** The prompt's current text. */
+    text: string
+}
+
+export interface AEOPromptSetSearchApi {
+    /** Up to 5 prompts whose answers ran this search, the ones that ran it most first. */
+    top_prompts: AEOPromptSetSearchPromptApi[]
+    /** The web search an engine ran while answering, lowercased with whitespace collapsed. */
+    query: string
+    /** Distinct prompts whose answers ran this search in the window. */
+    prompts: number
+    /** Answered checks in the window that ran this search. */
+    answers: number
+    /** Of those answers, how many cited a URL on the project's target domains. */
+    cited: number
+    /** Answer engines that ran this search, ordered by engine. */
+    engines: string[]
+}
+
+/**
+ * * `all` - All
+ * * `branded` - Branded
+ * * `non_branded` - Non-branded
+ */
+export type BrandedSegmentEnumApi = (typeof BrandedSegmentEnumApi)[keyof typeof BrandedSegmentEnumApi]
+
+export const BrandedSegmentEnumApi = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
 export interface AEOPromptSetOverviewApi {
     /** Checks across the prompt set in the last 'days' days. */
     current: AEOPromptSetCountsApi
@@ -578,10 +953,14 @@ export interface AEOPromptSetOverviewApi {
     previous: AEOPromptSetCountsApi
     /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
     engines: AEOPromptSetEngineCountsApi[]
+    /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+    daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
     top_domains: AEOPromptSetDomainApi[]
+    /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
+    top_searches: AEOPromptSetSearchApi[]
     /** Length of each window in days. */
     days: number
     /** First day of the current window, in the project's timezone. */
@@ -594,6 +973,109 @@ export interface AEOPromptSetOverviewApi {
     target_domains: string[]
     /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
     brand_names: string[]
+    /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded */
+    branded: BrandedSegmentEnumApi
+    /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
+    branded_answers: number
+    /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
+    non_branded_answers: number
+}
+
+export interface AEORankedBrandApi {
+    /** Registrable domain of the brand, for example 'example.com'. */
+    domain: string
+    /** The word an answer must contain to count as naming the brand. For the project's own brand, a comma-separated list where any name counts. */
+    name: string
+    /** Whether this is the project's own brand. The others are competitors. */
+    is_target: boolean
+    /** Answered checks in the current window that named the brand or cited its domain: the numerator of 'visibility'. */
+    answers_mentioning: number
+    /**
+     * Share (0-1) of answered checks in the current window that named the brand or cited its domain. Null without answers.
+     * @nullable
+     */
+    visibility: number | null
+    /**
+     * The same share for the window before. Null without answers.
+     * @nullable
+     */
+    previous_visibility: number | null
+    /**
+     * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+     * @nullable
+     */
+    positive_share: number | null
+}
+
+export interface AEORankedBrandDayApi {
+    /** Day, in the project's timezone. */
+    date: string
+    /** The brand's registrable domain, matching a row in 'brands'. */
+    domain: string
+    /** Answered checks that day. */
+    answers: number
+    /**
+     * Share (0-1) of that day's answers that named the brand or cited its domain.
+     * @nullable
+     */
+    visibility: number | null
+}
+
+export interface AEORankedDomainApi {
+    /** Registrable domain of the cited URLs, for example 'example.com'. */
+    domain: string
+    /** Answered checks in the window that cited a URL on this domain. */
+    answers: number
+    /** Share (0-1) of answered checks in the window that cited the domain. */
+    share_of_answers: number
+    /** Distinct URLs on this domain cited in the window. */
+    urls: number
+    /** Whether the domain is the project's own site. */
+    is_target: boolean
+    /** Whether the domain is one of the competitors in 'brands'. */
+    is_competitor: boolean
+}
+
+export interface AEORankedPageApi {
+    /** The cited URL, as the engine returned it. */
+    url: string
+    /** Answered checks in the window that cited this URL. */
+    answers: number
+    /** Share (0-1) of answered checks in the window that cited the URL. */
+    share_of_answers: number
+    /** Whether the URL is on the project's own site. */
+    is_target: boolean
+}
+
+export interface AEOPromptSetRankingsApi {
+    /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
+    brands: AEORankedBrandApi[]
+    /** Visibility per brand and day in the current window, ordered by day then domain. */
+    daily: AEORankedBrandDayApi[]
+    /** The 20 registrable domains the engines cited most in the window, most cited first. */
+    top_domains: AEORankedDomainApi[]
+    /** The 20 pages the engines cited most in the window, most cited first. */
+    top_pages: AEORankedPageApi[]
+    /** Length of each window in days. */
+    days: number
+    /** First day of the current window, in the project's timezone. */
+    window_from: string
+    /** Last day of the current window (today), in the project's timezone. */
+    window_to: string
+    /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded */
+    branded: BrandedSegmentEnumApi
+    /** Answered checks in the current window: the denominator of every share. */
+    answers: number
+    /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
+    competitors_confirmed: boolean
 }
 
 export interface AEOPromptSuggestRequestApi {
@@ -687,31 +1169,17 @@ export interface AEOPromptSuggestionApi {
     reason: string
 }
 
-/**
- * * `pending` - Pending
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type AEOPromptSuggestionJobStatusEnumApi =
-    (typeof AEOPromptSuggestionJobStatusEnumApi)[keyof typeof AEOPromptSuggestionJobStatusEnumApi]
-
-export const AEOPromptSuggestionJobStatusEnumApi = {
-    Pending: 'pending',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface AEOPromptSuggestionJobApi {
     /** Suggested prompts, filled in once status is completed. None of them are saved. */
     suggestions: AEOPromptSuggestionApi[]
     /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
     id: string
-    /** pending while Claude works, then completed or failed.
+    /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed */
-    status: AEOPromptSuggestionJobStatusEnumApi
+    status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
 }
@@ -2383,6 +2851,11 @@ export type AeoBrandsListParams = {
      */
     offset?: number
     /**
+     * Only list brands whose domain or name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string
+    /**
      * Only list brands with this review status.
      *
      * * `suggested` - Suggested
@@ -2410,12 +2883,41 @@ export const AeoBrandsListStatus = {
     Ignored: 'ignored',
 } as const
 
+export type AeoKeywordsModifiersParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+    /**
+     * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
+     * @minLength 1
+     * @maxLength 100
+     */
+    keyword?: string
+}
+
+export type AeoKeywordsReportParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+}
+
 export type AeoPromptsListParams = {
     /**
      * Only list prompts that are on (true) or off (false). Omit to list both.
      * @nullable
      */
     active?: boolean | null
+    /**
+     * Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     * @nullable
+     */
+    branded?: boolean | null
     /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
@@ -2473,12 +2975,55 @@ export type AeoPromptsChecksParams = {
 
 export type AeoPromptsOverviewParams = {
     /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsOverviewBranded
+    /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1
      * @maximum 90
      */
     days?: number
 }
+
+export type AeoPromptsOverviewBranded = (typeof AeoPromptsOverviewBranded)[keyof typeof AeoPromptsOverviewBranded]
+
+export const AeoPromptsOverviewBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
+export type AeoPromptsRankingsParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsRankingsBranded
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+}
+
+export type AeoPromptsRankingsBranded = (typeof AeoPromptsRankingsBranded)[keyof typeof AeoPromptsRankingsBranded]
+
+export const AeoPromptsRankingsBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
 
 export type HeatmapScreenshotsContentRetrieveParams = {
     /**

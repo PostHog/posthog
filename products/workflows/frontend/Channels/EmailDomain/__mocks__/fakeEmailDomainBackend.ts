@@ -510,6 +510,7 @@ export class FakeEmailDomainBackend {
         const state = this.domainState((sender.config as EmailSenderConfig).domain)
         if (state.ses === 'verified') {
             state.awaitingRecord = false
+            this.verifyDomain(state.domain)
             return { status: 'success', dnsRecords: [] }
         }
         state.ses = 'pending'

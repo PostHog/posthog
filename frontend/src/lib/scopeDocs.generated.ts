@@ -53,6 +53,14 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/customer-analytics/start-here',
     },
+    account_note: {
+        name: 'Account note',
+        plural: 'account notes',
+        description: 'Notes on Customer analytics accounts and their tags, without access to the rest of the account.',
+        group: 'Customers & support',
+        actions: ['read', 'write'],
+        docsUrl: 'https://posthog.com/docs/customer-analytics/start-here',
+    },
     action: {
         name: 'Action',
         plural: 'actions',
@@ -497,7 +505,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         description:
             'Project integrations with third-party services such as Slack, plus connections to other PostHog projects.',
         group: 'Setup & data management',
-        actions: ['read'],
+        actions: ['read', 'write'],
     },
     legal_document: {
         name: 'Legal document',

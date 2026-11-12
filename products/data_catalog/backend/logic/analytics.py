@@ -32,6 +32,7 @@ METRIC_APPROVAL_BLOCKED_EVENT = "data catalog metric approval blocked"
 METRIC_DELETED_EVENT = "data catalog metric deleted"
 METRIC_RUN_EVENT = "data catalog metric run"
 METRIC_RUN_FAILED_EVENT = "data catalog metric run failed"
+METRIC_SEARCHED_EVENT = "data catalog metric searched"
 CERTIFICATION_PROPOSED_EVENT = "data catalog certification proposed"
 CERTIFICATION_CERTIFIED_EVENT = "data catalog certification certified"
 CERTIFICATION_DEPRECATED_EVENT = "data catalog certification deprecated"
@@ -66,7 +67,6 @@ def capture_metric_event(
             "status": metric.status,
             "created_source": metric.created_source,
             "ai_model": metric.ai_model or None,
-            "confidence": metric.confidence,
             "has_definition": metric.definition is not None,
             "is_from_insight": bool(metric.source_insight_short_id),
             **(extra or {}),
@@ -74,6 +74,36 @@ def capture_metric_event(
         team=team,
         user=user,
         request=request,
+        analytics_props=analytics_props,
+    )
+
+
+def capture_metric_search_event(
+    *,
+    team: Team,
+    user: Optional[User],
+    phrasing_count: int,
+    result_count: int,
+    confident_match: bool,
+    search_mode: str,
+    top_metric_name: Optional[str],
+    top_match_reason: Optional[str],
+    analytics_props: Optional[AnalyticsProps] = None,
+) -> None:
+    # The query text stays out: it can hold whatever a person typed.
+    _report(
+        METRIC_SEARCHED_EVENT,
+        {
+            "phrasing_count": phrasing_count,
+            "result_count": result_count,
+            "confident_match": confident_match,
+            "search_mode": search_mode,
+            "top_metric_name": top_metric_name,
+            "top_match_reason": top_match_reason,
+        },
+        team=team,
+        user=user,
+        request=None,
         analytics_props=analytics_props,
     )
 

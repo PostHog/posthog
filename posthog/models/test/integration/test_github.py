@@ -37,6 +37,7 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations import AuthAccessor
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
@@ -53,7 +54,12 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.redis import get_client as get_redis_client
 
 
@@ -1926,11 +1932,12 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            integration = GitHubIntegration.integration_from_installation_id(
+            record = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
+            integration = Integration.objects.get(pk=record.id)
             integration.errors = "TOKEN_REFRESH_FAILED"
             integration.save()
 
@@ -1938,6 +1945,24 @@ class TestGitHubIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert integration.errors == ""
+
+    @patch("posthog.models.integration.github.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_keeps_config_that_another_writer_stored_meanwhile(self, mock_client_request, mock_reload):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        integration = self.create_integration({"installation_id": "INSTALLATION_ID"})
+        github = GitHubIntegration(
+            Integration.objects.get(id=integration.id), source="test", priority=Priority.CRITICAL
+        )
+        integration.config = {**integration.config, "written_meanwhile": True}
+        integration.save()
+
+        github.refresh_access_token()
+
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.config["written_meanwhile"] is True
+        assert stored.sensitive_config["access_token"] == "ACCESS_TOKEN"
+        assert github.integration.config["written_meanwhile"] is True
 
     @parameterized.expand(
         [
@@ -2224,11 +2249,13 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
         mock_list_all.return_value = cached_repositories
 
-        with patch.object(integration, "save", wraps=integration.save) as mock_save:
+        store = AuthAccessor.set_repository_cache
+        with patch.object(AuthAccessor, "set_repository_cache", autospec=True, side_effect=store) as mock_store:
             repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache()
 
         assert repos == cached_repositories
-        mock_save.assert_called_once_with(update_fields=["repository_cache_updated_at"])
+        mock_store.assert_called_once()
+        assert mock_store.call_args.kwargs["repositories"] is None
         integration.refresh_from_db()
         assert integration.repository_cache == cached_repositories
         assert integration.repository_cache_updated_at is not None
@@ -2573,6 +2600,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+        assert mock_refresh_delay.call_args.args[4] == integration.team_id
 
     @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
     def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(
@@ -3348,3 +3376,309 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
 
         assert mock_graphql.call_count == 2
         assert len(mock_graphql.call_args_list[1].args[1]) == 3  # owner/repo/number of the one leftover
+
+
+class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.integration = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "credential_version": "v1"},
+            sensitive_config={"access_token": "FULL_TOKEN", "user_access_token": "USER_TOKEN"},
+        )
+
+    def _github(self) -> UserGitHubIntegration:
+        return UserGitHubIntegration(self.integration, source="test", priority=Priority.CRITICAL)
+
+    @staticmethod
+    def _response(status_code: int, body: dict[str, Any]) -> MagicMock:
+        response = MagicMock(status_code=status_code, headers={})
+        response.json.return_value = body
+        return response
+
+    def _store_user_scoped_snapshot(
+        self, repositories: list[dict[str, Any]], *, days_old: int, marked: bool = True
+    ) -> None:
+        cached_at = timezone.now() - timedelta(days=days_old)
+        self.integration.repository_cache = repositories
+        self.integration.repository_cache_updated_at = cached_at
+        if marked:
+            self.integration.config = {
+                **self.integration.config,
+                USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+            }
+        self.integration.save()
+
+    @parameterized.expand(
+        [("saved_by_the_scoped_sync", True, ["web-app", "secret"]), ("saved_before_the_fix", False, ["web-app"])]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_only_repository_lists_saved_with_the_user_scope_are_served(
+        self, _name: str, marked: bool, expected: list[str], mock_list_all_repositories: MagicMock
+    ) -> None:
+        mock_list_all_repositories.return_value = [{"id": 1, "name": "web-app", "full_name": "acme/web-app"}]
+        self._store_user_scoped_snapshot(
+            [
+                {"id": 1, "name": "web-app", "full_name": "acme/web-app"},
+                {"id": 2, "name": "secret", "full_name": "acme/secret"},
+            ],
+            days_old=0,
+            marked=marked,
+        )
+
+        repositories, _ = self._github().list_cached_repositories()
+
+        assert [repo["name"] for repo in repositories] == expected
+        assert self._github().count_cached_repositories() == len(expected)
+        assert mock_list_all_repositories.called is not marked
+
+    def _user_repositories(self, names: list[str], total_count: int | None = None) -> MagicMock:
+        return self._response(
+            200,
+            {
+                "total_count": len(names) if total_count is None else total_count,
+                "repositories": [{"name": name} for name in names],
+            },
+        )
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_reads_use_a_token_limited_to_the_users_repositories(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._user_repositories(["visible-a", "visible-b"])
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+        assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
+        mock_client_request.assert_called_once_with(
+            "installations/INSTALL/access_tokens",
+            method="POST",
+            json_body={"repositories": ["visible-a", "visible-b"]},
+        )
+
+    @parameterized.expand(
+        [
+            ("access_added", ["visible-a", "visible-b", "visible-c"], None),
+            ("access_removed", ["visible-a"], None),
+            ("all_access_removed", [], None),
+            ("refresh_cooldown", ["visible-a", "visible-b", "visible-c"], 60),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_refresh_uses_the_current_user_scope(
+        self,
+        _name: str,
+        current_names: list[str],
+        min_refresh_interval_seconds: int | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+    ) -> None:
+        initial_names = ["visible-a", "visible-b"]
+        repositories = {
+            name: {"id": index, "name": name, "full_name": f"example/{name}"}
+            for index, name in enumerate(["visible-a", "visible-b", "visible-c"], start=1)
+        }
+        self._store_user_scoped_snapshot([repositories[name] for name in initial_names], days_old=0)
+        mock_user_request.side_effect = [
+            self._user_repositories(initial_names),
+            self._user_repositories(current_names),
+        ]
+        mock_client_request.side_effect = [
+            self._response(201, {"token": "INITIAL_TOKEN"}),
+            self._response(201, {"token": "REFRESHED_TOKEN"}),
+        ]
+        mock_installation_request.side_effect = lambda method, url, **kwargs: self._response(
+            200,
+            {
+                "repositories": [
+                    repositories[name]
+                    for name in (
+                        initial_names if kwargs["headers"]["Authorization"] == "Bearer INITIAL_TOKEN" else current_names
+                    )
+                ]
+            },
+        )
+        github = self._github()
+        assert github.get_access_token() == "INITIAL_TOKEN"
+
+        refreshed = github.sync_repository_cache(min_refresh_interval_seconds=min_refresh_interval_seconds)
+
+        expected_names = initial_names if min_refresh_interval_seconds is not None else current_names
+        assert [repo["name"] for repo in refreshed] == expected_names
+        self.integration.refresh_from_db()
+        assert self.integration.repository_cache == [repositories[name] for name in expected_names]
+        if min_refresh_interval_seconds is not None:
+            assert github.get_access_token() == "INITIAL_TOKEN"
+        elif current_names:
+            assert github.get_access_token() == "REFRESHED_TOKEN"
+
+    @parameterized.expand(
+        [
+            ("network_error", requests.ConnectionError("reset")),
+            ("bad_gateway", "502"),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_transient_listing_failure_is_retried_once(
+        self, _name: str, first_failure: Any, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        failure = self._response(502, {}) if first_failure == "502" else first_failure
+        mock_github_request.side_effect = [failure, self._user_repositories(["visible-a"])]
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repeated_network_errors_surface_as_an_integration_error(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.side_effect = requests.ConnectionError("reset")
+
+        with pytest.raises(GitHubIntegrationError):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+
+    @patch("posthog.models.user_integration.requests.post")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_user_token_past_its_half_life_is_used_without_rotating_it(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock, mock_oauth_post: MagicMock
+    ) -> None:
+        now = int(time.time())
+        self.integration.config = {
+            **self.integration.config,
+            "user_token_refreshed_at": now - 7 * 3600,
+            "user_access_token_expires_at": now + 3600,
+        }
+        self.integration.save()
+        mock_github_request.return_value = self._user_repositories(["visible-a"])
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+        assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
+        mock_oauth_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("zero_total", 200, {"total_count": 0, "repositories": []}),
+            ("total_without_names", 200, {"total_count": 3, "repositories": []}),
+            ("installation_access_denied", 404, {"message": "Not Found"}),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_user_without_repositories_gets_no_token(
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
+        mock_github_request.return_value = self._response(status_code, body)
+        self._store_user_scoped_snapshot([{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}], days_old=1)
+
+        with pytest.raises(GitHubIntegrationError):
+            self._github().get_access_token()
+        repositories, _ = self._github().list_cached_repositories()
+
+        assert repositories == []
+        assert self._github().installation_can_access_repository("acme/old-repo", raise_on_transient=True) is False
+        mock_client_request.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_can_open_it", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 200, True),
+            ("dots_inside_a_name", "acme/release..archive", 200, {"full_name": "acme/release..archive"}, 200, True),
+            ("traversal_segment", "acme/..", 200, {"full_name": "acme/visible-a"}, 200, False),
+            ("user_cannot_open_it", "acme/visible-a", 404, {"message": "Not Found"}, 200, False),
+            ("user_must_reconnect", "acme/visible-a", 401, {"message": "Bad credentials"}, 200, False),
+            ("token_needs_reconnection", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 401, False),
+            ("token_has_no_repositories", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 404, False),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_probe_reports_only_repositories_the_user_can_open(
+        self,
+        _name: str,
+        repository: str,
+        repository_status: int,
+        repository_body: dict[str, Any],
+        listing_status: int,
+        expected: bool,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+        mock_oauth_post: MagicMock,
+    ) -> None:
+        mock_user_request.side_effect = lambda method, url, **kwargs: (
+            self._response(listing_status, {"total_count": 1, "repositories": [{"name": "visible-a"}]})
+            if "/user/installations/" in url
+            else self._response(repository_status, repository_body)
+        )
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+        mock_installation_request.return_value = self._response(200, {"full_name": "acme/visible-a"})
+        mock_oauth_post.return_value = self._response(200, {"error": "bad_refresh_token"})
+
+        assert self._github().installation_can_access_repository(repository, raise_on_transient=True) is expected
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_rejected_user_token_asks_for_reconnection_instead_of_using_the_installation_token(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._response(401, {"message": "Bad credentials"})
+
+        with pytest.raises(ReauthorizationRequired):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+        self.integration.refresh_from_db()
+        assert self._github().needs_reauthorization
+        assert "user_access_token" not in self.integration.sensitive_config
+
+    @parameterized.expand(
+        [
+            ("user_sees_every_repository", 600, "FULL_TOKEN"),
+            ("user_sees_a_subset", 700, None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_more_repositories_than_one_scoped_token_holds(
+        self,
+        _name: str,
+        installation_total: int,
+        expected_token: str | None,
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
+        mock_github_request.side_effect = [
+            self._user_repositories(["repo"], total_count=600),
+            self._response(200, {"total_count": installation_total, "repositories": []}),
+        ]
+
+        if expected_token is None:
+            with pytest.raises(GitHubIntegrationError):
+                self._github().get_access_token()
+        else:
+            assert self._github().get_access_token() == expected_token
+        mock_client_request.assert_not_called()

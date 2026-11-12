@@ -31,6 +31,7 @@ from products.warehouse_sources.sources.sparkpost.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LIMITED_RETENTION_ENDPOINTS,
+    METRICS_ENDPOINTS,
     SPARKPOST_ENDPOINTS,
     WEBHOOK_EVENT_TYPES,
     WEBHOOK_RESOURCE_MAP,
@@ -82,10 +83,11 @@ class SparkPostSource(
             releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: the implementation follows the public SparkPost docs but its
             # end-to-end sync behaviour hasn't been exercised against a live account yet.
-            caption="""Connect your SparkPost account to sync message events, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.
+            caption="""Connect your SparkPost account to sync message events, deliverability metrics, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.
 
 Create an API key in your [SparkPost account settings](https://app.sparkpost.com/account/api-keys) (or the EU console at app.eu.sparkpost.com). Grant the read permissions for the data you want to sync, for example:
 - `Events: Read-only`
+- `Metrics: Read-only`
 - `Suppression Lists: Read-only`
 - `Recipient Lists: Read-only`
 - `Templates: Read-only`
@@ -93,7 +95,7 @@ Create an API key in your [SparkPost account settings](https://app.sparkpost.com
 - `Subaccounts: Read-only`
 - `Webhooks: Read-only`
 
-SparkPost runs independent US and EU stacks that do not share data — pick the region your account is on. Message events are retained for 10 days, so the initial sync of events can only reach back that far.""",
+SparkPost runs independent US and EU stacks that do not share data — pick the region your account is on. Message events are retained for 10 days, so the initial sync of events can only reach back that far. Metrics are retained for 6 months.""",
             iconPath="/static/services/sparkpost.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sparkpost",
             fields=cast(
@@ -177,15 +179,11 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
             SourceSchema(
                 name=endpoint,
                 supports_incremental=SPARKPOST_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=SPARKPOST_ENDPOINTS[endpoint].supports_incremental,
+                supports_append=SPARKPOST_ENDPOINTS[endpoint].supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=SPARKPOST_ENDPOINTS[endpoint].should_sync_default,
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
-                description=(
-                    "Only the last 10 days are available on initial sync (SparkPost event retention)"
-                    if endpoint in LIMITED_RETENTION_ENDPOINTS
-                    else None
-                ),
+                description=self._schema_description(endpoint),
             )
             for endpoint in ENDPOINTS
         ]
@@ -193,6 +191,14 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    @staticmethod
+    def _schema_description(endpoint: str) -> Optional[str]:
+        if endpoint in LIMITED_RETENTION_ENDPOINTS:
+            return "Only the last 10 days are available on initial sync (SparkPost event retention)"
+        if endpoint in METRICS_ENDPOINTS:
+            return "Daily totals. Only the last 6 months are available on initial sync (SparkPost metrics retention)"
+        return None
 
     def validate_credentials(
         self,

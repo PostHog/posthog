@@ -7,7 +7,7 @@ import { Section } from '../components/Section'
 import { timesTypical } from '../lib/format'
 import { authorFrictionLogic } from './authorFrictionLogic'
 
-/** A team's median friction and its members by friction. Members keep their repository-wide ranks. */
+/** Members keep their repository-wide ranks. */
 export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX.Element {
     const { friction, frictionLoading, frictionFailed, frictionNotConnected, sourceId, scopeRepo } =
         useValues(authorFrictionLogic)

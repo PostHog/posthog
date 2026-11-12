@@ -39,6 +39,7 @@ class MergedPullRequest:
 class LandedChange:
     repository: str
     after: str
+    pull_request_number: int
 
 
 class GitHubReader(Protocol):
@@ -80,6 +81,10 @@ class PersonalTokenGitHub:
         )
 
 
+class UnexpectedGitHubResponse(Exception):
+    pass
+
+
 def read_github(
     github: GitHubReader,
     path: str,
@@ -101,17 +106,37 @@ def commit_sha_or_none(value: object) -> str | None:
     return value
 
 
-def landed_change(push: Mapping[str, Any], source_repositories: tuple[str, ...]) -> LandedChange | None:
-    repository = push.get("repository") or {}
+def merged_pull_request_change(
+    delivery: Mapping[str, Any], source_repositories: tuple[str, ...]
+) -> LandedChange | None:
+    repository = delivery.get("repository") or {}
     full_name = repository.get("full_name")
-    after = commit_sha_or_none(push.get("after"))
-    if after is None or push.get("deleted") or repository.get("private") is not False:
+    listed = delivery.get("pull_request") or {}
+    after = commit_sha_or_none(listed.get("merge_commit_sha"))
+    if delivery.get("action") != "closed" or after is None or repository.get("private") is not False:
         return None
     if not isinstance(full_name, str) or full_name.lower() not in {name.lower() for name in source_repositories}:
         return None
-    if push.get("ref") != f"refs/heads/{repository.get('default_branch')}":
+    return landed_change(full_name, listed)
+
+
+def landed_change(repository: str, listed: Mapping[str, Any]) -> LandedChange | None:
+    after = commit_sha_or_none(listed.get("merge_commit_sha"))
+    if after is None or not isinstance(listed.get("number"), int) or merged_pull_request(listed, after) is None:
         return None
-    return LandedChange(repository=full_name, after=after)
+    return LandedChange(repository=repository, after=after, pull_request_number=listed["number"])
+
+
+def read_closed_pull_requests(
+    github: GitHubReader, repository: str, *, page: int, per_page: int
+) -> list[dict[str, Any]]:
+    response = read_github(
+        github,
+        f"/repos/{repository}/pulls",
+        endpoint="/repos/{owner}/{repo}/pulls",
+        params={"state": "closed", "sort": "updated", "direction": "desc", "per_page": per_page, "page": page},
+    )
+    return response.json()
 
 
 def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPullRequest | None:
@@ -125,14 +150,34 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
     )
 
 
-def find_merged_pull_request(github: GitHubReader, repository: str, commit_sha: str) -> MergedPullRequest | None:
+def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> dict[str, Any]:
     response = read_github(
         github,
-        f"/repos/{repository}/commits/{commit_sha}/pulls",
-        endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
+        f"/repos/{change.repository}/pulls/{change.pull_request_number}",
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
     )
-    merged = (merged_pull_request(listed, commit_sha) for listed in response.json())
-    return next((pull_request for pull_request in merged if pull_request is not None), None)
+    return response.json()
+
+
+def reached_default_branch(github: GitHubReader, repository: str, listed: Mapping[str, Any], commit_sha: str) -> bool:
+    base = listed.get("base") or {}
+    default_branch = (base.get("repo") or {}).get("default_branch")
+    if not isinstance(default_branch, str):
+        raise UnexpectedGitHubResponse(
+            f"pull request for {commit_sha} in {repository} has no base repository default branch"
+        )
+    if base.get("ref") == default_branch:
+        return True
+    response = read_github(
+        github,
+        f"/repos/{repository}/compare/{default_branch}...{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+        params={"per_page": 1},
+    )
+    status = response.json().get("status")
+    if not isinstance(status, str):
+        raise UnexpectedGitHubResponse(f"compare of {default_branch}...{commit_sha} in {repository} returned no status")
+    return status in ("behind", "identical")
 
 
 def read_diff_by_path(github: GitHubReader, change: LandedChange) -> dict[str, str]:

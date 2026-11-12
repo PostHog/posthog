@@ -144,7 +144,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
                     "metric_type": "invalid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
-                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
+                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'",
             ),
             (
                 "conversion_window_on_exposure_start_retention",

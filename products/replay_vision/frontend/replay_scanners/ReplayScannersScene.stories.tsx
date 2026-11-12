@@ -916,7 +916,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/tags/': { results: ['checkout', 'core flows'], next: null, count: 2 },
                 '/api/projects/:team_id/experiments/': runningExperiments,
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
@@ -1423,7 +1423,7 @@ export const ScannerCreatorLostAccess: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator(
-            { ...summarizerScanner, enabled: false, unrunnable_reason: 'creator_lost_access' },
+            { ...summarizerScanner, enabled: false, disabled_reason: 'creator_lost_access' },
             summarizerStats
         ),
     ],
@@ -2112,7 +2112,7 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/tags/': { results: ['checkout', 'core flows'], next: null, count: 2 },
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
@@ -2460,6 +2460,22 @@ export const ScannerOverviewFreeCreditsUsed: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
+}
+
+export const ScannerOverviewTurnedOffByFreeCredits: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(
+            {
+                ...freeOnlyLimitReachedScanner,
+                id: summarizerScanner.id,
+                enabled: false,
+                disabled_reason: 'free_credits_used',
+            },
+            summarizerStats
+        ),
         mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
     ],
 }

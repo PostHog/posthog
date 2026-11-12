@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -88,6 +88,8 @@ export interface SourceProductStatus {
     productName: string
     enabled: boolean | null
     enablement: SourceProductEnablement | null
+    /** Set when the current user can't turn the product on, so the button can't send a request that 403s. */
+    enableDisabledReason?: string
     dataStatus: SourceProductDataStatus
 }
 
@@ -663,6 +665,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -678,6 +681,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -777,6 +783,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -792,6 +799,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -881,6 +891,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -896,6 +907,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -1769,6 +1783,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         productName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
+                        // product_enablement keeps conversations admin-only, matching the Team API.
+                        enableDisabledReason:
+                            (team?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin
+                                ? undefined
+                                : 'Ask a project admin to turn on Support',
                         dataStatus: 'unavailable',
                     },
                     llm_analytics: {

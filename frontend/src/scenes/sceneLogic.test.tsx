@@ -15,6 +15,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -23,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
@@ -84,6 +86,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
+    ReplayVision: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
     [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
     [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
@@ -419,6 +422,32 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
     })
 
+    it.each([
+        ['sends a self-hosted install to the Move to PostHog Cloud page', false, false, urls.moveToPostHogCloud()],
+        [
+            'sends a self-hosted install away once preflight loads after the scene opened',
+            false,
+            true,
+            urls.moveToPostHogCloud(),
+        ],
+        ['keeps a cloud install on the scene', true, false, urls.replayVision()],
+        ['keeps a cloud install on the scene once preflight loads after it opened', true, true, urls.replayVision()],
+    ])('cloud-only scene: %s', async (_, cloud, preflightLoadsAfterOpen, expectedPath) => {
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        const loadPreflight = (): void => {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, cloud, is_debug: false } as any)
+        }
+        if (!preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
+        router.actions.push(urls.replayVision())
+        if (preflightLoadsAfterOpen) {
+            loadPreflight()
+        }
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
+    })
+
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
     // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
     // both across. The hash also carries global side-panel state, so it has to survive too.
@@ -731,50 +760,62 @@ describe('sceneLogic', () => {
     it.each([
         [
             'sends the homepage to the welcome page and keeps the side panel prompt',
+            'connector',
             `${urls.projectHomepage()}#panel=max:hello`,
             urls.onboardingWelcome(),
             { panel: 'max:hello' },
         ],
         [
             'keeps a deep link open',
+            'connector',
             urls.insightView('abc123' as InsightShortId),
             urls.insightView('abc123' as InsightShortId),
             {},
         ],
-    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
-        const priorAppContext = window.POSTHOG_APP_CONTEXT
-        try {
-            logic.unmount()
-            window.POSTHOG_APP_CONTEXT = {
-                ...priorAppContext,
-                current_user: {
-                    ...MOCK_DEFAULT_USER,
-                    organization: MOCK_DEFAULT_ORGANIZATION,
-                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
-                    onboarding_skipped_reason: 'connector',
-                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
-                },
-            } as AppContext
-            initKeaTests(true, {
-                ...MOCK_DEFAULT_TEAM,
-                ingested_event: false,
-                completed_snippet_onboarding: false,
-                has_completed_onboarding_for: {},
-            })
-            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
-            featureFlagLogic.mount()
-            logic = sceneLogic.build({ scenes: testScenes })
-            logic.mount()
+        [
+            'sends a device login signup to the welcome page too',
+            'device_login',
+            urls.projectHomepage(),
+            urls.onboardingWelcome(),
+            {},
+        ],
+    ] as const)(
+        'OAuth signup with no data: %s',
+        async (_name, skippedReason, target, expectedRoute, expectedHashParams) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                logic.unmount()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...priorAppContext,
+                    current_user: {
+                        ...MOCK_DEFAULT_USER,
+                        organization: MOCK_DEFAULT_ORGANIZATION,
+                        onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                        onboarding_skipped_reason: skippedReason,
+                        onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                    },
+                } as AppContext
+                initKeaTests(true, {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                logic = sceneLogic.build({ scenes: testScenes })
+                logic.mount()
 
-            router.actions.push(target)
-            await expectLogic(logic).delay(1)
+                router.actions.push(target)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
-            expect(router.values.hashParams).toEqual(expectedHashParams)
-        } finally {
-            window.POSTHOG_APP_CONTEXT = priorAppContext
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+                expect(router.values.hashParams).toEqual(expectedHashParams)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         }
-    })
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

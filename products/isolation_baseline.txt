@@ -17,11 +17,9 @@
 # Once a product reaches the Isolated rung, regenerate this file and its line drops out.
 
 access_control
-actions
 ai_observability
 alerts
 analytics_platform
-annotations
 apm
 approvals
 batch_exports
@@ -53,6 +51,7 @@ logs
 managed_migrations
 marketing_analytics
 mcp_analytics
+mcp_registry
 mcp_store
 notebooks
 notifications

@@ -22,6 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
+import { NavSwitchMoreMenuItem } from '../NavSwitch/NavSwitchMoreMenuItem'
 import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
@@ -194,6 +195,8 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
+
+                                <NavSwitchMoreMenuItem />
 
                                 <Menu.Item
                                     render={(props) => (
