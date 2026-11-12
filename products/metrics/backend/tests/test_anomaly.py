@@ -185,10 +185,10 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
 
     def test_partial_cutoff_uses_the_interval_the_runner_coarsens_to(self):
         # A 10-hour baseline makes the combined pick 30 s buckets, which the runner coarsens to 5 minutes.
-        # The window ends 2.5 minutes into a 5-minute bucket, so that bucket must count as partial.
-        last_bucket = (self.anomaly_from + dt.timedelta(minutes=12)).replace(
-            minute=(self.anomaly_from + dt.timedelta(minutes=12)).minute // 5 * 5
-        )
+        # The window ends 2.5 minutes into the 5-minute bucket holding the last seeded sample (minute 19),
+        # so that bucket must count as partial. A bucket past the data has no point to flag.
+        last_sample = self.start + dt.timedelta(minutes=19)
+        last_bucket = last_sample.replace(minute=last_sample.minute // 5 * 5)
         report = self._characterize(
             anomaly_to=last_bucket + dt.timedelta(minutes=2, seconds=30),
             baseline_from=self.anomaly_from - dt.timedelta(hours=10),
