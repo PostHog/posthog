@@ -313,47 +313,60 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
-// Tier names the `vision-model-tier-naming` experiment shows in place of the Gemini names.
-const MODEL_TIER_NAMES: Record<ScannerModelEnumApi, string> = {
-    [ScannerModelEnumApi.Gemini35FlashLite]: 'Light',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-    [ScannerModelEnumApi.Gemini38Flash]: 'Frontier',
+export type ModelNaming = 'model' | 'tier' | 'effort'
+
+// Names the `vision-model-tier-naming` test arms show in place of the Gemini names, so a tier can later
+// map to a different model, a mix of models, or an in-house model.
+const MODEL_NAMES_BY_NAMING: Record<Exclude<ModelNaming, 'model'>, Record<ScannerModelEnumApi, string>> = {
+    tier: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Normal',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Advanced',
+    },
+    effort: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Quick',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Normal',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Max',
+    },
 }
 
-/** The `vision-model-tier-naming` arms: whether the picker reads "Model tier", and whether options use tier names. */
-export function modelTierNaming(variant: string | boolean | undefined): { fieldLabel: string; tierNames: boolean } {
-    return {
-        fieldLabel: variant === 'tier-label' || variant === 'tier-both' ? 'Model tier' : 'Model',
-        tierNames: variant === 'tier-options' || variant === 'tier-both',
+const MODEL_FIELD_LABELS: Record<ModelNaming, string> = {
+    model: 'Model',
+    tier: 'Model tier',
+    effort: 'Effort',
+}
+
+/** The `vision-model-tier-naming` arms: `control` keeps the Gemini names, `model-tier` and `effort` hide them. */
+export function modelTierNaming(variant: string | boolean | undefined): { fieldLabel: string; naming: ModelNaming } {
+    const naming: ModelNaming = variant === 'model-tier' ? 'tier' : variant === 'effort' ? 'effort' : 'model'
+    return { fieldLabel: MODEL_FIELD_LABELS[naming], naming }
+}
+
+/** Plain model name without the price suffix, for surfaces that show the price separately. A test arm shows
+ * "Legacy" for a model it has no name for, because the raw id carries the Gemini name. */
+export function modelName(model: string | null | undefined, naming: ModelNaming = 'model'): string {
+    if (!model) {
+        return '—'
     }
+    if (naming !== 'model') {
+        return MODEL_NAMES_BY_NAMING[naming][model as ScannerModelEnumApi] ?? 'Legacy'
+    }
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
-export function modelOptions(tierNames = false): { value: ScannerModelEnumApi; label: string }[] {
+export function modelOptions(naming: ModelNaming = 'model'): { value: ScannerModelEnumApi; label: string }[] {
     return Object.values(ScannerModelEnumApi).map((value) => ({
         value,
-        label: `${(tierNames ? MODEL_TIER_NAMES : MODEL_NAMES)[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+        label: `${modelName(value, naming)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     }))
 }
 
-export const MODEL_OPTIONS = modelOptions()
-
 // Falls back to the raw id for models retired before they were named here.
-export function modelLabel(model: string | null | undefined): string {
+export function modelLabel(model: string | null | undefined, naming: ModelNaming = 'model'): string {
     if (!model) {
         return '—'
     }
-    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
-}
-
-/** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined, tierNames = false): string {
-    if (!model) {
-        return '—'
-    }
-    if (tierNames && model in MODEL_TIER_NAMES) {
-        return MODEL_TIER_NAMES[model as ScannerModelEnumApi]
-    }
-    return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
+    return modelOptions(naming).find((opt) => opt.value === model)?.label ?? modelName(model, naming)
 }
 
 /** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */

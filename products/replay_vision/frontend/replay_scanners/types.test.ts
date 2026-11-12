@@ -82,19 +82,25 @@ describe('scanner type helpers', () => {
         })
 
         it.each([
-            ['control', 'Model', false],
-            [undefined, 'Model', false],
-            ['tier-label', 'Model tier', false],
-            ['tier-options', 'Model', true],
-            ['tier-both', 'Model tier', true],
-        ])('maps the tier naming arm %s', (variant, fieldLabel, tierNames) => {
-            expect(modelTierNaming(variant)).toEqual({ fieldLabel, tierNames })
+            ['control', 'Model', 'model'],
+            [undefined, 'Model', 'model'],
+            ['model-tier', 'Model tier', 'tier'],
+            ['effort', 'Effort', 'effort'],
+        ])('maps the tier naming arm %s', (variant, fieldLabel, naming) => {
+            expect(modelTierNaming(variant)).toEqual({ fieldLabel, naming })
         })
 
-        it('names the options by tier from cheapest to most capable', () => {
-            expect(modelOptions(true).map((opt) => opt.label.split(' · ')[0])).toEqual(['Light', 'Standard', 'Frontier'])
-            expect(modelName('gemini-3.8-flash', true)).toBe('Frontier')
-            expect(modelName('gemini-3.7-flash', true)).toBe('Gemini 3.7 Flash')
+        it.each([
+            ['tier', ['Lite', 'Normal', 'Advanced']],
+            ['effort', ['Quick', 'Normal', 'Max']],
+        ] as const)('names the %s options from cheapest to most capable', (naming, names) => {
+            expect(modelOptions(naming).map((opt) => opt.label.split(' · ')[0])).toEqual(names)
+        })
+
+        // A tier can later map to a different model, so the test arms never show a Gemini name or id.
+        it.each(['gemini-3.7-flash', 'gemini-1.5-retired'])('shows no Gemini name for %s in a test arm', (model) => {
+            expect(modelName(model, 'tier')).toBe('Legacy')
+            expect(modelLabel(model, 'effort')).toBe('Legacy')
         })
     })
 })

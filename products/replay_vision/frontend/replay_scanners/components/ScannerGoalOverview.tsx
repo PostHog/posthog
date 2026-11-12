@@ -9,9 +9,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner,
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -31,10 +29,10 @@ import {
     OBSERVATION_CREDITS_BY_MODEL,
     SCANNER_TYPE_TAG_TYPE,
     modelName,
-    modelTierNaming,
     type ReplayScanner,
     scannerTypeLabel,
 } from '../types'
+import { useModelNaming } from '../useModelNaming'
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
  * concrete model id so a retired model just falls through to the generic line. */
@@ -334,8 +332,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { fieldLabel, tierNames } = modelTierNaming(featureFlags[FEATURE_FLAGS.VISION_MODEL_TIER_NAMING])
+    const { fieldLabel, naming } = useModelNaming()
     const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
@@ -407,7 +404,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
                     <StatRow label={fieldLabel}>
                         <span className="inline-flex items-center gap-2">
-                            <LemonTag type="muted">{modelName(scanner.model, tierNames)}</LemonTag>
+                            <LemonTag type="muted">{modelName(scanner.model, naming)}</LemonTag>
                             {creditsPerObservation != null ? (
                                 <span className="text-muted">
                                     {formatCreditCount(creditsPerObservation)} / observation

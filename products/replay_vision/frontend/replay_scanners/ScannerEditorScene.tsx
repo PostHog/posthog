@@ -25,11 +25,9 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useTagSourceExcluding } from 'lib/components/useTagPages'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -63,7 +61,14 @@ import {
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { isUnusableScannerTag } from './scannerTags'
-import { SCANNER_TYPE_OPTIONS, modelOptions, modelTierNaming, scannerTypeOptions } from './types'
+import { type ModelNaming, SCANNER_TYPE_OPTIONS, modelOptions, scannerTypeOptions } from './types'
+import { useModelNaming } from './useModelNaming'
+
+const MODEL_PICKER_HINTS: Record<ModelNaming, string> = {
+    model: 'Newer models tend to produce higher-quality observations, but cost more per observation.',
+    tier: 'Higher tiers tend to produce higher-quality observations, but cost more per observation.',
+    effort: 'More effort tends to produce higher-quality observations, but costs more per observation.',
+}
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -347,8 +352,7 @@ function ConfigureStep(): JSX.Element {
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const isTypeSelectable = isNew && !lockedToExperimentScanner
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { fieldLabel, tierNames } = modelTierNaming(featureFlags[FEATURE_FLAGS.VISION_MODEL_TIER_NAMING])
+    const { fieldLabel, naming } = useModelNaming()
 
     if (!scanner) {
         return <></>
@@ -420,11 +424,10 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label={fieldLabel} className="items-start">
-                    <LemonSelect className="max-w-full" value={scanner.model} options={modelOptions(tierNames)} />
+                    <LemonSelect className="max-w-full" value={scanner.model} options={modelOptions(naming)} />
                 </LemonField>
                 <div className="text-xs text-muted">
-                    Newer models tend to produce higher-quality observations, but cost more per observation.{' '}
-                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
+                    {MODEL_PICKER_HINTS[naming]} <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
 
