@@ -25,6 +25,7 @@ export interface ResumeState {
   logEntryCount: number;
   sessionId: string | null;
   nativeGoal?: NativeGoalState | null;
+  injectedReferences?: string[];
 }
 
 export interface ConversationTurn {
@@ -89,6 +90,7 @@ export async function resumeFromLog(
     logEntryCount: result.data.logEntryCount,
     sessionId: result.data.sessionId,
     nativeGoal: result.data.nativeGoal,
+    injectedReferences: result.data.injectedReferences,
   };
 }
 

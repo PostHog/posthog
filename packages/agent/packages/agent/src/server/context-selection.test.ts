@@ -134,13 +134,7 @@ describe("cloud context selection", () => {
       "</posthog_reference_context>",
     ].join("\n");
     const { api, selector } = fixture();
-    api.prepareContextSelection.mockResolvedValueOnce({
-      selection_id: "s",
-      context: block,
-      mode: "treatment",
-      reason: "selected",
-    });
-    await selector.prepare(message);
+    selector.recordInjected(block);
     await selector.prepare({ messageId: "next", text: "And for teams?" });
     expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual([
       "business_knowledge:doc-1",
@@ -149,12 +143,6 @@ describe("cloud context selection", () => {
     selector.forgetInjected();
     await selector.prepare({ messageId: "after-compaction", text: "Again?" });
     expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual([]);
-
-    const resumed = fixture("resumed", `**User**: ${message.text}\n${block}`);
-    await resumed.selector.prepare(message);
-    expect(
-      resumed.api.prepareContextSelection.mock.lastCall?.[0].exclude,
-    ).toEqual(["business_knowledge:doc-1", "skill:onboarding"]);
   });
 
   it("does not select or retain slash commands", async () => {

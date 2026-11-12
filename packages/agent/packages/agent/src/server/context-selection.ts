@@ -1,4 +1,5 @@
 import { ZodError } from "zod/v4";
+import { injectedReferenceKeys } from "../context-selection/reference-keys";
 import { type PostHogAPIClient, PostHogAPIError } from "../posthog-api";
 
 export interface HumanMessage {
@@ -10,27 +11,6 @@ const MAX_EXCLUDED_REFERENCES = 200;
 
 function tail(value: string, limit: number): string {
   return Array.from(value).slice(-limit).join("");
-}
-
-export function injectedReferenceKeys(text: string): string[] {
-  const keys: string[] = [];
-  let inBlock = false;
-  for (const line of text.split("\n")) {
-    if (line.includes("<posthog_reference_context")) inBlock = true;
-    if (line.includes("</posthog_reference_context>")) inBlock = false;
-    if (!inBlock || !line.startsWith("{")) continue;
-    let record: Record<string, unknown>;
-    try {
-      record = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const id = record.document_id || record.id;
-    if (typeof record.kind === "string" && typeof id === "string" && id) {
-      keys.push(`${record.kind}:${id}`);
-    }
-  }
-  return keys;
 }
 
 export class ContextSelection {
@@ -46,13 +26,20 @@ export class ContextSelection {
     ) => void = () => {},
     private readonly runtimeVersion = "unknown",
     history = "",
+    injected: string[] = [],
   ) {
-    this.resetHistory(history);
+    this.resetHistory(history, injected);
   }
 
-  resetHistory(history = ""): void {
+  resetHistory(history = "", injected: string[] = []): void {
     this.history = tail(history, 12_000);
-    this.injected = new Set(injectedReferenceKeys(history));
+    this.injected = new Set(injected);
+  }
+
+  recordInjected(context: string): void {
+    for (const key of injectedReferenceKeys(context)) {
+      this.injected.add(key);
+    }
   }
 
   forgetInjected(): void {
@@ -72,9 +59,6 @@ export class ContextSelection {
       });
       if (prepared.mode === "disabled" && prepared.reason === "disabled")
         this.disabled = true;
-      for (const key of injectedReferenceKeys(prepared.context)) {
-        this.injected.add(key);
-      }
       return prepared.context;
     } catch (error) {
       const errorType =

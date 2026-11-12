@@ -2551,12 +2551,20 @@ describe("AgentServer HTTP Mode", () => {
         started = resolve;
       });
       const api = {
-        prepareContextSelection: vi.fn(() => {
-          started();
-          return new Promise<ContextSelectionResponse>((resolve) => {
-            finishPreparation = resolve;
-          });
-        }),
+        prepareContextSelection: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            started();
+            return new Promise<ContextSelectionResponse>((resolve) => {
+              finishPreparation = resolve;
+            });
+          })
+          .mockResolvedValue({
+            selection_id: "s",
+            context: "",
+            mode: "treatment",
+            reason: "empty",
+          }),
       };
       testServer.session.contextSelection = new ContextSelection(api, "run-1");
       const result = testServer.runStartupTurn(() =>
@@ -2573,12 +2581,27 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.executeCommand("cancel", {});
       finishPreparation({
         selection_id: "s",
-        context: "definition",
+        context: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: "doc-1",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
         mode: "treatment",
         reason: "selected",
       });
       await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
+      await testServer.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Define activation",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual(
+        [],
+      );
     });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
@@ -3818,7 +3841,12 @@ describe("AgentServer HTTP Mode", () => {
       );
       if (!testServer.session) throw new Error("Missing test session");
       const selector = testServer.session.contextSelection;
-      await selector.prepare({ messageId: "first", text: "Define activation" });
+      selector.recordInjected(
+        await selector.prepare({
+          messageId: "first",
+          text: "Define activation",
+        }),
+      );
       await selector.prepare({ messageId: "second", text: "And retention?" });
       testServer.handleAcpTransportMessage({
         method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,

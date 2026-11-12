@@ -145,6 +145,50 @@ describe("ResumeSaga", () => {
       expect(result.data.conversation[1].role).toBe("assistant");
     });
 
+    it("restores injected references from prompts after the last compaction", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      const reference = (documentId: string) => ({
+        type: "text",
+        text: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: documentId,
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
+        _meta: { ui: { hidden: true } },
+      });
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createNotification("session/prompt", {
+          prompt: [{ type: "text", text: "First" }, reference("before")],
+        }),
+        createNotification(POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY, {}),
+        createNotification("session/prompt", {
+          prompt: [{ type: "text", text: "Second" }, reference("after")],
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.injectedReferences).toEqual([
+        "business_knowledge:after",
+      ]);
+    });
+
     it("merges consecutive text chunks", async () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),
