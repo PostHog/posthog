@@ -51,10 +51,4 @@ class Migration(migrations.Migration):
                 max_length=32,
             ),
         ),
-        # Without it every existing scanner reads as never having found anything and drops to the slowest sweep at once.
-        migrations.RunSQL(
-            sql="UPDATE replay_vision_replayscanner SET last_found_candidates_at = now() WHERE last_found_candidates_at IS NULL",
-            reverse_sql=migrations.RunSQL.noop,
-            elidable=True,
-        ),
     ]
