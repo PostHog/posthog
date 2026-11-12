@@ -453,19 +453,21 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Set up AI visibility tracking
         description: >
             Set up AI visibility tracking for the project from its site's `domain`, with an optional `brand` and
             `description`. Ask the user which answer engines to track, offering the available ones from
             `aeo-setup-context-get`, and pass their ids as `engines`; every other engine is turned off. One run makes
-            about `prompt_target` checks per engine. In one job PostHog adds the site as the own brand, suggests and saves 20 prompts, and
-            suggests and saves 20 keywords. With `run_first_check` true it also queues a first citation check run with
-            the enabled engines. Each check is a paid call to every enabled engine and the daily schedule keeps running
-            them, so ask the user before setting it; when false the first checks wait for the daily run. Steps the project
-            already covers are skipped, so running it again only fills the gaps. Unlike `aeo-prompts-suggest` and
-            `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain with the user first. Returns
-            a pending job right away; poll `aeo-setup-get` with the `id` until `status` is `completed` or `failed`,
-            which takes a few minutes. Then show the user the prompts and keywords it added.
+            about `prompt_target` checks per engine. In one job PostHog adds the site as the own brand, suggests and
+            saves 20 prompts, and suggests and saves 20 keywords. With `run_first_check` true it also queues a first
+            citation check run with the enabled engines. Each check is a paid call to every enabled engine and the daily
+            schedule keeps running them, so ask the user before setting it; when false the first checks wait for the
+            daily run. Steps the project already covers are skipped, so running it again only fills the gaps. Unlike
+            `aeo-prompts-suggest` and `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain
+            with the user first. Returns a pending job right away; poll `aeo-setup-get` with the `id` until `status` is
+            `completed` or `failed`, which takes a few minutes. Then show the user the prompts and keywords it added.
+            A 409 means a setup job is already running: poll its `job_id` instead. To check a project that is already
+            set up now, send only `only_first_run: true`.
         requires_ai_consent: true
         feature_flag: aeo-citation-tracking

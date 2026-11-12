@@ -223,16 +223,11 @@ def suggest_aeo_keywords_task(team_id: int, job_id: str, request: dict) -> None:
         raise
 
 
-# Setup runs the prompt and keyword model calls back to back.
-SETUP_SOFT_TIME_LIMIT_SECONDS = 2 * SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
-SETUP_TIME_LIMIT_SECONDS = SETUP_SOFT_TIME_LIMIT_SECONDS + 60
-
-
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=SETUP_SOFT_TIME_LIMIT_SECONDS,
-    time_limit=SETUP_TIME_LIMIT_SECONDS,
+    soft_time_limit=auto_setup.SETUP_TASK_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=auto_setup.SETUP_TASK_TIME_LIMIT_SECONDS,
 )
 @skip_team_scope_audit  # Team is the tenant; brands, prompts, keywords and checks are read via for_team
 def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
@@ -246,6 +241,7 @@ def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
                 description=request["description"],
                 # A task queued before this field existed carries no key and queues no run.
                 run_first_check=request.get("run_first_check", False),
+                only_first_run=request.get("only_first_run", False),
             ),
         )
     except Exception:

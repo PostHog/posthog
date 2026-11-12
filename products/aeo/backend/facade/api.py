@@ -1238,17 +1238,19 @@ def get_setup_context(team_id: int) -> SetupContext:
 
 
 def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
-    """Queue setup and return the pending job. Poll get_setup for the steps.
-    Raises SetupRequestError when the domain is not one a brand can use."""
-    raw = request.domain.strip()
-    domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
-    if domain is None or not _is_dns_name(domain):
-        raise SetupRequestError(f"'{request.domain}' is not a valid domain. Use a domain such as example.com.")
-    if request.engines is not None:
-        _apply_setup_engines(team_id, set(request.engines))
+    """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
+    domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
+    domain = ""
+    if not request.only_first_run:
+        raw = request.domain.strip()
+        domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}") or ""
+        if not domain or not _is_dns_name(domain):
+            raise SetupRequestError(f"'{request.domain}' is not a valid domain. Use a domain such as example.com.")
+        if request.engines is not None:
+            _apply_setup_engines(team_id, set(request.engines))
     job = auto_setup.create_job(team_id)
     try:
-        # A task still queued when readers would see the job as failed is dropped by the broker instead of run.
+        # A task still queued when it could no longer finish in time is dropped by the broker instead of run.
         set_up_aeo_task.apply_async(
             args=(
                 team_id,
@@ -1258,9 +1260,10 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
                     "brand": request.brand,
                     "description": request.description,
                     "run_first_check": request.run_first_check,
+                    "only_first_run": request.only_first_run,
                 },
             ),
-            expires=auto_setup.SETUP_JOB_STALE_SECONDS,
+            expires=auto_setup.SETUP_START_WINDOW_SECONDS,
         )
     except Exception:
         # Without a queued task nothing would ever finish the pending job.
@@ -1282,7 +1285,8 @@ def _apply_setup_engines(team_id: int, chosen: set[str]) -> None:
         raise SetupRequestError(f"Unknown engines: {', '.join(sorted(unknown))}.")
     if not any(setting.available and setting.engine in chosen for setting in current):
         raise SetupRequestError("Choose at least one engine that this project can run.")
+    # An engine this deployment cannot run keeps its setting, so it starts as chosen once it becomes available.
     for setting in current:
         enabled = setting.engine in chosen
-        if setting.enabled != enabled:
+        if setting.available and setting.enabled != enabled:
             engine_settings.update_engine_setting(team_id, setting.engine, EngineSettingUpdate(enabled=enabled))

@@ -787,6 +787,8 @@ class SetupContext:
     engines: tuple[EngineSetting, ...]
     # How many prompts setup asks for, so a client can show how many checks one run makes.
     prompt_target: int
+    # The window, in days, of the pageview hosts among the websites.
+    website_days: int
 
 
 class SetupStep(LabeledStrEnum):
@@ -822,6 +824,8 @@ class SetupRequest:
     run_first_check: bool = False
     # The engines to track. Every other engine is turned off. None keeps the current settings.
     engines: tuple[str, ...] | None = None
+    # Queue the first run and nothing else: no brand, prompts or keywords, and no engine change.
+    only_first_run: bool = False
 
 
 @frozen
@@ -834,6 +838,14 @@ class SetupJob:
 
 class SetupJobNotFoundError(Exception):
     pass
+
+
+class SetupAlreadyRunningError(Exception):
+    """The team already has a setup job pending. `job_id` is that job, so a client can follow it instead."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id)
+        self.job_id = job_id
 
 
 class SetupRequestError(Exception):
