@@ -134,17 +134,24 @@ class TestExternalDataSchemaSave(BaseTest):
 
     @parameterized.expand(
         [
-            ("cdc", ExternalDataSchema.SyncType.CDC, True, None),
-            ("cdc_schedule_sync_fails", ExternalDataSchema.SyncType.CDC, True, RuntimeError("temporal down")),
-            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, False, None),
+            ("cdc", ExternalDataSchema.SyncType.CDC, None, True, None),
+            ("cdc_schedule_sync_fails", ExternalDataSchema.SyncType.CDC, None, True, RuntimeError("temporal down")),
+            ("cdc_waiting_for_repair", ExternalDataSchema.SyncType.CDC, "slot_missing", False, None),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, None, False, None),
         ]
     )
-    def test_re_enabling_restores_the_cdc_extraction_schedule(self, _name, sync_type, restores, sync_error) -> None:
+    def test_re_enabling_restores_the_cdc_extraction_schedule(
+        self, _name, sync_type, broken_reason, restores, sync_error
+    ) -> None:
         schema = self._create("orders", sync_type=sync_type, should_sync=False)
+        if broken_reason:
+            schema.sync_type_config = {**(schema.sync_type_config or {}), "cdc_broken": {"reason": broken_reason}}
+            schema.save()
         service = "products.data_warehouse.backend.logic.data_load.service"
 
         with (
             patch(f"{service}.external_data_workflow_exists", return_value=True),
+            patch(f"{service}.cdc_extraction_schedule_exists", return_value=False),
             patch(f"{service}.unpause_external_data_schedule"),
             patch(f"{service}.sync_cdc_extraction_schedule", side_effect=sync_error) as mock_sync,
         ):

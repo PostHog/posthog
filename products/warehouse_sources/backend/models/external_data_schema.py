@@ -1908,9 +1908,11 @@ def update_should_sync(
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         external_data_workflow_exists,
         pause_external_data_schedule,
-        sync_cdc_extraction_schedule,
         sync_external_data_job_workflow,
         unpause_external_data_schedule,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (  # noqa: PLC0415
+        restore_missing_extraction_schedule,
     )
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
@@ -1939,7 +1941,7 @@ def update_should_sync(
     # A capture run that found no syncing CDC table deleted the source's extraction schedule.
     if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
         try:
-            sync_cdc_extraction_schedule(schema.source)
+            restore_missing_extraction_schedule(schema.source)
         except Exception:
             # The table is already enabled, and the CDC sweeper recreates a missing schedule.
             logger.exception("cdc_extraction_schedule_sync_failed", external_data_schema_id=str(schema.id))

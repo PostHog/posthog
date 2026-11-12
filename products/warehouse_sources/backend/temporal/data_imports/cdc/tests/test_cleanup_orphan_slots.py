@@ -69,7 +69,11 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=Fals
     return adapter
 
 
-_SCHEDULE_LOOKUP = {"present": {"return_value": False}, "missing": {"return_value": True}}
+_SCHEDULE_LOOKUP = {
+    "present": {"return_value": True},
+    "missing": {"return_value": False},
+    "error": {"side_effect": TimeoutError()},
+}
 
 
 def _run(adapter, *, schedule_state="present"):
@@ -83,8 +87,8 @@ def _run(adapter, *, schedule_state="present"):
         ),
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
         patch(
-            "products.data_warehouse.backend.logic.data_load.service.is_cdc_extraction_schedule_missing",
-            **_SCHEDULE_LOOKUP.get(schedule_state, {"side_effect": TimeoutError()}),
+            "products.data_warehouse.backend.logic.data_load.service.cdc_extraction_schedule_exists",
+            **_SCHEDULE_LOOKUP[schedule_state],
         ),
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
@@ -282,8 +286,9 @@ def _restore_case(
         _restore_case("missing_schedule_is_restored_without_lag_blame"),
         _restore_case("capped_slot_is_kept_while_capture_catches_up", management="posthog", retention_cap_mb=10000),
         _restore_case(
-            "uncapped_slot_is_still_dropped",
+            "uncapped_slot_is_dropped_without_a_restore",
             management="posthog",
+            restored=False,
             dropped=True,
             expected_reason="auto_dropped_critical_lag",
         ),

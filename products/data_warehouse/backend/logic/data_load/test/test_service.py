@@ -36,7 +36,6 @@ from products.data_warehouse.backend.logic.data_load.service import (
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
-    is_cdc_extraction_schedule_missing,
     is_cdc_extraction_schedule_paused,
     pause_cdc_extraction_schedule,
     pause_external_data_schedule,
@@ -393,24 +392,26 @@ def test_a_missing_schedule_reads_as_not_paused() -> None:
         assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is False
 
 
-@pytest.mark.parametrize("describe_side, missing", [(None, False), (_not_found(), True)])
-def test_cdc_schedule_missing_reads_the_sources_schedule(describe_side: BaseException | None, missing: bool) -> None:
+@pytest.mark.parametrize("describe_side, exists", [(None, True), (_not_found(), False)])
+def test_reporting_whether_a_source_still_has_its_capture_schedule(
+    describe_side: BaseException | None, exists: bool
+) -> None:
     source_id = "01a0393e-a79f-0000-0361-2cabb703888f"
 
     with _temporal_with_schedule(describe_side=describe_side) as mock_connect:
-        assert is_cdc_extraction_schedule_missing(source_id) is missing
+        assert cdc_extraction_schedule_exists(source_id) is exists
 
     mock_connect.return_value.get_schedule_handle.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))
 
 
-def test_cdc_schedule_missing_gives_up_on_a_stalled_server() -> None:
+def test_capture_schedule_lookup_gives_up_on_a_stalled_server() -> None:
     async def _never_answers() -> None:
         await asyncio.Event().wait()
 
     with _temporal_with_schedule() as mock_connect:
         mock_connect.return_value.get_schedule_handle.return_value.describe = AsyncMock(side_effect=_never_answers)
         with pytest.raises(TimeoutError):
-            is_cdc_extraction_schedule_missing("source-id", timeout=dt.timedelta(milliseconds=50))
+            cdc_extraction_schedule_exists("source-id", timeout=dt.timedelta(milliseconds=50))
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---
@@ -642,14 +643,3 @@ def test_triggering_capture_raises_any_other_temporal_error() -> None:
         pytest.raises(RPCError),
     ):
         trigger_cdc_extraction_schedule(str(uuid.uuid4()))
-
-
-@pytest.mark.parametrize("exists", [True, False])
-def test_reporting_whether_a_source_still_has_its_capture_schedule(exists: bool) -> None:
-    # The caller recreates a missing one, so it needs to know without starting a run.
-    source_id = str(uuid.uuid4())
-
-    with patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists) as workflow_exists:
-        assert cdc_extraction_schedule_exists(source_id) is exists
-
-    workflow_exists.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))

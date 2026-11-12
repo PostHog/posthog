@@ -383,6 +383,29 @@ class TestSetupSelfCleansUnrunnableSchedules:
         mock_delete.assert_called_once()
         mock_get_adapter.assert_not_called()
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_no_syncing_tables_syncs_the_schedule_instead_of_deleting_it(
+        self, _mock_close_conns, MockSourceModel, mock_get_adapter
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+
+        act = _make_extract_activity(source)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            patch.object(act, "_get_cdc_schemas", return_value=[]),
+            patch(f"{service}.sync_cdc_extraction_schedule") as mock_sync,
+            patch(f"{service}.delete_cdc_extraction_schedule") as mock_delete,
+        ):
+            assert act._setup() is False
+
+        mock_sync.assert_called_once_with(source)
+        mock_delete.assert_not_called()
+        mock_get_adapter.assert_not_called()
+
 
 class TestBuildEventNameMap:
     @pytest.mark.parametrize(

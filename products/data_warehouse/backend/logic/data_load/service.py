@@ -615,13 +615,17 @@ def trigger_cdc_extraction_schedule(source_id: str) -> bool:
     return True
 
 
-def cdc_extraction_schedule_exists(source_id: str) -> bool:
-    """Whether the source's CDC extraction schedule is there.
+@async_to_sync
+async def cdc_extraction_schedule_exists(source_id: str, timeout: timedelta | None = None) -> bool:
+    """Whether the source's CDC extraction schedule is there. A paused schedule exists.
 
     Recreating a missing one is the caller's job, as it is for the trigger: building a schedule
-    reads the source row, and this boundary takes ids.
+    reads the source row, and this boundary takes ids. Raises `TimeoutError` when Temporal does
+    not answer within `timeout`.
     """
-    return external_data_workflow_exists(_get_cdc_extraction_schedule_id(source_id))
+    async with asyncio.timeout(timeout.total_seconds() if timeout else None):
+        temporal = await async_connect()
+        return await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
 
 
 def delete_cdc_extraction_schedule(source_id: str) -> None:
@@ -681,18 +685,6 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
             return False
         raise
     return desc.schedule.state.paused
-
-
-@async_to_sync
-async def is_cdc_extraction_schedule_missing(source_id: str, timeout: timedelta = timedelta(seconds=10)) -> bool:
-    """Whether the source's CDC extraction schedule does not exist. A paused schedule exists.
-
-    Raises `TimeoutError` when Temporal does not answer within `timeout`. Recreating a missing
-    schedule is the caller's job, as for `cdc_extraction_schedule_exists`.
-    """
-    async with asyncio.timeout(timeout.total_seconds()):
-        temporal = await async_connect()
-        return not await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
 
 
 @async_to_sync

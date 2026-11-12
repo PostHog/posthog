@@ -30,6 +30,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.facade import api as data_warehouse_api
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -67,7 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
-    tables_wait_for_repair,
+    restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -528,7 +529,7 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_active_cdc_schemas_deleting_schedule")
+            self.log.info("no_active_cdc_schemas_syncing_schedule")
             self._sync_own_schedule()
             return False
 
@@ -590,9 +591,7 @@ class CDCExtractActivity:
         # keeps the schedule that its own update just recreated.
         assert self.source is not None
         try:
-            from products.data_warehouse.backend.facade.api import sync_cdc_extraction_schedule
-
-            sync_cdc_extraction_schedule(self.source)
+            data_warehouse_api.sync_cdc_extraction_schedule(self.source)
         except Exception:
             self.log.exception("failed_to_sync_own_schedule")
 
@@ -1630,34 +1629,6 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
 # ---------------------------------------------------------------------------
 
 
-def restore_missing_extraction_schedule(source: ExternalDataSource) -> bool:
-    """Recreate the extraction schedule of a source that has syncing CDC tables but no schedule.
-
-    Without the schedule nothing reads the slot, while the tables' own load jobs keep succeeding,
-    so nothing else notices. Returns whether the schedule was recreated.
-    """
-    from products.data_warehouse.backend.facade.api import (
-        is_cdc_extraction_schedule_missing,
-        sync_cdc_extraction_schedule,
-    )
-
-    has_syncing_tables = (
-        ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
-        )
-        .exclude(deleted=True)
-        .exists()
-    )
-    # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
-    # against the lost slot, so Repair CDC recreates the schedule instead.
-    if not has_syncing_tables or tables_wait_for_repair(source):
-        return False
-    if not is_cdc_extraction_schedule_missing(str(source.id)):
-        return False
-    sync_cdc_extraction_schedule(source)
-    return True
-
-
 @activity.defn
 def cleanup_orphan_slots_activity() -> None:
     """Safety-net sweeper: clean up orphaned CDC slots and monitor WAL lag.
@@ -1795,9 +1766,16 @@ def cleanup_orphan_slots_activity() -> None:
             if retention_cap_mb is not None:
                 critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
 
-            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup.
+            will_auto_drop = (
+                lag_mb >= critical_threshold_mb
+                and cdc_config.management_mode == "posthog"
+                and cdc_config.auto_drop_slot
+                and retention_cap_mb is None
+            )
+            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup. A slot
+            # this sweep drops gets no schedule, because its first run would race the drop. Repair recreates it.
             schedule_restored = False
-            if lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+            if not will_auto_drop and lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
                 try:
                     schedule_restored = restore_missing_extraction_schedule(source)
                     if schedule_restored:
@@ -1815,9 +1793,8 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                # The lag built up while nothing read the slot, so the restored capture run gets one sweep to
-                # read it. An uncapped slot can fill the source's disk in that time, so the drop still applies.
-                if schedule_restored and (cdc_config.management_mode != "posthog" or retention_cap_mb is not None):
+                # The lag built up while nothing read the slot, so the restored capture run gets one sweep to read it.
+                if schedule_restored:
                     source_log.info("slot_lag_critical_while_schedule_missing")
                 elif cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")
