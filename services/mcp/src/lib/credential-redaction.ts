@@ -86,12 +86,12 @@ function containerLength(text: string): number {
 // An HTTP status or a database error code is diagnostic output. A one-time code or an authorization code has four digits or more.
 // The number must be the complete value, because an authorization code can start with a short number, for example `4/0A...`.
 // A second group of digits on the same line marks a one-time code printed in groups, for example `123 456`.
-const NO_SECOND_DIGIT_GROUP = '(?![ \\t\\u00a0]*\\d)'
+const NO_SECOND_DIGIT_GROUP = '(?!(?:[ \\t\\u00a0]|\\\\[nrt])*\\d)'
 const QUOTED_DIAGNOSTIC_CODE = /^(["'])\d{1,3}\1/
 // A `=` value runs to the next whitespace, so only whitespace or `;` can end the number.
 const EQUALS_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:$|(?=[\\s;]))${NO_SECOND_DIGIT_GROUP}`)
 // A `:` value runs to the end of the line, so prose can follow the number: `Code: 60. DB::Exception`.
-// A serialized exception carries its line break as the two characters `\n`, which the value pattern does not end on.
+// A serialized exception carries its line break as the two characters `\n`.
 const COLON_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:[,}\\]]|[.;)]?(?:$|(?=\\s|\\\\[nrt])))${NO_SECOND_DIGIT_GROUP}`)
 
 function isDiagnosticCodeText(
@@ -127,20 +127,22 @@ function findCredentialRanges(text: string, rule: CredentialNameRule): Redaction
         }
         const start = match.index + match[0].length
         const rest = text.slice(start)
-        if (isDiagnosticCodeText(name, text[match.index - 1], match[4]!, rest)) {
-            continue
-        }
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
+        const diagnostic = isDiagnosticCodeText(name, text[match.index - 1], match[4]!, rest)
         if (quoted) {
-            ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            if (!diagnostic) {
+                ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            }
         } else if (/^[{[]/.test(rest)) {
             ranges.push({ start, end: start + containerLength(rest) })
         } else {
             const value = rest.startsWith(REDACTED_VALUE)
                 ? REDACTED_VALUE
                 : rest.match(match[4] === '=' ? /^(?:\\(?!["'])|[^&;\s"'\\#<>])+/ : /^[^\r\n,}\]]+/)?.[0].trimEnd()
-            if (value) {
-                ranges.push({ start, end: start + value.length })
+            // Only the number is diagnostic. The text after it can hold a secret that no other pattern finds.
+            const kept = diagnostic ? rest.match(/^\d+[.;)]?[ \t]*/)![0].length : 0
+            if (value && value.length > kept) {
+                ranges.push({ start: start + kept, end: start + value.length })
             }
         }
     }

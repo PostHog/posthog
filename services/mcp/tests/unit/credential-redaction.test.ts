@@ -171,14 +171,9 @@ describe('credential redaction', () => {
     })
 
     it.each([
-        { name: 'a database error code', input: 'Code: 241. DB::Exception: Memory limit exceeded' },
-        {
-            name: 'a database error code before an escaped line break',
-            input: 'Code: 241.\\nDB::Exception: Memory limit exceeded',
-        },
         { name: 'a status code in a JSON log line', input: '{"event": "request_finished", "code": 302}' },
         { name: 'a status code in a key-value log line', input: 'event=request_finished code=500 request=GET' },
-        { name: 'a status code in parentheses', input: 'request failed (code: 500) after 3 retries' },
+        { name: 'a status code in parentheses', input: 'request failed (code: 500)' },
         { name: 'a status code before a line that starts with a digit', input: 'code: 200\n2026-01-01 next line' },
         { name: 'a status code attribute', input: { code: 404 } },
         { name: 'a status code attribute stored as text', input: { code: '404' } },
@@ -206,8 +201,18 @@ describe('credential redaction', () => {
         { input: { code: [302, OTHER_SECRET] }, expected: { code: '[REDACTED]' } },
         { input: { code: { toString: 'text' } }, expected: { code: '[REDACTED]' } },
         { input: { code: OTHER_SECRET }, expected: { code: '[REDACTED]' } },
-        { input: `Code: 60. failed with token=${OTHER_SECRET}`, expected: 'Code: 60. failed with token=[REDACTED]' },
+        { input: 'your code: 123\\n456 expires soon', expected: 'your code: [REDACTED]' },
     ])('still masks a code that is not a short number: $input', ({ input, expected }) => {
+        expect(redactCredentials(input)).toEqual(expected)
+    })
+
+    it.each([
+        { input: 'Code: 241. DB::Exception: Memory limit exceeded', expected: 'Code: 241. [REDACTED]' },
+        { input: 'Code: 241.\\nDB::Exception: Memory limit exceeded', expected: 'Code: 241.[REDACTED]' },
+        { input: 'request failed (code: 500) after 3 retries', expected: 'request failed (code: 500) [REDACTED]' },
+        { input: `code: 404 ${OTHER_SECRET}`, expected: 'code: 404 [REDACTED]' },
+        { input: `code: 404\\n${OTHER_SECRET}`, expected: 'code: 404[REDACTED]' },
+    ])('keeps a short code and masks the text after it: $input', ({ input, expected }) => {
         expect(redactCredentials(input)).toEqual(expected)
     })
 
