@@ -2214,9 +2214,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         elif adds_a_mask:
             self._purge_history_staging_for_mask(instance)
 
-        if should_sync is False and instance.auto_disabled_at is not None:
+        if should_sync is False:
             # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
             # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            # Cleared whatever this request loaded, because a stop can commit after the load.
             validated_data["auto_disabled_at"] = None
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed

@@ -206,7 +206,8 @@ class AutoDisabledSchemas:
                     # schema the user turned off. The command also sends null stamps, for schemas it matched by
                     # error alone. A Temporal failure inside rolls the save back.
                     unchanged = (
-                        ExternalDataSchema.objects.select_for_update()
+                        # No-key, so job rows that reference the schema can still be inserted while it is held.
+                        ExternalDataSchema.objects.select_for_update(no_key=True)
                         .filter(
                             id=target.schema_id,
                             team_id=target.team_id,
