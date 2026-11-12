@@ -27,8 +27,10 @@ class ChangeMemberEmailsForm(forms.Form):
         label="Members to change",
         widget=forms.Textarea(attrs={"rows": 12}),
         help_text=(
-            "One member per line. Delete the lines of members who keep their email. "
-            "To set a specific new email, type it after the current one."
+            "One member per line. Delete a line to leave that member unchanged. "
+            "To choose the new email yourself, add it on the same line after a space, "
+            "for example: ada@old.example.com ada.lovelace@new.example.com. "
+            f"Up to {MAX_MEMBERS} members at a time."
         ),
     )
     new_domain = forms.CharField(
@@ -111,12 +113,24 @@ def _changes_table(changes: list[MemberEmailChange], changed_text: str) -> Table
 
 def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
     assert isinstance(obj, Organization)
+    new_domain = form.cleaned_data["new_domain"]
+    verified = MemberEmailMigration.verified_domains(obj)
+    if new_domain and new_domain not in verified:
+        form.add_error(
+            "new_domain",
+            f"This organization has not verified {new_domain}. Its verified domains: {', '.join(sorted(verified))}.",
+        )
+        return Page(blocks=())
     changes = _migration(obj, form).plan()
     changing = [change for change in changes if change.changes]
     if not changing:
-        form.add_error("members", "No member on this list can be changed.")
-        for change in changes[:5]:
-            form.add_error("members", f"{change.current_email}: {change.skip_reason}")
+        form.add_error("members", "None of these emails can be changed.")
+        emails_by_reason: dict[str, list[str]] = {}
+        for change in changes:
+            emails_by_reason.setdefault(change.skip_reason or "", []).append(change.current_email)
+        for reason, emails in emails_by_reason.items():
+            more = f" and {len(emails) - 3} more" if len(emails) > 3 else ""
+            form.add_error("members", f"{reason}: {', '.join(emails[:3])}{more}")
         return Page(blocks=())
 
     blocks: list[Notice | Table] = [
@@ -210,14 +224,13 @@ class OrganizationSignInPanel(Panel):
                 handler=change_member_emails,
                 preview=preview_member_email_changes,
                 danger=True,
-                description=(
-                    "Moves members to a new email, for example when the organization changes its identity "
-                    "provider. The organization must have verified both the current and the new domain. "
-                    f"The form lists up to {ChangeMemberEmailsForm.MAX_MEMBERS} members."
-                ),
+                description="Changes members' emails in bulk.",
                 form_class=ChangeMemberEmailsForm,
                 form_initial={"members": "\n".join(emails)},
-                undo_hint="To undo, run this again with the current and the new email swapped.",
+                undo_hint=(
+                    "There is no undo. To reverse it, run this again with the new emails and change them back. "
+                    "SSO links and sessions are not restored."
+                ),
                 pending_label="Changing emails",
             )
         ]
