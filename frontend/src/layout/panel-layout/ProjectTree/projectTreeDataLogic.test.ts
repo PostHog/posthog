@@ -672,9 +672,19 @@ describe('projectTreeDataLogic', () => {
         logic.actions.addLoadedResults({ searchTerm: '', results, hasMore: false, lastCount: results.length })
         logic.actions.loadFolderSuccess('X', [file('X/Gone')], false, 1)
         logic.actions.loadFolderSuccess('A/B/C', [file('A/B/C/Deep')], true, 1)
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://' })
+        projectTree.mount()
+        projectTree.actions.loadSearchResultsSuccess({
+            searchTerm: 'a',
+            results: [folder('X'), file('A/Top')],
+            hasMore: false,
+            lastCount: 2,
+        })
 
         logic.actions.dropStaleItems([folder('A/B'), folder('X')])
 
+        expect(projectTree.values.searchResults.results.map((entry) => entry.path)).toEqual(['A/Top'])
+        projectTree.unmount()
         expect(Object.keys(logic.values.folders).sort()).toEqual(['', 'A', 'AB', 'X\\/Y'])
         expect(logic.values.folders[''].map((entry) => entry.path).sort()).toEqual(['A', 'AB', 'X\\/Y'])
         expect(logic.values.folders['A'].map((entry) => entry.path)).toEqual(['A/Top'])
