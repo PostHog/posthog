@@ -1479,21 +1479,15 @@ class Database(BaseModel):
     def _is_live_only_table_denied(self, schema: ExternalDataSchema) -> bool:
         """
         `_is_warehouse_table_denied` for a dual-mode table that is queryable live but has no synced table row.
-        The reference carries the schema id, which no table rule can name, so resolution starts at the
-        table's source and then the resource defaults.
         Userless context (no UserAccessControl) fails closed.
         """
-        from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef  # noqa: PLC0415
+        # Function-local: the facade pulls the direct-SQL engine helpers, kept off django.setup().
+        from products.data_warehouse.backend.facade.direct_query import live_only_access_ref  # noqa: PLC0415
 
         uac = self.user_access_control
-        ref = ObjectAccessRef(
-            resource="warehouse_table",
-            id=str(schema.id),
-            team_id=schema.team_id,
-            created_by_id=None,
-            fallback_parent=FallbackParent(resource="external_data_source", id=str(schema.source_id)),
-        )
-        if uac is not None and (uac.is_organization_admin or uac.check_access_level_for_ref(ref, "viewer")):
+        if uac is not None and (
+            uac.is_organization_admin or uac.check_access_level_for_ref(live_only_access_ref(schema), "viewer")
+        ):
             return False
 
         self._denied_tables.add(schema.name)
@@ -2858,14 +2852,17 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # A synced row is denied until its first sync creates the table row that carries
-                        # its access rules. A live-only row never gets one, so it uses its source's rules.
+                        # A row with a table row uses that table's rules. A table-less row with live queries on
+                        # uses its source's rules. Any other table-less row is denied.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
                         ):
                             if schema_row.table is not None:
                                 denied = database._is_warehouse_table_denied(schema_row.table)
+                                if denied:
+                                    # The table row's names are the synced copy's, so record the live name too.
+                                    database._denied_tables.add(schema_row.name)
                             elif schema_row.live_query_enabled:
                                 denied = database._is_live_only_table_denied(schema_row)
                             else:

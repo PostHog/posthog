@@ -114,9 +114,8 @@ def get_direct_connection_source(
 
     # Synced (warehouse) sources only expose their selected catalog (synced tables plus tables with
     # `live_query_enabled`) — raw SQL bypasses that boundary and reads any upstream table, so raw
-    # queries are pure-direct only. Pure-direct
-    # sources have no restricted catalog to bypass; the whole external database is the intended
-    # surface.
+    # queries are pure-direct only. Pure-direct sources have no restricted catalog to bypass; the
+    # whole external database is the intended surface.
     if require_pure_direct and source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return None
 

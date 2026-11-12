@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
@@ -22,6 +24,9 @@ JOB_INPUTS = {
     "password": "postgres",
     "schema": "public",
 }
+
+
+LIVE_SCHEMA_CONFIG = {"schema_metadata": {"columns": [{"name": "id", "data_type": "integer", "is_nullable": False}]}}
 
 
 class TestBuildDirectConnectionSuggestion(APIBaseTest):
@@ -88,10 +93,20 @@ class TestBuildDirectConnectionSuggestion(APIBaseTest):
         assert suggestion is not None
         assert "`Public.Orders`" in suggestion
 
-    def test_dual_mode_source_suggests_its_syncing_schemas(self):
+    @parameterized.expand([("synced", True, False), ("live_only", False, True)])
+    def test_dual_mode_source_suggests_its_live_schemas(
+        self, _name: str, should_sync: bool, live_query_enabled: bool
+    ) -> None:
         # A synced source with live queries on exposes schema rows, not warehouse table rows.
         source = self._create_source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, direct_query_enabled=True)
-        ExternalDataSchema.objects.create(team=self.team, source=source, name="invoices", should_sync=True)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="invoices",
+            should_sync=should_sync,
+            live_query_enabled=live_query_enabled,
+            sync_type_config=LIVE_SCHEMA_CONFIG,
+        )
 
         suggestion = build_direct_connection_suggestion(self.team, self.user, ["invoices"])
 
@@ -191,8 +206,31 @@ class TestBuildDirectConnectionSuggestion(APIBaseTest):
         self._become_member_with_access_control()
         source = self._create_source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, direct_query_enabled=True)
         table = self._create_table(source, "invoices")
-        ExternalDataSchema.objects.create(team=self.team, source=source, name="invoices", should_sync=True, table=table)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="invoices",
+            should_sync=True,
+            table=table,
+            sync_type_config=LIVE_SCHEMA_CONFIG,
+        )
         self._deny(table)
+
+        with patch(_ACCESS_CONTROL_FLAG, return_value=True):
+            assert build_direct_connection_suggestion(self.team, self.user, ["invoices"]) is None
+
+    def test_hides_a_live_only_schema_when_tables_are_denied(self):
+        self._become_member_with_access_control()
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, direct_query_enabled=True)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="invoices",
+            should_sync=False,
+            live_query_enabled=True,
+            sync_type_config=LIVE_SCHEMA_CONFIG,
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
         with patch(_ACCESS_CONTROL_FLAG, return_value=True):
             assert build_direct_connection_suggestion(self.team, self.user, ["invoices"]) is None

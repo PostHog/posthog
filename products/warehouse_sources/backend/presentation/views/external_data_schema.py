@@ -635,6 +635,24 @@ def live_query_unavailable_reason(
     return None
 
 
+def schema_live_query_unavailable_reason(
+    schema: ExternalDataSchema, *, row_filters: object, masked_columns: object
+) -> str | None:
+    # Function-local: the capability module pulls the direct-SQL drivers.
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    source = schema.source
+    metadata = schema.schema_metadata
+    return live_query_unavailable_reason(
+        source_serves_live_queries=(
+            source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_direct_capable(source)
+        ),
+        has_row_filters=bool(row_filters),
+        has_masked_columns=bool(masked_columns),
+        has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),
+    )
+
+
 def _apply_primary_key_columns(
     data: dict[str, Any],
     payload: dict[str, Any],
@@ -971,6 +989,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     )
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    live_query_unavailable_reason = serializers.SerializerMethodField(
+        help_text="Why this table can't be made queryable live without syncing it, or null when it can.",
+    )
     sync_type = serializers.ChoiceField(
         choices=ExternalDataSchema.SyncType.choices,
         required=False,
@@ -1192,6 +1213,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table_id",
             "should_sync",
             "live_query_enabled",
+            "live_query_unavailable_reason",
             "last_synced_at",
             "latest_error",
             "incremental",
@@ -1237,6 +1259,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "latest_error",
             "status",
             "pending_self_managed_table",
+            "live_query_unavailable_reason",
             "incremental_sync_blocked",
             "webhook_not_registered",
             "next_full_refresh_at",
@@ -1430,6 +1453,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
         return attrs
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_live_query_unavailable_reason(self, schema: ExternalDataSchema) -> str | None:
+        return schema_live_query_unavailable_reason(
+            schema, row_filters=schema.row_filters, masked_columns=schema.masked_columns
+        )
+
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
 
@@ -1534,6 +1563,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         removed = [key for key in original_sync_type_config if key not in intended]
         with transaction.atomic():
             locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
+            if (
+                validated_data.get("live_query_enabled") is True
+                and not locked.live_query_enabled
+                and locked.table_id != instance.table_id
+            ):
+                # The table changed after the request was checked, e.g. a concurrent data delete took its access rules.
+                raise ValidationError(
+                    {"live_query_enabled": "This table changed while saving. Reload the page and try again."}
+                )
             merged = locked.sync_type_config or {}
             merged.update(changed)
             for key in removed:
@@ -1557,19 +1595,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
 
         if validated_data.get("live_query_enabled") is True and not instance.live_query_enabled:
-            source = instance.source
-            metadata = instance.schema_metadata
-            if reason := live_query_unavailable_reason(
-                source_serves_live_queries=(
-                    source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE
-                    and source.direct_query_enabled
-                    and source.direct_engine is not None
-                ),
-                has_row_filters=bool(validated_data.get("row_filters", instance.row_filters)),
-                has_masked_columns=bool(validated_data.get("masked_columns", instance.masked_columns)),
-                has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),
+            if reason := schema_live_query_unavailable_reason(
+                instance,
+                row_filters=validated_data.get("row_filters", instance.row_filters),
+                masked_columns=validated_data.get("masked_columns", instance.masked_columns),
             ):
                 raise ValidationError({"live_query_enabled": reason})
+        elif instance.live_query_enabled and (
+            validated_data.get("row_filters") or validated_data.get("masked_columns")
+        ):
+            # A live query can't apply row filters or masks, so the table leaves live queries instead of keeping a hidden flag.
+            validated_data["live_query_enabled"] = False
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).

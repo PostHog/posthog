@@ -936,12 +936,18 @@ class TestWarehouseTableAccessControl(BaseTest):
             ("no_rules", None, True),
             ("source_denied", "external_data_source", False),
             ("all_tables_denied", "warehouse_objects", False),
+            # A row that kept its synced table answers to that table's rules, not its source's.
+            ("kept_table_denied", "warehouse_table", False),
         ]
     )
     def test_dual_mode_live_only_table_follows_its_source(
         self, _label: str, denied_resource: str | None, expected_visible: bool
     ) -> None:
-        from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+        from products.warehouse_sources.backend.facade.models import (
+            DataWarehouseTable,
+            ExternalDataSchema,
+            ExternalDataSource,
+        )
 
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -952,10 +958,24 @@ class TestWarehouseTableAccessControl(BaseTest):
             prefix="pg",
             job_inputs={"schema": "public"},
         )
+        kept_table = (
+            DataWarehouseTable.objects.create(
+                name="pg_invoices",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                team=self.team,
+                credential=self.credential,
+                external_data_source=source,
+                url_pattern="s3://bucket/invoices/*",
+                columns={"id": "String"},
+            )
+            if denied_resource == "warehouse_table"
+            else None
+        )
         ExternalDataSchema.objects.create(
             team=self.team,
             name="public.invoices",
             source=source,
+            table=kept_table,
             should_sync=False,
             live_query_enabled=True,
             sync_type_config={
@@ -969,6 +989,10 @@ class TestWarehouseTableAccessControl(BaseTest):
         if denied_resource == "external_data_source":
             self._create_ac(
                 resource=denied_resource, resource_id=str(source.id), access_level="none", member=self._membership()
+            )
+        elif kept_table is not None:
+            self._create_ac(
+                resource=denied_resource, resource_id=str(kept_table.id), access_level="none", member=self._membership()
             )
         elif denied_resource is not None:
             self._create_ac(resource=denied_resource, access_level="none")

@@ -11,6 +11,13 @@ function-locally.
 from products.data_warehouse.backend.direct_virtual_tables import (
     build_direct_table_for_schema,
     eligible_direct_query_schemas,
+    is_live_query_eligible,
+    live_only_access_ref,
 )
 
-__all__ = ["build_direct_table_for_schema", "eligible_direct_query_schemas"]
+__all__ = [
+    "build_direct_table_for_schema",
+    "eligible_direct_query_schemas",
+    "is_live_query_eligible",
+    "live_only_access_ref",
+]

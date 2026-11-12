@@ -5930,31 +5930,76 @@ class TestLiveQueryUnavailableReason(SimpleTestCase):
 
 
 class TestExternalDataSchemaLiveQuery(APIBaseTest):
-    @parameterized.expand([("live_queries_on", True, 200), ("live_queries_off", False, 400)])
-    def test_patch_live_query_enabled(self, _name: str, direct_query_enabled: bool, expected_status: int) -> None:
+    def _create(self, *, direct_query_enabled: bool = True, **schema_fields: Any) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             direct_query_enabled=direct_query_enabled,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
-        schema = ExternalDataSchema.objects.create(
+        return ExternalDataSchema.objects.create(
             name="invoices",
             team=self.team,
             source=source,
             should_sync=False,
             sync_type_config={"schema_metadata": {"columns": [{"name": "id", "data_type": "integer"}]}},
+            **schema_fields,
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"live_query_enabled": True}
-        )
+    @parameterized.expand([("live_queries_on", True, 200), ("live_queries_off", False, 400)])
+    def test_patch_live_query_enabled(self, _name: str, direct_query_enabled: bool, expected_status: int) -> None:
+        schema = self._create(direct_query_enabled=direct_query_enabled)
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+
+        response = self.client.patch(url, data={"live_query_enabled": True})
 
         assert response.status_code == expected_status, response.json()
         schema.refresh_from_db()
         assert schema.live_query_enabled is (expected_status == 200)
+        reason = self.client.get(url).json()["live_query_unavailable_reason"]
         if expected_status == 400:
             assert response.json()["attr"] == "live_query_enabled"
+            assert response.json()["detail"] == reason
+        else:
+            assert reason is None
+
+    def test_saving_row_filters_turns_live_queries_off(self) -> None:
+        schema = self._create(live_query_enabled=True)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"row_filters": [{"column": "id", "operator": ">", "value": 10}]},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is False
+
+    def test_enabling_is_refused_when_the_table_changed_while_saving(self) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name="invoices", format="Parquet", team=self.team, url_pattern="s3://bucket/invoices/*"
+        )
+        schema = self._create(table=table)
+        serializer = ExternalDataSchemaSerializer(
+            schema,
+            data={"live_query_enabled": True},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        serializer.is_valid(raise_exception=True)
+        # A concurrent data delete unlinks the table, and its access rules, after the request was checked.
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=None)
+
+        with self.assertRaises(ValidationError):
+            serializer.save()
+
+        schema.refresh_from_db()
+        assert schema.live_query_enabled is False
 
 
 class TestExternalDataSchemaMaskedColumns(APIBaseTest):
