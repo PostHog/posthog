@@ -1533,7 +1533,6 @@ class TestAEOPromptAPI(APIBaseTest):
             self.settings(AEO_MANUAL_RUNS_PER_DAY=2),
             patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
         ):
-            # broker_down: the broker refuses the task, so the allowance comes back.
             for step in ("first", "while_queued", "broker_down", "second", "over_cap"):
                 if step != "while_queued":
                     get_client().delete(queued_key)

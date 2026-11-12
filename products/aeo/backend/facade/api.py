@@ -139,7 +139,6 @@ from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentimen
 
 logger = structlog.get_logger(__name__)
 
-# Outlives the run day the key is named after.
 MANUAL_RUN_ALLOWANCE_TTL_SECONDS = 2 * 24 * 60 * 60
 
 
