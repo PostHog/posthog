@@ -5,10 +5,15 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import React from 'react'
 
+import { Button } from '@posthog/quill'
+
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
 
@@ -17,6 +22,8 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
     /** Suppresses button click navigation while the tile is being dragged. */
@@ -30,6 +37,7 @@ function ButtonTileCardInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
         showEditingControls,
         isDraggingRef,
@@ -39,6 +47,7 @@ function ButtonTileCardInternal(
 ): JSX.Element {
     const { button_tile } = tile
     const { push } = useActions(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!button_tile) {
         throw new Error('ButtonTileCard requires button_tile')
@@ -78,9 +87,13 @@ function ButtonTileCardInternal(
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    {quillMenuItems ? (
+                        <QuillCardMoreMenu items={quillMenuItems} />
+                    ) : (
+                        <More overlay={moreButtonOverlay} />
+                    )}
                 </div>
             )}
 
@@ -91,9 +104,19 @@ function ButtonTileCardInternal(
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start'
                 )}
             >
-                <LemonButton type={button_tile.style} onClick={handleClick} data-attr="button-tile-action">
-                    {button_tile.text}
-                </LemonButton>
+                {todayRailNav ? (
+                    <Button
+                        variant={quillButtonVariant(button_tile.style)}
+                        onClick={handleClick}
+                        data-attr="button-tile-action"
+                    >
+                        {button_tile.text}
+                    </Button>
+                ) : (
+                    <LemonButton type={button_tile.style} onClick={handleClick} data-attr="button-tile-action">
+                        {button_tile.text}
+                    </LemonButton>
+                )}
             </div>
 
             {showResizeHandles && <DashboardResizeHandles />}
