@@ -7,7 +7,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
 )
-from products.experiments.backend.health.condition_set_traffic import needs_condition_set_traffic
+from products.experiments.backend.health.condition_set_traffic import (
+    denied_scanned_properties,
+    needs_condition_set_traffic,
+)
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
     FlagChange,
@@ -180,7 +183,7 @@ def _health_inputs_traffic_status(inputs: HealthInputs) -> ExperimentHealthInput
         return ExperimentHealthInputsTrafficStatus.NOT_NEEDED
     if not inputs.reader_access.can_query_events:
         return ExperimentHealthInputsTrafficStatus.NO_QUERY_ACCESS
-    if inputs.scan_reads_denied_property:
+    if denied_scanned_properties(inputs.reader_access):
         return ExperimentHealthInputsTrafficStatus.DENIED_PROPERTIES
     if inputs.flag_version is None:
         return ExperimentHealthInputsTrafficStatus.NO_FLAG_VERSION

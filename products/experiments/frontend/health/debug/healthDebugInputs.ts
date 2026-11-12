@@ -248,7 +248,7 @@ const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, 
     read: 'Read',
     not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
-    denied_properties: 'Not read: you are denied a property that the scan reads',
+    denied_properties: 'Not read: you are denied a flag call property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
     unknown: "Not read: the scan failed or was too expensive, or another request's scan did not answer in time",
 }

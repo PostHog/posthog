@@ -19,7 +19,8 @@ the exposure query does to each exposure. So the counts leave out the people tha
 events show who these are: the flag service can match a person on a property that an SDK sends with the flag
 request, and the events of that person can lack the property, so the filter keeps them.
 
-The scan runs without the reader, and every reader shares its cached answer.
+The scan runs under the reader's property access rules, as the reader's own queries do, so it reads no property that
+the rules mask. Readers with the same rules share its cached answer.
 """
 
 import json
@@ -27,31 +28,25 @@ import hashlib
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from time import monotonic, sleep
-from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
 from django.utils import timezone
 
-from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team.team import Team
 from posthog.utils import safe_cache_add
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.conditions_changed import removed_overrides_to_grade
 from products.experiments.backend.health.checks.flag_state import (
@@ -86,6 +81,11 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 # It fills up, so the answer is asked again sooner.
 _TOO_FEW_PEOPLE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 _MATCHED_REASON = "^Matched condition set ([0-9]+)$"
+# The scan masks the properties that the reader's rules deny. A masked flag call property breaks the counts, for
+# example no call names a set without the reason, so a reader denied one of these gets no share instead.
+_SCANNED_PROPERTIES = frozenset(
+    {"$feature_flag", "$feature_flag_response", "$feature_flag_reason", "$feature_flag_version", "locally_evaluated"}
+)
 # The reason that posthog-node sends for a local evaluation. posthog-python sends `locally_evaluated` instead.
 _LOCALLY_EVALUATED_REASON = "Evaluated locally"
 # Part of the cache key. Raise it when the fields of `ConditionSetTraffic` change, because an answer cached with
@@ -95,36 +95,23 @@ _MAX_CONDITION_SETS = 1000
 _SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
 _WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
 _WAIT_STEP_SECONDS = 0.25
-_SCAN_MODIFIERS = HogQLQueryModifiers(
-    # The join that applies person merges costs seconds on large teams and moves the counts by a tiny fraction,
-    # because a merge moves few people.
-    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-    # An inlined cohort reads every person of the project. A cohort in the filter for internal and test users reads
-    # its stored members instead, which no reader's property access rules mask.
-    inlineCohortCalculation=InlineCohortCalculation.OFF,
-)
 
 
 def load_condition_set_traffic(
-    experiment: Experiment,
-    ctx: HealthContext,
-    *,
-    reader_access: ExperimentHealthReaderAccess,
-    reads_denied_property: bool | None = None,
+    experiment: Experiment, ctx: HealthContext, *, reader_access: ExperimentHealthReaderAccess
 ) -> ConditionSetTraffic | None:
     """
     The traffic of the experiment's flag when the forced-variant check grades by it, or None. None also when
-    unknown. Never raises: the health endpoint serves the other findings when this fails. `reads_denied_property`
-    is the answer of `scan_reads_denied_property` from a caller that needs it too, so the scan compiles once.
+    unknown. Never raises: the health endpoint serves the other findings when this fails.
     """
-    if not reader_access.can_query_events or not needs_condition_set_traffic(ctx):
-        return None
-    if reads_denied_property is None:
-        reads_denied_property = scan_reads_denied_property(reader_access, experiment)
-    if reads_denied_property:
+    if (
+        not reader_access.can_query_events
+        or denied_scanned_properties(reader_access)
+        or not needs_condition_set_traffic(ctx)
+    ):
         return None
     try:
-        return _load_condition_set_traffic(experiment, ctx)
+        return _load_condition_set_traffic(experiment, ctx, reader_access.restricted_properties)
     except Exception as error:
         capture_exception(error)
         return None
@@ -154,82 +141,23 @@ def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
     return [pins for pins in (overrides_to_grade(ctx), removed_overrides_to_grade(ctx)) if pins is not None]
 
 
-def scan_reads_denied_property(reader_access: ExperimentHealthReaderAccess, experiment: Experiment) -> bool:
-    """Whether a property access rule masks a property that the scan reads: one of the reader's rules, or a project
-    rule that the scan itself runs under. The shared answer would then show the reader what their own queries mask, or
-    count from masked values. HogQL's masking decides: a masked read changes the compiled query."""
-    try:
-        team = experiment.team
-        rules = reader_access.restricted_properties | frozenset(
-            get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
-        )
-        if not rules:
-            return False
-        cache_key = _access_cache_key(experiment, rules)
-        cached = cache.get(cache_key)
-        if isinstance(cached, bool):
-            return cached
-        now = timezone.now()
-        query = _scan_query(
-            experiment, get_test_accounts_filter(team, experiment.exposure_criteria), window_start=now, window_end=now
-        )
-        modifiers = create_default_modifiers_for_team(team, _SCAN_MODIFIERS)
-        database = Database.create_for(team=team, modifiers=modifiers)
-        denied = _compile(query, team, modifiers, database, rules) != _compile(
-            query, team, modifiers, database, frozenset()
-        )
-        cache.set(cache_key, denied, _ANSWER_CACHE_SECONDS)
-        return denied
-    except Exception as error:
-        # Without an answer, the reader gets no share rather than one that might show what the rules mask.
-        capture_exception(error)
-        return True
+def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
+    """The flag call properties that the reader is denied. The scan does not run when there are any."""
+    return reader_access.denied_event_properties & _SCANNED_PROPERTIES
 
 
-def _access_cache_key(experiment: Experiment, rules: frozenset[RestrictedProperty]) -> str:
-    flag = experiment.feature_flag
-    team = experiment.team
-    # Every input that decides which properties the scan reads, and the rules that can mask them.
-    inputs = json.dumps(
-        [
-            flag.key,
-            flag.aggregation_group_type_index,
-            team.test_account_filters if applies_test_account_filters(team, experiment.exposure_criteria) else None,
-            _reads_exposure_copies(team.organization_id),
-            sorted(f"{rule.property_type}:{rule.group_type_index}:{rule.name}" for rule in rules),
-        ],
-        sort_keys=True,
-    )
-    digest = hashlib.sha256(inputs.encode()).hexdigest()
-    return f"experiment_condition_set_traffic_access:{experiment.team_id}:{digest}"
-
-
-def _compile(
-    query: ast.SelectQuery | ast.SelectSetQuery,
-    team: Team,
-    modifiers: HogQLQueryModifiers,
-    database: Database,
-    rules: frozenset[RestrictedProperty],
-) -> tuple[str, dict[str, Any]]:
-    context = HogQLContext(
-        team_id=team.pk,
-        team=team,
-        enable_select_queries=True,
-        modifiers=modifiers,
-        database=database,
-        restricted_properties=set(rules),
-    )
-    sql, _ = prepare_and_print_ast(clone_expr(query), context, "clickhouse")
-    # The masked keys are bound values, so two rule sets can print the same SQL and still mask different keys.
-    return sql, context.values
-
-
-def _scan_query(
-    experiment: Experiment, test_accounts: list[ast.Expr], *, window_start: datetime, window_end: datetime
-) -> ast.SelectQuery | ast.SelectSetQuery:
+def query_condition_set_traffic(
+    experiment: Experiment,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    restricted_properties: frozenset[RestrictedProperty],
+) -> ConditionSetTraffic:
+    """The calls of the experiment's flag in `[window_start, window_end)`, read under `restricted_properties`."""
     team = experiment.team
     flag = experiment.feature_flag
-    return parse_select(
+    test_accounts = get_test_accounts_filter(team, experiment.exposure_criteria)
+    query = parse_select(
         """
         SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
         FROM (
@@ -280,23 +208,19 @@ def _scan_query(
             "max_rows": ast.Constant(value=_MAX_CONDITION_SETS + 1),
         },
     )
-
-
-def query_condition_set_traffic(
-    experiment: Experiment, *, window_start: datetime, window_end: datetime
-) -> ConditionSetTraffic:
-    """The calls of the experiment's flag in `[window_start, window_end)`."""
-    team = experiment.team
-    test_accounts = get_test_accounts_filter(team, experiment.exposure_criteria)
-    query = _scan_query(experiment, test_accounts, window_start=window_start, window_end=window_end)
     with tags_context(
         product=Product.EXPERIMENTS, feature=Feature.HEALTH_CHECK, team_id=team.pk, org_id=team.organization_id
     ):
-        # No user, as in the exposure gate, because every reader gets the cached answer.
         response = execute_hogql_query(
             query,
             team=team,
-            modifiers=_SCAN_MODIFIERS.model_copy(),
+            # The rules, not the user, because the answer is cached for every reader with the same rules.
+            context=HogQLContext(team_id=team.pk, team=team, restricted_properties=set(restricted_properties)),
+            # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
+            # fraction, because a merge moves few people.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
             # A profile that breaks on timeout returns partial counts, which would read as a smaller share.
             settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"),
         )
@@ -327,11 +251,13 @@ def _reads_exposure_copies(organization_id: UUID) -> bool:
     return get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
-def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
+def _load_condition_set_traffic(
+    experiment: Experiment, ctx: HealthContext, restricted_properties: frozenset[RestrictedProperty]
+) -> ConditionSetTraffic | None:
     start_date = experiment.start_date
     if start_date is None or experiment.feature_flag.version is None:
         return None
-    cache_key = _cache_key(experiment, start_date)
+    cache_key = _cache_key(experiment, start_date, restricted_properties)
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
@@ -343,17 +269,23 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
-    return _scan(experiment, ctx, cache_key, start_date)
+    return _scan(experiment, ctx, cache_key, start_date, restricted_properties)
 
 
 def _scan(
-    experiment: Experiment, ctx: HealthContext, cache_key: str, start_date: datetime
+    experiment: Experiment,
+    ctx: HealthContext,
+    cache_key: str,
+    start_date: datetime,
+    restricted_properties: frozenset[RestrictedProperty],
 ) -> ConditionSetTraffic | None:
     flag = experiment.feature_flag
     now = timezone.now()
     window_start = max(start_date, flag.updated_at or start_date, now - TRAFFIC_WINDOW)
     try:
-        traffic = query_condition_set_traffic(experiment, window_start=window_start, window_end=now)
+        traffic = query_condition_set_traffic(
+            experiment, window_start=window_start, window_end=now, restricted_properties=restricted_properties
+        )
     except Exception as error:
         cache_failed_scan(cache_key, error)
         return None
@@ -383,7 +315,9 @@ def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
     return None
 
 
-def _cache_key(experiment: Experiment, start_date: datetime) -> str:
+def _cache_key(
+    experiment: Experiment, start_date: datetime, restricted_properties: frozenset[RestrictedProperty]
+) -> str:
     flag = experiment.feature_flag
     team = experiment.team
     # Every input of the query except the end of the window, which moves with the clock.
@@ -396,6 +330,7 @@ def _cache_key(experiment: Experiment, start_date: datetime) -> str:
             flag.updated_at.isoformat() if flag.updated_at else None,
             flag.aggregation_group_type_index,
             team.test_account_filters if applies_test_account_filters(team, experiment.exposure_criteria) else None,
+            restriction_fingerprint(restricted_properties),
         ],
         sort_keys=True,
     )

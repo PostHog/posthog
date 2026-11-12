@@ -11,10 +11,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthSetup,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
-from products.experiments.backend.health.condition_set_traffic import (
-    load_condition_set_traffic,
-    scan_reads_denied_property,
-)
+from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
@@ -38,8 +35,6 @@ class HealthInputs:
     context: HealthContext
     exposures: ExposureInputs
     reader_access: ExperimentHealthReaderAccess
-    # Whether the flag call scan reads a property that the reader is denied, so the scan didn't run.
-    scan_reads_denied_property: bool
     # None when the experiment has no flag, or the flag has no version.
     flag_version: int | None
     project: ProjectSetupFacts
@@ -60,9 +55,8 @@ def load_experiment_health_inputs(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthInputs:
     experiment = _load_experiment(team_id, experiment_id)
-    reads_denied_property = scan_reads_denied_property(reader_access, experiment)
     return HealthInputs(
-        context=_health_context(experiment, reader_access, user, reads_denied_property=reads_denied_property),
+        context=_health_context(experiment, reader_access, user),
         exposures=load_exposure_inputs(
             experiment,
             user=user,
@@ -70,7 +64,6 @@ def load_experiment_health_inputs(
             can_read_flag_history=reader_access.can_read_flag_history,
         ),
         reader_access=reader_access,
-        scan_reads_denied_property=reads_denied_property,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
         project=build_project_setup_facts(
             experiment.team,
@@ -122,19 +115,13 @@ def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
 
 
 def _health_context(
-    experiment: Experiment,
-    reader_access: ExperimentHealthReaderAccess,
-    user: User | None,
-    *,
-    reads_denied_property: bool | None = None,
+    experiment: Experiment, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
     context = load_health_context(
         experiment, flag_history=flag_history, can_read_flag_history=reader_access.can_read_flag_history
     )
-    traffic = load_condition_set_traffic(
-        experiment, context, reader_access=reader_access, reads_denied_property=reads_denied_property
-    )
+    traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
     latest_calculation = load_latest_calculation(experiment)
     return replace(
         context,

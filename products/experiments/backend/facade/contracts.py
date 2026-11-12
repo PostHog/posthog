@@ -529,7 +529,7 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
-    # The reader's property access rules, for a check that compiles its query to learn whether they mask a read.
+    # The reader's property access rules. A query that a check runs without the reader runs under them.
     restricted_properties: frozenset[RestrictedProperty]
 
 

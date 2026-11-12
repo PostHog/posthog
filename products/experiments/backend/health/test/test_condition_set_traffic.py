@@ -13,7 +13,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.hogql.database.database import Database
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -21,13 +20,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
-from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import (
     load_condition_set_traffic,
     query_condition_set_traffic,
-    scan_reads_denied_property,
 )
 from products.experiments.backend.health.context import ConditionSetTraffic, load_health_context
 from products.experiments.backend.models.experiment import Experiment
@@ -43,7 +40,6 @@ FULL_ACCESS = ExperimentHealthReaderAccess(
     denied_event_properties=frozenset(),
     restricted_properties=frozenset(),
 )
-EVENT = PropertyDefinition.Type.EVENT
 PERSON = PropertyDefinition.Type.PERSON
 
 
@@ -150,129 +146,31 @@ class TestLoadConditionSetTraffic(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_query_access", replace(FULL_ACCESS, can_query_events=False), None),
-            ("denied_the_reason", _denied(EVENT, "$feature_flag_reason"), None),
-            ("denied_the_person_property_of_the_test_account_filter", _denied(PERSON, "email"), None),
-            ("denied_another_person_property", _denied(PERSON, "plan"), TRAFFIC),
-            (
-                "denied_the_person_property_of_a_test_account_filter_the_experiment_skips",
-                _denied(PERSON, "email"),
-                TRAFFIC,
-                False,
-            ),
-            (
-                "denied_the_parent_of_a_dotted_filter_key",
-                _denied(PERSON, "email"),
-                None,
-                True,
-                [{"key": "email.domain", "value": "example.com", "operator": "is_not", "type": "person"}],
-            ),
-            ("denied_a_child_of_the_filter_key", _denied(PERSON, "email.domain"), None),
-            (
-                "denied_an_input_of_a_virtual_property",
-                _denied(PERSON, "$initial_referring_domain"),
-                None,
-                True,
-                [{"key": "$virt_initial_channel_type", "value": "Internal", "operator": "is_not", "type": "person"}],
-            ),
-            (
-                "denied_a_property_that_a_hogql_filter_reads",
-                _denied(PERSON, "email"),
-                None,
-                True,
-                [{"key": "person.properties.email != 'qa@example.com'", "type": "hogql"}],
-            ),
-            (
-                "denied_a_property_that_a_hogql_filter_doesnt_read",
-                _denied(PERSON, "email"),
-                TRAFFIC,
-                True,
-                [{"key": "properties.$host != 'localhost'", "type": "hogql"}],
-            ),
+            ("no_query_access", replace(FULL_ACCESS, can_query_events=False)),
+            ("denied_the_reason", replace(FULL_ACCESS, denied_event_properties=frozenset({"$feature_flag_reason"}))),
         ]
     )
-    def test_scans_only_what_the_reader_may_read(
-        self,
-        _name: str,
-        reader_access: ExperimentHealthReaderAccess,
-        expected: ConditionSetTraffic | None,
-        filter_test_accounts: bool = True,
-        test_account_filters: list[dict[str, Any]] = _STAFF_EMAILS_EXCLUDED,
+    def test_reader_who_cannot_read_the_flag_calls_gets_no_traffic(
+        self, _name: str, reader_access: ExperimentHealthReaderAccess
     ) -> None:
-        Team.objects.filter(pk=self.team.pk).update(test_account_filters=test_account_filters)
-        Experiment.objects.filter(pk=self.experiment.pk).update(
-            exposure_criteria={"filterTestAccounts": filter_test_accounts}
-        )
-        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
-
         traffic, query = self._load(TRAFFIC, reader_access=reader_access)
 
-        self.assertEqual((traffic, query.call_count), (expected, 0 if expected is None else 1))
-
-    def test_a_project_rule_added_after_a_scan_withholds_the_cached_share(self) -> None:
-        cached, _ = self._load(TRAFFIC)
-        with patch(
-            "products.experiments.backend.health.condition_set_traffic.get_restricted_properties_with_group_type_index_for_team",
-            return_value={RestrictedProperty(name="$feature_flag_reason", property_type=EVENT)},
-        ):
-            traffic, query = self._load(TRAFFIC)
-
-        self.assertEqual((cached, traffic, query.call_count), (TRAFFIC, None, 0))
+        self.assertEqual((traffic, query.call_count), (None, 0))
 
     @parameterized.expand(
         [
-            ("another_reader", _denied(PERSON, "plan"), _STAFF_EMAILS_EXCLUDED, False),
-            (
-                "another_filter",
-                _denied(PERSON, "email"),
-                [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}],
-                False,
-            ),
-            ("the_same_reader_and_filter", _denied(PERSON, "email"), _STAFF_EMAILS_EXCLUDED, True),
+            ("the_same_rules", FULL_ACCESS, TRAFFIC),
+            ("other_rules", _denied(PERSON, "email"), TOO_FEW_PEOPLE),
         ]
     )
-    def test_the_access_answer_is_cached_for_its_rules_and_filter(
-        self,
-        _name: str,
-        second_reader: ExperimentHealthReaderAccess,
-        second_filters: list[dict[str, Any]],
-        expected: bool,
+    def test_readers_share_the_answer_only_with_the_same_rules(
+        self, _name: str, second_reader: ExperimentHealthReaderAccess, expected: ConditionSetTraffic
     ) -> None:
-        Team.objects.filter(pk=self.team.pk).update(test_account_filters=_STAFF_EMAILS_EXCLUDED)
-        first = scan_reads_denied_property(_denied(PERSON, "email"), Experiment.objects.get(pk=self.experiment.pk))
-        Team.objects.filter(pk=self.team.pk).update(test_account_filters=second_filters)
-        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
-            second = scan_reads_denied_property(second_reader, Experiment.objects.get(pk=self.experiment.pk))
+        self._load(TRAFFIC)
 
-        self.assertEqual((first, second, create_for.call_count), (True, expected, 0 if expected else 1))
+        traffic, _ = self._load(TOO_FEW_PEOPLE, reader_access=second_reader)
 
-    def test_a_cohort_test_account_filter_reads_the_stored_members(self) -> None:
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Staff",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-        Team.objects.filter(pk=self.team.pk).update(
-            test_account_filters=[{"key": "id", "value": cohort.pk, "operator": "not_in", "type": "cohort"}],
-            modifiers={"inlineCohortCalculation": "always"},
-        )
-        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
-
-        traffic, _ = self._load(TRAFFIC, reader_access=_denied(PERSON, "email"))
-
-        self.assertEqual(traffic, TRAFFIC)
+        self.assertEqual(traffic, expected)
 
     @parameterized.expand(
         [
@@ -574,7 +472,9 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+        traffic = query_condition_set_traffic(
+            experiment, window_start=now - timedelta(days=7), window_end=now, restricted_properties=frozenset()
+        )
 
         self.assertEqual(
             (
@@ -606,18 +506,30 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+        traffic = query_condition_set_traffic(
+            experiment, window_start=now - timedelta(days=7), window_end=now, restricted_properties=frozenset()
+        )
 
         self.assertEqual((dict(traffic.people_by_set), traffic.calls, traffic.remotely_evaluated_calls), expected)
 
     @parameterized.expand(
         [
-            ("experiment_filters_test_accounts", True, ({1: 1, 2: 1}, True)),
-            ("experiment_counts_test_accounts", False, ({1: 2, 2: 1}, False)),
+            ("experiment_filters_test_accounts", True, frozenset(), ({1: 1, 2: 1}, True)),
+            ("experiment_counts_test_accounts", False, frozenset(), ({1: 2, 2: 1}, False)),
+            (
+                "reader_denied_the_filter_property",
+                True,
+                frozenset({RestrictedProperty(name="email", property_type=PERSON)}),
+                ({1: 2, 2: 1}, True),
+            ),
         ]
     )
     def test_leaves_out_the_calls_that_the_test_account_filter_excludes(
-        self, _name: str, filter_test_accounts: bool, expected: tuple[dict[int, int], bool]
+        self,
+        _name: str,
+        filter_test_accounts: bool,
+        rules: frozenset[RestrictedProperty],
+        expected: tuple[dict[int, int], bool],
     ) -> None:
         self.team.test_account_filters = _STAFF_EMAILS_EXCLUDED
         self.team.save()
@@ -635,7 +547,9 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         self._call_flag("customer", "Matched condition set 2", FLAG_VERSION, now - timedelta(days=1))
         flush_persons_and_events()
 
-        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+        traffic = query_condition_set_traffic(
+            experiment, window_start=now - timedelta(days=7), window_end=now, restricted_properties=rules
+        )
 
         self.assertEqual((dict(traffic.people_by_set), traffic.filters_test_accounts), expected)
 

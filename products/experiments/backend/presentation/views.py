@@ -1055,7 +1055,7 @@ class EnterpriseExperimentsViewSet(
         severity is info up to 5%, warning above, and no finding under 1% when at least half of the calls
         that returned a variant name a condition. The finding is info when the share is unknown,
         and `reason` says why: `not_measured` (for example an API key without
-        `query:read`, or a caller denied a property that the scan reads), `too_few_people` (under 100), or
+        `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
         `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
         the caller's own assignment). A pin to a variant with 0% in the split adds an info,
         because that variant's results show only the pinned users, unless the experiment
