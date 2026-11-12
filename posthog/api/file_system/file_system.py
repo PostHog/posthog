@@ -7,7 +7,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Optional, cast
-from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.apps import apps
@@ -456,13 +455,9 @@ def _workflow_target(
 ) -> WorkflowFileTarget | None:
     if entry_type not in WORKFLOW_FILE_SYSTEM_TYPES or not ref:
         return None
-    # Workflows and templates are keyed by UUID, and access grants name the canonical spelling. The guard
-    # canonicalizes here because a layer may not register these types with the deletion registry.
-    try:
-        ref = str(UUID(ref))
-    except ValueError:
-        pass
-    return WorkflowFileTarget(type=entry_type, ref=ref, team_id=team_id, shortcut=bool(shortcut))
+    return WorkflowFileTarget(
+        type=entry_type, ref=canonical_file_system_ref(entry_type, ref), team_id=team_id, shortcut=bool(shortcut)
+    )
 
 
 def _row_target(row: FileSystem) -> WorkflowFileTarget | None:

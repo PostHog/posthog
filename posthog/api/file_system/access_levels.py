@@ -137,25 +137,38 @@ def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
 
 def canonical_file_system_ref(entry_type: str, ref: str) -> str:
     registration = get_file_system_registration(entry_type)
-    return _canonical_ref(registration, ref) if registration else ref
+    if registration:
+        return _canonical_ref(registration, ref)
+    # Workflows and templates are keyed by UUID whether or not a layer registers them, and access grants
+    # name the canonical spelling, so their refs never depend on the registry.
+    if entry_type in WORKFLOW_FILE_SYSTEM_TYPES:
+        try:
+            return str(UUID(ref))
+        except ValueError:
+            return ref
+    return ref
+
+
+def _uuid_ref_alternate_spellings(ref: str) -> set[str]:
+    try:
+        uuid_value = UUID(ref)
+    except ValueError:
+        return set()
+    bodies = {str(uuid_value), uuid_value.hex}
+    bodies |= {body.upper() for body in bodies}
+    wrapped = {
+        f"{prefix}{body}{suffix}" for body in bodies for prefix, suffix in (("", ""), ("{", "}"), ("urn:uuid:", ""))
+    }
+    return wrapped - {ref}
 
 
 def file_system_ref_alternate_spellings(entry_type: str, ref: str) -> set[str]:
     registration = get_file_system_registration(entry_type)
     if registration is None:
-        return set()
+        return _uuid_ref_alternate_spellings(ref) if entry_type in WORKFLOW_FILE_SYSTEM_TYPES else set()
     field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
     if isinstance(field, UUIDField):
-        try:
-            uuid_value = UUID(ref)
-        except ValueError:
-            return set()
-        bodies = {str(uuid_value), uuid_value.hex}
-        bodies |= {body.upper() for body in bodies}
-        wrapped = {
-            f"{prefix}{body}{suffix}" for body in bodies for prefix, suffix in (("", ""), ("{", "}"), ("urn:uuid:", ""))
-        }
-        return wrapped - {ref}
+        return _uuid_ref_alternate_spellings(ref)
     if isinstance(field, IntegerField):
         try:
             int_value = int(ref)
