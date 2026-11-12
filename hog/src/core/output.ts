@@ -36,6 +36,27 @@ export function escapeControls(text: string): string {
     return text.replace(CONTROL, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
 }
 
+export interface Notes {
+    warnings?: readonly string[]
+    notes?: readonly string[]
+}
+
+export interface Report extends Notes {
+    // One line that says whether the command worked, such as "Added 2 skills".
+    result: string
+    // `unchanged`: there was nothing to do. `partial`: only some of the work happened. `failed`: none of it did.
+    status?: 'done' | 'unchanged' | 'partial' | 'failed'
+    // What changed on disk, in PostHog or in an agent's settings, one line each.
+    effects?: readonly string[]
+}
+
+const STATUS_MARKS: Record<NonNullable<Report['status']>, { mark: string; styles: Style[] }> = {
+    done: { mark: '✓', styles: ['green', 'bold'] },
+    unchanged: { mark: '•', styles: ['dim'] },
+    partial: { mark: '!', styles: ['yellow', 'bold'] },
+    failed: { mark: '✗', styles: ['red', 'bold'] },
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
 
 export class Output {
@@ -111,6 +132,32 @@ export class Output {
             this.style(bottom, 'dim'),
         ]) {
             this.line(line)
+        }
+    }
+
+    // A command that changes something reads in one order: the result first, then what changed
+    // because of it, then anything else. A person sees whether it worked before any detail.
+    report({ result, status = 'done', effects = [], ...notes }: Report): void {
+        const { mark, styles } = STATUS_MARKS[status]
+        this.line(`${this.style(mark, ...styles)} ${result}`)
+        for (const effect of effects) {
+            this.line(`  ${effect}`)
+        }
+        this.notes(notes)
+    }
+
+    // Warnings, tips and next steps go after a command's result, apart from it.
+    notes({ warnings = [], notes = [] }: Notes): void {
+        if (warnings.length + notes.length === 0) {
+            return
+        }
+
+        this.line()
+        for (const warning of warnings) {
+            this.line(this.style(warning, 'yellow'))
+        }
+        for (const note of notes) {
+            this.line(note)
         }
     }
 
