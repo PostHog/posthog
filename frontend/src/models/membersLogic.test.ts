@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER, MOCK
 
 import { expectLogic } from 'kea-test-utils'
 
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -90,6 +91,22 @@ describe('membersLogic', () => {
             const result = logic.values.selectableMembers().map((member) => member.user.uuid)
             expect(result).not.toContain(MOCK_USER_UUID)
             expect(result).toContain(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
+        })
+    })
+
+    describe('postRemoveMember', () => {
+        it('drops the member and reloads the organization so member_count stays in sync', async () => {
+            organizationLogic.mount()
+            await expectLogic(organizationLogic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.loadAllMembers()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.postRemoveMember(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
+            }).toDispatchActions(organizationLogic, ['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
+
+            expect(logic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
         })
     })
 })
