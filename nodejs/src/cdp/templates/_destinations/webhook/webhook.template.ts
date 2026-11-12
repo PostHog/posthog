@@ -163,7 +163,7 @@ if (inputs.debug) {
             key: 'timeout_ms',
             type: 'number',
             label: 'Timeout (ms)',
-            description: 'How long to wait for a response, up to 10000 ms.',
+            description: 'How long to wait for a response. The server limit applies when this is longer.',
             secret: false,
             required: false,
         },

@@ -103,6 +103,7 @@ describe('Hog Executor', () => {
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchTimeoutMs: hub.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
@@ -1733,6 +1734,26 @@ describe('Hog Executor', () => {
                 })
             }
         )
+
+        it('caps a longer timeout_ms at the server request timeout', async () => {
+            mockRequest.mockImplementation(() => {})
+            hub.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS = 100
+            executor = createExecutor(hub.encryptedFields)
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                max_tries: 1,
+                fail_on_error: false,
+                timeout_ms: 60_000,
+            })
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toMatchObject({
+                status: 500,
+                error: expect.stringContaining('Timeout'),
+            })
+        })
 
         describe('aws_sigv4', () => {
             // `secret: true` HogFunction inputs land in `encrypted_inputs` after

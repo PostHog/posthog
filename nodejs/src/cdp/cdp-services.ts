@@ -146,6 +146,7 @@ export type CdpCoreServicesConfig = Pick<
     | 'ENCRYPTION_SALT_KEYS'
     | 'SITE_URL'
     | 'INTERNAL_API_BASE_URL'
+    | 'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS'
 > &
     UsageIngestionConfig &
     Pick<
@@ -553,6 +554,7 @@ export function createCdpCoreServices(
         {
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,
+            fetchTimeoutMs: config.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,

@@ -19,7 +19,6 @@ import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import {
     MAX_FETCH_RESPONSE_BYTES,
-    MAX_FETCH_TIMEOUT_MS,
     cdpTrackedFetch,
     fetchErrorDetail,
     isFetchResponseRetriable,
@@ -52,6 +51,8 @@ import {
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
     fetchRetries: number
+    // EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS. A per-call timeout_ms can shorten it, never extend it.
+    fetchTimeoutMs: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
     siteUrl: string
@@ -512,7 +513,7 @@ export class HogExecutorAsyncService {
 
         if (params.timeout_ms !== undefined) {
             // A timeout of 0 disables the abort signal, so the floor is 1 ms.
-            fetchParams.timeoutMs = Math.min(Math.max(params.timeout_ms, 1), MAX_FETCH_TIMEOUT_MS)
+            fetchParams.timeoutMs = Math.min(Math.max(params.timeout_ms, 1), this.config.fetchTimeoutMs)
         }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
