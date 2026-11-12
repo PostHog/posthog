@@ -1229,12 +1229,26 @@ class ClickHousePrinter(BasePrinter):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ):
-        """Add access control guard for system tables"""
+        """Add access control guard for system tables and internal logs"""
         from posthog.hogql.database.postgres_table import PostgresTable
-        from posthog.hogql.printer.access_control import build_access_control_guard
+        from posthog.hogql.database.schema.logs import (
+            LogAttributesTable,
+            LogsPatternBucketsTable,
+            LogsTable,
+            LogsVolumeBucketsTable,
+        )
+        from posthog.hogql.printer.access_control import build_access_control_guard, build_internal_logs_guard
 
         if node_type is None:
             return None
+        if isinstance(
+            table_type.table, LogsTable | LogsVolumeBucketsTable | LogsPatternBucketsTable | LogAttributesTable
+        ):
+            return build_internal_logs_guard(
+                _table_filter_type(node_type),
+                self.context,
+                has_internal_source="internal_source" in table_type.table.fields,
+            )
         if not isinstance(table_type.table, PostgresTable):
             return None
         if not self.context.database or not self.context.database.user_access_control:

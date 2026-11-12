@@ -95,6 +95,11 @@ class LogsTable(Table):
         "event_name": StringDatabaseField(
             name="event_name", nullable=False, description="OpenTelemetry log event name, when set."
         ),
+        "internal_source": StringDatabaseField(
+            name="internal_source",
+            nullable=False,
+            description="The PostHog source that wrote this row, such as hog_flow. Empty for logs a team sent itself.",
+        ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the log."
         ),
@@ -139,6 +144,11 @@ class LogsVolumeBucketsTable(Table):
             nullable=False,
             description="Start of the 5-minute UTC bucket the counts fall in.",
         ),
+        "internal_source": StringDatabaseField(
+            name="internal_source",
+            nullable=False,
+            description="The PostHog source that wrote this row, such as hog_flow. Empty for logs a team sent itself.",
+        ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the logs."
         ),
@@ -182,6 +192,11 @@ class LogsPatternBucketsTable(Table):
             name="time_bucket",
             nullable=False,
             description="Start of the 5-minute UTC bucket the counts fall in.",
+        ),
+        "internal_source": StringDatabaseField(
+            name="internal_source",
+            nullable=False,
+            description="The PostHog source that wrote this row, such as hog_flow. Empty for logs a team sent itself.",
         ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the logs."

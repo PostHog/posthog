@@ -243,7 +243,7 @@ def run_patterns_diff(
     )
     truncated = limit is not None and len(entries) > limit
     entries = entries[:limit]
-    first_seen = _first_seen_ever(team, query, entries, version, current_to, deadline) if version else {}
+    first_seen = _first_seen_ever(team, query, entries, version, current_to, deadline, user=user) if version else {}
     history_failed = first_seen is None
     first_seen = first_seen or {}
     for entry in entries:
@@ -291,6 +291,8 @@ def _first_seen_ever(
     version: int,
     current_to: dt.datetime,
     deadline: float | None = None,
+    *,
+    user: "User | None" = None,
 ) -> dict[str, dt.datetime] | None:
     settings = fail_fast_aggregate_settings()
     if deadline is not None:
@@ -322,6 +324,7 @@ def _first_seen_ever(
             query_type="LogsPatternsFirstSeen",
             query=select,
             team=team,
+            user=user,
             workload=Workload.LOGS,
             settings=settings,
         )

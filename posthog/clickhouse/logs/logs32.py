@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
     `pattern` String,
     `pattern_version` UInt8,
+    `internal_source` LowCardinality(String) DEFAULT '',
 
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,

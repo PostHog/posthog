@@ -56,6 +56,11 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
 
 _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
 
+# Logs tables whose internal workflow rows the printer hides from users without hog_flow access.
+_INTERNAL_LOGS_TABLES = frozenset(
+    {prefix + name for prefix in ("", "posthog.") for name in ("logs", "logs_volume_buckets", "logs_pattern_buckets")}
+)
+
 # Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
 # read another access-controlled table, or because it declares no scope of its own.
 # `system.activity_logs` limits Canvas rows to the canvases in `system.canvases` (see
@@ -203,9 +208,13 @@ def queried_access_controlled_resources(
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.printer.access_control import INTERNAL_LOG_SOURCE_RESOURCES  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
+
+    if getattr(query, "kind", None) == "LogsQuery":
+        return set(INTERNAL_LOG_SOURCE_RESOURCES.values())
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -254,6 +263,9 @@ def queried_access_controlled_resources(
 
         for name in table_names:
             scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
+
+        if table_names & _INTERNAL_LOGS_TABLES:
+            scopes |= set(INTERNAL_LOG_SOURCE_RESOURCES.values())
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.

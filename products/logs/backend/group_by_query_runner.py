@@ -321,11 +321,14 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         # Database up front. Without it, the `{filters}` placeholder LogsFilterBuilder.where()
         # always emits makes the executor run the full per-query database build — warehouse
         # tables, saved queries, endpoints: several Postgres round trips this query never uses.
+        database = Database.create_for_posthog_tables(self.team, modifiers=self.modifiers)
+        # The internal-logs guard reads access from the database, and this one is built without a user.
+        database.user_access_control = self.user_access_control
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
-            database=Database.create_for_posthog_tables(self.team, modifiers=self.modifiers),
+            database=database,
         )
         response = execute_hogql_query(
             query_type="LogsQuery",

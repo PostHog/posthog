@@ -25,6 +25,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
 from posthog.hogql.errors import QueryError
+from posthog.hogql.printer.access_control import INTERNAL_LOG_SOURCE_RESOURCES
 
 from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
@@ -40,6 +41,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.exporter import export_asset
 
@@ -1490,6 +1492,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
+    def _internal_logs_user(self) -> User | None:
+        """The user to run logs queries as. Without one, the queries hide internal logs.
+
+        A token holds `logs:read` for these routes, but internal logs also need read access to the
+        resource of every internal source, for example `hog_flow:read` and `hog_function:read`.
+        """
+        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        if scopes is not None and "*" not in scopes:
+            for resource in INTERNAL_LOG_SOURCE_RESOURCES.values():
+                if not {f"{resource}:read", f"{resource}:write"} & set(scopes):
+                    return None
+        return self.request.user if isinstance(self.request.user, User) else None
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
@@ -1648,7 +1663,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         analytics_props = get_request_analytics_properties(request)
 
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
-            return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
+            return LogsQueryRunner(
+                LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team, user=self._internal_logs_user()
+            )
 
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
@@ -1658,14 +1675,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             if query.sessionId and not team_has_logs(self.team, cache_negative=True):
                 results: list[Any] = []
             elif live_logs_checkpoint:
-                response = LogsQueryRunner(query, self.team).run(
+                response = LogsQueryRunner(query, self.team, user=self._internal_logs_user()).run(
                     ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
                 results = list(response.results)
             else:
                 results = list(
                     time_sliced_results(
-                        runner=LogsQueryRunner(query, self.team),
+                        runner=LogsQueryRunner(query, self.team, user=self._internal_logs_user()),
                         order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                         make_runner=make_runner,
                         analytics_props=analytics_props,
@@ -1748,7 +1765,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sparklineRankBy=query_data.get("sparklineRankBy"),
         )
 
-        runner = SparklineQueryRunner(team=self.team, query=query)
+        runner = SparklineQueryRunner(team=self.team, query=query, user=self._internal_logs_user())
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1801,6 +1818,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         runner = LogFacetValuesQueryRunner(
             team=self.team,
+            user=self._internal_logs_user(),
             query=query,
             facet_field=facet_field or None,
             facet_resource_attribute=facet_resource_attribute or None,
@@ -1823,7 +1841,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = CountQueryRunner(team=self.team, query=query)
+        runner = CountQueryRunner(team=self.team, query=query, user=self._internal_logs_user())
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1849,7 +1867,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = ImpactQueryRunner(team=self.team, query=query)
+        runner = ImpactQueryRunner(team=self.team, query=query, user=self._internal_logs_user())
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1890,7 +1908,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
+        runner = CountRangesQueryRunner(
+            team=self.team, query=query, target_buckets=target_buckets, user=self._internal_logs_user()
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1938,6 +1958,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         baseline_data = request.data.get("baselineDateRange")
         runner = ServicesQueryRunner(
             team=self.team,
+            user=self._internal_logs_user(),
             query=query,
             service_name_search=query_data.get("serviceNameSearch") or None,
             environment=query_data.get("environment") or None,
@@ -1976,9 +1997,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = PatternsQueryRunner(
-            team=self.team, query=query, user=request.user if isinstance(request.user, User) else None
-        )
+        runner = PatternsQueryRunner(team=self.team, query=query, user=self._internal_logs_user())
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -2030,7 +2049,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             self.team,
             query,
             baseline_date_range,
-            user=request.user if isinstance(request.user, User) else None,
+            user=self._internal_logs_user(),
             limit=options.validated_data.get("limit"),
             # The comparison runs several queries in sequence. End it before the concurrency slot's ttl, so the
             # slot cannot expire while the request still queries ClickHouse.
@@ -2083,6 +2102,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         try:
             runner = LogsGroupByQueryRunner(
                 team=self.team,
+                user=self._internal_logs_user(),
                 query=query,
                 group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
