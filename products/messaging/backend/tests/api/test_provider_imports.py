@@ -54,7 +54,7 @@ class TestProviderImportsAPI(APIBaseTest):
         response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [step["key"] for step in response.json()["results"][0]["steps"]] == ["contacts"]
+        assert [step["key"] for step in response.json()[0]["steps"]] == ["contacts"]
 
     @parameterized.expand(
         [
