@@ -1538,3 +1538,41 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
 })
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdateBodyDescriptionMax = 1000
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsItemMax = 255
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsMax = 10
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax = 2048
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax = 0
+
+export const TransactionalCodeEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(transactionalCodeEmailsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('What the email is for.'),
+    tags: zod
+        .array(zod.string().max(transactionalCodeEmailsPartialUpdateBodyTagsItemMax))
+        .max(transactionalCodeEmailsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.'
+        ),
+    source_url: zod
+        .union([
+            zod.url().max(transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax).nullable(),
+            zod.string().max(transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:\/\/ or https:\/\/. Send null or an empty string to unlink it.'
+        ),
+})

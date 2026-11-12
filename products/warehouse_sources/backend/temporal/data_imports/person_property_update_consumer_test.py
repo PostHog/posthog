@@ -351,7 +351,8 @@ class TestRateGate:
             capture_fn=capture, grant_fn=grant, dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
         )
 
-        assert c.process_record(self._VALUE) == SENT
+        with patch(f"{_MODULE}.close_old_connections"):
+            assert c.process_record(self._VALUE) == SENT
         assert capture.call_count == 1
         assert len(sleeps) == 2  # backed off once per grant error before the grant
 

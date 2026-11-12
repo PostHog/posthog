@@ -914,7 +914,9 @@ class SESProvider:
             verification_token=id_for_domain.get("VerificationToken") if id_for_domain else None,
             dkim_status=dkim_for_domain["DkimVerificationStatus"] if dkim_for_domain else _UNKNOWN,
             dkim_tokens=tuple(dkim_for_domain.get("DkimTokens", [])) if dkim_for_domain else (),
-            mail_from_status=mail_from_for_domain["MailFromDomainStatus"] if mail_from_for_domain else _UNKNOWN,
+            mail_from_status=mail_from_for_domain.get("MailFromDomainStatus", _UNKNOWN)
+            if mail_from_for_domain
+            else _UNKNOWN,
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
 
