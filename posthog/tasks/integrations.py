@@ -18,7 +18,11 @@ from posthog.models.integration import (
     OauthIntegration,
     refresh_backoff_active,
 )
-from posthog.models.integration.email import lock_sender_domain, lock_sender_if_unverified
+from posthog.models.integration.email import (
+    ORGANIZATION_PROOF_REQUIRED_KEY,
+    lock_sender_domain,
+    lock_sender_if_unverified,
+)
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -184,12 +188,22 @@ def expire_unverified_email_senders() -> None:
         # Rows come back in id order, which is creation order, so every later sender is younger too.
         if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or sender.created_at >= cutoff:
             break
+        # A contested domain's senders hold the only record that verifying it needs the organization's own record.
+        if sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY):
+            continue
+        domain = sender.config.get("domain")
         with transaction.atomic():
             if not lock_sender_if_unverified(sender):
                 continue
+            # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
+            frees_identity = (
+                len(IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}, limit=2)))
+                == 1
+            )
             # An unverified sender cannot send, so a workflow that still names it loses nothing it had.
             IntegrationManager.email.any.delete(sender.team_id, sender.id, ignore_usages=True)
-        expired += 1
+        if frees_identity:
+            expired += 1
     logger.info("expired_unverified_email_senders", count=expired)
 
 
