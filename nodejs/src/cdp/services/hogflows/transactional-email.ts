@@ -226,7 +226,6 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
-    // When to send. A time without an offset is refused, so a send never goes out in the wrong timezone.
     scheduled_at: ScheduledAtSchema.optional(),
 })
 

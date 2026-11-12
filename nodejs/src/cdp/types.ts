@@ -606,8 +606,6 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
-    // The time a transactional send was scheduled for. A throttled retry moves the job, so the email queue wait
-    // reads this instead.
     scheduledAt?: string
     // The time of the send's latest status row, so a reschedule timed by the database clock still writes after it.
     statusAt?: string
