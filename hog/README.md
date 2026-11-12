@@ -397,12 +397,12 @@ Merging the release pull request runs the workflow again, which:
 
 4. Compiles every target, with the version and the release commit's date as the build date.
 5. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release.
-6. Uploads to `releases.posthog.com/hog/v<version>/`, then creates the GitHub release and the `hog/v<version>` tag, then points `hog/stable/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages.
+6. Uploads to `releases.posthog.com/hog/v<version>/`, then creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
 - Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
-- A rerun of an older version never moves `stable`, npm's `latest` or the formula back.
+- Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
 - Don't run `sampo publish` or push `hog/v*` tags by hand.
 

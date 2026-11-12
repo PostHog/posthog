@@ -104,9 +104,9 @@ async function fakeRelease(
     }
     await writeFile(join(versionFolder, 'SHA256SUMS'), sha256Sums(artifacts))
 
-    await mkdir(join(release.bucket, 'stable'), { recursive: true })
+    await mkdir(join(release.bucket, 'latest'), { recursive: true })
     await writeFile(
-        join(release.bucket, 'stable', 'manifest.json'),
+        join(release.bucket, 'latest', 'manifest.json'),
         JSON.stringify(buildManifest(version, artifacts, { publishedAt: new Date(0), buildDate: new Date(0) }), null, 2)
     )
     await mkdir(release.home, { recursive: true })

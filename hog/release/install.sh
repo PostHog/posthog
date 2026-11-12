@@ -104,8 +104,8 @@ resolve_version() {
         return
     fi
 
-    download "$HOG_RELEASES_URL/stable/manifest.json" "$tmp/manifest.json" ||
-        err "couldn't find the latest hog release at $HOG_RELEASES_URL/stable/manifest.json."
+    download "$HOG_RELEASES_URL/latest/manifest.json" "$tmp/manifest.json" ||
+        err "couldn't find the latest hog release at $HOG_RELEASES_URL/latest/manifest.json."
 
     version=$(manifest_version "$tmp/manifest.json")
     [ -n "$version" ] || err "the release manifest names no version."

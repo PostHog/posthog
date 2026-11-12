@@ -11,6 +11,6 @@ export function releasesUrl(runtime: Pick<Runtime, 'env'>): string {
 
 export function manifestUrl(runtime: Pick<Runtime, 'env'>, version?: string): string {
     return version === undefined
-        ? `${releasesUrl(runtime)}/stable/manifest.json`
+        ? `${releasesUrl(runtime)}/latest/manifest.json`
         : `${releasesUrl(runtime)}/v${version.replace(/^v/, '')}/manifest.json`
 }

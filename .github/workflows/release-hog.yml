@@ -846,7 +846,7 @@ jobs:
             # Before the GitHub release, so the bucket has the files before anything links to them.
             # The role can't delete, so nothing here removes an object.
             # The marker goes last. Without it, a rerun signs and uploads the version again, over the
-            # files a failed upload left. Nothing reads them before stable points at this version.
+            # files a failed upload left. Nothing reads them before latest points at this version.
             - name: Upload to the release bucket
               if: steps.existing.outputs.uploaded == 'false'
               run: |
@@ -866,20 +866,20 @@ jobs:
 
             # Rewritten for every release, so they get a short cache lifetime and an invalidation.
             # A rerun of an older version leaves them alone.
-            - name: Point stable at this release
+            - name: Point latest at this release
               if: steps.latest.outputs.latest == 'true'
               run: |
                   set -euo pipefail
                   assets=hog/dist/release/out/assets
                   rolling="public, max-age=60"
-                  aws s3 cp "$assets/manifest.json" "s3://$BUCKET/hog/stable/manifest.json" \
+                  aws s3 cp "$assets/manifest.json" "s3://$BUCKET/hog/latest/manifest.json" \
                       --cache-control "$rolling" --content-type application/json --only-show-errors
                   aws s3 cp "$assets/install.sh" "s3://$BUCKET/hog/install.sh" \
                       --cache-control "$rolling" --content-type text/plain --only-show-errors
                   aws s3 cp "$assets/install.ps1" "s3://$BUCKET/hog/install.ps1" \
                       --cache-control "$rolling" --content-type text/plain --only-show-errors
                   aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
-                      --paths /hog/stable/manifest.json /hog/install.sh /hog/install.ps1 \
+                      --paths /hog/latest/manifest.json /hog/install.sh /hog/install.ps1 \
                       --query 'Invalidation.Id' --output text
 
             - name: Get the hog releaser token
@@ -907,10 +907,10 @@ jobs:
                       exit 0
                   fi
 
-                  prerelease=()
-                  case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
+                  # Every hog release is hog's latest. --latest=false only leaves the repository's own
+                  # Latest release to the other products released from this repository.
                   gh release create "$RELEASE_TAG" "$assets"/* \
-                      --target "$RELEASE_COMMIT" --latest=false "${prerelease[@]}" \
+                      --target "$RELEASE_COMMIT" --latest=false \
                       --title "hog $VERSION" \
                       --notes "hog $VERSION. hog/README.md describes how to install it, and hog/CHANGELOG.md lists the changes."
 
@@ -1009,7 +1009,7 @@ jobs:
                   if [ "$LATEST" = true ]; then
                       echo "text=hog $VERSION is published to the release bucket, GitHub, npm and Homebrew." >> "$GITHUB_OUTPUT"
                   else
-                      echo "text=hog $VERSION is published. A newer release is out, so stable, npm latest and Homebrew stay on it." >> "$GITHUB_OUTPUT"
+                      echo "text=hog $VERSION is published. A newer release is out, so latest, npm latest and Homebrew stay on it." >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Notify Slack - Release published

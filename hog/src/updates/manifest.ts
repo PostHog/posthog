@@ -15,7 +15,6 @@ export const ManifestSchema = z.object({
     name: z.literal('hog'),
     version: VersionText,
     tag: z.string(),
-    prerelease: z.boolean(),
     publishedAt: z.iso.datetime({ offset: true }),
     buildDate: z.iso.datetime({ offset: true }),
     // Releases below it have a problem bad enough that every command warns about it.
