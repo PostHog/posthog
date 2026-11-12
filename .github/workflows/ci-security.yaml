@@ -165,9 +165,13 @@ jobs:
                         - '.semgrep/rules/security/idor-team-scoped-models.yaml'
                       # An edited devex rule can match code the pull request does not
                       # touch, so a pull request that edits one scans the whole tree.
+                      # Only the rule files are listed. Editing this workflow or a
+                      # rule's README cannot change what an unchanged rule matches in
+                      # unchanged code, and paying a full scan for either would cost
+                      # more than it guards.
                       devex-rules:
                         - '.semgrep/rules/devex/**'
-                        - '.github/workflows/ci-security.yaml'
+                        - '!.semgrep/rules/devex/**/*.md'
 
     semgrep-python:
         needs: changes
