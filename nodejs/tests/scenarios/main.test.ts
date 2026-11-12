@@ -125,14 +125,6 @@ describe('runCards', () => {
             ['smoke: passed, every invariant held\n', 'scorecard: capture answered 503\n'],
         ],
         [
-            'the event was recorded but the scorecard files were not written',
-            { recorded: true, scorecardError: 'the scorecard files could not be written: EISDIR' },
-            [
-                'smoke: passed, every invariant held\n',
-                'scorecard: recorded; the scorecard files could not be written: EISDIR\n',
-            ],
-        ],
-        [
             'both the evidence and the scorecard write failed',
             {
                 status: 'invalid',

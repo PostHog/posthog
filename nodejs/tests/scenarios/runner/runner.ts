@@ -31,6 +31,8 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { Status, statusOf } from './status'
 
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
+
 export type RunResult = {
     runId: string
     status: Status
@@ -142,13 +144,13 @@ async function errorOf(write: () => Promise<void> | void): Promise<string | unde
     }
 }
 
-function withEvidenceError(result: RunResult, error: string | undefined): RunResult {
+function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunVerdict {
     return error === undefined
-        ? result
+        ? verdict
         : {
-              ...result,
+              ...verdict,
               status: 'invalid',
-              statusReason: `${result.statusReason}; the evidence could not be written: ${error}`,
+              statusReason: `${verdict.statusReason}; the evidence could not be written: ${error}`,
           }
 }
 
@@ -305,10 +307,9 @@ export function createRunner(
                     }
                 }
             }
-            const base: RunResult = {
+            const verdict: RunVerdict = {
                 runId,
                 ...outcome,
-                recorded: false,
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
@@ -319,35 +320,25 @@ export function createRunner(
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
+            const provenance = provenanceOf()
             const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'scorecard.json', {
+                    ...verdict,
+                    event: scorecardOf(verdict, loaded, provenance),
+                })
             })
-            const judged = withEvidenceError(base, evidenceError)
-            const event = scorecardOf(judged, loaded, provenanceOf())
-            const writeScorecards = (files: [string, unknown][]): Promise<string | undefined> =>
-                evidenceError === undefined
-                    ? errorOf(() => files.forEach(([name, value]) => writeJson(evidenceDir, name, value)))
-                    : Promise.resolve(undefined)
-            await writeScorecards([
-                ['scorecard-event.json', event],
-                ['scorecard.json', judged],
-            ])
-            const written = await publish(event, env, signal)
-            const result: RunResult = {
+            const judged = withEvidenceError(verdict, evidenceError)
+            const written = await publish(scorecardOf(judged, loaded, provenance), env, signal)
+            return {
                 ...judged,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
             }
-            const filesError = await writeScorecards([['scorecard.json', result]])
-            if (filesError === undefined) {
-                return result
-            }
-            const problems = [written.problem, `the scorecard files could not be written: ${filesError}`]
-            return { ...result, scorecardError: problems.filter((problem) => problem !== undefined).join('; ') }
         },
 
         async down() {

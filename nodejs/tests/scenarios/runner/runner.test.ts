@@ -2,7 +2,16 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { once } from 'events'
-import fs, { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import fs, {
+    appendFileSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    writeFileSync,
+} from 'fs'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
@@ -130,17 +139,20 @@ describe('runner', () => {
             undefined,
         ],
         [
-            'keeps the published verdict when the scorecard files cannot be written',
+            'fails the run when the disk fills while its scorecard is written',
             () => {
-                api.onCapture = ({ properties }) => {
-                    const scorecard = path.join(String(properties.evidence_dir), 'scorecard.json')
-                    rmSync(scorecard, { force: true })
-                    mkdirSync(scorecard)
-                }
+                const write = fs.writeFileSync
+                jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+                    if (!String(file).endsWith('scorecard.json.partial')) {
+                        return write(file, data, options)
+                    }
+                    write(file, String(data).slice(0, 8))
+                    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+                })
             },
             withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
-            /^the run stopped: [^;]*$/,
-            expect.stringMatching(/^the scorecard files could not be written: EISDIR/),
+            /; the evidence could not be written: ENOSPC/,
+            undefined,
         ],
     ])('%s', async (_story, arrange, loaded, statusReason, scorecardError) => {
         arrange()
@@ -157,54 +169,25 @@ describe('runner', () => {
         ])
     })
 
-    it('keeps the verdict and its event on disk while the scorecard is still being published', async () => {
+    it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
         let onDisk: unknown
         api.onCapture = ({ properties }) => {
-            const evidenceDir = String(properties.evidence_dir)
-            onDisk = ['scorecard-event.json', 'scorecard.json'].map((file) =>
-                existsSync(path.join(evidenceDir, file))
-                    ? parseJSON(readFileSync(path.join(evidenceDir, file), 'utf8'))
-                    : `${file} is missing`
-            )
+            onDisk = parseJSON(readFileSync(path.join(String(properties.evidence_dir), 'scorecard.json'), 'utf8'))
         }
 
         const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
 
-        expect(onDisk).toEqual([
-            api.captured[0].properties,
-            expect.objectContaining({ runId: result.runId, statusReason: result.statusReason, recorded: false }),
-        ])
-        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual({
+        expect(result.recorded).toBe(true)
+        expect(onDisk).toEqual({
             ...result,
-            recorded: true,
+            recorded: undefined,
+            captured: undefined,
+            scorecardError: undefined,
+            event: api.captured[0].properties,
         })
-    })
-
-    it('keeps the saved verdict and event whole when the disk fills while they are replaced after publication', async () => {
-        const write = fs.writeFileSync
-        let published = false
-        api.onCapture = () => {
-            published = true
-        }
-        jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
-            if (!published || !String(file).startsWith(cacheHome)) {
-                return write(file, data, options)
-            }
-            write(file, String(data).slice(0, 8))
-            throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
-        })
-
-        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
-
-        jest.restoreAllMocks()
-        expect(result.scorecardError).toMatch(/^the scorecard files could not be written: ENOSPC/)
-        expect(
-            ['scorecard-event.json', 'scorecard.json'].map((file) =>
-                parseJSON(readFileSync(path.join(result.evidenceDir, file), 'utf8'))
-            )
-        ).toEqual([
-            api.captured[0].properties,
-            expect.objectContaining({ runId: result.runId, statusReason: result.statusReason, recorded: false }),
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
+        expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
+            'scorecard.json',
         ])
     })
 
@@ -747,8 +730,13 @@ describe('runner through seed, drive and judge', () => {
                 ({ answer }) => answer.accepted
             )
             expect(result).toMatchObject(verdict)
-            expect(evidenceOf(result, 'scorecard.json')).toEqual(result)
-            expect(evidenceOf(result, 'scorecard-event.json')).toEqual(api.captured[0]?.properties)
+            expect(evidenceOf(result, 'scorecard.json')).toEqual({
+                ...result,
+                recorded: undefined,
+                captured: undefined,
+                scorecardError: undefined,
+                event: api.captured[0]?.properties,
+            })
             expect(api.captured.map(({ properties }) => properties)).toEqual([
                 expect.objectContaining({
                     run_id: result.runId,
