@@ -22,6 +22,8 @@ export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
+/** Lets cloud tasks run in a GitLab project from a gitlab.com integration. Same flag key as the backend. */
+export const TASKS_GITLAB_FLAG = featureFlagKeys.TASKS_GITLAB_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */

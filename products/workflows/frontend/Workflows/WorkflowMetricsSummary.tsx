@@ -102,7 +102,9 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Step',
                 key: 'step',
-                render: (_, row) => <span className="font-medium">{row.email}</span>,
+                render: (_, row) => (
+                    <span className={row.removed ? 'font-medium text-muted' : 'font-medium'}>{row.email}</span>
+                ),
             },
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             {
@@ -212,7 +214,7 @@ export function WorkflowMetricsSummary({
                           title: '',
                           key: 'view',
                           align: 'right' as const,
-                          render: (_: unknown, row: EmailMetricRow) => viewMetricsColumn(row.id),
+                          render: (_: unknown, row: EmailMetricRow) => (row.removed ? null : viewMetricsColumn(row.id)),
                       },
                   ]
                 : []),
@@ -352,7 +354,7 @@ export function WorkflowMetricsSummary({
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            <LemonLabel info="Share of workflow runs started in the selected date range that have converted so far. The rate for recent runs keeps rising until their conversion window closes. A date range that starts before November 13, 2026 counts the conversions that happened in the range.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
@@ -366,11 +368,6 @@ export function WorkflowMetricsSummary({
                                     </div>
                                 )}
                             </div>
-                            {!conversionStatsLoading && conversionStats.conversions > 0 && (
-                                <Link to={convertedUsersUrl} className="text-xs text-center">
-                                    View converted users
-                                </Link>
-                            )}
                         </div>
                     </div>
                 )}

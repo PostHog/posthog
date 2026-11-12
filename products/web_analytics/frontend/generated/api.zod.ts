@@ -120,6 +120,46 @@ export const AeoKeywordsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggestBodyDomainMax = 200
+
+export const aeoKeywordsSuggestBodyBrandMax = 200
+
+export const aeoKeywordsSuggestBodyDescriptionMax = 1000
+
+export const aeoKeywordsSuggestBodyCountDefault = 20
+export const aeoKeywordsSuggestBodyCountMax = 50
+
+export const AeoKeywordsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDomainMax)
+        .describe(
+            "The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough."
+        ),
+    brand: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty. Keywords that name the brand are left out.'),
+    description: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoKeywordsSuggestBodyCountMax)
+        .default(aeoKeywordsSuggestBodyCountDefault)
+        .describe(
+            'How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.'
+        ),
+})
+
+/**
  * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
  * @summary Update an AEO prompt
  */
@@ -216,7 +256,7 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggestBodyDomainMax = 200

@@ -32,6 +32,7 @@ interface PhaseInput {
     integrationId: number | null
     sender: IntegrationConfigApi | null
     senderFailed: boolean
+    senderMissing: boolean
     status: EmailDomainStatusApi | null
     statusUnavailable: boolean
     recordsAdded: boolean
@@ -45,6 +46,7 @@ const phaseOf = ({
     integrationId,
     sender,
     senderFailed,
+    senderMissing,
     status,
     statusUnavailable,
     recordsAdded,
@@ -54,7 +56,7 @@ const phaseOf = ({
     if (integrationId === null) {
         return 'domain'
     }
-    if (senderFailed || (!status && statusUnavailable)) {
+    if (senderFailed || senderMissing || (!status && statusUnavailable)) {
         return 'unavailable'
     }
     if (!sender || !status) {
@@ -135,6 +137,7 @@ export interface emailDomainLogicValues {
     sender: IntegrationConfigApi | null // emailDomainSenderLogic
     senderFailed: boolean // emailDomainSenderLogic
     senderLoading: boolean // emailDomainSenderLogic
+    senderMissing: boolean // emailDomainSenderLogic
     allRecordsFound: boolean // emailDomainStatusLogic
     foundCount: number // emailDomainStatusLogic
     pollingStopped: boolean // emailDomainStatusLogic
@@ -180,6 +183,7 @@ export interface emailDomainLogicMeta {
             integrationId: number | null,
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
+            senderMissing: boolean,
             status: EmailDomainStatusApi | null,
             statusUnavailable: boolean,
             recordsAdded: boolean,
@@ -216,7 +220,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
     connect((props: EmailDomainLogicProps) => ({
         values: [
             emailDomainSenderLogic(props),
-            ['domain', 'integrationId', 'sender', 'senderFailed', 'senderLoading'],
+            ['domain', 'integrationId', 'sender', 'senderFailed', 'senderLoading', 'senderMissing'],
             emailDomainStatusLogic(props),
             [
                 'allRecordsFound',
@@ -254,6 +258,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 s.integrationId,
                 s.sender,
                 s.senderFailed,
+                s.senderMissing,
                 s.status,
                 s.statusUnavailable,
                 s.recordsAdded,
@@ -264,6 +269,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 integrationId: number | null,
                 sender: IntegrationConfigApi | null,
                 senderFailed: boolean,
+                senderMissing: boolean,
                 status: EmailDomainStatusApi | null,
                 statusUnavailable: boolean,
                 recordsAdded: boolean,
@@ -274,6 +280,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                     integrationId,
                     sender,
                     senderFailed,
+                    senderMissing,
                     status,
                     statusUnavailable,
                     recordsAdded,

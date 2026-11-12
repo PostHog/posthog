@@ -6671,7 +6671,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), column masking (masked_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively, except a masked_columns change, which starts a full resync of the table. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), column masking (masked_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively, except a masked_columns change, which starts a full resync of the table. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -6731,7 +6731,7 @@
         }
     },
     "external-data-sources-bulk-update-schemas": {
-        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
+        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update many table schemas in one request",
@@ -6743,6 +6743,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "external-data-sources-cdc-status-retrieve": {
+        "description": "Read the live change data capture (CDC) health of a Postgres source. Use this first when a CDC table is stale, a CDC sync fails, or before choosing between 'external-data-sources-resume-cdc-create' and 'external-data-sources-repair-cdc-create'. It connects to the source database, so it fails with a 400 if the source is unreachable. It changes nothing. Returns {enabled: false} when CDC is off. When CDC is on, returns management_mode (posthog or self_managed), slot_name, publication_name, lag_warning_threshold_mb, lag_critical_threshold_mb, schedule_paused, slot_exists, publication_exists, lag_bytes, and published_tables. Read the result like this: schedule_paused=true with slot_exists=true and publication_exists=true means a failure paused extraction but nothing was lost, so fix the cause and call resume. slot_exists=false or publication_exists=false means the replication resources were lost, so call repair (it forces a full re-sync). A large and growing lag_bytes means changes are not being consumed and the source database disk can fill up.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get CDC health for a source",
+        "title": "Get CDC health for a source",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/external_data_sources/{id}/cdc_status/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "external-data-sources-check-cdc-prerequisites-create": {
@@ -6867,6 +6882,36 @@
             "readOnlyHint": false
         }
     },
+    "external-data-sources-disable-cdc-create": {
+        "description": "Turn off change data capture on a source. Destructive: it cancels running CDC jobs, deletes the CDC extraction schedule, drops the replication slot and publication (when PostHog manages them), deletes buffered change data, clears all CDC settings, and soft-deletes the CDC history tables. Every table that synced with sync_type=cdc is reset to no sync type with syncing off, so each one needs a new sync_type and should_sync=true (see 'external-data-schemas-partial-update') before it syncs again. Ask the user before calling this. Do not use it to fix a broken CDC sync: use 'external-data-sources-resume-cdc-create' or 'external-data-sources-repair-cdc-create' instead. Needs edit access to every CDC table of the source. Returns {success, already_disabled}; if CDC was already off it changes nothing. If the table syncs cannot be paused it fails with a 503 and CDC stays on, so retry.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Disable CDC on a source",
+        "title": "Disable CDC on a source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/disable_cdc/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "external-data-sources-enable-cdc-create": {
+        "description": "Enable change data capture (CDC) on an existing Postgres source. Safe order: call this tool, then switch individual tables to sync_type=cdc with 'external-data-schemas-partial-update' (CDC tables need primary_key_columns). Do not call 'external-data-sources-check-cdc-prerequisites-create' first: it needs the database connection details and cannot read the stored ones. This tool checks the prerequisites itself and lists any that fail. It starts no table sync by itself. It creates the replication slot (and the publication in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use cdc_management_mode='posthog' (default) when the database user can manage replication, or 'self_managed' when the customer created the publication already and passes its name in cdc_publication_name. Fails with a 400 when the source type has no CDC support, the prerequisites are not met (the errors are listed), or the source is unreachable, and with a 409 if CDC is already on (use 'external-data-sources-update-cdc-settings-create' to tune it). Returns {success, schedules_ready}; schedules_ready=false means CDC is on but scheduling failed, and it recovers when the first table is switched to cdc. Management mode and slot or publication names cannot be changed later: disable and enable again. An unused replication slot makes the source database retain WAL, so do not leave CDC enabled with no cdc tables.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Enable CDC on a source",
+        "title": "Enable CDC on a source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/enable_cdc/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-list": {
         "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters, column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use external-data-schemas-list with a search.",
         "category": "Warehouse sources",
@@ -6942,6 +6987,21 @@
             "readOnlyHint": false
         }
     },
+    "external-data-sources-resume-cdc-create": {
+        "description": "Restart CDC extraction that a non-retryable failure paused (bad credentials, SSL or host errors) while the replication slot survived. Use it when 'external-data-sources-cdc-status-retrieve' shows schedule_paused=true and slot_exists=true and publication_exists=true, after the cause is fixed (for example the password was updated). It checks the source connection, recreates the extraction schedule if it was deleted, unpauses it, and clears the paused marker. Streaming continues from the saved position, with no re-snapshot, so it is the cheap alternative to 'external-data-sources-repair-cdc-create'. The next extraction run starts the sync; table status stays failed until a run succeeds. Refuses with a 400 when CDC is off, no table uses sync_type=cdc with syncing on, the source is still unreachable, or the slot or publication is missing (then use repair, which forces a full re-sync). Returns {success}.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Resume a paused CDC source",
+        "title": "Resume a paused CDC source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/resume_cdc/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-retrieve": {
         "description": "Get a single data warehouse source by ID. Returns full details including source type, connection status, prefix, all table schemas with their sync statuses, latest error, and last sync timestamp. Per-schema column definitions are omitted to keep the payload small — use external-data-schemas-retrieve for a single table's columns.",
         "category": "Warehouse sources",
@@ -6955,6 +7015,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "external-data-sources-update-cdc-settings-create": {
+        "description": "Change the tuning settings of change data capture on a source that has it enabled: cdc_auto_drop_slot, cdc_lag_warning_threshold_mb, and cdc_lag_critical_threshold_mb. Send only the fields to change. Thresholds are whole MB of replication lag, at least 1, and the warning must stay below the critical value (checked against the stored value for a field you omit). It does not touch the replication slot, publication, or schedules. Management mode and slot or publication names cannot be changed here: disable and enable CDC again. Fails with a 400 when CDC is off or a value is invalid. Returns {success}, plus unchanged=true when no field was sent.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Update CDC settings on a source",
+        "title": "Update CDC settings on a source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/update_cdc_settings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "external-data-sources-update-webhook-inputs-create": {
@@ -7728,6 +7803,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "file-system-list": {
+        "description": "List entries in the project tree, the folder sidebar that holds dashboards, insights, notebooks, canvases and other saved items. To find where an item is filed, pass `type` (such as `insight`, `dashboard` or `notebook`) and `ref` (the insight or notebook short_id, or the dashboard id). Pass `parent` to list a folder's contents. Each entry's `path` ends with the item's own name; everything before it is the folder. An item can also have shortcut entries (`shortcut: true`) with the same `type` and `ref`; the item itself is the entry with `shortcut: false`. Use an entry's `id` with file-system-move.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List project tree entries",
+        "title": "List project tree entries",
+        "required_scopes": ["file_system:read"],
+        "api_operations": ["GET /api/projects/{project_id}/file_system/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "file-system-move": {
+        "description": "Move a project tree entry, such as an insight, dashboard, notebook or folder, to a new path. This is the same move as dragging an item in the folder sidebar. Get the entry `id` from file-system-list. `new_path` is the full new path including the item's own name, such as `Experiments/Q4/Weekly signups`; to keep the name, reuse the last segment of the entry's current `path`. Missing parent folders are created. Moving a folder moves everything inside it.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Move a project tree entry",
+        "title": "Move a project tree entry",
+        "required_scopes": ["file_system:write"],
+        "api_operations": ["POST /api/projects/{project_id}/file_system/{id}/move/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "health-issues-get": {
@@ -17767,7 +17872,7 @@
         "feature_flag": "workflows-destination-suggestion"
     },
     "workflows-get": {
-        "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
+        "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
@@ -18025,7 +18130,7 @@
         "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-patch-action-email": {
-        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch a workflow step's email",
@@ -18055,7 +18160,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs, so you can confirm every step's id and type without re-fetching; read a step's inputs back with workflows-get. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
+        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow or one disabled while active, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs, so you can confirm every step's id and type without re-fetching; read a step's inputs back with workflows-get. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -18335,7 +18440,7 @@
         "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-update": {
-        "description": "Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name, description and tags apply immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow or one disabled while active, content fields stage a draft (published with workflows-publish) while name, description and tags apply immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

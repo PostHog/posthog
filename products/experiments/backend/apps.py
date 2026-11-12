@@ -14,6 +14,8 @@ class ExperimentsConfig(AppConfig):
             register_file_system_type,
             register_post_delete_hook,
             register_post_restore_hook,
+            register_pre_delete_hook,
+            register_pre_restore_hook,
         )
         from posthog.helpers.impersonation import is_impersonated  # noqa: PLC0415
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity  # noqa: PLC0415
@@ -68,6 +70,16 @@ class ExperimentsConfig(AppConfig):
                 ),
             )
 
+        def _pre_delete(context: DeletionContext, experiment: Experiment) -> None:
+            from products.experiments.backend.flag_ownership import assert_experiment_deletable  # noqa: PLC0415
+
+            assert_experiment_deletable(experiment)
+
+        def _pre_restore(context: RestoreContext, experiment: Experiment) -> None:
+            from products.experiments.backend.flag_ownership import assert_experiment_restorable  # noqa: PLC0415
+
+            assert_experiment_restorable(experiment)
+
         def _post_delete(context: DeletionContext, experiment: Experiment) -> None:
             _log_file_system_activity(context, experiment, "deleted")
 
@@ -79,6 +91,8 @@ class ExperimentsConfig(AppConfig):
                 changes=[Change(type="Experiment", action="changed", field="deleted", before=True, after=False)],
             )
 
+        register_pre_delete_hook("experiment", _pre_delete)
+        register_pre_restore_hook("experiment", _pre_restore)
         register_post_delete_hook("experiment", _post_delete)
         register_post_restore_hook("experiment", _post_restore)
 
