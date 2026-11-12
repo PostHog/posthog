@@ -511,8 +511,9 @@ def _save_bounces(context: ImportContext, target: _Target, items: list[dict[str,
             suppressed_at=_timestamp(item.get("created_at")),
             diagnostic=" ".join(part for part in (code, error) if part) or None,
         )
-    result = import_suppressions(context.team_id, imported.values(), context.created_by_id)
+    # First, so a complaint this import wrote turns into a bounce instead of staying a complaint.
     upgraded = _upgrade_imported_complaints(context.team_id, imported)
+    result = import_suppressions(context.team_id, imported.values(), context.created_by_id)
     return SavedPage(
         imported=result.total_added + upgraded,
         counts={
