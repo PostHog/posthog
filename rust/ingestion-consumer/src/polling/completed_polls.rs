@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Offset, Partition, TopicPartition};
+use common_kafka_consumer::{Offset, TopicPartition};
 
 use super::poll::InFlightPoll;
 use crate::debug_recorder::{DebugEventKind, DebugRecorder, PartitionOffset};
@@ -13,8 +13,7 @@ pub(super) struct CompletedPolls {
     // passes a finished poll only when every earlier poll is finished too.
     polls: HashMap<u64, PendingPoll>,
     next_poll: u64,
-    /// Keyed by partition number, because a completion carries no topic.
-    slices: HashMap<Partition, BTreeMap<i64, PollSlice>>,
+    slices: HashMap<TopicPartition, BTreeMap<i64, PollSlice>>,
 }
 
 struct PendingPoll {
@@ -23,7 +22,7 @@ struct PendingPoll {
     messages: u32,
     unsettled: u32,
     partitions: Vec<PartitionOffset>,
-    slice_starts: Vec<(Partition, i64)>,
+    slice_starts: Vec<(TopicPartition, i64)>,
 }
 
 struct PollSlice {
@@ -58,7 +57,6 @@ impl CompletedPolls {
             if !poll.uncommitted.contains_key(topic_partition) {
                 continue;
             }
-            let partition = Partition(topic_partition.partition);
             pending.messages += deliveries.delivered;
             pending.partitions.push(PartitionOffset {
                 topic: topic_partition.topic.clone(),
@@ -68,16 +66,19 @@ impl CompletedPolls {
             });
             pending
                 .slice_starts
-                .push((partition, deliveries.span.first));
-            self.slices.entry(partition).or_default().insert(
-                deliveries.span.first,
-                PollSlice {
-                    last: deliveries.span.last,
-                    poll: key,
-                    messages: deliveries.delivered,
-                    unsettled: deliveries.delivered,
-                },
-            );
+                .push((topic_partition.clone(), deliveries.span.first));
+            self.slices
+                .entry(topic_partition.clone())
+                .or_default()
+                .insert(
+                    deliveries.span.first,
+                    PollSlice {
+                        last: deliveries.span.last,
+                        poll: key,
+                        messages: deliveries.delivered,
+                        unsettled: deliveries.delivered,
+                    },
+                );
         }
         if pending.messages == 0 {
             return;
@@ -87,8 +88,8 @@ impl CompletedPolls {
         self.next_poll += 1;
     }
 
-    pub(super) fn settled(&mut self, partition: Partition, offsets: &[Offset]) {
-        let Some(slices) = self.slices.get_mut(&partition) else {
+    pub(super) fn settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
+        let Some(slices) = self.slices.get_mut(topic_partition) else {
             return;
         };
         // The ledger fails a second settle of an offset, so no offset counts twice.
@@ -117,7 +118,7 @@ impl CompletedPolls {
     pub(super) fn forget(&mut self, topic_partitions: &[TopicPartition]) {
         let mut done = Vec::new();
         for topic_partition in topic_partitions {
-            let Some(slices) = self.slices.remove(&Partition(topic_partition.partition)) else {
+            let Some(slices) = self.slices.remove(topic_partition) else {
                 continue;
             };
             for slice in slices.into_values() {
@@ -126,8 +127,10 @@ impl CompletedPolls {
                 };
                 poll.messages -= slice.messages;
                 poll.unsettled -= slice.unsettled;
-                poll.partitions
-                    .retain(|partition| partition.partition != topic_partition.partition);
+                poll.partitions.retain(|partition| {
+                    partition.partition != topic_partition.partition
+                        || partition.topic != topic_partition.topic
+                });
                 if poll.unsettled == 0 {
                     done.push(slice.poll);
                 }
@@ -143,8 +146,8 @@ impl CompletedPolls {
             return;
         };
         // After a revoke, the next assignment's poll can start at the same offset.
-        for (partition, first) in &poll.slice_starts {
-            if let Some(slices) = self.slices.get_mut(partition) {
+        for (topic_partition, first) in &poll.slice_starts {
+            if let Some(slices) = self.slices.get_mut(topic_partition) {
                 if slices.get(first).is_some_and(|slice| slice.poll == key) {
                     slices.remove(first);
                 }

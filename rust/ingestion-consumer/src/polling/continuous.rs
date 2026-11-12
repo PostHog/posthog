@@ -82,7 +82,7 @@ impl PollingStrategy for ContinuousPolling {
             return Ok(());
         }
         if let Some(completed_polls) = &mut self.completed_polls {
-            completed_polls.settled(completion.partition, &completion.offsets);
+            completed_polls.settled(topic_partition, &completion.offsets);
         }
         counter!("ingestion_consumer_messages_processed_total")
             .increment(completion.offsets.len() as u64);
