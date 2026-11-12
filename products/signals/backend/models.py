@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
