@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
@@ -41,6 +40,7 @@ import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
+import { deleteTemplateWithUndo } from './deleteTemplateWithUndo'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
@@ -1076,12 +1076,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             const wasInTree = isTreeItemLoaded('message_template', template.id)
-            await deleteWithUndo({
-                endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
-                object: {
-                    id: template.id,
-                    name: template.name,
-                },
+            await deleteTemplateWithUndo({
+                teamId: values.currentTeamIdStrict,
+                template,
                 callback: (undo) => {
                     if (undo) {
                         if (wasInTree) {
@@ -1092,6 +1089,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         router.actions.push(values.listUrl)
                     }
                 },
+                retry: () => actions.deleteTemplate(),
             })
         },
     })),

@@ -51,6 +51,7 @@ from posthog.api.file_system.deletion import (
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
+    prepare_file_system_deletes,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -72,7 +73,6 @@ from posthog.models.file_system.constants import (
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
-    create_or_update_file,
     escape_path,
     join_path,
     split_path,
@@ -1227,7 +1227,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for team_id, file_type, ref, _row_key in entries_by_group:
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
-        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _file_type in refs_by_type}
+        prepare_file_system_deletes(self.request, refs_by_type)
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
         spellings_by_type = {
             key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
             for key, refs in sorted(refs_by_type.items())
@@ -1792,30 +1793,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._assure_parent_folders(restore_path, created_by_user, team)
 
-        update_count = FileSystem.objects.filter(
-            surface_q(self.file_system_surface), team=team, type=payload["type"], ref=payload["ref"]
-        ).update(
-            path=restore_path,
-            depth=len(split_path(restore_path)),
+        fs_data: FileSystemRepresentation | None = (
+            instance.get_file_system_representation() if hasattr(instance, "get_file_system_representation") else None
         )
+        # The restore's save signal files the object under its canonical ref, which can differ from the sent
+        # ref (`+42` against `42`), so both refs match, and a row is created only when neither has one.
+        refs = {payload["ref"], fs_data.ref} if fs_data else {payload["ref"]}
+        restored = FileSystem.objects.filter(
+            surface_q(self.file_system_surface), team=team, type=payload["type"], ref__in=refs
+        ).update(path=restore_path, depth=len(split_path(restore_path)))
+        if restored or fs_data is None:
+            return
 
-        if update_count == 0 and hasattr(instance, "get_file_system_representation"):
-            fs_data: FileSystemRepresentation = instance.get_file_system_representation()
-            segments = split_path(restore_path)
-            folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
-            name = segments[-1] if segments else fs_data.name
-            create_or_update_file(
-                team=team,
-                base_folder=folder_path or fs_data.base_folder,
-                name=name,
-                file_type=fs_data.type,
-                ref=fs_data.ref,
-                href=fs_data.href,
-                meta=fs_data.meta,
-                created_at=fs_data.meta.get("created_at"),
-                created_by_id=fs_data.meta.get("created_by"),
-                surface=self.file_system_surface,
-            )
+        segments = split_path(restore_path) or [*split_path(fs_data.base_folder), fs_data.name]
+        FileSystem.objects.create(
+            team=team,
+            path=join_path(segments),
+            depth=len(segments),
+            type=fs_data.type,
+            ref=fs_data.ref,
+            href=fs_data.href,
+            meta=fs_data.meta,
+            shortcut=False,
+            surface=self.file_system_surface,
+            created_by_id=fs_data.meta.get("created_by"),
+            created_at=fs_data.meta.get("created_at") or timezone.now(),
+        )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
         """

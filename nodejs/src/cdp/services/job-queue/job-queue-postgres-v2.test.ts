@@ -78,6 +78,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             reschedule: jest.fn().mockResolvedValue(undefined),
             cancel: jest.fn().mockResolvedValue(undefined),
             heartbeat: jest.fn().mockResolvedValue(undefined),
+            defer: jest.fn().mockResolvedValue(undefined),
             ...overrides,
         }
     }

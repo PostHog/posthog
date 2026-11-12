@@ -17,4 +17,5 @@ export interface JobQueue {
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void>
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
+    deferInvocations(deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]): Promise<void>
 }

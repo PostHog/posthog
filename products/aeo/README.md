@@ -175,6 +175,18 @@ A newly cited domain is only ever labeled `publisher` or `unknown`; a domain bec
 It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
 People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
 
+## Keywords
+
+`posthog_aeo_keyword` holds the project's keyword list, at most 200 keywords, stored lowercased with whitespace collapsed.
+Keywords belong to the project, not to a prompt. Each one is measured over the checks already stored, as a case-insensitive phrase match, in three places: the prompts, the engines' web searches and the answers.
+
+- `GET /api/projects/<id>/aeo_keywords/` lists the keywords, `POST` with `{"keywords": [...]}` adds many at once and reports `created` and `skipped` (blank entries and keywords already listed are skipped, and passing the cap fails with 400), and `DELETE <keyword_id>/` removes one.
+- `GET aeo_keywords/report/?days=7` (at most 30, in the project's timezone) returns one row per keyword over answered checks: the prompts that contain it with their mention and citation rates, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, the citation position and how early the brand is named.
+- `GET aeo_keywords/modifiers/?days=7&keyword=` returns the words and two-word phrases the engines added to their searches beyond the prompt, each counted once per answer, with a kind (freshness, pricing, comparison, docs, site, competitor or other), its citation rate against the baseline, the engines that used it and example searches. `keyword` restricts it to answers whose searches contain that keyword. The kinds come from a fixed word list in `keywords.py`, and competitor terms come from the brand catalog.
+- The MCP tools (`aeo-keywords-list`, `aeo-keywords-create`, `aeo-keywords-delete`, `aeo-keywords-report-get` and `aeo-keywords-modifiers-get`) ship disabled until the route is deployed.
+
+The AI visibility page has a Keywords tab with the list, the report and the modifiers.
+
 ## Content autopilot
 
 Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the last 30 days against the 30 days before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.

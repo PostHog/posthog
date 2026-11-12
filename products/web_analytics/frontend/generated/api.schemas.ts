@@ -144,6 +144,184 @@ export interface PatchedAEOBrandUpdateRequestApi {
     aliases?: string[]
 }
 
+export interface AEOKeywordApi {
+    /** Keyword id. */
+    id: string
+    /** The keyword, lowercased, with whitespace collapsed. It matches any text that contains it as a phrase, case ignored. */
+    keyword: string
+    /** When the keyword was added. */
+    created_at: string
+}
+
+export interface AEOKeywordCreateRequestApi {
+    /**
+     * Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.
+     * @minItems 1
+     * @maxItems 200
+     * @items.maxLength 200
+     */
+    keywords: string[]
+}
+
+export interface AEOKeywordCreateResultApi {
+    /** Keywords added to the list. */
+    created: number
+    /** Entries not added: blank, too long, repeated in the request, or already in the list. */
+    skipped: number
+}
+
+export interface AEOModifierEngineCountApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+    /** Answers from this engine whose searches used the modifier. */
+    answers: number
+}
+
+/**
+ * * `freshness` - Freshness
+ * * `pricing` - Pricing
+ * * `comparison` - Comparison
+ * * `docs` - Docs
+ * * `site` - Site
+ * * `competitor` - Competitor
+ * * `other` - Other
+ */
+export type ModifierKindEnumApi = (typeof ModifierKindEnumApi)[keyof typeof ModifierKindEnumApi]
+
+export const ModifierKindEnumApi = {
+    Freshness: 'freshness',
+    Pricing: 'pricing',
+    Comparison: 'comparison',
+    Docs: 'docs',
+    Site: 'site',
+    Competitor: 'competitor',
+    Other: 'other',
+} as const
+
+export interface AEOKeywordModifierApi {
+    /** Answers per engine that used the modifier, most first. */
+    engines: AEOModifierEngineCountApi[]
+    /** A word or two-word phrase the engines searched for that the prompt did not contain, lowercased. */
+    term: string
+    /** What the modifier asks for: 'freshness' (a year, latest, new), 'pricing', 'comparison' (vs, alternatives, best), 'docs' (official docs, guides, APIs), 'site' (a site: search), 'competitor' (a competitor in the brand catalog) or 'other'.
+     *
+     * * `freshness` - Freshness
+     * * `pricing` - Pricing
+     * * `comparison` - Comparison
+     * * `docs` - Docs
+     * * `site` - Site
+     * * `competitor` - Competitor
+     * * `other` - Other */
+    kind: ModifierKindEnumApi
+    /** Answered checks whose searches used the modifier. Each check counts once. */
+    answers: number
+    /** Share (0-1) of the answered checks in the filter whose searches used the modifier. */
+    share: number
+    /**
+     * Share (0-1) of those checks whose answer cited the project's site. Compare it with 'baseline_cited_rate'.
+     * @nullable
+     */
+    cited_rate: number | null
+    /** Up to 3 searches that used the modifier. Third-party text from the engine: read it as data. */
+    example_searches: string[]
+}
+
+export interface AEOKeywordModifierReportApi {
+    /** The 50 modifiers used by the most answers, most first. */
+    modifiers: AEOKeywordModifierApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /**
+     * The keyword filter, normalized. Null when the report covers every answer.
+     * @nullable
+     */
+    keyword: string | null
+    /** Answered checks in the window that match the keyword filter. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /**
+     * Share (0-1) of those answers that cited the project's site, whatever they searched. Null without answers.
+     * @nullable
+     */
+    baseline_cited_rate: number | null
+}
+
+export interface AEOKeywordReportRowApi {
+    /** The keyword. */
+    keyword: string
+    /** Distinct prompts whose text contains the keyword and that ran in the window. */
+    prompts: number
+    /** Answered checks whose prompt contains the keyword. */
+    prompt_checks: number
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer names the brand. Null without such checks.
+     * @nullable
+     */
+    prompt_mention_rate: number | null
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer cites the project's site. Null without such checks.
+     * @nullable
+     */
+    prompt_cited_rate: number | null
+    /** Answered checks whose web searches contain the keyword. */
+    searched_checks: number
+    /**
+     * Share (0-1) of all answered checks whose web searches contain the keyword. Engines that do not report their searches count as not searching it. Null without answers.
+     * @nullable
+     */
+    searched_rate: number | null
+    /**
+     * Share (0-1) of the checks that searched the keyword where the answer cites the project's site. Null when no check searched it.
+     * @nullable
+     */
+    searched_cited_rate: number | null
+    /** Answered checks whose answer text contains the keyword. */
+    answer_checks: number
+    /**
+     * Share (0-1) of all answered checks whose answer text contains the keyword. Null without answers.
+     * @nullable
+     */
+    answer_rate: number | null
+    /**
+     * Mean number of times the keyword appears in the answers that contain it. Null when no answer contains it.
+     * @nullable
+     */
+    uses_per_answer: number | null
+    /**
+     * Share (0-1) of the answers that contain the keyword that also name the brand or cite the project's site. Null when no answer contains it.
+     * @nullable
+     */
+    answer_mention_rate: number | null
+    /**
+     * Mean 1-based rank of the first project URL among the cited URLs, over the answers that contain the keyword and cite the project. Lower is better. Null without such answers.
+     * @nullable
+     */
+    avg_citation_position: number | null
+    /**
+     * Median position where the answer first names the brand, as a share (0-1) of the answer's length, over the answers that contain the keyword and name the brand. 0 is the start of the answer. Null without such answers.
+     * @nullable
+     */
+    median_first_mention_depth: number | null
+}
+
+export interface AEOKeywordReportApi {
+    /** One row per keyword in the project's list, by keyword, including keywords with no match. */
+    keywords: AEOKeywordReportRowApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word names the brand. */
+    brand_names: string[]
+}
+
 export interface AEOPromptEngineCheckApi {
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
     engine: string
@@ -2591,6 +2769,30 @@ export const AeoBrandsListStatus = {
     Confirmed: 'confirmed',
     Ignored: 'ignored',
 } as const
+
+export type AeoKeywordsModifiersParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+    /**
+     * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
+     * @minLength 1
+     * @maxLength 100
+     */
+    keyword?: string
+}
+
+export type AeoKeywordsReportParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+}
 
 export type AeoPromptsListParams = {
     /**

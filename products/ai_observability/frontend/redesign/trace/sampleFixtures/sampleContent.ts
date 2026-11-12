@@ -1,4 +1,5 @@
-import { LoadedNodeContent, NodeSideContent, ThreadMessage } from '../types'
+import type { TraceNodeContentApi } from '../../../generated/api.schemas'
+import { NodeSideContent, ThreadMessage } from '../types'
 
 export function messagesSides(
     input: ThreadMessage[],
@@ -7,10 +8,10 @@ export function messagesSides(
     return { input: { kind: 'messages', messages: input }, output: { kind: 'messages', messages: output } }
 }
 
-export function messagesContent(input: ThreadMessage[], output: ThreadMessage[]): LoadedNodeContent {
-    return { kind: 'loaded', ...messagesSides(input, output) }
+export function messagesContent(input: ThreadMessage[], output: ThreadMessage[]): TraceNodeContentApi {
+    return messagesSides(input, output)
 }
 
-export function jsonContent(input: unknown, output: unknown): LoadedNodeContent {
-    return { kind: 'loaded', input: { kind: 'json', value: input }, output: { kind: 'json', value: output } }
+export function jsonContent(input: unknown, output: unknown): TraceNodeContentApi {
+    return { input: { kind: 'json', value: input }, output: { kind: 'json', value: output } }
 }

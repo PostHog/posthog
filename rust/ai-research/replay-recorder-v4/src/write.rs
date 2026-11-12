@@ -25,14 +25,15 @@ use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
 use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
+use crate::brotli::BlockEncoder;
 use crate::index::{BlockIndexRow, ImageIndexRow};
 use crate::splice::Splicer;
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
 /// and reads them rarely, so it takes the smaller output for more CPU.
-const BLOCK_BROTLI_QUALITY: u8 = 9;
-const BLOCK_BROTLI_WINDOW_BITS: u8 = 22;
+const BLOCK_BROTLI_QUALITY: u32 = 9;
+const BLOCK_BROTLI_WINDOW_BITS: u32 = 22;
 const BLOCK_WRITE_BUFFER: usize = 256 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -214,15 +215,6 @@ pub fn write_block<W: Write>(
     Ok((out, images, counts))
 }
 
-fn block_encoder() -> Result<brotlic::BrotliEncoder, WriteError> {
-    let seal_error = |e: brotlic::SetParameterError| WriteError::Seal(e.to_string());
-    brotlic::BrotliEncoderOptions::new()
-        .quality(brotlic::Quality::new(BLOCK_BROTLI_QUALITY).map_err(seal_error)?)
-        .window_size(brotlic::WindowSize::new(BLOCK_BROTLI_WINDOW_BITS).map_err(seal_error)?)
-        .build()
-        .map_err(seal_error)
-}
-
 /// Builds, compresses and seals one block for `object_key`. The key is in the frame's authenticated data, so a
 /// frame does not open from another object, even one of the same session.
 pub fn seal_block(
@@ -250,21 +242,13 @@ pub fn compress_block(
     // A brotli stream does not state its decompressed size, so a reader decompresses it as a stream.
     // The encoder works on each write it gets, so small writes cost far more CPU than the same bytes in one.
     let open = || {
-        block_encoder()
-            .map(|encoder| {
-                io::BufWriter::with_capacity(
-                    BLOCK_WRITE_BUFFER,
-                    brotlic::CompressorWriter::with_encoder(encoder, Vec::new()),
-                )
-            })
-            .map_err(|e| io::Error::other(e.to_string()))
+        BlockEncoder::new(BLOCK_BROTLI_QUALITY, BLOCK_BROTLI_WINDOW_BITS, Vec::new())
+            .map(|encoder| io::BufWriter::with_capacity(BLOCK_WRITE_BUFFER, encoder))
     };
     let (lines, images, counts) =
         write_block(block, team_key, key_month, open).map_err(seal_error)?;
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
-    let body = encoder
-        .into_inner()
-        .map_err(|e| WriteError::Seal(e.to_string()))?;
+    let body = encoder.finish().map_err(seal_error)?;
     Ok(CompressedBlock {
         session: block.session.clone(),
         key: key.clone(),

@@ -9,6 +9,7 @@ from django.db.models import Max, Sum
 from django.utils import timezone
 
 import structlog
+from psycopg.errors import LockNotAvailable
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -58,8 +59,13 @@ def record_metric_queries(team: Team, metric_names: Iterable[str]) -> None:
                 cursor.execute("SET LOCAL lock_timeout = '100ms'")
             cursor.execute(sql, params)
     except DatabaseError as error:
-        logger.warning("metric_query_count_write_failed", team_id=team_id, metric_count=len(names))
-        capture_exception(error)
+        lock_timeout = isinstance(error.__cause__, LockNotAvailable)
+        logger.warning(
+            "metric_query_count_write_failed", team_id=team_id, metric_count=len(names), lock_timeout=lock_timeout
+        )
+        # A lock timeout is the fail fast above working as intended, so only other failures are errors.
+        if not lock_timeout:
+            capture_exception(error)
 
 
 def record_promql_query(team: Team, expr: str) -> None:
