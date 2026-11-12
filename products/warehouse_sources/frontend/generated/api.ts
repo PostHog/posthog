@@ -13,10 +13,15 @@ import type {
     AddSourcesResponseApi,
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
+    CdcDisableResponseApi,
+    CdcEnableRequestApi,
     CdcEnableResponseApi,
     CdcPrerequisitesRequestApi,
     CdcPrerequisitesResponseApi,
+    CdcResumeResponseApi,
     CdcStatusApi,
+    CdcUpdateSettingsRequestApi,
+    CdcUpdateSettingsResponseApi,
     CreateWebhookResponseApi,
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
@@ -49,7 +54,6 @@ import type {
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
-    ExternalDataSourcesResumeCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
@@ -967,14 +971,11 @@ export const getExternalDataSourcesDisableCdcCreateUrl = (projectId: string, id:
 export const externalDataSourcesDisableCdcCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
+): Promise<CdcDisableResponseApi> => {
+    return apiMutator<CdcDisableResponseApi>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -999,14 +1000,14 @@ export const getExternalDataSourcesEnableCdcCreateUrl = (projectId: string, id: 
 export const externalDataSourcesEnableCdcCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    cdcEnableRequestApi?: CdcEnableRequestApi,
     options?: RequestInit
 ): Promise<CdcEnableResponseApi> => {
     return apiMutator<CdcEnableResponseApi>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(cdcEnableRequestApi),
     })
 }
 
@@ -1133,8 +1134,8 @@ export const externalDataSourcesResumeCdcCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<ExternalDataSourcesResumeCdcCreate200> => {
-    return apiMutator<ExternalDataSourcesResumeCdcCreate200>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
+): Promise<CdcResumeResponseApi> => {
+    return apiMutator<CdcResumeResponseApi>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -1179,14 +1180,14 @@ export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: stri
 export const externalDataSourcesUpdateCdcSettingsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    cdcUpdateSettingsRequestApi?: CdcUpdateSettingsRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
+): Promise<CdcUpdateSettingsResponseApi> => {
+    return apiMutator<CdcUpdateSettingsResponseApi>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(cdcUpdateSettingsRequestApi),
     })
 }
 

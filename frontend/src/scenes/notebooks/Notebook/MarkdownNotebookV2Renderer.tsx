@@ -28,7 +28,6 @@ import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/com
 import type { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { userLogic } from 'scenes/userLogic'
 
@@ -41,17 +40,13 @@ import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
 import { NotebookNodeType } from '../types'
-import { isJupyterModeAvailable } from '../utils'
 import {
     MarkdownNotebookEntityPicker,
     MarkdownNotebookEntityPickerKind,
     MarkdownNotebookEntityPickerSelection,
 } from './MarkdownNotebookEntityPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import {
-    getHiddenInsertCommandKeysForFeatureFlags,
-    getMarkdownRegistryForFeatureFlags,
-} from './markdownNotebookRegistry'
+import { NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS, NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
@@ -106,12 +101,11 @@ export function MarkdownNotebookV2({
         markdownEditorInteractionActive,
         markdownRemoteCarets,
     } = useValues(notebookLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { session: btwSession } = useValues(notebookBtwLogic({ shortId }))
     const { openBtw, closeBtw } = useActions(notebookBtwLogic({ shortId }))
-    const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const markdownRegistry = NOTEBOOK_MARKDOWN_REGISTRY
     const enabledAIComponentTags = useMemo(
         () => [
             'Query',
@@ -121,10 +115,7 @@ export function MarkdownNotebookV2({
         ],
         [markdownRegistry]
     )
-    const hiddenInsertCommandKeys = useMemo(
-        () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
-        [featureFlags]
-    )
+    const hiddenInsertCommandKeys = NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS
     const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
@@ -141,13 +132,13 @@ export function MarkdownNotebookV2({
     // Canvases (customer profiles and the like) are not notebooks of cells, so they keep their layout.
     const jupyterMode = useMemo(
         () =>
-            isJupyterModeAvailable(featureFlags) && isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
+            isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
                 ? getNotebookJupyterModeConfig(shortId, {
                       onRestartKernel: () => requestKernelRestart(),
                       onCommand: trackCommand,
                   })
                 : null,
-        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, trackCommand, shortId]
+        [isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, trackCommand, shortId]
     )
     useEffect(() => {
         setIsActive(!!jupyterMode)
