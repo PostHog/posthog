@@ -512,6 +512,29 @@ class TestEvaluationReportApi(APIBaseTest):
         # The page waits for the first run created after this server time.
         self.assertIsNotNone(dt.datetime.fromisoformat(response.json()["requested_at"]).tzinfo)
 
+    @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_duplicate_generate_answers_with_the_running_jobs_start_time(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        class WorkflowAlreadyStartedError(Exception):
+            pass
+
+        def start_workflow(*args, **kwargs):
+            raise WorkflowAlreadyStartedError()
+
+        started_at = dt.datetime(2026, 11, 12, 10, 0, 5, tzinfo=dt.UTC)
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.side_effect = [start_workflow, lambda: MagicMock(start_time=started_at)]
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(dt.datetime.fromisoformat(response.json()["requested_at"]), started_at)
+
     @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
     def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
         evaluation = (

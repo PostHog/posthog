@@ -60,6 +60,14 @@ def default_schedule_anchor() -> dt.datetime:
     return timezone.now().replace(minute=0, second=0, microsecond=0)
 
 
+def _workflow_start_time(client, workflow_id: str) -> dt.datetime | None:
+    try:
+        return async_to_sync(client.get_workflow_handle(workflow_id).describe)().start_time
+    except Exception:
+        logger.warning("Could not read the running report workflow", workflow_id=workflow_id, exc_info=True)
+        return None
+
+
 class EvaluationReportGenerateResponseSerializer(serializers.Serializer):
     requested_at = serializers.DateTimeField(
         help_text="Server time of the request. The new report is the first run created after it."
@@ -834,7 +842,6 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
         requested_at = dt.datetime.now(tz=dt.UTC)
-        accepted = Response({"requested_at": requested_at.isoformat()}, status=status.HTTP_202_ACCEPTED)
         # Stable workflow ID windowed to the minute: if a user smashes the button, Temporal
         # rejects the duplicate start (WorkflowAlreadyStarted) and we treat that as success.
         workflow_id = f"eval-report-manual-{report.id}-{requested_at.strftime('%Y%m%dT%H%M')}"
@@ -856,11 +863,14 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                     report_id=str(report.id),
                     workflow_id=workflow_id,
                 )
-                return accepted
+                # The page waits for a run created after this time. The running job may already have stored its run,
+                # so a duplicate answers with when that job started rather than when this request arrived.
+                started_at = _workflow_start_time(client, workflow_id) or requested_at.replace(second=0, microsecond=0)
+                return Response({"requested_at": started_at.isoformat()}, status=status.HTTP_202_ACCEPTED)
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))
             return Response(
                 {"error": "Failed to trigger report generation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return accepted
+        return Response({"requested_at": requested_at.isoformat()}, status=status.HTTP_202_ACCEPTED)

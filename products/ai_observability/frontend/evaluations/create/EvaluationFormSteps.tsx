@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
@@ -18,6 +19,7 @@ import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { EvaluationTriggersPanel } from '../components/EvaluationTriggersPanel'
 import { evaluationPreviewLogic } from '../evaluationPreviewLogic'
+import { REPORT_RUN_PARAM } from '../evaluationReportDrawerLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import type { ChecklistItem, ChecklistKey } from './creationChecklist'
@@ -156,6 +158,7 @@ export function EvaluationFormSteps({
     onCancel?: () => void
 }): JSX.Element | null {
     const { evaluation, formStep } = useValues(llmEvaluationLogic)
+    const { searchParams } = useValues(router)
     const { setFormStep } = useActions(llmEvaluationLogic)
     // Mounted here, not only in the steps that use them, so moving between steps keeps the folders and the traffic.
     useMountedLogic(llmEvaluationsLogic())
@@ -302,7 +305,8 @@ export function EvaluationFormSteps({
                     onCreate={onCreate}
                 />
             </div>
-            <TraceDrawerHost listId={PREVIEW_DRAWER_LIST_ID} />
+            {/* An open report's trace host takes over, because it sits above the report drawer. */}
+            {!searchParams[REPORT_RUN_PARAM] && <TraceDrawerHost listId={PREVIEW_DRAWER_LIST_ID} />}
         </div>
     )
 }

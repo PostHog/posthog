@@ -436,9 +436,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     }
                 />
             )}
-            {/* Opens a report's cited trace above the report from any tab. Configuration mounts its own host for the
-                preview, and two hosts on one URL would both open. */}
-            {activeTab !== 'configuration' && <TraceDrawerHost listId="evaluation-runs" />}
+            {/* After the report drawer, so a cited trace opens above it. Configuration has its own host for the preview,
+                which steps aside while a report is open, so only one host answers the URL. */}
+            {(activeTab !== 'configuration' || !!searchParams[REPORT_RUN_PARAM]) && (
+                <TraceDrawerHost listId="evaluation-runs" />
+            )}
         </div>
     )
 }
