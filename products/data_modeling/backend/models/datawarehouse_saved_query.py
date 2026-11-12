@@ -47,6 +47,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
 from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
@@ -115,11 +116,6 @@ def validate_saved_query_name(value: str) -> None:
 class NoSchedulableDagError(Exception):
     """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
     bootstrap one from."""
-
-
-class SchedulingUnavailableError(Exception):
-    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
-    The caller decides what to keep, because the saved query itself is not at fault."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -334,11 +330,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         disables materialization, because the alternative is a query that reports itself
         materialized while nothing is scheduled to materialize it.
         """
-        from products.data_modeling.backend.logic.freshness import (
+        from products.data_modeling.backend.facade.contracts import (
+            MissingDagNodeError,
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
-        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
