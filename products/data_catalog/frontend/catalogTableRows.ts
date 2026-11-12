@@ -33,6 +33,7 @@ import {
 } from 'products/data_quality/frontend/generated/api.schemas'
 import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from './catalogSort'
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
@@ -40,6 +41,12 @@ export type TableKind = 'posthog' | 'source' | 'self_managed' | 'view' | 'materi
 export type TableScope = 'all' | 'attention'
 export type TrustFilter = 'any' | 'certified' | 'proposed' | 'deprecated' | 'none'
 export type ChecksFilter = 'any' | 'with' | 'without'
+
+export const CHECKS_FILTER_OPTIONS: { value: ChecksFilter; label: string }[] = [
+    { value: 'any', label: 'Any' },
+    { value: 'with', label: 'With checks' },
+    { value: 'without', label: 'Without checks' },
+]
 
 export interface TablesFilters {
     kind: TableKind | 'any'
@@ -96,9 +103,16 @@ const FAILED_STATUS = 'Failed'
 
 const LIVE_LABELS: Partial<Record<TableKind, string>> = {
     posthog: 'Live',
-    view: 'Live (runs on read)',
+    view: 'Up to date, runs on each query',
     self_managed: 'Queried in place',
 }
+
+const MATERIALIZATION_OFF_LABEL = 'Materialization off, runs on each query'
+
+const LAST_REFRESHED_LABEL = 'Last refreshed'
+const NO_SUCCESSFUL_REFRESH_LABEL = 'No successful refresh yet'
+
+const STOPPED_REFRESH_KINDS: IssueKind[] = ['suspended', 'failed']
 
 const NEVER_REFRESHED_LABELS: Partial<Record<TableKind, string>> = {
     source: 'Not synced yet',
@@ -186,14 +200,26 @@ function subtitleFor(origin: string, node: DataModelingNode | null): string {
     return downstreamCount > 0 ? `${origin} · feeds ${pluralize(downstreamCount, 'model')}` : origin
 }
 
+function stoppedRefreshKind(attention: AttentionRow, syncFailed: boolean): IssueKind | null {
+    return STOPPED_REFRESH_KINDS.find((kind) => attention.issueKinds.includes(kind)) ?? (syncFailed ? 'failed' : null)
+}
+
+function liveLabelFor(
+    kind: TableKind,
+    problem: MaterializationProblem | null,
+    savedQuery: DataWarehouseSavedQuerySummary | null
+): string | undefined {
+    return problem && savedQuery?.is_materialized === false ? MATERIALIZATION_OFF_LABEL : LIVE_LABELS[kind]
+}
+
 function freshnessFor(
     kind: TableKind,
+    liveLabel: string | undefined,
     refreshedAt: string | null,
     attention: AttentionRow,
     refreshing: boolean,
     syncFailed: boolean
 ): Freshness {
-    const liveLabel = LIVE_LABELS[kind]
     if (liveLabel) {
         return { state: liveLabel, timeLabel: null, time: null }
     }
@@ -204,11 +230,13 @@ function freshnessFor(
     if (since?.kind === 'behind') {
         return { state: since.label, timeLabel: null, time: refreshedAt }
     }
-    if (attention.issueKinds.includes('failed') && since) {
-        return { state: ISSUE_LABELS.failed, timeLabel: since.label, time: since.time }
-    }
-    if (syncFailed) {
-        return { state: ISSUE_LABELS.failed, timeLabel: null, time: refreshedAt }
+    const stoppedKind = stoppedRefreshKind(attention, syncFailed)
+    if (stoppedKind) {
+        return {
+            state: ISSUE_LABELS[stoppedKind],
+            timeLabel: refreshedAt ? LAST_REFRESHED_LABEL : NO_SUCCESSFUL_REFRESH_LABEL,
+            time: refreshedAt,
+        }
     }
     return refreshedAt
         ? { state: null, timeLabel: null, time: refreshedAt }
@@ -252,11 +280,12 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         certificationLookupKey: string | null
     ): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
+        const materialization = node ? (problemsByNodeId.get(node.id) ?? null) : null
         const attention = buildAttentionRow(
             {
                 key: row.key,
                 node,
-                materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
+                materialization,
                 failingChecks,
             },
             sources.healthBySubjectKey,
@@ -271,12 +300,16 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return {
             ...row,
             refreshing,
-            freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
+            freshness: freshnessFor(
+                row.kind,
+                liveLabelFor(row.kind, materialization, row.savedQuery),
+                row.refreshedAt,
+                attention,
+                refreshing,
+                syncStatus === FAILED_STATUS
+            ),
             subtitle: subtitleFor(origin, node),
-            checkCounts: {
-                total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
-                failing: Math.max(subjectHealth?.checks_failing ?? 0, failingChecks.length),
-            },
+            checkCounts: rolledUpCheckCounts(subjectHealth, row.checkGroup),
             attention,
             problems: attention.issueKinds,
             certification: certificationLookupKey ? (certificationsByKey.get(certificationLookupKey) ?? null) : null,
@@ -353,7 +386,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
                     checkGroup,
                     savedQuery,
                     certificationTarget: { targetType: 'view', targetId: view.id },
-                    refreshedAt: node?.last_run_at ?? savedQuery?.last_run_at ?? null,
+                    refreshedAt: node ? (node.last_run_at ?? null) : (savedQuery?.last_run_at ?? null),
                     detailUrl: node ? urls.nodeDetail(node.id) : (checkGroup?.detailUrl ?? null),
                 },
                 key
@@ -429,11 +462,8 @@ function matchesTrust(row: CatalogTableRow, trust: TrustFilter): boolean {
     return row.certification?.status === trust
 }
 
-function matchesChecks(row: CatalogTableRow, checks: ChecksFilter): boolean {
-    if (checks === 'any') {
-        return true
-    }
-    return (checks === 'with') === row.checkCounts.total > 0
+export function matchesChecksFilter(hasChecks: boolean, checks: ChecksFilter): boolean {
+    return checks === 'any' || (checks === 'with') === hasChecks
 }
 
 export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters): boolean {
@@ -441,7 +471,7 @@ export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters):
         (filters.kind === 'any' || row.kind === filters.kind) &&
         (filters.problem === 'any' || row.problems.includes(filters.problem)) &&
         matchesTrust(row, filters.trust) &&
-        matchesChecks(row, filters.checks)
+        matchesChecksFilter(row.checkCounts.total > 0, filters.checks)
     )
 }
 
@@ -453,61 +483,60 @@ export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean 
 export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'
 export type SortDirection = 'asc' | 'desc'
 
-export interface TablesSort {
-    column: TablesSortColumn
-    direction: SortDirection
-}
+export type TablesSort = ColumnSort<TablesSortColumn>
+
+export const DEFAULT_TABLES_SORT: TablesSort = { column: 'status', direction: 'asc' }
 
 const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
 
-export function passingChecks(row: Pick<CatalogTableRow, 'checkGroup' | 'checkCounts'>): CheckCounts | null {
-    const checks = row.checkGroup?.checks ?? []
-    if (checks.length > 0) {
-        return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
+export function checkGroupCounts(group: SubjectGroup | null | undefined): CheckCounts | null {
+    const checks = group?.checks ?? []
+    if (checks.length === 0) {
+        return null
     }
-    return row.checkCounts.total > 0 ? row.checkCounts : null
+    return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
 }
 
-function passingShare(row: CatalogTableRow): number | null {
-    const counts = passingChecks(row)
+export function rolledUpCheckCounts(
+    subjectHealth: DataQualitySubjectHealthApi | undefined,
+    group: SubjectGroup | null | undefined
+): CheckCounts {
+    const checks = group?.checks ?? []
+    return {
+        total: Math.max(subjectHealth?.checks_total ?? 0, checks.length),
+        failing: Math.max(subjectHealth?.checks_failing ?? 0, checks.filter(isFailingCheck).length),
+    }
+}
+
+export function displayedCheckCounts(
+    group: SubjectGroup | null | undefined,
+    rolledUp: CheckCounts
+): CheckCounts | null {
+    return checkGroupCounts(group) ?? (rolledUp.total > 0 ? rolledUp : null)
+}
+
+export function passingChecks(row: Pick<CatalogTableRow, 'checkGroup' | 'checkCounts'>): CheckCounts | null {
+    return displayedCheckCounts(row.checkGroup, row.checkCounts)
+}
+
+export function passingShare(counts: CheckCounts | null): number | null {
     return counts ? (counts.total - counts.failing) / counts.total : null
 }
 
-const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | number | null> = {
+const SORT_VALUES: SortValueGetters<CatalogTableRow, TablesSortColumn> = {
     name: (row) => row.name,
     status: attentionRank,
-    checks: passingShare,
+    checks: (row) => passingShare(passingChecks(row)),
     trust: (row) => (row.certification ? (TRUST_RANK[row.certification.status] ?? null) : null),
     freshness: (row) => row.refreshedAt,
 }
 
-function compareValues(left: string | number, right: string | number): number {
-    return typeof left === 'string' && typeof right === 'string'
-        ? left.localeCompare(right)
-        : Number(left) - Number(right)
+export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort): CatalogTableRow[] {
+    return sortByColumn(rows, sort, SORT_VALUES, (row) => row.name)
 }
 
-export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
-    if (!sort) {
-        return rows
-    }
-    const valueOf = SORT_VALUES[sort.column]
-    const sign = sort.direction === 'asc' ? 1 : -1
-    return [...rows].sort((left, right) => {
-        const leftValue = valueOf(left)
-        const rightValue = valueOf(right)
-        if (leftValue === null || rightValue === null) {
-            return Number(leftValue === null) - Number(rightValue === null) || left.name.localeCompare(right.name)
-        }
-        return sign * compareValues(leftValue, rightValue) || left.name.localeCompare(right.name)
-    })
-}
-
-export function nextTablesSort(current: TablesSort | null, column: TablesSortColumn): TablesSort | null {
-    if (current?.column !== column) {
-        return { column, direction: 'asc' }
-    }
-    return current.direction === 'asc' ? { column, direction: 'desc' } : null
+export function nextTablesSort(current: TablesSort, column: TablesSortColumn): TablesSort {
+    return nextColumnSort(current, column) ?? DEFAULT_TABLES_SORT
 }
 
 export type ProposalDecision = 'accept' | 'reject'

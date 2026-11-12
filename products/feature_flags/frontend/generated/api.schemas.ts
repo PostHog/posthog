@@ -1785,12 +1785,14 @@ export interface CohortHistoryBuildApi {
 
 /**
  * * `history_over_limit` - History over limit
+ * * `too_large_to_build` - Too large to build
  */
 export type CohortRealtimeUnavailableReasonEnumApi =
     (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
 
 export const CohortRealtimeUnavailableReasonEnumApi = {
     HistoryOverLimit: 'history_over_limit',
+    TooLargeToBuild: 'too_large_to_build',
 } as const
 
 export interface CohortRealtimeReadinessApi {
@@ -1811,9 +1813,10 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
      *
-     * * `history_over_limit` - History over limit */
+     * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
      * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
@@ -2089,6 +2092,7 @@ export interface FeatureFlagVersionResponseApi {
     readonly filters: FeatureFlagVersionResponseApiFilters
     active?: boolean
     deleted?: boolean
+    archived?: boolean
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -2131,6 +2135,31 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     readonly modified_by: number | null
+}
+
+export interface FeatureFlagRestoreVersionRequestApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
+    /**
+     * The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
 }
 
 /**

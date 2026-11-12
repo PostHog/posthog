@@ -1,5 +1,6 @@
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest import mock
@@ -9,8 +10,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.hogql_queries.hogql_cohort_query import FlagCallReads
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     BackfillRefusalReason,
@@ -24,10 +31,15 @@ from products.cohorts.backend.backfill.runs import (
     create_team_backfill_run,
     supersede_active_runs,
 )
-from products.cohorts.backend.backfill.sizing import PersonSeedEstimate, PersonSeedEstimateScanCapExceeded
+from products.cohorts.backend.backfill.sizing import (
+    BehavioralScanEstimate,
+    PersonSeedEstimate,
+    PersonSeedEstimateScanCapExceeded,
+)
 from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -43,10 +55,26 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 _BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 
 
+def _scan_estimate(*, peak_day_events: int) -> Callable[..., BehavioralScanEstimate]:
+    def estimate(
+        team_id: int, event_names: list[str], *, flag_calls_table: FlagCallsTable, max_events_per_day: int
+    ) -> BehavioralScanEstimate:
+        return BehavioralScanEstimate(
+            days_sampled=7,
+            peak_day=date(2026, 11, 1),
+            peak_day_events=peak_day_events,
+            peak_day_events_by_name=dict.fromkeys(event_names[:1], peak_day_events),
+            max_events_per_day=max_events_per_day,
+        )
+
+    return estimate
+
+
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=0,
 )
 class TestBackfillRuns(BaseTest):
     def _filters(self, event: str = "$pageview", window_days: int = 7) -> dict:
@@ -103,6 +131,114 @@ class TestBackfillRuns(BaseTest):
         assert run is not None
         self.assertEqual(run.status, CohortBackfillRunStatus.BLOCKED)
         self.assertIn("merge gate", run.blocked_reason)
+
+    @parameterized.expand(
+        [
+            ("counted_then_cohort_run", _scan_estimate(peak_day_events=2_000), "cohort", "would scan 2000 events"),
+            ("counted_then_team_run", _scan_estimate(peak_day_events=2_000), "team", "would scan 2000 events"),
+            ("timed_out", ClickHouseQueryTimeOut(), "cohort", "hit its time cap"),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong(), "cohort", "hit its time cap"),
+        ]
+    )
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_a_cohort_over_the_scan_limit_keeps_its_refusal_until_a_run_covers_it(
+        self,
+        _name: str,
+        scan: Callable[..., BehavioralScanEstimate] | Exception,
+        scope: str,
+        message: str,
+        estimate: mock.Mock,
+    ) -> None:
+        estimate.side_effect = scan
+        cohort = self._cohort()
+
+        with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
+            for trigger, event in (("cohort_created", "$pageview"), ("cohort_edited", "signup")):
+                Cohort.objects.filter(id=cohort.id).update(
+                    filters=self._filters(event), behavioral_filters_shape_hash=None
+                )
+                attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, trigger)
+                self.assertEqual(attempt.reason, BackfillRefusalReason.SCAN_OVER_LIMIT)
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+        refusal = CohortBackfillRefusal.objects.for_team(self.team.id).get()
+        self.assertEqual(
+            (refusal.cohort_id, refusal.shape_hash),
+            (cohort.id, Cohort.objects.get(id=cohort.id).behavioral_filters_shape_hash),
+        )
+        self.assertIn(message, refusal.message)
+
+        # The class turns the limit off: a raised limit on the save path, or staff accepting the volume.
+        if scope == "cohort":
+            self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        else:
+            create_team_backfill_run(self.team.id, "team_enablement", [cohort.id])
+
+        self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand(
+        [
+            ("timed_out_under_the_kill_switch", ClickHouseQueryTimeOut(), {"max_execution_time": 30}),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded(), {}),
+        ]
+    )
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_a_scan_error_that_says_nothing_about_the_cohort_reaches_the_task(
+        self, _name: str, error: Exception, kill_switch: dict[str, int], estimate: mock.Mock
+    ) -> None:
+        estimate.side_effect = error
+        cohort = self._cohort()
+
+        with (
+            override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000),
+            mock.patch("products.cohorts.backend.backfill.runs.kill_switch_overrides", return_value=kill_switch),
+            self.assertRaises(type(error)),
+        ):
+            attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_a_run_created_during_the_scan_estimate_leaves_no_refusal(self, estimate: mock.Mock) -> None:
+        cohort = self._cohort()
+
+        def accept_then_estimate(*args: Any, **kwargs: Any) -> BehavioralScanEstimate:
+            create_team_backfill_run(self.team.id, "team_enablement", [cohort.id], max_events_per_day=0)
+            return _scan_estimate(peak_day_events=2_000)(*args, **kwargs)
+
+        estimate.side_effect = accept_then_estimate
+
+        with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+        self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand([("cohort", 2_000), ("team", 0)])
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_an_edit_during_the_scan_estimate_refuses_the_run_it_sized(
+        self, scope: str, peak_day_events: int, estimate: mock.Mock
+    ) -> None:
+        cohort = self._cohort()
+
+        def edit_then_estimate(*args: Any, **kwargs: Any) -> BehavioralScanEstimate:
+            Cohort.objects.filter(id=cohort.id).update(filters=self._filters("signup"))
+            return _scan_estimate(peak_day_events=peak_day_events)(*args, **kwargs)
+
+        estimate.side_effect = edit_then_estimate
+
+        with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
+            if scope == "cohort":
+                attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+                self.assertEqual(attempt.reason, BackfillRefusalReason.DEFINITION_CHANGED)
+            else:
+                with self.assertRaisesMessage(
+                    ValueError, "definitions or their flag calls table changed during sizing"
+                ):
+                    create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+        self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
 
     def test_task_revalidates_fresh_cohort_state(self) -> None:
         cohort = self._cohort()
@@ -404,6 +540,7 @@ _FLAG_CALL_TABLE_CASES = [
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
     CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=0,
 )
 class TestBackfillRunFlagCallsTable(BaseTest):
     def _cohort(self, *leaves: dict) -> Cohort:
@@ -447,16 +584,19 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self.assertEqual(run.pinned["flag_calls_table"], expected)
         self.assertEqual(run.pinned["schema_version"], 1)
 
+    @parameterized.expand([("events", FlagEvaluationsMode.EVENTS), ("read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_run_pins_events_when_the_batch_calculation_reads_the_native_json_events_table(self) -> None:
-        # The batch calculation keeps reading events_json in this mode, so the seeder must read events too.
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+    def test_run_pins_flag_evaluations_when_the_batch_calculation_reads_the_native_json_events_table(
+        self, _name: str, mode: FlagEvaluationsMode
+    ) -> None:
+        self._set_flag_evaluations_mode(mode)
         cohort = self._cohort(_FLAG_CALL_LEAF)
 
-        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        with self.is_cloud(True):
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         assert run is not None
-        self.assertEqual(run.pinned["flag_calls_table"], "events")
+        self.assertEqual(run.pinned["flag_calls_table"], "flag_evaluations")
 
     @parameterized.expand(
         [
@@ -520,6 +660,39 @@ class TestBackfillRunFlagCallsTable(BaseTest):
 
         self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
 
+    @parameterized.expand([("cohort", 2_000), ("team", 0)])
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_a_flag_calls_table_change_during_the_scan_estimate_is_sized_again_on_a_retry(
+        self, scope: str, peak_day_events: int, estimate: mock.Mock
+    ) -> None:
+        # No save follows a mode change, so a refusal here would leave the cohort with no run at all.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        def switch_mode_then_estimate(*args: Any, **kwargs: Any) -> BehavioralScanEstimate:
+            self._set_flag_evaluations_mode(FlagEvaluationsMode.EVENTS)
+            return _scan_estimate(peak_day_events=peak_day_events)(*args, **kwargs)
+
+        def create() -> CohortBackfillRun | None:
+            if scope == "cohort":
+                return create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            return create_team_backfill_run(self.team.id, "team_enablement")
+
+        estimate.side_effect = switch_mode_then_estimate
+        with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
+            with self.assertRaisesMessage(ValueError, "flag calls table changed during sizing"):
+                create()
+            self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
+
+            estimate.side_effect = _scan_estimate(peak_day_events=0)
+            run = create()
+
+        assert run is not None
+        self.assertEqual(
+            (run.pinned["flag_calls_table"], estimate.call_args.kwargs["flag_calls_table"]), ("events", "events")
+        )
+        self.assertEqual(run.preconditions["behavioral_scan_max_events_per_day"], 1_000)
+
     @parameterized.expand(
         [
             ("database_timeout", OperationalError("canceling statement due to statement timeout")),
@@ -544,6 +717,7 @@ class TestBackfillRunFlagCallsTable(BaseTest):
     BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
+    BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=0,
 )
 class TestPersonBackfillRuns(BaseTest):
     def _filters(
@@ -1049,6 +1223,7 @@ class TestPersonBackfillRuns(BaseTest):
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=0,
 )
 class TestCancelRuns(BaseTest):
     def _cohort(self, event: str = "$pageview") -> Cohort:

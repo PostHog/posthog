@@ -1,5 +1,8 @@
+import { Client } from 'pg'
+
+import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
@@ -491,22 +494,45 @@ describe('EmailSuppressionService', () => {
         it.each([
             ['shadow', false],
             ['enforce', true],
-        ] as const)('in %s mode, a failed global read holds the send: %s', async (mode, enforce) => {
-            const email = `unread-${mode}-${team.id}@example.com`
-            await bounceForAnotherTeam(email)
-            const realQuery = hub.postgres.query.bind(hub.postgres)
-            jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: Parameters<typeof realQuery>) =>
-                args[3] === 'loadGlobalHardBounces'
-                    ? Promise.reject(new Error('relation does not exist'))
-                    : realQuery(...args)) as typeof realQuery)
+        ] as const)(
+            'in %s mode, a global list read that times out holds the send until a retry reads the list: %s',
+            async (mode, enforce) => {
+                const email = `unread-${mode}-${team.id}@example.com`
+                await bounceForAnotherTeam(email)
+                const databaseUrl = new URL(defaultConfig.DATABASE_URL)
+                databaseUrl.searchParams.set('options', '-c lock_timeout=100')
+                const reader = new PostgresRouter({
+                    ...defaultConfig,
+                    DATABASE_URL: databaseUrl.toString(),
+                    DATABASE_READONLY_URL: '',
+                })
+                const service = new EmailSuppressionService(reader, {
+                    ...emailSuppressionConfigFromEnv(),
+                    globalHardBounceEnforce: enforce,
+                })
+                const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+                lockHolder.on('error', () => undefined)
+                await lockHolder.connect()
+                try {
+                    await lockHolder.query('BEGIN')
+                    await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                    await lockHolder.query('LOCK TABLE posthog_emailhardbounce IN ACCESS EXCLUSIVE MODE')
 
-            const lookup = newService(enforce).isSuppressed(team.id, email, { transactional: true })
-            if (enforce) {
-                await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
-            } else {
-                await expect(lookup).resolves.toBe(false)
+                    const lookup = service.isSuppressed(team.id, email, { transactional: true })
+                    if (enforce) {
+                        await expect(lookup).rejects.toBeInstanceOf(SuppressionLookupError)
+                    } else {
+                        await expect(lookup).resolves.toBe(false)
+                    }
+
+                    await lockHolder.query('COMMIT')
+                    expect(await service.isSuppressed(team.id, email, { transactional: true })).toBe(enforce)
+                } finally {
+                    await lockHolder.end()
+                    await reader.end()
+                }
             }
-        })
+        )
 
         it.each([
             ['bounced once, an hour ago', 1 / 24, 1 / 24, true],
@@ -538,16 +564,77 @@ describe('EmailSuppressionService', () => {
             expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(true)
         })
 
-        it('clears the entry for a delivery that happened after the bounce but arrived first', async () => {
-            const email = `late-bounce-${team.id}@example.com`
-            const svc = newService(true)
-            const bounceAt = new Date(Date.now() - 120_000).toISOString()
-            const deliveredAt = new Date(Date.now() - 60_000).toISOString()
-            await svc.recordGlobalHardBounces([email], bounceAt)
-            await svc.recordDeliveries(team.id, [email], deliveredAt, { clearGlobal: true })
+        const HOUR = 60 * 60_000
+        const DAY = 24 * HOUR
+        // Steps run in processing order. Each age is how long ago SES saw the event, and no age means no SES timestamp.
+        it.each([
+            [
+                'a delivery newer than the bounce',
+                [
+                    ['bounce', 2 * HOUR],
+                    ['delivery', HOUR],
+                ],
+                false,
+            ],
+            [
+                'a bounce older than a delivery, processed after it',
+                [
+                    ['bounce', 3 * HOUR],
+                    ['delivery', HOUR],
+                    ['bounce', 2 * HOUR],
+                ],
+                false,
+            ],
+            [
+                'a bounce newer than the delivery',
+                [
+                    ['bounce', 3 * HOUR],
+                    ['delivery', HOUR],
+                    ['bounce', HOUR / 2],
+                ],
+                true,
+            ],
+            [
+                'a bounce with no timestamp after a delivery',
+                [['bounce', 3 * HOUR], ['delivery', HOUR], ['bounce']],
+                true,
+            ],
+            [
+                'a delivery at the same time as the bounce',
+                [
+                    ['bounce', HOUR],
+                    ['delivery', HOUR],
+                ],
+                true,
+            ],
+            [
+                'a bounce after a delivery that broke a long bounce run',
+                [
+                    ['bounce', 10 * DAY],
+                    ['bounce', 9 * DAY],
+                    ['delivery', 8 * DAY],
+                    ['bounce', 2 * DAY],
+                ],
+                false,
+            ],
+        ] as [string, [('bounce' | 'delivery')?, number?][], boolean][])(
+            'orders bounces and deliveries by when SES saw them: %s',
+            async (label, steps, blocked) => {
+                const email = `ordered-${label.replace(/\W+/g, '-')}-${team.id}@example.com`
+                const svc = newService(true)
+                const now = Date.now()
+                for (const [kind, ago] of steps) {
+                    const at = ago === undefined ? undefined : new Date(now - ago).toISOString()
+                    if (kind === 'bounce') {
+                        await svc.recordGlobalHardBounces([email], at)
+                    } else {
+                        await svc.recordDeliveries(team.id, [email], at, { clearGlobal: true })
+                    }
+                }
 
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
-        })
+                expect(await newService(true).isSuppressed(team.id, email)).toBe(blocked)
+            }
+        )
 
         const lapseGlobalEntry = async (email: string): Promise<void> => {
             await hub.postgres.query(
@@ -728,6 +815,85 @@ describe('EmailSuppressionService', () => {
             ])
 
             expect(results).toEqual([true, false])
+        })
+    })
+
+    describe('write failures', () => {
+        type WriteCall = (svc: EmailSuppressionService, throwOnFailure?: boolean) => Promise<void>
+        const writes: [string, WriteCall][] = [
+            [
+                'recordTransientBounces',
+                (svc, t) =>
+                    svc.recordTransientBounces(team.id, ['a@example.com'], undefined, undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordHardBounces',
+                (svc, t) => svc.recordHardBounces(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordGlobalHardBounces',
+                (svc, t) => svc.recordGlobalHardBounces(['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordComplaints',
+                (svc, t) => svc.recordComplaints(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries',
+                (svc, t) =>
+                    svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries clearing the global list',
+                (svc, t) =>
+                    svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', {
+                        clearGlobal: true,
+                        throwOnFailure: t,
+                    }),
+            ],
+        ]
+
+        it.each(writes)('%s rejects on a failed write only when asked to', async (_name, write) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await hub.postgres.end()
+
+            await expect(write(svc)).resolves.toBeUndefined()
+            await expect(write(svc, true)).rejects.toThrow()
+        })
+
+        it('recordDeliveries rejects when only the global clear fails, when asked to', async () => {
+            const email = `held-global-${team.id}@example.com`
+            const config = emailSuppressionConfigFromEnv()
+            await new EmailSuppressionService(hub.postgres, config).recordGlobalHardBounces(
+                [email],
+                new Date(Date.now() - 120_000).toISOString()
+            )
+            const impatientUrl = new URL(hub.DATABASE_URL)
+            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
+            const impatient = new PostgresRouter({
+                DATABASE_URL: impatientUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('SELECT email FROM posthog_emailhardbounce WHERE email = $1 FOR UPDATE', [email])
+
+                await expect(
+                    new EmailSuppressionService(impatient, config).recordDeliveries(
+                        team.id,
+                        [email],
+                        new Date().toISOString(),
+                        { clearGlobal: true, throwOnFailure: true }
+                    )
+                ).rejects.toThrow('lock timeout')
+            } finally {
+                await holder.end()
+                await impatient.end()
+            }
+            const enforcing = new EmailSuppressionService(hub.postgres, { ...config, globalHardBounceEnforce: true })
+            expect(await enforcing.isSuppressed(team.id, email)).toBe(true)
         })
     })
 })

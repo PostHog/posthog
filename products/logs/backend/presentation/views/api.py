@@ -31,7 +31,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
@@ -40,7 +40,11 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -72,6 +76,7 @@ from products.logs.backend.logs_query_runner import (
 )
 from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
+from products.logs.backend.presentation.filter_group_validation import filter_group_has_leaf
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
@@ -838,7 +843,7 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of log entries in the bucket.")
     bytes_uncompressed = serializers.IntegerField(
         required=False,
-        help_text="Sum of uncompressed bytes for the bucket.",
+        help_text='Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes".',
     )
 
 
@@ -1477,22 +1482,59 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
+class LogsProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "logs_psak_team_burst"
+    rate = "240/minute"
+
+
+class LogsProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "logs_psak_team_sustained"
+    rate = "1200/hour"
+
+
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # The read actions a service needs. `export` stays out because an export belongs to the user who made it.
+    psak_allowed_actions = [
+        "query",
+        "sparkline",
+        "facet_values",
+        "count",
+        "impact",
+        "count_ranges",
+        "services",
+        "patterns",
+        "patterns_diff",
+        "group_by",
+        "attributes",
+        "values",
+        "has_logs",
+    ]
     _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
         # ClickHouse work of a single patterns query, so it uses the tighter ClickHouse-specific
         # throttles rather than the default per-project request limits.
-        if self.action == "patterns_diff":
-            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
-        return super().get_throttles()
+        throttles = (
+            [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+            if self.action == "patterns_diff"
+            else super().get_throttles()
+        )
+        # The throttles above pass a project secret API key request without counting it.
+        return [
+            *throttles,
+            LogsProjectSecretApiKeyTeamBurstThrottle(),
+            LogsProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        if not isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication | ProjectSecretAPIKeyAuthentication
+        ):
             return
         try:
             self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
@@ -1568,10 +1610,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @staticmethod
     def _filter_analytics_props(query_data: dict) -> dict:
-        """The filter-shape properties every logs aggregation action reports."""
+        """The filter-shape properties every logs query action reports."""
         return {
             "has_search_term": bool(query_data.get("searchTerm")),
-            "has_filter_group": bool(query_data.get("filterGroup")),
+            "has_filter_group": filter_group_has_leaf(
+                LogsViewSet._normalize_filter_group(query_data.get("filterGroup"))
+            ),
             "severity_levels_count": len(query_data.get("severityLevels") or []),
             "service_names_count": len(query_data.get("serviceNames") or []),
         }
@@ -1681,8 +1725,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         next_cursor = None
         if has_more and results:
             last_result = results[-1]
+            last_timestamp = last_result["timestamp"]
             cursor_data = {
-                "timestamp": last_result["timestamp"].isoformat(),
+                # A response served from the query cache, such as a single-flight follower's, carries ISO strings.
+                "timestamp": last_timestamp if isinstance(last_timestamp, str) else last_timestamp.isoformat(),
                 "uuid": last_result["uuid"],
             }
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
@@ -1691,11 +1737,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             event_properties: dict[str, object] = {
                 "results_count": len(results),
                 "has_more": has_more,
-                "has_search_term": bool(query_data.get("searchTerm")),
-                "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels") or []),
-                "service_names_count": len(query_data.get("serviceNames") or []),
+                **self._filter_analytics_props(query_data),
                 "is_paginated": bool(after_cursor),
+                # Session and person scopes come from embeds that load on page open, not from a search.
+                "scope": "session" if query.sessionId else "person" if query.personId else "none",
             }
             if results:
                 # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.
@@ -1757,10 +1802,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request.user,
             "logs sparkline queried",
             {
-                "has_search_term": bool(query_data.get("searchTerm")),
-                "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels") or []),
-                "service_names_count": len(query_data.get("serviceNames") or []),
+                **self._filter_analytics_props(query_data),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
             },
             team=self.team,
@@ -1900,10 +1942,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "logs count ranges queried",
             {
                 "target_buckets": target_buckets,
-                "has_search_term": bool(query_data.get("searchTerm")),
-                "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels") or []),
-                "service_names_count": len(query_data.get("serviceNames") or []),
+                **self._filter_analytics_props(query_data),
             },
             team=self.team,
             request=request,
