@@ -1,5 +1,4 @@
-import { ChildProcess, spawn } from 'child_process'
-import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'fs'
+import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
@@ -7,24 +6,32 @@ import { setTimeout as sleep } from 'timers/promises'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
-import { ROLE_RESTART_BACKOFF_MS } from '../cards'
+import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ROLE_PORTS, Role, RoleSpec, roleSpecs, secretsOf } from './roles'
+import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
     Hogli,
     STACK,
+    cyclotronUrlOf,
+    deleteUnfinishedJobs,
     downServices,
-    eventsConsumerGroup,
-    expectOk,
+    forgetSesBucket,
     groupMembers,
     missingTemplates,
+    rolesNotReady,
+    seekToEnd,
     startStack,
     syncTemplates,
 } from './stack'
+import { RoleExit, createSupervisor } from './supervisor'
+
+export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(): Promise<void>
+    reset(settings: Profile['settings']): Promise<void>
+    edgeUrl(): string
     role(name: Role): RoleHandle
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
@@ -32,15 +39,6 @@ export interface Environment {
 }
 
 export type RoleHandle = { name: Role; metricsUrl: string }
-
-export type RoleExit = {
-    role: Role
-    at: string
-    code: number | null
-    signal: string | null
-    byValve: boolean
-    error?: string
-}
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -50,68 +48,52 @@ const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
+const GROUPS_EMPTY_WITHIN_MS = 45_000
 const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
+
+const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
+    specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
 
 export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
 }
 
-export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string; roleHealthyWithinMs: number }
+async function groupsWithMembers(groups: ConsumerGroup[], docker: string): Promise<string[]> {
+    const members = await Promise.all(groups.map(({ group }) => groupMembers(group, docker)))
+    return groups.filter((_, i) => members[i] > 0).map(({ group }) => group)
+}
+
+export type EnvironmentOptions = {
+    hogli: Hogli
+    docker: string
+    postgresUrl: string
+    sesRateLimiterValkey: { host: string; port: number }
+    roleHealthyWithinMs: number
+}
 
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
     postgresUrl = STACK.postgresUrl,
+    sesRateLimiterValkey = STACK.sesRateLimiterValkey,
     roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
-    const children = new Map<Role, ChildProcess>()
-    const restarts = new Set<NodeJS.Timeout>()
-    const recorded: RoleExit[] = []
+    const supervisor = createSupervisor({
+        command: TSX,
+        args: ['src/index.ts'],
+        cwd: NODEJS_DIR,
+        logDir: stateDir,
+        graceMs: STOP_GRACE_MS,
+        restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
+    })
     let edge: ProviderEdge | undefined
     let releaseLock: (() => Promise<void>) | undefined
-    let stopping = false
 
     const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
-
-    const recordAndRestart = (spec: RoleSpec, exit: Pick<RoleExit, 'code' | 'signal' | 'error'>): void => {
-        recorded.push({ role: spec.role, at: new Date().toISOString(), byValve: false, ...exit })
-        const restart = setTimeout(() => {
-            restarts.delete(restart)
-            if (!stopping) {
-                start(spec)
-            }
-        }, ROLE_RESTART_BACKOFF_MS)
-        restarts.add(restart)
-    }
-
-    const start = (spec: RoleSpec): void => {
-        const log = openSync(logOf(spec.role), 'a')
-        const child = spawn(TSX, ['src/index.ts'], {
-            cwd: NODEJS_DIR,
-            env: spec.env,
-            detached: true,
-            stdio: ['ignore', log, log],
-        })
-        closeSync(log)
-        children.set(spec.role, child)
-        child.once('error', (error) => {
-            if (stopping || child.pid !== undefined) {
-                return
-            }
-            recordAndRestart(spec, { code: null, signal: null, error: error.message })
-        })
-        child.once('exit', (code, signal) => {
-            if (stopping) {
-                return
-            }
-            void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
-            recordAndRestart(spec, { code, signal })
-        })
-    }
 
     return {
         async up() {
@@ -121,7 +103,6 @@ export function createEnvironment({
             mkdirSync(stateDir, { recursive: true })
             stateDir = realpathSync(stateDir)
             releaseLock = await holdRunLock(stateDir)
-            stopping = false
             try {
                 await bringUp()
             } catch (error) {
@@ -130,42 +111,93 @@ export function createEnvironment({
             }
         },
 
+        async reset(settings) {
+            const edge = startedEdge('reset')
+            try {
+                await resetRoles(edge, settings)
+            } catch (error) {
+                await stop()
+                throw error
+            }
+        },
+
+        edgeUrl: () => startedEdge('edgeUrl').url,
+
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async dependencyHealth() {
-            const down = await downServices(edge?.url, postgresUrl)
+            const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
             return { healthy: down.length === 0, down }
         },
 
-        exits: () => [...recorded],
+        exits: (): RoleExit[] => supervisor.exits(),
 
         down: stop,
     }
 
-    async function untilHealthy(roles: Role[], exitsBefore: number): Promise<void> {
+    function startedEdge(caller: string): ProviderEdge {
+        if (!edge) {
+            throw new Error(`Start the environment with up() before ${caller}().`)
+        }
+        return edge
+    }
+
+    async function resetRoles(edge: ProviderEdge, settings: Profile['settings']): Promise<void> {
+        const exitsBefore = supervisor.exits().length
+        await supervisor.stop()
+        const specs = roleSpecs(env, edge.url, secrets, stateDir, settings, sesRateLimiterValkey)
+        const groups = consumerGroupsOf(specs)
+        await waitForExpect(
+            async () => {
+                const busy = await groupsWithMembers(groups, docker)
+                if (busy.length > 0) {
+                    throw new Error(
+                        `The consumer groups ${busy.join(', ')} still have members ${GROUPS_EMPTY_WITHIN_MS / 1000}s after the roles stopped.`
+                    )
+                }
+            },
+            GROUPS_EMPTY_WITHIN_MS,
+            PROBE_INTERVAL_MS
+        )
+        edge.clearFaults()
+        await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
+        await forgetSesBucket(sesRateLimiterValkey)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
+        await refuseHeldPorts(portsOf(specs))
+        await supervisor.start(specs)
+        await untilHealthy(specs, exitsBefore)
+    }
+
+    async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
         const deadline = Date.now() + roleHealthyWithinMs
+        const roles = specs.map((spec) => spec.role)
         for (;;) {
-            const answering = await Promise.all(roles.map(answersHealth))
-            const exit = recorded.slice(exitsBefore).find((exit) => roles.includes(exit.role))
+            const notReady = await rolesNotReady(specs)
+            const exit = supervisor
+                .exits()
+                .slice(exitsBefore)
+                .find(({ role }) => roles.includes(role))
             if (exit) {
                 const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
-                throw new Error(`${exit.role} exited while up waited for /_health (${how}); see ${logOf(exit.role)}`)
+                throw new Error(
+                    `${exit.role} exited while the runner waited for /_health (${how}); see ${logOf(exit.role)}`
+                )
             }
-            const silent = roles.find((_role, index) => !answering[index])
-            if (silent === undefined) {
+            if (notReady.length === 0) {
                 return
             }
             if (Date.now() > deadline) {
                 throw new Error(
-                    `${silent} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${logOf(silent)}`
+                    `${notReady.join(', ')} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${notReady.map(logOf).join(', ')}`
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
         }
     }
 
-    async function refuseHeldPorts(roles: Role[]): Promise<void> {
-        const wanted = [...roles.map((role) => ({ port: ROLE_PORTS[role], owner: role })), EDGE]
+    async function refuseHeldPorts(wanted: { port: number; owner: string }[]): Promise<void> {
         const held = (
             await Promise.all(wanted.map(async (want) => ((await isPortFree(want.port)) ? [] : [want])))
         ).flat()
@@ -179,21 +211,22 @@ export function createEnvironment({
     }
 
     async function bringUp(): Promise<void> {
-        const exitsBefore = recorded.length
+        const exitsBefore = supervisor.exits().length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, stateDir)
-        await refuseHeldPorts(specs.map((spec) => spec.role))
-        const group = eventsConsumerGroup(specs)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, stateDir, {}, sesRateLimiterValkey)
+        await refuseHeldPorts([...portsOf(specs), EDGE])
+        const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
-                if ((await groupMembers(group, docker)) > 0) {
+                const busy = await groupsWithMembers(groups, docker)
+                if (busy.length > 0) {
                     throw new StackConflictError(
-                        `The CDP events consumer group ${group} has a member the runner did not start. Run \`hogli down\`, then run the scenario again.`
+                        `The CDP consumer groups ${busy.join(', ')} have members the runner did not start. Run \`hogli down\`, then run the scenario again.`
                     )
                 }
             },
@@ -201,9 +234,10 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
+        const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
-        specs.filter((spec) => spec.role === 'cdp-api').forEach(start)
-        await untilHealthy(['cdp-api'], exitsBefore)
+        await supervisor.start(api)
+        await untilHealthy(api, exitsBefore)
         if ((await missingTemplates(postgresUrl)).length > 0) {
             await syncTemplates(hogli, stateDir, env)
         }
@@ -217,30 +251,18 @@ export function createEnvironment({
             TEMPLATES_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        others.forEach(start)
-        await untilHealthy(
-            specs.map((spec) => spec.role),
-            exitsBefore
-        )
-    }
-
-    async function answersHealth(role: Role): Promise<boolean> {
-        return await expectOk(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`).then(
-            () => true,
-            () => false
-        )
+        await supervisor.start(others)
+        await untilHealthy(specs, exitsBefore)
     }
 
     async function stop(): Promise<void> {
-        stopping = true
-        restarts.forEach(clearTimeout)
-        restarts.clear()
-        const groups = [...children.values()].flatMap((child) => (child.pid ? [child.pid] : []))
-        children.clear()
-        await terminate({ groups, pids: [] }, STOP_GRACE_MS)
-        await edge?.close()
-        edge = undefined
-        await releaseLock?.()
-        releaseLock = undefined
+        try {
+            await supervisor.stop()
+        } finally {
+            await edge?.close()
+            edge = undefined
+            await releaseLock?.()
+            releaseLock = undefined
+        }
     }
 }

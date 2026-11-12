@@ -1,13 +1,28 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
-import { once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { EventEmitter, once } from 'events'
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    rmdirSync,
+    symlinkSync,
+    writeFileSync,
+} from 'fs'
 import http from 'http'
+import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -17,8 +32,19 @@ import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ROLE_PORTS, Role, roleSpecs, secretsOf } from './roles'
-import { STACK, eventsConsumerGroup, membersOf, pingRedis, withPostgres } from './stack'
+import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import {
+    SES_RATE_LIMIT_KEY,
+    STACK,
+    downServices,
+    forgetSesBucket,
+    membersOf,
+    pingRedis,
+    scratchSchema,
+    seekFailures,
+    withPostgres,
+} from './stack'
+import { createSupervisor } from './supervisor'
 
 const SELF = 100
 const REPO = '/work/posthog'
@@ -47,11 +73,60 @@ const proc = (
 
 const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
 
-const inSchema = (url: string, schema: string): string =>
-    `${url}${url.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${schema}`)}`
+const stateOf = (pid: number): string => {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+}
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const sendThrough = async (edgeUrl: string): Promise<string> => {
+    const ses = new SESv2Client({
+        endpoint: edgeUrl,
+        region: 'us-east-1',
+        credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+        maxAttempts: 1,
+    })
+    try {
+        await ses.send(
+            new SendEmailCommand({
+                FromEmailAddress: 'flows@www.example.com',
+                Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello there' } } } },
+            })
+        )
+        return 'sent'
+    } catch (error) {
+        return (error as Error).name
+    } finally {
+        ses.destroy()
+    }
+}
+
+const sesLimiterOn = ({
+    host,
+    port,
+}: {
+    host: string
+    port: number
+}): { limiter: RateLimiterService; close: () => Promise<void> } => {
+    const client = new Redis({ host, port, lazyConnect: true, maxRetriesPerRequest: 0 })
+    const valkey: RedisV2 = {
+        useClient: async (_options, use) => await use(client as unknown as RedisClient),
+        usePipeline: async (_options, build) => {
+            const pipeline = client.pipeline()
+            build(pipeline as unknown as RedisClientPipeline)
+            return await pipeline.exec()
+        },
+    }
+    return {
+        limiter: new RateLimiterService(valkey, { name: 'scenario-reset' }),
+        close: async () => {
+            await client.quit()
+        },
+    }
 }
 
 describe('scenario environment', () => {
@@ -289,6 +364,47 @@ describe('scenario environment', () => {
             })
         })
 
+        it('lets profile settings override the role environment but not how the runner wires a role', () => {
+            const settings = {
+                SES_REGION: 'eu-west-1',
+                CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                SES_ENDPOINT: 'http://elsewhere',
+                PERSONHOG_ADDR: '127.0.0.1:1',
+                SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
+                SES_RATE_LIMITER_VALKEY_PORT: '6379',
+                ENCRYPTION_SALT_KEYS: 'profile-key',
+                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'profile-jwt',
+                PLUGIN_SERVER_MODE: 'ingestion-v2',
+                HTTP_SERVER_PORT: '1',
+                PGAPPNAME: 'other',
+                SCENARIO_RUNNER: '0',
+                KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
+            }
+            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR, settings)
+
+            expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
+            expect(spec.env).toMatchObject({
+                SES_REGION: 'eu-west-1',
+                CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                SES_ENDPOINT: 'http://127.0.0.1:4566',
+                PERSONHOG_ADDR: '127.0.0.1:50052',
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: '6390',
+                ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
+                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
+                PLUGIN_SERVER_MODE: spec.role,
+                HTTP_SERVER_PORT: String(ROLE_PORTS[spec.role]),
+                PGAPPNAME: `scenario-${spec.role}`,
+                SCENARIO_RUNNER: STATE_DIR,
+            })
+        })
+
+        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
+            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}), STATE_DIR)
+
+            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+        })
+
         it("shares the runner's secrets with the roles", () => {
             const [spec] = roleSpecs(
                 {},
@@ -325,11 +441,65 @@ describe('scenario environment', () => {
         expect(membersOf(output)).toBe(members)
     })
 
-    it.each<[string, NodeJS.ProcessEnv, string]>([
-        ['the default group', {}, 'cdp-processed-events-consumer'],
-        ['a group the runner env overrides', { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' }, 'scenario-events'],
-    ])('checks the events role for %s', (_name, env, group) => {
-        expect(eventsConsumerGroup(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR))).toBe(group)
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, { group: string; topics: string[] }[]]>([
+        [
+            'the events consumer on its configured topic',
+            {},
+            {},
+            [
+                {
+                    group: 'cdp-processed-events-consumer',
+                    topics: ['clickhouse_events_json'],
+                },
+            ],
+        ],
+        [
+            'the group the runner env overrides',
+            { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' },
+            {},
+            [{ group: 'scenario-events', topics: ['clickhouse_events_json'] }],
+        ],
+        [
+            'the events topic under the Kafka prefix the roles inherit',
+            { KAFKA_PREFIX: 'scenario_' },
+            {},
+            [{ group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] }],
+        ],
+        [
+            'the group and topic a profile sets',
+            {},
+            { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events', CDP_EVENTS_CONSUMER_TOPIC: 'scenario_events_json' },
+            [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
+        ],
+    ])('moves %s', (_name, env, settings, groups) => {
+        expect(consumerGroupsOf(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR, settings))).toEqual(groups)
+    })
+
+    it.each<[string, string, string[]]>([
+        [
+            'a clean seek of a group that never committed',
+            'TOPIC                   PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\nclickhouse_events_json  0          -1            0\n',
+            [],
+        ],
+        [
+            'a partition the broker refused while the group has a member',
+            'TOPIC                   PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\nclickhouse_events_json  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\n',
+            ['clickhouse_events_json/0: INVALID_OPERATION: seeking a non-empty group is not allowed.'],
+        ],
+        [
+            'a topic that does not exist yet, so has nothing to skip',
+            'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+            [],
+        ],
+        [
+            'a seek rpk could not run',
+            'unable to fetch offsets for "scenario-probe-t4-nobroker": unable to dial: dial tcp 127.0.0.1:1: connect: connection refused\n',
+            [
+                'unable to fetch offsets for "scenario-probe-t4-nobroker": unable to dial: dial tcp 127.0.0.1:1: connect: connection refused',
+            ],
+        ],
+    ])('reads the partition errors of %s from rpk', (_name, output, failures) => {
+        expect(seekFailures(output)).toEqual(failures)
     })
 
     it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
@@ -344,7 +514,12 @@ describe('scenario environment', () => {
     }, 4_000)
 
     it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
-        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(undefined, 'postgres://127.0.0.1:1/none')).then((down) => console.log(JSON.stringify(down)))`
+        const args: Parameters<typeof downServices> = [
+            undefined,
+            'postgres://127.0.0.1:1/none',
+            { host: '127.0.0.1', port: 1 },
+        ]
+        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(...${JSON.stringify(args)})).then((down) => console.log(JSON.stringify(down)))`
         const { stdout } = await promisify(childProcess.execFile)(
             path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
             ['-e', probe],
@@ -555,6 +730,19 @@ describe('scenario environment', () => {
             expect(() => process.kill(-unmarked.pid!, 0)).not.toThrow()
         }, 10_000)
 
+        it('resumes a frozen group so it stops on SIGTERM instead of waiting for SIGKILL', async () => {
+            const frozen = await launch(process.env)
+            process.kill(-frozen.pid!, 'SIGSTOP')
+            while (stateOf(frozen.pid!) !== 'T') {
+                await new Promise(setImmediate)
+            }
+            const exited = once(frozen, 'exit')
+
+            await terminate({ groups: [frozen.pid!], pids: [] }, 5000)
+
+            expect(await exited).toEqual([null, 'SIGTERM'])
+        }, 15_000)
+
         it('returns only once a group that ignores SIGTERM has let go of its port', async () => {
             const stubborn = spawn(
                 process.execPath,
@@ -573,7 +761,98 @@ describe('scenario environment', () => {
         }, 10_000)
     })
 
-    describe('up', () => {
+    describe('role supervisor on real processes', () => {
+        const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-supervisor-'))
+        const tag = `stop-${process.pid}`
+        const tagged = (): ProcEntry[] =>
+            readProcs().filter((entry) => entry.environ?.includes(`SCENARIO_TEST_TAG=${tag}`))
+        const supervisor = createSupervisor({
+            command: process.execPath,
+            args: ['-e', 'setInterval(() => {}, 1000)'],
+            cwd: os.tmpdir(),
+            logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+            graceMs: 5000,
+            restartBackoffMs: 0,
+        })
+
+        afterEach(() => supervisor.stop())
+
+        afterAll(() => rmSync(tempRoot, { recursive: true, force: true }))
+
+        it('stops a running role without recording its exit or starting it again', async () => {
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
+            expect(tagged()).toHaveLength(1)
+
+            await supervisor.stop()
+            await nextTimers(0)
+
+            expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
+
+        it('records a role whose first start fails and retries it, instead of failing the start', async () => {
+            const missing = createSupervisor({
+                command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),
+                args: [],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 20,
+            })
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            try {
+                await missing.start([spec])
+
+                await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
+                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+            } finally {
+                await missing.stop()
+            }
+        }, 15_000)
+
+        it('records a role it cannot start again and keeps retrying until it starts', async () => {
+            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
+            const exiting = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'process.exit(3)'],
+                cwd,
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 50,
+            })
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            try {
+                await exiting.start([spec])
+                rmdirSync(cwd)
+                await waitForExpect(
+                    () =>
+                        expect(exiting.exits().map(({ error }) => error)).toContainEqual(
+                            expect.stringContaining('ENOENT')
+                        ),
+                    5000,
+                    20
+                )
+                mkdirSync(cwd)
+                const failedStarts = exiting.exits().length
+
+                await waitForExpect(
+                    () =>
+                        expect(
+                            exiting
+                                .exits()
+                                .slice(failedStarts)
+                                .map(({ code }) => code)
+                        ).toContain(3),
+                    5000,
+                    20
+                )
+            } finally {
+                await exiting.stop()
+            }
+        }, 15_000)
+    })
+
+    describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
@@ -597,8 +876,10 @@ describe('scenario environment', () => {
                     .once('error', () => setTimeout(bind, 20))
             bind()
         `
-        const templateSchema = `scenario_up_${process.pid}`
-        const templatesUrl = inSchema(defaultConfig.DATABASE_URL, templateSchema)
+        const templateSchema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_up_${process.pid}`, [
+            'posthog_hogfunctiontemplate',
+        ])
+        const templatesUrl = templateSchema.url
         const insertTemplates = `INSERT INTO posthog_hogfunctiontemplate (id, template_id, sha, name, code, code_language, inputs_schema, type, status, category, free, created_at, updated_at) SELECT gen_random_uuid(), template_id, 'scenario', template_id, '', 'hog', '[]', 'destination', 'stable', '[]', true, now(), now() FROM unnest($1::text[]) AS template_id`
         const templatesInDjango = async (): Promise<string[]> =>
             await withPostgres(
@@ -676,17 +957,48 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             const [exec, container, rpk, noun, verb, group] = args
-            if (args.length !== 6 || [exec, container, rpk, noun, verb].join(' ') !== 'exec posthog-kafka-1 rpk group describe') {
+            const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            const describes = args.length === 6 && verb === 'describe'
+            const seeks =
+                args.length === 11 &&
+                verb === 'seek' &&
+                to === '--to' &&
+                ['start', 'end'].includes(position) &&
+                topicsFlag === '--topics' &&
+                allowNew === '--allow-new-topics'
+            if ([exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' || !(describes || seeks)) {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
             const held = path.join(__dirname, 'dead-member-held')
             const leaving = path.join(__dirname, 'dead-member-leaving')
-            if (fs.existsSync(leaving)) {
+            if (describes && fs.existsSync(leaving)) {
                 fs.rmSync(held, { force: true })
                 fs.rmSync(leaving)
             }
             const members = fs.existsSync(held) ? 1 : 0
+            if (seeks) {
+                const answer = path.join(__dirname, 'seek')
+                if (fs.existsSync(answer)) {
+                    const { stdout, stderr, code } = JSON.parse(fs.readFileSync(answer, 'utf8'))
+                    process.stdout.write(stdout)
+                    process.stderr.write(stderr)
+                    process.exit(code)
+                }
+                if (members > 0) {
+                    process.stdout.write(
+                        'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\\n' +
+                            topic + '  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\\n'
+                    )
+                    process.exit(1)
+                }
+                const offsets = path.join(__dirname, 'offsets.json')
+                const groups = fs.existsSync(offsets) ? JSON.parse(fs.readFileSync(offsets, 'utf8')) : {}
+                groups[group] = { ...groups[group], [topic]: position }
+                fs.writeFileSync(offsets, JSON.stringify(groups))
+                process.stdout.write('TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n')
+                process.exit(0)
+            }
             if (members > 0) {
                 fs.writeFileSync(path.join(__dirname, 'held-member-seen'), '')
             }
@@ -695,6 +1007,32 @@ describe('scenario environment', () => {
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
             )
         `
+        const jobsSchema = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_reset_${process.pid}`, [
+            'cyclotron_jobs',
+        ])
+        const cyclotronUrl = jobsSchema.url
+        const cyclotronFromEnv = process.env.CYCLOTRON_NODE_DATABASE_URL
+        const testRedis = { host: '127.0.0.1', port: 6379 }
+        const jobsLeft = async (): Promise<string[]> =>
+            await withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ status: string }>(
+                            'SELECT status::text AS status FROM cyclotron_jobs ORDER BY status'
+                        )
+                    ).rows.map((row) => row.status),
+                cyclotronUrl
+            )
+        const eventsGroup = (): { group: string; topic: string } => {
+            const [{ group, topics }] = consumerGroupsOf(
+                roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR)
+            )
+            return { group, topic: topics[0] }
+        }
+        const offsetsOf = (): Record<string, Record<string, string>> =>
+            existsSync(path.join(fakes, 'offsets.json'))
+                ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
+                : {}
         let fakes = ''
         let cacheDir = ''
         let stranger: ChildProcess | undefined
@@ -703,7 +1041,9 @@ describe('scenario environment', () => {
         let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
+        let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let exitGoesUnreported: Role | undefined
         let neverAnswers: Role | undefined
         let reachedKafka: Error | undefined
 
@@ -753,6 +1093,19 @@ describe('scenario environment', () => {
             (Object.keys(ROLE_PORTS) as Role[]).filter(
                 (role) => existsSync(logOf(role)) && readFileSync(logOf(role), 'utf8').includes(STARTED_WHILE_HELD)
             )
+        const teardownOf = async (edgeUrl: string): Promise<{ edge: number | string; lock: string }> => ({
+            edge: await internalFetch(`${edgeUrl}/_health`).then(
+                (answer) => answer.status,
+                () => 'unreachable'
+            ),
+            lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
+                async (release) => {
+                    await release()
+                    return 'free'
+                },
+                (error: Error) => error.message
+            ),
+        })
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -762,24 +1115,18 @@ describe('scenario environment', () => {
                 hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
                 docker: path.join(fakes, 'docker'),
                 postgresUrl: templatesUrl,
+                sesRateLimiterValkey: testRedis,
                 roleHealthyWithinMs,
             })
 
         beforeAll(async () => {
-            await withPostgres(async (client) => {
-                await client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`)
-                await client.query(`CREATE SCHEMA ${templateSchema}`)
-                await client.query(
-                    `CREATE TABLE ${templateSchema}.posthog_hogfunctiontemplate (LIKE public.posthog_hogfunctiontemplate INCLUDING ALL)`
-                )
-            }, defaultConfig.DATABASE_URL)
+            await templateSchema.create()
+            await jobsSchema.create()
         })
 
         afterAll(async () => {
-            await withPostgres(
-                (client) => client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`),
-                defaultConfig.DATABASE_URL
-            )
+            await templateSchema.drop()
+            await jobsSchema.drop()
         })
 
         beforeEach(async () => {
@@ -787,6 +1134,8 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
+            process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
+            await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -830,7 +1179,22 @@ describe('scenario environment', () => {
                 if (mode === exitsAfterHealth) {
                     exitsAfterHealth = undefined
                 }
+                role.once('exit', () => {
+                    if (takesPortOnExit !== undefined && mode === takesPortOnExit) {
+                        void holdPort(ROLE_PORTS[takesPortOnExit])
+                        takesPortOnExit = undefined
+                    }
+                })
                 stubRolePids.add(role.pid!)
+                if (mode === exitGoesUnreported) {
+                    const unreported = Object.assign(new EventEmitter(), {
+                        pid: role.pid,
+                        exitCode: null,
+                        signalCode: null,
+                    })
+                    role.once('spawn', () => unreported.emit('spawn'))
+                    return unreported
+                }
                 return role
             }) as unknown as typeof childProcess.spawn)
             const guardedExecFile = jest.spyOn(childProcess, 'execFile').mockImplementation(((
@@ -864,7 +1228,14 @@ describe('scenario environment', () => {
             portHolder = undefined
             unspawnable = undefined
             losesItsPort = undefined
+            takesPortOnExit = undefined
             exitsAfterHealth = undefined
+            exitGoesUnreported = undefined
+            if (cyclotronFromEnv === undefined) {
+                delete process.env.CYCLOTRON_NODE_DATABASE_URL
+            } else {
+                process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronFromEnv
+            }
             neverAnswers = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
@@ -967,14 +1338,17 @@ describe('scenario environment', () => {
             await environment.up()
 
             const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
+            const edge = (await internalFetch(`${environment.edgeUrl()}/_health`)).status
             const pid = Number(await (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[hung]}/_health`)).text())
             process.kill(pid, 'SIGSTOP')
             const { down } = await environment.dependencyHealth().finally(() => process.kill(pid, 'SIGCONT'))
             expect({
                 health: Object.fromEntries(health),
+                edge,
                 rolesDown: down.filter((name) => name in ROLE_PORTS),
             }).toEqual({
                 health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
+                edge: 200,
                 rolesDown: [],
             })
         }, 30_000)
@@ -1072,6 +1446,220 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it.each<[string, () => Promise<void>]>([
+            ['', async () => {}],
+            [
+                ' after a role crashed during the card',
+                async () => {
+                    process.kill([...stubRolePids].at(-1)!, 'SIGKILL')
+                    await waitForExpect(() => expect(environment!.exits()).toHaveLength(1), 5_000)
+                },
+            ],
+        ])(
+            'brings every role back healthy on reset%s',
+            async (_name, arrange) => {
+                environment = environmentOf()
+                await environment.up()
+                await arrange()
+
+                await environment.reset({})
+
+                const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
+                expect(Object.fromEntries(health)).toEqual(
+                    Object.fromEntries(CdpRole.options.map((role) => [role, 200]))
+                )
+            },
+            30_000
+        )
+
+        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
+            const { limiter, close } = sesLimiterOn(testRedis)
+            const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
+            const { group, topic } = eventsGroup()
+            environment = environmentOf()
+            await environment.up()
+            await withPostgres(
+                (client) =>
+                    client.query(
+                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), 9999001, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::text[]) AS status",
+                        [['available', 'running', 'completed']]
+                    ),
+                cyclotronUrl
+            )
+            try {
+                await limiter.claimUpTo(claim)
+                const fault = await internalFetch(`${environment.edgeUrl()}/_faults`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } }),
+                })
+                const sendBefore = await sendThrough(environment.edgeUrl())
+
+                await environment.reset({})
+
+                expect({
+                    jobs: await jobsLeft(),
+                    tokens: await limiter.claimUpTo(claim),
+                    offsets: offsetsOf(),
+                    sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
+                }).toEqual({
+                    jobs: ['completed'],
+                    tokens: 5,
+                    offsets: { [group]: { [topic]: 'end' } },
+                    sends: [201, 'MessageRejected', 'sent'],
+                })
+            } finally {
+                await forgetSesBucket(testRedis)
+                await close()
+            }
+        }, 30_000)
+
+        it('waits for a stopped role to leave the events group before it moves the group to the end', async () => {
+            const { group, topic } = eventsGroup()
+            environment = environmentOf()
+            await environment.up()
+            holdDeadMember()
+
+            const reset = environment.reset({}).then(
+                () => 'reset',
+                (error: unknown) => String(error)
+            )
+            const seen = await untilMemberSeen(reset)
+            releaseDeadMember()
+
+            expect({
+                seen,
+                reset: await reset,
+                offsets: offsetsOf(),
+                startedWhileMemberHeld: startedWhileMemberHeld(),
+            }).toEqual({
+                seen: 'member seen',
+                reset: 'reset',
+                offsets: { [group]: { [topic]: 'end' } },
+                startedWhileMemberHeld: [],
+            })
+        }, 45_000)
+
+        it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
+            [
+                'a topic that does not exist yet',
+                {
+                    stdout: '',
+                    stderr: 'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+                    code: 1,
+                },
+                null,
+            ],
+            [
+                'a partition the broker refused to move',
+                {
+                    stdout:
+                        'TOPIC                 PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\n' +
+                        'scenario_seek_events  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\n',
+                    stderr: '',
+                    code: 1,
+                },
+                'Could not move scenario-seek-group to the end of scenario_seek_events:\nscenario_seek_events/0: INVALID_OPERATION: seeking a non-empty group is not allowed.',
+            ],
+        ])(
+            'moves the events group past %s only when rpk reports no failed partition',
+            async (_name, rpkSeek, failure) => {
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
+                environment = environmentOf()
+                await environment.up()
+
+                const outcome = await environment
+                    .reset({
+                        CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-seek-group',
+                        CDP_EVENTS_CONSUMER_TOPIC: 'scenario_seek_events',
+                    })
+                    .then(
+                        () => null,
+                        (error: Error) => error.message
+                    )
+
+                expect(outcome).toEqual(failure)
+            },
+            30_000
+        )
+
+        it.each<[string, Role, string, () => void]>([
+            [
+                'loses its port to another server that answers /_health',
+                'cdp-processed-events',
+                'code 1',
+                () => {
+                    losesItsPort = 'cdp-processed-events'
+                },
+            ],
+            [
+                'cannot be spawned',
+                'cdp-cyclotron-worker-email',
+                'ENOENT',
+                () => {
+                    unspawnable = 'cdp-cyclotron-worker-email'
+                },
+            ],
+        ])(
+            'fails a reset at once naming a role that %s, why, and its log, and tears the environment down',
+            async (_name, role, why, arrange) => {
+                environment = environmentOf()
+                await environment.up()
+                const edgeUrl = environment.edgeUrl()
+                arrange()
+
+                const failure = await environment.reset({}).then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toMatch(new RegExp(`^${role} `))
+                expect(failure).toContain(why)
+                expect(failure).toContain(logOf(role))
+                const others = CdpRole.options.filter((other) => other !== role)
+                expect({
+                    ...(await teardownOf(edgeUrl)),
+                    rolePortsHeld: (
+                        await Promise.all(
+                            others.map(async (other) => ((await isPortFree(ROLE_PORTS[other])) ? [] : [other]))
+                        )
+                    ).flat(),
+                }).toEqual({ edge: 'unreachable', lock: 'free', rolePortsHeld: [] })
+            },
+            30_000
+        )
+
+        it('names a role whose exit never arrives after SIGKILL and still frees the edge and the state dir on down', async () => {
+            exitGoesUnreported = 'cdp-processed-events'
+            environment = environmentOf()
+            await environment.up()
+            const edgeUrl = environment.edgeUrl()
+
+            const failure = await environment.down().then(
+                () => null,
+                (error: Error) => error.message
+            )
+
+            expect({ failure, ...(await teardownOf(edgeUrl)) }).toEqual({
+                failure: expect.stringMatching(/^cdp-processed-events \(pid \d+\) did not exit after SIGKILL/),
+                edge: 'unreachable',
+                lock: 'free',
+            })
+        }, 20_000)
+
+        it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
+            environment = environmentOf()
+            await environment.up()
+            takesPortOnExit = 'cdp-processed-events'
+
+            await expect(environment.reset({})).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringContaining(
+                    "6760 (cdp-processed-events). Find the processes that hold them with `ss -ltnp 'sport = :6760'`"
+                ),
+            })
+        }, 30_000)
 
         it('cleans up its own leftover role when its cache home is reached through a symlink', async () => {
             const stateDir = path.join(cacheDir, 'posthog-scenarios')
