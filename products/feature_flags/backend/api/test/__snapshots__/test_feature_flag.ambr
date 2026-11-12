@@ -1587,7 +1587,8 @@
          "posthog_cohortcalculationhistory"."finished_at",
          "posthog_cohortcalculationhistory"."queries",
          "posthog_cohortcalculationhistory"."error",
-         "posthog_cohortcalculationhistory"."error_code"
+         "posthog_cohortcalculationhistory"."error_code",
+         "posthog_cohortcalculationhistory"."mode"
   FROM "posthog_cohortcalculationhistory"
   WHERE ("posthog_cohortcalculationhistory"."cohort_id" = 99999
          AND "posthog_cohortcalculationhistory"."finished_at" IS NOT NULL)
