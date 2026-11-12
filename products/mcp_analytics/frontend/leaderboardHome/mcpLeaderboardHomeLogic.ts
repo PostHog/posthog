@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
@@ -228,5 +229,9 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             (rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries =>
                 buildReliabilitySeries(rows, bucketKeys),
         ],
+    }),
+    afterMount(() => {
+        // pinned: analytics event name. Dashboards that count MCP analytics home visits read it.
+        posthog.capture('mcp analytics dashboard viewed')
     }),
 ])

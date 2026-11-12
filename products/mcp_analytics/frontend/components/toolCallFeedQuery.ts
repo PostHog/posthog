@@ -57,34 +57,6 @@ export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     showReload: true,
 }
 
-/** How many rows the dashboard's recent-calls card shows: a glance, not a feed. */
-export const MCP_RECENT_TOOL_CALLS_LIMIT = 20
-
-/** The same columns as the activity feed, scoped to the dashboard's filters and stripped of the toolbar. */
-export function buildRecentToolCallsQuery(filters: HogQLFilters): DataTableNode {
-    return {
-        kind: NodeKind.DataTableNode,
-        source: {
-            kind: NodeKind.EventsQuery,
-            select: MCP_ACTIVITY_COLUMNS,
-            events: [MCP_TOOL_CALL_EVENT],
-            after: filters.dateRange?.date_from ?? undefined,
-            before: filters.dateRange?.date_to ?? undefined,
-            properties: filters.properties,
-            filterTestAccounts: filters.filterTestAccounts,
-            orderBy: ['timestamp DESC'],
-            limit: MCP_RECENT_TOOL_CALLS_LIMIT,
-        },
-        embedded: false,
-        expandable: true,
-        showActions: false,
-        showCount: false,
-        showDateRange: false,
-        showPropertyFilter: false,
-        showReload: false,
-    }
-}
-
 export function withSharedFilters(
     query: DataTableNode,
     filters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>

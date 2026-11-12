@@ -20,7 +20,7 @@ import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { FirstDataSeen } from './FirstDataSeen'
-import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
@@ -78,7 +78,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
     const dashboardTab: LemonTab<MCPAnalyticsTab> = {
         key: 'dashboard',
         label: 'Dashboard',
-        content: <MCPAnalyticsDashboard />,
+        content: <MCPAnalyticsLeaderboardHome />,
         link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
         'data-attr': 'mcp-analytics-dashboard-tab',
     }
