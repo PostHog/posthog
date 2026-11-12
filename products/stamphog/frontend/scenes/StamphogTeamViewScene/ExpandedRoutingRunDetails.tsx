@@ -6,11 +6,19 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { StamphogRoutingRunApi } from '../../generated/api.schemas'
 import { outcomeLabel, ownerDecision, reasonLabel } from './routingRunDisplay'
 
-function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+function Field({
+    label,
+    mono = false,
+    children,
+}: {
+    label: string
+    mono?: boolean
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <>
             <dt className="text-muted">{label}</dt>
-            <dd className="m-0 min-w-0 font-mono text-xs break-all">
+            <dd className={mono ? 'm-0 min-w-0 font-mono text-xs break-all' : 'm-0 min-w-0 text-xs break-words'}>
                 {children ?? <span className="text-muted">-</span>}
             </dd>
         </>
@@ -35,7 +43,7 @@ export function ExpandedRoutingRunDetails({ run, owner }: { run: StamphogRouting
             <Section title={`Decision for ${owner}`}>
                 <Field label="Reason">{decision ? reasonLabel(decision.reason) : null}</Field>
                 <Field label="Model reason">{decision?.model_reason || null}</Field>
-                <Field label="Pinned by">
+                <Field label="Pinned by" mono>
                     {decision && decision.pins.length > 0
                         ? decision.pins.map((pin) => <div key={pin.path}>{pin.path}</div>)
                         : null}
@@ -58,16 +66,24 @@ export function ExpandedRoutingRunDetails({ run, owner }: { run: StamphogRouting
             </Section>
 
             <Section title="Routing run">
-                <Field label="Run ID">
+                <Field label="Run ID" mono>
                     <CopyToClipboardInline description="run ID" explicitValue={run.id}>
                         {run.id.slice(0, 8)}
                     </CopyToClipboardInline>
                 </Field>
                 <Field label="Routed">{run.created_at ? <TZLabel time={run.created_at} /> : null}</Field>
-                <Field label="Trigger">{run.trigger}</Field>
-                <Field label="Scope">{run.scope}</Field>
-                <Field label="Model">{run.model || null}</Field>
-                <Field label="Head commit">{run.head_sha}</Field>
+                <Field label="Trigger" mono>
+                    {run.trigger}
+                </Field>
+                <Field label="Scope" mono>
+                    {run.scope}
+                </Field>
+                <Field label="Model" mono>
+                    {run.model || null}
+                </Field>
+                <Field label="Head commit" mono>
+                    {run.head_sha}
+                </Field>
             </Section>
         </div>
     )

@@ -217,7 +217,7 @@ class RoutingPullRequestDTO:
     author: str
     url: str
     merged_at: datetime | None = None
-    # GitHub reports the size only in the merge event, so these stay 0 until the pull request merges.
+    # Stamphog stores the size only when it records the merge, so these stay 0 until the pull request merges.
     additions: int = 0
     deletions: int = 0
     changed_files: int = 0
