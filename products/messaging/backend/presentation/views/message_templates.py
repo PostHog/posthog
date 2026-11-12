@@ -483,9 +483,7 @@ CODE_SEND_FIELDS = (
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
-# Matches the 256-character cap SES puts on a message tag value, so that every accepted key can travel on the sent
-# email as a tag and reach its delivery and engagement events.
-TEMPLATE_KEY_MAX_LENGTH = 256
+SES_TAG_VALUE_MAX_LENGTH = 256
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -496,11 +494,11 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     template_key = serializers.RegexField(
         r"^[a-zA-Z0-9_-]+$",
-        max_length=TEMPLATE_KEY_MAX_LENGTH,
+        max_length=SES_TAG_VALUE_MAX_LENGTH,
         required=False,
         help_text="Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs "
         "and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most "
-        f"{TEMPLATE_KEY_MAX_LENGTH} characters. Send it with `subject` and `html` or `text`. PostHog sends the "
+        f"{SES_TAG_VALUE_MAX_LENGTH} characters. Send it with `subject` and `html` or `text`. PostHog sends the "
         "content as is and never stores it as a template.",
     )
     distinct_id = serializers.CharField(
