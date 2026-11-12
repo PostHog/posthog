@@ -22,6 +22,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -615,7 +616,7 @@ describe('SourceWebhooksConsumer', () => {
                     id: new UUIDT().toString(),
                     billable_action_types: ['function'],
                 })
-                jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
 
                 const res = await doPostRequest({
                     webhookId: billableHogFlow.id,
@@ -680,7 +681,7 @@ describe('SourceWebhooksConsumer', () => {
                         billable_action_types: ['function'],
                     })
                     const first = await postWithKey(billableHogFlow.id, 'escalation-quota')
-                    jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
                     const second = await postWithKey(billableHogFlow.id, 'escalation-quota')
 
                     expect(first.status).toEqual(201)
@@ -695,10 +696,10 @@ describe('SourceWebhooksConsumer', () => {
                         id: new UUIDT().toString(),
                         billable_action_types: ['function'],
                     })
-                    const quotaSpy = jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
 
                     const refused = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
-                    quotaSpy.mockResolvedValue(false)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
                     const retried = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
 
                     expect(refused.status).toEqual(429)
@@ -1001,7 +1002,7 @@ describe('SourceWebhooksConsumer', () => {
                         id: new UUIDT().toString(),
                         billable_action_types: ['function'],
                     })
-                    jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
 
                     const res = await doManualRequest(team.id, billableHogFlow.id, {
                         user_id: 'user@example.com',

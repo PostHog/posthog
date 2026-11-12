@@ -30,6 +30,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -1886,7 +1887,7 @@ describe('CDP API', () => {
                 id: new UUIDT().toString(),
                 billable_action_types: ['function'],
             })
-            const quotaSpy = jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
             mockProducerObserver.resetKafkaProducer()
 
             try {
@@ -1911,7 +1912,7 @@ describe('CDP API', () => {
                     })
                 )
             } finally {
-                quotaSpy.mockRestore()
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
             }
         })
 

@@ -8,6 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
@@ -623,7 +624,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 ...new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withSimpleWorkflow().build(),
                 billable_action_types: ['function', 'function_email'],
             })
-            jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
 
             const [result] = await processor.processInvocations([
                 createSerializedHogFlowInvocation(billableFlow, {
