@@ -27,16 +27,16 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.common import dagster_tags
-from posthog.dags.flag_evaluations_backfill import shard_workload
+from posthog.dags.common.shards import shard_workload, tagged
 from posthog.dags.geoip_backfill import (
     AFFECTED_EVENT_FILTER,
     OWNER_TAG,
+    PRODUCT,
     GeoipStagingTable,
     IngestionWindow,
     IngestionWindowConfig,
     plan_windows,
     staged_team_ids,
-    tagged,
     window_query_args,
 )
 from posthog.dataclasses import frozen
@@ -167,7 +167,9 @@ class Verification:
 
         staged = [
             span
-            for spans in self.cluster.map_one_host_per_shard(tagged(self.query_tags, staged_per_team)).result().values()
+            for spans in self.cluster.map_one_host_per_shard(tagged(self.query_tags, staged_per_team, product=PRODUCT))
+            .result()
+            .values()
             for span in spans
         ]
         if not staged:
@@ -197,7 +199,7 @@ class Verification:
             return sync_execute(query, args, settings=settings, workload=workload, sync_client=client, flush=False)
 
         per_shard: dict[int, Callable[[Client], list[tuple[Any, ...]]]] = {
-            shard_num: tagged(self.query_tags, read) for shard_num in self.cluster.shards
+            shard_num: tagged(self.query_tags, read, product=PRODUCT) for shard_num in self.cluster.shards
         }
         result = self.cluster.map_any_host_in_shards_by_role(per_shard, workload=workload, node_role=node_role).result()
         return [row for rows in result.values() for row in rows]

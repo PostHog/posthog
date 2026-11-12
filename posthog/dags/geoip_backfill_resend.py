@@ -30,13 +30,9 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.common import dagster_tags
-from posthog.dags.flag_evaluations_backfill import (
-    BlockingRunCheck,
-    blocking_runs_started_since,
-    shard_workload,
-    wait_for_blocking_runs,
-)
-from posthog.dags.geoip_backfill import OWNER_TAG, EventColumn, GeoipStagingTable, on_shard_host, staged_team_ids
+from posthog.dags.common.shards import on_shard_host, shard_workload
+from posthog.dags.flag_evaluations_backfill import BlockingRunCheck, blocking_runs_started_since, wait_for_blocking_runs
+from posthog.dags.geoip_backfill import OWNER_TAG, PRODUCT, EventColumn, GeoipStagingTable, staged_team_ids
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.raw_sessions.sessions_v3 import GET_NUM_RAW_SESSIONS_ACTIVE_PARTS
@@ -257,7 +253,9 @@ class ShardResend:
         return self._on_shard(run)
 
     def _on_shard(self, fn: Callable[[Client], Any]) -> Any:
-        return on_shard_host(self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role)
+        return on_shard_host(
+            self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role, product=PRODUCT
+        )
 
 
 @dagster.op(tags=OWNER_TAG)
