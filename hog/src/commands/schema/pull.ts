@@ -163,29 +163,34 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        for (const pulled of result.languages) {
-            const { name, nextSteps } = moduleInfo(pulled.language, pulled.sdk)
-            const events = plural(pulled.eventCount, 'event')
-            if (pulled.status === 'unchanged') {
-                out.line(`${out.style('Up to date', 'green', 'bold')}  ${name} in ${pulled.file} (${events})`)
-                continue
-            }
-            if (pulled.status === 'would_write') {
-                out.line(`${out.style('Would generate', 'yellow', 'bold')}  ${name} in ${pulled.file} (${events})`)
-                continue
-            }
-            out.line(`${out.style('Generated', 'green', 'bold')}  ${name} in ${pulled.file} (${events})`)
-            out.line()
-            out.line(out.style('Next steps:', 'bold'))
-            nextSteps(pulled.file).forEach((step, index) => out.line(`  ${index + 1}. ${step}`))
-            out.line()
-        }
+        const labels = { unchanged: 'Up to date', would_write: 'Would generate', written: 'Generated' }
+        const written = result.languages.filter((pulled) => pulled.status === 'written')
+        const effects = result.languages.map(({ language, sdk, file, status, eventCount }) => {
+            const label = out.style(labels[status], status === 'would_write' ? 'yellow' : 'green', 'bold')
+            return `${label}  ${moduleInfo(language, sdk).name} in ${file} (${plural(eventCount, 'event')})`
+        })
         if (result.configUpdated) {
-            out.line(out.style(`Saved the settings in ${result.config}`, 'dim'))
+            effects.push(`Saved the settings in ${result.config}`)
         }
-        if (result.dryRun) {
-            out.line(out.style('Dry run: no files written.', 'dim'))
-        }
+        const notes = written.flatMap(({ language, sdk, file }, index) => {
+            const { name, nextSteps } = moduleInfo(language, sdk)
+            return [
+                ...(index > 0 ? [''] : []),
+                out.style(written.length > 1 ? `Next steps for ${name}:` : 'Next steps:', 'bold'),
+                ...nextSteps(file).map((step, number) => `  ${number + 1}. ${step}`),
+            ]
+        })
+
+        out.report({
+            status: written.length > 0 ? 'done' : 'unchanged',
+            result: result.dryRun
+                ? 'Dry run: no files written'
+                : written.length > 0
+                  ? `Generated ${plural(written.length, 'typed SDK')}`
+                  : `${plural(result.languages.length, 'typed SDK')} already up to date`,
+            effects,
+            notes,
+        })
     },
 
     agent({ result, out }) {

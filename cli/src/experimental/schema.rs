@@ -8,6 +8,7 @@ use tracing::info;
 
 use crate::api::client::PHClient;
 use crate::invocation_context::context;
+use crate::utils::{describe_failed_response, redact_request_error, redact_url};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Language {
@@ -443,7 +444,10 @@ pub fn status() -> Result<()> {
     crate::safe_println!("Authentication:");
     let config = context().config.clone();
     crate::safe_println!("  ✓ Authenticated");
-    crate::safe_println!("  Host: {}", config.host);
+    crate::safe_println!(
+        "  Host: {}",
+        redact_url(&reqwest::Url::parse(&config.host)?)
+    );
     crate::safe_println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
@@ -501,6 +505,7 @@ fn fetch_definitions(client: &PHClient, module: Module) -> Result<DefinitionsRes
     let response = client
         .get(client.project_url(&url)?)
         .send()
+        .map_err(redact_request_error)
         .context(format!(
             "Failed to fetch {} definitions",
             module.display_name()
@@ -508,9 +513,9 @@ fn fetch_definitions(client: &PHClient, module: Module) -> Result<DefinitionsRes
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch {} definitions: HTTP {}",
+            "Failed to fetch {} definitions: {}",
             module.display_name(),
-            response.status()
+            describe_failed_response(response)
         ));
     }
 

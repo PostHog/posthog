@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
@@ -364,6 +365,8 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |Release
+                              |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -431,6 +434,7 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
@@ -480,6 +484,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -885,6 +890,8 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |Release
+                        |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -952,6 +959,7 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
@@ -1001,6 +1009,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
