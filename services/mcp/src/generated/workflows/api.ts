@@ -717,7 +717,7 @@ export const HogFlowsPartialUpdateBody = () => zod
     .describe('Mixin for serializers to add user access control fields')
 
 export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
-    action_id: zod.string().describe('Id of the function_email step to edit.'),
+    action_id: zod.string().describe('Id of the function_email or email_sandbox step to edit.'),
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -796,7 +796,20 @@ export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe(
-            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it."
+            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it."
+        ),
+    sender: zod
+        .enum(['sandbox', 'own'])
+        .describe('\* `sandbox` - sandbox\n\* `own` - own')
+        .optional()
+        .describe(
+            "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.\n\n\* `sandbox` - sandbox\n\* `own` - own"
+        ),
+    drop_own_sender_settings: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it."
         ),
 })
 

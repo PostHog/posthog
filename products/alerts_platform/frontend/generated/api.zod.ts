@@ -135,6 +135,10 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
 
+/**
+ * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
+ * @summary Create an alert
+ */
 export const platformAlertsCreateBodyOneNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyOneNameMax = 255
 
@@ -983,6 +987,10 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
 ])
 
+/**
+ * Replace every setting of an alert the platform owns. source_kind must match the stored value.
+ * @summary Replace an alert's settings
+ */
 export const platformAlertsUpdateBodyOneNameMax = 255
 
 export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
@@ -1964,6 +1972,10 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
 
+/**
+ * Change some settings of an alert the platform owns. Settings left out keep their stored value. A source_kind that is sent must match the stored value.
+ * @summary Change an alert
+ */
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
