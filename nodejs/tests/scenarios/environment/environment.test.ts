@@ -1,7 +1,17 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { EventEmitter, once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'fs'
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    rmdirSync,
+    symlinkSync,
+    writeFileSync,
+} from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
