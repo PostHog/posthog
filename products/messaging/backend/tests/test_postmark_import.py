@@ -344,8 +344,10 @@ class TestPostmarkImport(BaseTest):
     def test_only_a_custom_broadcast_stream_becomes_a_category(self) -> None:
         run = self._run(["streams"], token=PRODUCTION_TOKEN)
 
-        categories = {row.key: row.name for row in MessageCategory.objects.filter(team_id=self.team.id)}
-        assert categories == {"postmark_1001_product-news": "Product news"}
+        categories = {
+            row.key: (row.name, row.public_description) for row in MessageCategory.objects.filter(team_id=self.team.id)
+        }
+        assert categories == {"postmark_1001_product-news": ("Product news", "")}
         notes = {item["label"]: " ".join(item["notes"]) for item in run.progress["streams"]["items"]}
         assert "SMTP" in notes["Production (server)"]
         assert "Inbound" in notes["Default Inbound Stream (inbound)"]

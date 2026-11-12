@@ -335,6 +335,8 @@ def _save_streams(
                 key=_category_key(server.id, str(stream.get("ID"))),
                 name=str(stream.get("Name") or stream.get("ID"))[:128],
                 description=str(stream.get("Description") or ""),
+                # A stream's description is the sender's own note, so recipients don't see it.
+                public_description="",
             )
             for stream in custom_broadcasts
         ],
