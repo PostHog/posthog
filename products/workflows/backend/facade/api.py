@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 from uuid import UUID
 
@@ -79,6 +79,7 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_viewable_workflow_ids",
+    "get_workflow_access_levels",
     "get_workflow_view_access",
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
@@ -247,6 +248,14 @@ def get_viewable_workflow_ids(
             _team_workflows(team_id, workflow_ids)
         ).values_list("id", flat=True)
     }
+
+
+def get_workflow_access_levels(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Collection[str]
+) -> Mapping[str, str | None]:
+    """The reader's effective access level for each of the team's workflows, keyed by the workflow id as a string."""
+    rows = HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "created_by_id")
+    return user_access_control.bulk_object_access_levels("hog_flow", [(str(pk), creator) for pk, creator in rows])
 
 
 def get_workflow_view_access(
