@@ -22,6 +22,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
     const answers = new Map<string, Pick<TruthRecord, 'status' | 'detail'>>()
     let cursor = 0
     let reading: Promise<boolean> | undefined
+    let readsDone = 0
 
     const readTruthPage = async (): Promise<boolean> => {
         const response = await internalFetch(`${edgeUrl}/_truth?after=${cursor}`)
@@ -36,15 +37,21 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
             }
         }
         cursor = page.next
+        readsDone += 1
         return page.records.length > 0
     }
     const read = (): Promise<boolean> => (reading ??= readTruthPage().finally(() => (reading = undefined)))
 
-    type LagProbe = { behind: Promise<number>; settledAt?: number }
+    type LagProbe = { afterReads: number; behind: Promise<number>; settledAt?: number }
     let lagProbe: LagProbe | undefined
-    const probeLag = (): Promise<number> => {
-        if (lagProbe === undefined || (lagProbe.settledAt !== undefined && Date.now() - lagProbe.settledAt >= pollMs)) {
-            const probe: LagProbe = { behind: lag().finally(() => (probe.settledAt = Date.now())) }
+    const isFresh = (probe: LagProbe, seenAfterReads: number): boolean =>
+        probe.afterReads >= seenAfterReads && (probe.settledAt === undefined || Date.now() - probe.settledAt < pollMs)
+    const probeLag = (seenAfterReads: number): Promise<number> => {
+        if (lagProbe === undefined || !isFresh(lagProbe, seenAfterReads)) {
+            const probe: LagProbe = {
+                afterReads: readsDone,
+                behind: lag().finally(() => (probe.settledAt = Date.now())),
+            }
             lagProbe = probe
         }
         return lagProbe.behind
@@ -53,10 +60,12 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
     return {
         async settled(unitId, signal) {
             const deadline = Date.now() + withinMs
+            let seenAfterReads = 0
             for (;;) {
                 const morePages = await read()
                 const answer = answers.get(unitId)
                 if (answer?.status === FEEDBACK_ANSWERED) {
+                    seenAfterReads = readsDone
                     break
                 }
                 if (answer !== undefined) {
@@ -68,7 +77,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
                 await sleep(morePages ? 0 : pollMs, undefined, { signal })
             }
             for (;;) {
-                const behind = await probeLag()
+                const behind = await probeLag(seenAfterReads)
                 if (behind === 0) {
                     return undefined
                 }

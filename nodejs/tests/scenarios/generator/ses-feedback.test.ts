@@ -126,6 +126,28 @@ describe('watchSesFeedback', () => {
         }
     })
 
+    it('waits for a lag probe that started after the unit got its feedback', async () => {
+        const feedback: Feedback[] = [{ unitId: 'run-a-1', status: 200, detail: {} }]
+        const edge = await startEdge(feedback)
+        const lags = [0, 4]
+        try {
+            const watch = watchSesFeedback({
+                edgeUrl: edge.url,
+                lag: () => Promise.resolve(lags.length > 1 ? lags.shift()! : lags[0]),
+                withinMs: 200,
+                pollMs: 1000,
+            })
+            await watch.settled('run-a-1', NEVER_ABORTED)
+            feedback.push({ unitId: 'run-a-2', status: 200, detail: {} })
+
+            expect(await watch.settled('run-a-2', NEVER_ABORTED)).toBe(
+                'the SES webhooks consumer was 4 messages behind after 0.2s'
+            )
+        } finally {
+            await edge.close()
+        }
+    })
+
     it.each<[string, Feedback[] | 'never drained']>([
         ['while it waits for feedback', []],
         ['while it waits for the consumer', [{ unitId: UNIT, status: 200, detail: {} }]],
