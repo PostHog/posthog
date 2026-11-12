@@ -74,7 +74,18 @@ pub(crate) struct InFlightPoll {
     pub(crate) poll_id: String,
     pub(crate) dispatched_at: std::time::Instant,
     pub(crate) partitions: HashMap<TopicPartition, PartitionDeliveries>,
+    /// Only the partitions whose charge the ledger accepted.
     pub(crate) uncommitted: HashMap<TopicPartition, Charge>,
+}
+
+impl InFlightPoll {
+    pub(crate) fn charged_partitions(
+        &self,
+    ) -> impl Iterator<Item = (&TopicPartition, &PartitionDeliveries)> {
+        self.partitions
+            .iter()
+            .filter(|(topic_partition, _)| self.uncommitted.contains_key(*topic_partition))
+    }
 }
 
 /// Per-partition max offset + observed lag for the debug UI's batch events.

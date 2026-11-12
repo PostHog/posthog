@@ -61,14 +61,7 @@ impl Tracker {
     }
 
     fn record_poll(&mut self, poll: &InFlightPoll) {
-        // A rejected charge never settles.
-        let charged: Vec<_> = poll
-            .partitions
-            .iter()
-            .filter(|(topic_partition, deliveries)| {
-                deliveries.delivered > 0 && poll.uncommitted.contains_key(*topic_partition)
-            })
-            .collect();
+        let charged: Vec<_> = poll.charged_partitions().collect();
         if charged.is_empty() {
             return;
         }
