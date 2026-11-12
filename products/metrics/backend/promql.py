@@ -1,4 +1,4 @@
-"""Run a PromQL metrics insight as a Snuffle range query.
+"""Run a PromQL metrics insight as a Snuffle range query, or an instant query for one value per series.
 
 The range and step come from the same interval ladder as the builder engine, so a PromQL insight
 and a builder insight over the same window chart the same buckets.
@@ -147,6 +147,32 @@ def run_promql_range(
     elif result_type != "matrix":
         raise PromQLQueryError(f"A PromQL range query cannot return a {result_type} result.")
 
+    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
+    return _series_from_results(team, expr, results)
+
+
+def run_promql_instant(team: Team, expr: str, time: dt.datetime) -> list[MetricSeries]:
+    """Run a PromQL instant query on Snuffle: one value per series at `time`."""
+    payload = snuffle_payload(team, "POST", "/api/v1/query", data={"query": expr, "time": str(time.timestamp())})
+
+    data = payload.get("data") or {}
+    result_type = data.get("resultType")
+    results = data.get("result") or []
+    if result_type == "scalar":
+        results = [{"metric": {}, "values": [results]}] if results else []
+    elif result_type == "vector":
+        results = [{**result, "values": [result["value"]] if result.get("value") else []} for result in results]
+    elif result_type == "matrix":
+        raise PromQLQueryError(
+            "The expression returns a range vector, which an instant query cannot show. "
+            "Wrap the range selector in a function such as rate(...[5m]) or max_over_time(...[5m])."
+        )
+    else:
+        raise PromQLQueryError(f"A PromQL instant query cannot return a {result_type} result.")
+    return _series_from_results(team, expr, results)
+
+
+def _series_from_results(team: Team, expr: str, results: list[dict[str, Any]]) -> list[MetricSeries]:
     tzinfo = team.timezone_info
     quantile_clauses = _quantile_clauses(expr)
     marks_clauses = bool(quantile_clauses) or bool(_SETS_CLAUSE_LABEL.search(expr))
@@ -163,5 +189,4 @@ def run_promql_range(
             for timestamp, value in result.get("values") or []
         ]
         rows.append((labels, metric_name, clause, points))
-    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
     return rank_and_fill_series(rows, fill=None)

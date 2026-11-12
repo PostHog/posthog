@@ -50,6 +50,7 @@ import type {
     _MetricClauseApi,
     _MetricFilterApi,
     _MetricQueryBodyApi,
+    _MetricQueryPointApi,
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
     MetricQueryIntervalEnumApi,
@@ -132,7 +133,8 @@ export const splitLegacyAggregation = (
 
 export { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY }
 
-export type MetricsViewerSeries = _MetricSeriesApi
+// The viewer runs range queries only, so every series it holds has its points.
+export type MetricsViewerSeries = _MetricSeriesApi & { points: _MetricQueryPointApi[] }
 
 /** One query line of the viewer — the state behind one clause row. */
 export interface MetricsViewerClause {
@@ -699,10 +701,10 @@ export interface metricsViewerLogicActions {
         errorObject?: any
     }
     fetchQueryResultsSuccess: (
-        queryResults: _MetricSeriesApi[],
+        queryResults: MetricsViewerSeries[],
         payload?: any
     ) => {
-        queryResults: _MetricSeriesApi[]
+        queryResults: MetricsViewerSeries[]
         payload?: any
     }
     liveRefreshTick: () => {
@@ -916,15 +918,15 @@ export interface metricsViewerLogicMeta {
         ) => MetricsHistogramQuery | MetricsQuery | null
         queryFilters: (activeClause: MetricsViewerClause) => _MetricFilterApi[]
         selectedServices: (activeClause: MetricsViewerClause) => string[]
-        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
+        correlationServices: (selectedServices: string[], queryResults: MetricsViewerSeries[]) => string[]
         attributeEndpointFilters: (
             dateFrom: string | null,
             dateTo: string | null,
             timezone: string
         ) => Record<string, string>
-        chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
-        hasResults: (queryResults: _MetricSeriesApi[]) => boolean
-        seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: _MetricSeriesApi[]) => boolean
+        chartSeries: (queryResults: MetricsViewerSeries[]) => MetricsChartSeries[]
+        hasResults: (queryResults: MetricsViewerSeries[]) => boolean
+        seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: MetricsViewerSeries[]) => boolean
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
@@ -1578,7 +1580,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     )
                     breakpoint()
                     actions.setQueryAbortController(null)
-                    return response.results
+                    return response.results.map((series) => ({ ...series, points: series.points ?? [] }))
                 },
             },
         ],

@@ -146,3 +146,5 @@ tools:
                 - hint
                 - omitted_empty_series
                 - omitted_by_limit
+                - url_params
+        enrich_url: '?{url_params}'

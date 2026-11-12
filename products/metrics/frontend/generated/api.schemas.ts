@@ -222,8 +222,38 @@ export type _MetricSeriesApiLabels = { [key: string]: string }
 export interface _MetricSeriesApi {
     /** Label values identifying this series. Empty for an ungrouped query. */
     labels: _MetricSeriesApiLabels
-    /** Time-bucketed points, ordered by time ascending. */
-    points: _MetricQueryPointApi[]
+    /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+    points?: _MetricQueryPointApi[]
+    /**
+     * Instant queries only: the series' value at 'time'.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+     * @nullable
+     */
+    time?: string | null
+    /**
+     * Summary output only: the last non-null value.
+     * @nullable
+     */
+    last?: number | null
+    /**
+     * Summary output only: the smallest non-null value.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Summary output only: the largest non-null value.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Summary output only: the mean of the non-null values.
+     * @nullable
+     */
+    avg?: number | null
     /**
      * Metric the series was computed from. Null for formula results.
      * @nullable
@@ -993,6 +1023,17 @@ export interface _MetricClauseApi {
     groupBy?: _MetricGroupByApi[]
 }
 
+/**
+ * * `points` - points
+ * * `summary` - summary
+ */
+export type OutputEnumApi = (typeof OutputEnumApi)[keyof typeof OutputEnumApi]
+
+export const OutputEnumApi = {
+    Points: 'points',
+    Summary: 'summary',
+} as const
+
 export interface _MetricQueryBodyApi {
     /**
      * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
@@ -1079,6 +1120,15 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     limit?: number | null
+    /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+    instant?: boolean
+    /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+    time?: string
+    /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+     *
+     * * `points` - points
+     * * `summary` - summary */
+    output?: OutputEnumApi
 }
 
 export interface _MetricQueryRequestApi {
@@ -1095,6 +1145,8 @@ export interface _MetricQueryResponseApi {
     omitted_empty_series?: number
     /** Number of series left out by 'limit'. Set only when it left some out. */
     omitted_by_limit?: number
+    /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+    url_params?: string
 }
 
 export interface _MetricQueryCountApi {

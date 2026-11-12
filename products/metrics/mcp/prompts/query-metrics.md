@@ -1,4 +1,4 @@
-Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
+Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series, a summary per series, or one value per series. The default response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
 
 All parameters go inside `query` — top-level fields are rejected:
 
@@ -11,6 +11,14 @@ Three request forms:
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
 - **PromQL:** set `promql` to a PromQL expression, e.g. `{ "query": { "promql": "sum by (job) (rate(http_requests_total[5m]))", "dateFrom": "-3h" } }`. It runs as a range query on the same time grid. Put selectors, grouping and functions in the expression; `filters`, `groupBy`, `formula` and `metricType` are rejected with it. Unreported buckets are `null`, not zero. If the response says PromQL is not enabled for this project, use the builder forms.
+
+# Pick the response shape — the smallest one that answers the question
+
+- **The value now** ("what is the lag", "which 5 groups are highest", "is it above X"): `"instant": true`, optionally with `time` (ISO 8601 or relative like `-1h`; default now). Each series comes back as `{labels, value, time}` with no `points`. PromQL runs as an instant query at `time`, so put the window in the expression (`rate(x[5m])`, `max_over_time(x[1h])`); a bare range selector like `x[5m]` is rejected. The builder returns the last complete bucket before `time`, 5 minutes wide unless you set `interval`. Do not combine with `dateFrom`/`dateTo`.
+- **How a window went, per series** ("peak over the last day", "did it recover"): keep the range and pass `"output": "summary"`. Each series comes back as `{labels, last, time, min, max, avg}` over its non-null points. With `dateTo` at now, the builder's last bucket is still filling.
+- **The shape over time** (onset, trend, comparing windows): the default range response with every point. Use it only when you need the curve; it is the largest response.
+
+Every response has `url_params`; the MCP tool turns it into `_posthogUrl`, which opens the same query in the metrics viewer. Share that link with the user.
 
 When you already have a PromQL expression (an alert rule, a runbook, a Grafana panel), send it as `promql` as written. Do not translate it into builder fields.
 
