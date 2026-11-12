@@ -69,6 +69,8 @@ export function emailEngagement(
     return (kind === 'opened' ? totals.email_opened : totals.email_link_clicked) ?? 0
 }
 
+const RUN_OUTCOMES = ['succeeded', 'failed', 'canceled']
+
 const TOTALS_METRICS = [
     'email_sent',
     'email_delivered',
@@ -263,12 +265,10 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         const totals: Record<string, number> = {}
                         for (const { total, breakdowns } of Object.values(response)) {
                             const [metricName, instanceId] = breakdowns
-                            // A step that aborts the run also records a run-level `failed`, which would count each
-                            // person twice, so only step-level failures count people who weren't sent anything.
-                            if (metricName === 'failed' && !instanceId) {
-                                continue
-                            }
-                            totals[metricName] = (totals[metricName] ?? 0) + total
+                            // A run-level outcome (one per person whose run ended) is kept apart from the step-level one.
+                            const key =
+                                !instanceId && RUN_OUTCOMES.includes(metricName) ? `run_${metricName}` : metricName
+                            totals[key] = (totals[key] ?? 0) + total
                         }
                         return totals
                     },

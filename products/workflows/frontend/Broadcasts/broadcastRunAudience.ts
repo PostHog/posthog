@@ -6,8 +6,10 @@ const STILL_SENDING_WINDOW_DAYS = 7
 
 export const RUN_AUDIENCE_METRICS = [
     'triggered',
-    'email_sent',
+    'succeeded',
     'failed',
+    'canceled',
+    'email_sent',
     'email_opted_out',
     'email_suppressed',
     'email_missing_recipient',
@@ -28,8 +30,9 @@ export interface RunAudience {
     audience: number
     sent: number
     waitingOnCap: number
-    /** People nothing has happened to yet, or that this run can no longer account for. */
-    remaining: number
+    stillToSend: number
+    /** People whose run ended without a send or another outcome listed here, or that a stale run left behind. */
+    notSent: number
     optedOut: number
     suppressed: number
     skippedAtCap: number
@@ -50,6 +53,9 @@ export function getRunAudience(
     }
     const count = (metric: string): number => totals[metric] ?? 0
     const audience = count('triggered')
+    // Every person's run ends in exactly one of these, whatever happened at the email step. A cancel carries the
+    // step it stopped at when there was one.
+    const finished = count('run_succeeded') + count('run_failed') + count('run_canceled') + count('canceled')
     const sent = count('email_sent')
     const optedOut = count('email_opted_out')
     const suppressed = count('email_suppressed')
@@ -59,20 +65,20 @@ export function getRunAudience(
     const failed = count('failed')
     const filteredOut = count('filtered')
     const exitedEarly = count('early_exit')
-    const unfinished = Math.max(
-        audience - sent - optedOut - suppressed - skippedAtCap - noEmail - failed - filteredOut - exitedEarly,
-        0
-    )
+    const listed = sent + optedOut + suppressed + skippedAtCap + noEmail + failed + filteredOut + exitedEarly
+    const unfinished = Math.max(audience - finished, 0)
     const withinWindow = canStillBeSending(lastActivityAt, now)
     const stillHeld = Math.max(count('message_frequency_cap_held') - count('message_frequency_cap_hold_ended'), 0)
     const waitingOnCap = withinWindow ? Math.min(unfinished, stillHeld) : 0
-    const remaining = unfinished - waitingOnCap
+    const stillToSend = withinWindow ? unfinished - waitingOnCap : 0
+    const notSent = Math.max(finished - listed, 0) + (withinWindow ? 0 : unfinished)
 
     return {
         audience,
         sent,
         waitingOnCap,
-        remaining,
+        stillToSend,
+        notSent,
         optedOut,
         suppressed,
         skippedAtCap,
@@ -80,7 +86,7 @@ export function getRunAudience(
         failed,
         filteredOut,
         exitedEarly,
-        stillSending: withinWindow && (waitingOnCap > 0 || remaining > 0),
+        stillSending: withinWindow && unfinished > 0,
     }
 }
 
@@ -88,7 +94,8 @@ export function describeRunAudience(run: RunAudience): string {
     const parts: [number, string][] = [
         [run.sent, 'sent'],
         [run.waitingOnCap, 'waiting on the frequency cap'],
-        [run.remaining, run.stillSending ? 'still to send' : 'not sent'],
+        [run.stillToSend, 'still to send'],
+        [run.notSent, 'not sent'],
         [run.optedOut, 'opted out'],
         [run.suppressed, 'on the suppression list'],
         [run.skippedAtCap, 'skipped by the frequency cap'],
