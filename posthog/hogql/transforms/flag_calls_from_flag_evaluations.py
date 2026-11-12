@@ -993,9 +993,10 @@ def _has_constant(node: ast.AST, matches: Callable[[object], bool]) -> bool:
 
 
 def names_flag_called(value: object) -> bool:
-    """Whether a constant's value is `$feature_flag_called`, or a list or tuple that holds it at any depth."""
+    """Whether a constant's value is `$feature_flag_called`, or a list or tuple that holds it as an item. It does not
+    look inside nested lists, because a user can supply a placeholder value nested deeper than the stack allows."""
     if isinstance(value, (list, tuple)):
-        return any(names_flag_called(item) for item in value)
+        return FLAG_CALLED_EVENT in value
     return value == FLAG_CALLED_EVENT
 
 
@@ -1022,12 +1023,10 @@ class _FlagCalledListExpander(CloningVisitor):
         return super().visit_constant(node)
 
 
-def _as_expr(value: object, source: ast.Constant) -> ast.Expr:
-    if isinstance(value, list):
-        return ast.Array(start=source.start, end=source.end, exprs=[_as_expr(item, source) for item in value])
-    if isinstance(value, tuple):
-        return ast.Tuple(start=source.start, end=source.end, exprs=[_as_expr(item, source) for item in value])
-    return ast.Constant(value=value, is_sensitive=source.is_sensitive)
+def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
+    items = [ast.Constant(value=item, is_sensitive=source.is_sensitive) for item in value]
+    container = ast.Array if isinstance(value, list) else ast.Tuple
+    return container(start=source.start, end=source.end, exprs=items)
 
 
 class ScanVisitor(SyntaxVisitor):

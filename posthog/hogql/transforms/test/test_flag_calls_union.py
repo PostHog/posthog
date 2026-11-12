@@ -1,4 +1,5 @@
 import re
+import sys
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -1094,6 +1095,20 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
             assert swaps_flag_calls(_scan_of_events_in(["$pageview", "$feature_flag_called"]), context)
             assert not swaps_flag_calls(_scan_of_events_in(["$pageview"]), context)
+
+    def test_a_list_constant_nested_deeper_than_the_stack_allows_does_not_raise(self):
+        nested: list = ["$pageview"]
+        for _ in range(sys.getrecursionlimit() * 2):
+            nested = [nested]
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            events_match = ast.CompareOperation(
+                op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=nested)
+            )
+
+            assert not swaps_flag_calls(events_match, context)
 
     @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
     def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(
