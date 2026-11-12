@@ -35,6 +35,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
 import METRIC_DISCOVERY_EMPTY from '@/templates/sections/metric-discovery-empty.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
@@ -178,8 +179,15 @@ export class InstructionsFormatter {
         return this.compose(this.metricDiscoverySections(ctx, METRIC_DISCOVERY), ctx, { compact: false })
     }
 
-    private metricDiscoverySections(ctx: InstructionsContext, rule: string): string[] {
-        return [resolveMetricCatalogMode(ctx.metricCatalog) === 'empty' ? METRIC_DISCOVERY_EMPTY : rule]
+    private metricDiscoverySections(
+        ctx: InstructionsContext,
+        rule: string,
+        opts: { learnAnalytics?: boolean } = {}
+    ): string[] {
+        if (resolveMetricCatalogMode(ctx.metricCatalog) !== 'empty') {
+            return [rule]
+        }
+        return opts.learnAnalytics ? [METRIC_DISCOVERY_EMPTY, METRIC_DISCOVERY_EMPTY_LEARN] : [METRIC_DISCOVERY_EMPTY]
     }
 
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
@@ -437,7 +445,7 @@ export class InstructionsFormatter {
                 // content-routing paragraph is reserved for the uncapped full reference.
                 ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
                 ...(learnSection ? [learnSection] : []),
-                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT),
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,

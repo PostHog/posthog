@@ -1353,6 +1353,22 @@ describe('StateManager', () => {
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 1 })
         })
 
+        it('drops a cached empty catalog when its refresh fails', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ count: 0, results: [] })
+                .mockRejectedValue(new Error('Synthetic metric list failure'))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 0 })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+        })
+
         it('reads a failed lookup as unknown', async () => {
             vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
             const request = vi.fn(() => Promise.reject(new Error('Synthetic metric list failure')))

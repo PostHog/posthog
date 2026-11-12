@@ -726,7 +726,7 @@ def metrics_visible_to_user(
         metrics = metrics.filter(definition__kind=filters.definition_kind)
     # The denied-table read builds the caller's whole HogQL schema, so skip it when nothing needs filtering.
     if not metrics.exists():
-        return metrics
+        return metrics.none()
     denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics

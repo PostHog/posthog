@@ -332,10 +332,14 @@ describe('InstructionsFormatter', () => {
             const offersToSave = surface !== 'Claude exec command reference' || empty
             expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
             if (empty) {
-                expect(result).toContain('Run `learn analytics` before writing SQL or joins')
                 expect(result).toContain('"governed catalog consulted: no match"')
-                expect(result).toContain('If you save one in this session, use `metric-list` from then on.')
+                expect(result).toContain(
+                    'If you save one in this session or switch projects, use `metric-list` from then on.'
+                )
             }
+            expect(result.includes('Run `learn analytics` before writing SQL or joins')).toBe(
+                surface === 'Claude exec command reference'
+            )
         })
     })
 

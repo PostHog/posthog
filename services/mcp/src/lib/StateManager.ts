@@ -516,6 +516,8 @@ export class StateManager {
         ttlMs?: number | ((cached: State[D]) => number)
         /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
         expectTimeouts?: boolean
+        /** Drop the cached value instead of serving it when a refresh fails. */
+        discardOnError?: (cached: State[D]) => boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -543,6 +545,10 @@ export class StateManager {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            if (opts.discardOnError?.(cached)) {
+                await this._cache.delete(opts.cacheKey).catch(() => {})
+                return undefined as State[D]
+            }
             return cached
         }
     }
@@ -686,6 +692,8 @@ export class StateManager {
             },
             ttlMs: (cached) => (cached?.count === 0 ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
+            // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
+            discardOnError: (cached) => cached?.count === 0,
         })
     }
 
