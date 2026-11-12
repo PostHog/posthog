@@ -24,9 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from gateway import REVIEWER_EFFORT, REVIEWER_MODEL, openai_gateway_headers, resolve_gateway_config
-from github import PRData
+from github import PRData, reviewing_bots
 from openai import OpenAI
-from reviewer import MAX_TURNS, REVIEWER_SYSTEM, Reviewer, _verdict_from_facts, has_current_head_review, reviewing_bots
+from reviewer import MAX_TURNS, REVIEWER_SYSTEM, Reviewer, _verdict_from_facts, has_current_head_review
 from verdict_rule import FACTS_SCHEMA
 
 TOOL_OUTPUT_MAX_CHARS = 50_000

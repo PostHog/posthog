@@ -19,9 +19,16 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
 from gateway import CLAUDE_REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, describe_review_evidence, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
+from github import (
+    PRData,
+    describe_review_evidence,
+    drop_abandoned_bot_eyes,
+    new_diff_file,
+    reviewing_bots,
+    write_pr_diff,
+)
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
-from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, bot_handle, derive_verdict
+from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, derive_verdict
 from version import STAMPHOG_VERSION
 
 # Traced wrapper, bound only with a PostHog key and no gateway route (gateway
@@ -141,19 +148,6 @@ def has_current_head_review(pr: PRData) -> bool:
         and review.get("user") != pr.author
         for review in pr.reviews
     )
-
-
-def reviewing_bots(pr: PRData) -> frozenset[str]:
-    """The logins that GitHub reports as a bot on every inline review comment they left, never the PR author's.
-
-    A rejected finding resolves only when one of these raised it, so a person's concern never does.
-    A login seen with any comment that GitHub does not mark as a bot's is left out.
-    """
-    flags: dict[str, set[bool]] = {}
-    for comment in pr.review_comments:
-        flags.setdefault(bot_handle(comment.get("user") or ""), set()).add(bool(comment.get("is_bot")))
-    author = bot_handle(pr.author)
-    return frozenset(login for login, seen in flags.items() if login and login != author and seen == {True})
 
 
 def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed: bool) -> ReviewFacts:
@@ -314,32 +308,26 @@ _AUDIT_HEAD = textwrap.dedent(
       is an inline comment). Check every such comment against the current
       code, including comments on older commits: a concern is resolved only
       when the current code fixes it, or when someone other than the author
-      accepted it in the thread. A reviewer bot's finding that the author
-      rejected in its thread goes under rejected_bot_concerns instead, not
-      here. A finding of your own goes here only when it is a
+      accepted it in the thread. A reviewer bot's finding that the author rejected in its thread
+      goes under rejected_bot_concerns instead. A finding of your own goes here only when it is a
       showstopper the policy names: the change could break production (crash,
       data loss, silent corruption) or it is a security issue (injection, auth
       bypass, data exposure). Name the file and the evidence.
-    - rejected_bot_concerns: every open finding from a reviewer bot (an inline
-      comment marked "(bot)") whose thread holds a reply from the PR author
-      that rejects it instead of changing the code. You are the independent
-      judge of that rejection, so read the code at the current head yourself.
-      For each one report the bot's login, the finding in one sentence with
-      its file, its category, whether the rejection holds, and the evidence.
-      - The rejection holds only when the code shows it is right: the finding's
-        premise is false, its path cannot happen, or an existing guard already
-        handles it. Name the file and the line or symbol that shows it.
-      - "Out of scope", "a follow-up will fix it", "unlikely", "tests pass",
-        or a bare disagreement never holds. Neither does a reply that only
-        restates the change.
-      - category: security for injection, data exposure or secrets; auth for
-        authentication, authorization or permissions; data_loss for lost,
-        corrupted or wrongly deleted data; migration for schema or data
-        migrations; other for everything else. When a finding fits more than
-        one, or you are unsure, pick the first that applies in that order.
-        Only an "other" finding can be resolved by a rejection.
-      - A finding the author answered by changing the code is not a
-        rejection. Check it as an unresolved concern instead.
+    - rejected_bot_concerns: every open finding from a reviewer bot (an inline comment marked "(bot)")
+      whose thread holds a reply from the PR author that rejects it instead of changing the code. You
+      are the independent judge of that rejection, so read the code at the current head yourself. For
+      each one report the bot's login, the finding in one sentence with its file, its category,
+      whether the rejection holds, and the evidence.
+      - The rejection holds only when the code shows it is right: the finding's premise is false, its
+        path cannot happen, or an existing guard already handles it. Name the file and line or symbol.
+      - "Out of scope", "a follow-up will fix it", "unlikely", "tests pass", a bare disagreement, or a
+        reply that only restates the change never holds.
+      - category: security for injection, data exposure or secrets; auth for authentication,
+        authorization or permissions; data_loss for lost, corrupted or wrongly deleted data; migration
+        for schema or data migrations; other for everything else. When a finding fits more than one,
+        or you are unsure, pick the first that applies in that order. Only "other" ever resolves.
+      - A finding the author answered by changing the code is not a rejection. Check it as an
+        unresolved concern instead.
     - other_refusal_grounds: anything else the policy or the trusted context
       names as a reason to refuse, each with the rule it matches: a maintainer
       hold, an in-flight review, a guard suppression from the steering section,

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from verdict_rule import bot_handle
+
 
 @dataclass
 class PRData:
@@ -183,6 +185,19 @@ def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
     the reaction because it belongs to the bot.
     """
     return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
+
+
+def reviewing_bots(pr: PRData) -> frozenset[str]:
+    """The logins that GitHub reports as a bot on every inline review comment they left, never the PR author's.
+
+    A rejected finding resolves only when one of these raised it, so a person's concern never does.
+    A login seen with any comment that GitHub does not mark as a bot's is left out.
+    """
+    flags: dict[str, set[bool]] = {}
+    for comment in pr.review_comments:
+        flags.setdefault(bot_handle(comment.get("user") or ""), set()).add(bool(comment.get("is_bot")))
+    author = bot_handle(pr.author)
+    return frozenset(login for login, seen in flags.items() if login and login != author and seen == {True})
 
 
 def is_bot_author(user: dict) -> bool:
