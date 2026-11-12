@@ -27,6 +27,7 @@ class PushGatewayTask(Task):
     A run that returns replaces the job's group with the duration, success = 1, the time of the success, and the task's custom metrics.
     A run that raises an Exception pushes only the duration and success = 0. The custom metrics and the time of the success keep the values of the last run that returned.
     Use the time of the success for a liveness alert, not a scraped counter. A run can end on a pod that Prometheus no longer scrapes, for example during a rollout. The PushGateway still keeps that run's success.
+    A PushGateway that runs without a persistence file loses the time of the success when it restarts. A failed run does not restore it. A liveness alert reads the gauge with max_over_time over a window longer than its threshold, so the last stored sample keeps aging after a restart.
     A run that raises a Celery TaskPredicate (Retry, Ignore, Reject) pushes nothing, because Celery does not count it as a failure.
 
     Usage:
