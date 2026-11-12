@@ -220,7 +220,8 @@ class TestResendImport(BaseTest):
 
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
 
-    def test_a_new_import_continues_the_step_that_failed(self) -> None:
+    @parameterized.expand([("same_key", API_KEY, 2), ("another_key", "re_another_account_key", 3)])
+    def test_a_new_import_continues_the_step_that_failed(self, _name: str, next_key: str, list_reads: int) -> None:
         self.resend.page_size = 2
         run = runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
         read = self.resend.get
@@ -236,9 +237,9 @@ class TestResendImport(BaseTest):
         runs.finish_run(self.team.id, run.id)
         self.resend.calls.clear()
 
-        self._run(["suppressions"])
+        self._run(["suppressions"], api_key=next_key)
 
-        assert len([call for call in self.resend.calls if call == "/suppressions"]) == 2
+        assert len([call for call in self.resend.calls if call == "/suppressions"]) == list_reads
 
     def test_opt_outs_reach_a_row_another_request_inserted_first(self) -> None:
         MessageRecipientPreference.objects.create(
