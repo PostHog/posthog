@@ -1855,7 +1855,7 @@ export interface CohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
-    /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort by default (append). Pass population_mode='replace' to remove members the query no longer matches instead. If the query matches no persons, the replace is refused and existing members are kept. Can't be combined with filters. */
+    /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort, keeping existing members by default. Can't be combined with filters. */
     query?: unknown
     /** @nullable */
     readonly version: number | null

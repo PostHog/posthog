@@ -185,7 +185,18 @@ const CohortsReplaceStaticMembersSchema = () => {
     const CohortsPartialUpdateBody = orvalSchemas.CohortsPartialUpdateBody()
     const CohortsPartialUpdateParams = orvalSchemas.CohortsPartialUpdateParams()
     return CohortsPartialUpdateParams.omit({ project_id: true })
-        .extend(CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape)
+        .extend(
+            CohortsPartialUpdateBody.omit({
+                name: true,
+                description: true,
+                deleted: true,
+                filters: true,
+                is_static: true,
+                cohort_type: true,
+                _create_in_folder: true,
+                _create_static_person_ids: true,
+            }).shape
+        )
         .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
 }
 
@@ -199,26 +210,8 @@ const cohortsReplaceStaticMembers = (): ToolBase<
         handler: async (context: Context, params: z.infer<ReturnType<typeof CohortsReplaceStaticMembersSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
-            }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.deleted !== undefined) {
-                body['deleted'] = params.deleted
-            }
-            if (params.filters !== undefined) {
-                body['filters'] = params.filters
-            }
             if (params.query !== undefined) {
                 body['query'] = params.query
-            }
-            if (params.is_static !== undefined) {
-                body['is_static'] = params.is_static
-            }
-            if (params.cohort_type !== undefined) {
-                body['cohort_type'] = params.cohort_type
             }
             body['population_mode'] = 'replace'
             const result = await context.api.request<Schemas.Cohort>({
