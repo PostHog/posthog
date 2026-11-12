@@ -134,6 +134,7 @@ describe('health finding reporting', () => {
                     reason: null,
                     values: {},
                     rule: null,
+                    rows: [],
                 },
             ],
         })

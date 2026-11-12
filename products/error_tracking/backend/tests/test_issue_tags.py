@@ -15,6 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.error_tracking.backend.logic.issue_tags import registry, writer
@@ -53,11 +54,12 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
 
 
 class TestIssueTagRegistry(SimpleTestCase):
-    def test_severity_and_every_jev_tag_fit_one_jev_request(self) -> None:
+    def test_every_jev_tag_fits_one_jev_request(self) -> None:
         jev_questions = sum(
             isinstance(tagger, JevTaggerConfig) for definition in ISSUE_TAG_DEFINITIONS for tagger in definition.taggers
         )
 
+        # One slot stays free for the severity question, so the tag request and the severity request can merge.
         assert jev_questions + 1 <= MAX_QUESTIONS_PER_REQUEST
 
 
@@ -189,6 +191,18 @@ class TestSetIssueTag(BaseTest):
                 }
             ],
         }
+
+    def test_a_child_environment_issue_keeps_one_answer_across_writes(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Staging"
+        )
+        issue = ErrorTrackingIssue.objects.create(team=child)
+
+        set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=False), Source.JEV)
+        stored = set_issue_tag(child.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+
+        tag = ErrorTrackingIssueTag.objects.for_team(child.id).get(issue=issue, key="blocks_checkout")
+        assert (stored, tag.value) == (True, True)
 
     def _answer(self, source: ErrorTrackingIssueTag.Source, *, value: bool | None) -> TagAnswer:
         if source == Source.MANUAL:
