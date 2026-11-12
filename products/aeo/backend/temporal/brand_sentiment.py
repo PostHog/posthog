@@ -20,7 +20,7 @@ from django.utils import timezone
 
 import structlog
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
@@ -45,6 +45,8 @@ CLASSIFY_BATCH = 32
 # this far back, which matches the window the prompt report shows.
 BACKLOG_WINDOW = dt.timedelta(days=30)
 MAX_ROWS_PER_RUN = 2000
+# A manual request has no citation run of its own, so it only scores the backlog.
+MANUAL_RUN_ID = "manual"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -176,7 +178,13 @@ class AEOBrandSentimentWorkflow(PostHogWorkflow):
         )
 
 
-def start_brand_sentiment_scoring(team_id: int, run_id: str) -> str:
+def _start(
+    team_id: int,
+    run_id: str,
+    *,
+    id_reuse_policy: WorkflowIDReusePolicy,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
+) -> str:
     workflow_id = f"{WORKFLOW_NAME}-{team_id}-{run_id}"
     client = sync_connect()
     asyncio.run(
@@ -185,17 +193,29 @@ def start_brand_sentiment_scoring(team_id: int, run_id: str) -> str:
             AEOBrandSentimentInputs(team_id=team_id, run_id=run_id),
             id=workflow_id,
             task_queue=settings.AEO_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            id_reuse_policy=id_reuse_policy,
+            id_conflict_policy=id_conflict_policy,
         )
     )
     return workflow_id
+
+
+def start_manual_brand_sentiment_scoring(team_id: int) -> str:
+    """Scores the team's backlog. A request while one is still scoring gets that workflow back, so
+    repeated requests never classify the same answers in parallel."""
+    return _start(
+        team_id,
+        MANUAL_RUN_ID,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+    )
 
 
 def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
     """Fire-and-forget: the citation run is already recorded, so a Temporal outage only means
     this run's answers stay unscored."""
     try:
-        start_brand_sentiment_scoring(team_id, run_id)
+        _start(team_id, run_id, id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
     except WorkflowAlreadyStartedError:
         logger.info("aeo_brand_sentiment_already_started", team_id=team_id, run_id=run_id)
     except Exception as error:

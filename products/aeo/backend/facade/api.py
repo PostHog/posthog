@@ -10,7 +10,7 @@ import re
 import uuid
 import datetime as dt
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -32,6 +32,8 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
+
+import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -115,6 +117,7 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdateError,
     PromptVersion,
     SentimentScoringStart,
+    SentimentScoringUnavailableError,
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
@@ -123,27 +126,50 @@ from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prom
 from products.aeo.backend.tasks.tasks import (
     citation_run_in_progress,
     citation_tracking_enabled,
+    clear_citation_run_queued,
+    mark_citation_run_queued,
     recompute_aeo_own_citations_task,
     run_aeo_citation_checks_for_team_task,
     suggest_aeo_keywords_task,
     suggest_aeo_prompts_task,
 )
-from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_scoring
+from products.aeo.backend.temporal.brand_sentiment import start_manual_brand_sentiment_scoring
+
+logger = structlog.get_logger(__name__)
 
 
-def start_citation_run(team_id: int) -> CitationRunStart:
-    """Queues a run of the prompts not yet checked today, as the scheduled dispatch does."""
-    if not citation_tracking_enabled(Team.objects.get(id=team_id)):
-        raise CitationTrackingDisabledError("Citation runs aren't enabled for this project yet.")
-    if citation_run_in_progress(team_id):
+def start_citation_run(team_id: int, *, user_id: int, charge: Callable[[], None]) -> CitationRunStart:
+    """Queues a run of the prompts not yet checked this run day, as the scheduled dispatch does.
+
+    `charge` spends one of the project's manual runs and raises when none are left. It is called only
+    when a run is about to be queued, so a request that starts nothing costs nothing."""
+    _require_citation_tracking(team_id)
+    if citation_run_in_progress(team_id) or not mark_citation_run_queued(team_id):
         return CitationRunStart(status=CitationRunStatus.ALREADY_RUNNING)
-    run_aeo_citation_checks_for_team_task.delay(team_id)
+    try:
+        charge()
+        run_aeo_citation_checks_for_team_task.delay(team_id)
+    except Exception:
+        clear_citation_run_queued(team_id)
+        raise
+    logger.info("aeo_manual_citation_run_queued", team_id=team_id, user_id=user_id)
     return CitationRunStart(status=CitationRunStatus.QUEUED)
 
 
-def start_sentiment_scoring(team_id: int) -> SentimentScoringStart:
-    run_id = f"manual-{uuid.uuid4().hex}"
-    return SentimentScoringStart(workflow_id=start_brand_sentiment_scoring(team_id, run_id))
+def start_sentiment_scoring(team_id: int, *, user_id: int) -> SentimentScoringStart:
+    _require_citation_tracking(team_id)
+    try:
+        workflow_id = start_manual_brand_sentiment_scoring(team_id)
+    except Exception as error:
+        logger.exception("aeo_manual_sentiment_scoring_start_failed", team_id=team_id, error=str(error)[:300])
+        raise SentimentScoringUnavailableError("Sentiment scoring is unavailable. Try again in a moment.") from error
+    logger.info("aeo_manual_sentiment_scoring_started", team_id=team_id, user_id=user_id, workflow_id=workflow_id)
+    return SentimentScoringStart(workflow_id=workflow_id)
+
+
+def _require_citation_tracking(team_id: int) -> None:
+    if not citation_tracking_enabled(Team.objects.get(id=team_id)):
+        raise CitationTrackingDisabledError("Citation tracking isn't enabled for this project yet.")
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:

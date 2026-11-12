@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -116,6 +116,7 @@ from products.aeo.backend.facade.contracts import (
     RankedDomain,
     RankedPage,
     SentimentScoringStart,
+    SentimentScoringUnavailableError,
     VisibilityDashboard,
 )
 from products.authorization.backend.facade import api as authorization
@@ -1018,6 +1019,11 @@ class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     )
 
 
+class _AEOServiceUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "service_unavailable"
+
+
 class AEOCitationRunStartSerializer(DataclassSerializer):
     class Meta:
         dataclass = CitationRunStart
@@ -1383,28 +1389,40 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_run",
         summary="Run AEO citation checks now",
-        description="Starts a citation run for the project's active prompts that haven't been checked today, the same run the daily schedule starts. Prompts already checked today are skipped, so a run after the scheduled one only covers prompts added since. The run takes from minutes to hours, and its results appear in the prompt checks as each prompt finishes. Sentiment is scored after the run. Returns already_running when a run is in progress. Each project can start a few runs a day.",
+        description="Starts a citation run for the project's active prompts not yet checked in the current run day, which starts at 07:00 UTC. It is the same run the daily schedule starts, so a run after the scheduled one only covers prompts added since. The run takes from minutes to hours, and results appear in the prompt checks as each prompt finishes. Sentiment is scored after the run. Returns already_running when a run is queued or in progress. Each project can start a few runs a day; requests that start nothing don't count.",
         responses={202: OpenApiResponse(response=AEOCitationRunStartSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], throttle_classes=[AEOCitationRunRateThrottle])
+    @action(detail=False, methods=["post"])
     def run(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
-            started = start_citation_run(self.team_id)
+            started = start_citation_run(
+                self.team_id, user_id=cast(User, request.user).pk, charge=lambda: self._charge_run(request)
+            )
         except CitationTrackingDisabledError as error:
             raise PermissionDenied(str(error))
         return Response(AEOCitationRunStartSerializer(started).data, status=status.HTTP_202_ACCEPTED)
 
+    def _charge_run(self, request: Request) -> None:
+        throttle = AEOCitationRunRateThrottle()
+        if not throttle.allow_request(request, self):
+            self.throttled(request, throttle.wait())
+
     @validated_request(
         operation_id="aeo_prompts_score_sentiment",
         summary="Score AEO answer sentiment now",
-        description="Scores the sentiment toward the project's brand in answers from the last 30 days that mention it and have no score yet. It makes no new engine calls. Runs in the background and usually finishes within a few minutes; scores appear on the prompt checks.",
+        description="Scores the sentiment toward the project's brand in answers from the last 30 days that mention it and have no score yet. It makes no new engine calls. Runs in the background and usually finishes within a few minutes; scores appear on the prompt checks. A request while scoring is still running returns that job.",
         responses={202: OpenApiResponse(response=AEOSentimentScoringStartSerializer)},
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["post"], throttle_classes=[AEOSentimentScoringRateThrottle])
     def score_sentiment(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        started = start_sentiment_scoring(self.team_id)
+        try:
+            started = start_sentiment_scoring(self.team_id, user_id=cast(User, request.user).pk)
+        except CitationTrackingDisabledError as error:
+            raise PermissionDenied(str(error))
+        except SentimentScoringUnavailableError as error:
+            raise _AEOServiceUnavailable(str(error))
         return Response(AEOSentimentScoringStartSerializer(started).data, status=status.HTTP_202_ACCEPTED)
 
 

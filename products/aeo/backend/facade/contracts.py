@@ -762,6 +762,10 @@ class CitationTrackingDisabledError(Exception):
     """The project is not set up for citation runs. The message is safe to show the user."""
 
 
+class SentimentScoringUnavailableError(Exception):
+    """Scoring could not be started. The message is safe to show the user."""
+
+
 @frozen
 class SentimentScoringStart:
     workflow_id: str

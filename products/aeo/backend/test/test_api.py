@@ -17,6 +17,7 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
@@ -1475,6 +1476,12 @@ class TestAEOPromptAPI(APIBaseTest):
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def _enabled(self, *, allowlisted: bool = True):
+        return (
+            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)] if allowlisted else []),
+            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
+        )
+
     @parameterized.expand(
         [
             ("queued", True, False, status.HTTP_202_ACCEPTED, "queued", 1),
@@ -1491,13 +1498,15 @@ class TestAEOPromptAPI(APIBaseTest):
         expected_run_status: str | None,
         expected_queued: int,
     ) -> None:
+        self.addCleanup(get_client().delete, f"aeo_citation_run_queued:{self.team.id}")
         if run_in_progress:
             assert get_client().lock(f"aeo_citation_run:{self.team.id}", timeout=60).acquire(blocking=False)
             self.addCleanup(get_client().delete, f"aeo_citation_run:{self.team.id}")
 
+        settings_override, flag = self._enabled(allowlisted=allowlisted)
         with (
-            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)] if allowlisted else []),
-            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
+            settings_override,
+            flag,
             patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
         ):
             response = self.client.post(f"{self.url}run/")
@@ -1508,32 +1517,69 @@ class TestAEOPromptAPI(APIBaseTest):
         assert task.delay.call_count == expected_queued
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_run_is_capped_per_project_per_day(self, _rate_limit_enabled: MagicMock) -> None:
+    def test_run_cap_counts_only_runs_it_queues(self, _rate_limit_enabled: MagicMock) -> None:
         cache.clear()
         self.addCleanup(cache.clear)
+        queued_key = f"aeo_citation_run_queued:{self.team.id}"
+        self.addCleanup(get_client().delete, queued_key)
 
+        settings_override, flag = self._enabled()
+        statuses = []
         with (
-            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)], AEO_MANUAL_RUNS_PER_DAY=2),
-            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
-            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task"),
+            settings_override,
+            flag,
+            self.settings(AEO_MANUAL_RUNS_PER_DAY=2),
+            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
         ):
-            statuses = [self.client.post(f"{self.url}run/").status_code for _ in range(3)]
+            for finish_previous in (False, False, True, True):
+                if finish_previous:
+                    get_client().delete(queued_key)
+                response = self.client.post(f"{self.url}run/")
+                statuses.append((response.status_code, response.json().get("status")))
 
-        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
+        # The second request finds the first run still queued, so it starts nothing and costs nothing.
+        assert statuses == [
+            (status.HTTP_202_ACCEPTED, "queued"),
+            (status.HTTP_202_ACCEPTED, "already_running"),
+            (status.HTTP_202_ACCEPTED, "queued"),
+            (status.HTTP_429_TOO_MANY_REQUESTS, None),
+        ]
+        assert task.delay.call_count == 2
+        assert not get_client().exists(queued_key), "a refused run must not leave the queued marker behind"
 
-    def test_score_sentiment_starts_scoring_on_the_aeo_queue(self) -> None:
+    def test_score_sentiment_reuses_the_running_job_on_the_aeo_queue(self) -> None:
+        settings_override, flag = self._enabled()
         with (
+            settings_override,
+            flag,
             patch("products.aeo.backend.temporal.brand_sentiment.sync_connect") as connect,
+            patch("products.aeo.backend.temporal.brand_sentiment.asyncio.run"),
+        ):
+            first = self.client.post(f"{self.url}score_sentiment/")
+            second = self.client.post(f"{self.url}score_sentiment/")
+
+        assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
+        assert first.json() == second.json() == {"workflow_id": f"aeo-brand-sentiment-{self.team.id}-manual"}
+        kwargs = connect.return_value.start_workflow.call_args.kwargs
+        assert (kwargs["task_queue"], kwargs["id_conflict_policy"]) == (
+            settings.AEO_TASK_QUEUE,
+            WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+
+    @parameterized.expand([("not_enabled", False, None, 403), ("temporal_down", True, RuntimeError("down"), 503)])
+    def test_score_sentiment_refuses_cleanly(
+        self, _name: str, allowlisted: bool, connect_error: Exception | None, expected_status: int
+    ) -> None:
+        settings_override, flag = self._enabled(allowlisted=allowlisted)
+        with (
+            settings_override,
+            flag,
+            patch("products.aeo.backend.temporal.brand_sentiment.sync_connect", side_effect=connect_error),
             patch("products.aeo.backend.temporal.brand_sentiment.asyncio.run"),
         ):
             response = self.client.post(f"{self.url}score_sentiment/")
 
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        workflow_id = response.json()["workflow_id"]
-        assert workflow_id.startswith(f"aeo-brand-sentiment-{self.team.id}-manual-")
-        start = connect.return_value.start_workflow
-        assert start.call_args.kwargs["id"] == workflow_id
-        assert start.call_args.kwargs["task_queue"] == settings.AEO_TASK_QUEUE
+        assert response.status_code == expected_status, response.json()
 
 
 class TestAEOKeywordAPI(APIBaseTest):

@@ -56,6 +56,9 @@ SUGGESTION_TIME_LIMIT_SECONDS = SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
 # dispatches for the rest of the day. Renewal does not depend on prompts completing, so a run
 # stalled on slow engine retries keeps its lease.
 RUN_LEASE_SECONDS = 10 * 60
+# A requested run waits on the long-running queue before it takes the lease. The marker covers that wait
+# and expires on its own if the task never starts.
+RUN_QUEUED_SECONDS = 30 * 60
 RUN_LEASE_RENEW_SECONDS = 60
 
 # One recompute per team at a time. The lock outlives the time limit, so a killed task cannot leave
@@ -87,8 +90,21 @@ def _run_lease_key(team_id: int) -> str:
     return f"aeo_citation_run:{team_id}"
 
 
+def _run_queued_key(team_id: int) -> str:
+    return f"aeo_citation_run_queued:{team_id}"
+
+
 def citation_run_in_progress(team_id: int) -> bool:
-    return bool(get_client().exists(_run_lease_key(team_id)))
+    return bool(get_client().exists(_run_lease_key(team_id), _run_queued_key(team_id)))
+
+
+def mark_citation_run_queued(team_id: int) -> bool:
+    """Claims the single queued slot for a team; False when another request already holds it."""
+    return bool(get_client().set(_run_queued_key(team_id), 1, nx=True, ex=RUN_QUEUED_SECONDS))
+
+
+def clear_citation_run_queued(team_id: int) -> None:
+    get_client().delete(_run_queued_key(team_id))
 
 
 @shared_task(ignore_result=True)
@@ -120,6 +136,7 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     except Team.DoesNotExist:
         logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
         return
+    clear_citation_run_queued(team_id)
     # Re-check the gate here too, so this task fails closed even if it is queued
     # outside the dispatcher (which already checks before fan-out).
     if not citation_tracking_enabled(team):
