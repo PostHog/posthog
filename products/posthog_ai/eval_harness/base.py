@@ -64,26 +64,6 @@ def _get_last_assistant_text(parsed: ParsedLog) -> str:
     return ""
 
 
-EVAL_SURFACE_ENV = "EVAL_SURFACE"
-APP_SURFACE = "app"
-MCP_SURFACE = "mcp"
-
-
-def read_eval_surface() -> str | None:
-    """The surface a run models, from ``EVAL_SURFACE``.
-
-    ``app`` runs every case without its own ``interaction_origin`` as PostHog AI in the app, so one suite
-    grades the in-app prompt and the external MCP prompt without a copy of each case. ``mcp`` and unset
-    keep the skill-delivery default.
-    """
-    value = os.environ.get(EVAL_SURFACE_ENV, "").strip().lower()
-    if not value:
-        return None
-    if value not in (APP_SURFACE, MCP_SURFACE):
-        raise ValueError(f"{EVAL_SURFACE_ENV} must be {APP_SURFACE!r} or {MCP_SURFACE!r}, got {value!r}")
-    return value
-
-
 class _BaseEvalRun:
     """One evaluation suite run — the per-experiment state and the generic
     Braintrust orchestration, independent of how a case's task executes.
@@ -614,7 +594,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
-                    elif read_eval_surface() == APP_SURFACE:
+                    elif self.ctx.surface == "app":
                         sandbox_context = replace(sandbox_context, interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
@@ -814,7 +794,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
             "service_tier": self.ctx.service_tier,
-            "eval_surface": read_eval_surface(),
+            "eval_surface": self.ctx.surface,
         }
 
 

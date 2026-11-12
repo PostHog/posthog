@@ -227,13 +227,13 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 
 ### PostHog AI surface
 
-`EVAL_SURFACE=app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
-`EVAL_SURFACE=mcp`, or no value, keeps the skill-delivery default.
-Use bundled skill delivery for the app surface, because the app does not get exec skills:
+`--surface app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
+`--surface mcp`, the default, keeps the skill-delivery default.
+The app surface needs bundled skill delivery, because the app does not get exec skills, so the CLI rejects `--surface app --skill-delivery exec`:
 
 ```bash
-EVAL_SURFACE=app hogli evals eval_governed_metrics --skill-delivery bundled
-EVAL_SURFACE=mcp hogli evals eval_governed_metrics --skill-delivery exec
+hogli evals eval_governed_metrics --surface app --skill-delivery bundled
+hogli evals eval_governed_metrics --surface mcp --skill-delivery exec
 ```
 
 The experiment metadata records `eval_surface`, so both runs can share one experiment name.
