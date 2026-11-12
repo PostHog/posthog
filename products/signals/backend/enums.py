@@ -207,6 +207,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -228,18 +230,6 @@ class SignalSourceProduct(StrEnum):
     GITHUB_DEPENDABOT = "github_dependabot"
     GITHUB_CODE_SCANNING = "github_code_scanning"
     GITHUB_SECRET_SCANNING = "github_secret_scanning"
-    # Tier-2 code, secret and cloud security scanners
-    SONARCLOUD = "sonarcloud"
-    CHECKMARX = "checkmarx"
-    VERACODE = "veracode"
-    VERACODE_SCA = "veracode_sca"
-    SEMGREP_SCA = "semgrep_sca"
-    GITGUARDIAN = "gitguardian"
-    INFISICAL = "infisical"
-    AWS_MACIE = "aws_macie"
-    SENTINELONE = "sentinelone"
-    JFROG_XRAY = "jfrog_xray"
-    DYNATRACE_SECURITY = "dynatrace_security"
 
 
 class SignalSourceType(StrEnum):
@@ -380,6 +370,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",
@@ -397,17 +389,6 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
     SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
     SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
-    SignalSourceProduct.SONARCLOUD: "SonarCloud",
-    SignalSourceProduct.CHECKMARX: "Checkmarx",
-    SignalSourceProduct.VERACODE: "Veracode",
-    SignalSourceProduct.VERACODE_SCA: "Veracode SCA",
-    SignalSourceProduct.SEMGREP_SCA: "Semgrep Supply Chain",
-    SignalSourceProduct.GITGUARDIAN: "GitGuardian",
-    SignalSourceProduct.INFISICAL: "Infisical",
-    SignalSourceProduct.AWS_MACIE: "AWS Macie",
-    SignalSourceProduct.SENTINELONE: "SentinelOne",
-    SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
-    SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
 }
 
 

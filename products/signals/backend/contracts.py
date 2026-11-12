@@ -1407,6 +1407,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     extra: VitallyConversationSignalExtra
 
 
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -1792,175 +1820,6 @@ class CursorIssueSignalInput(SignalInputBase):
     extra: CursorIssueSignalExtra
 
 
-# ── Code, secret and cloud security scanners ───────────────────────────────────
-
-
-class SonarcloudScannerFindingSignalExtra(SignalExtraBase):
-    severity: str | None
-    type: str | None
-    status: str | None
-    component: str | None
-    rule: str | None
-    creation_date: str | None
-
-
-class SonarcloudScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.SONARCLOUD]
-    extra: SonarcloudScannerFindingSignalExtra
-
-
-class CheckmarxScannerFindingSignalExtra(SignalExtraBase):
-    result_type: str | None
-    finding_severity: str | None
-    finding_state: str | None
-    first_seen: str | None
-    scans: str | None
-
-
-class CheckmarxScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.CHECKMARX]
-    extra: CheckmarxScannerFindingSignalExtra
-
-
-class VeracodeScannerFindingSignalExtra(SignalExtraBase):
-    application_guid: str | None
-    scan_type: str | None
-    finding_severity: str | None
-    violates_policy: str | None
-    cwe_id: str | None
-    finding_category: str | None
-    finding_state: str | None
-    resolution_status: str | None
-    first_found_date: str | None
-
-
-class VeracodeScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.VERACODE]
-    extra: VeracodeScannerFindingSignalExtra
-
-
-class VeracodeScaScannerFindingSignalExtra(SignalExtraBase):
-    cve_name: str | None
-    component_filename: str | None
-    component_version: str | None
-    max_severity: str | None
-    affected_applications: str | None
-    first_seen: str | None
-
-
-class VeracodeScaScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.VERACODE_SCA]
-    extra: VeracodeScaScannerFindingSignalExtra
-
-
-class SemgrepScaScannerFindingSignalExtra(SignalExtraBase):
-    vulnerability_identifier: str | None
-    package_name: str | None
-    ecosystem: str | None
-    finding_severity: str | None
-    reachability_state: str | None
-    affected_findings: str | None
-    first_seen: str | None
-
-
-class SemgrepScaScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.SEMGREP_SCA]
-    extra: SemgrepScaScannerFindingSignalExtra
-
-
-class GitguardianScannerFindingSignalExtra(SignalExtraBase):
-    severity: str | None
-    validity: str | None
-    status: str | None
-    occurrences_count: str | None
-    gitguardian_url: str | None
-    date: str | None
-
-
-class GitguardianScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.GITGUARDIAN]
-    extra: GitguardianScannerFindingSignalExtra
-
-
-class InfisicalScannerFindingSignalExtra(SignalExtraBase):
-    rule: str | None
-    resource_name: str | None
-    resource_type: str | None
-    data_source_type: str | None
-    severity: str | None
-    status: str | None
-    created_at: str | None
-
-
-class InfisicalScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.INFISICAL]
-    extra: InfisicalScannerFindingSignalExtra
-
-
-class AwsMacieScannerFindingSignalExtra(SignalExtraBase):
-    type: str | None
-    category: str | None
-    severity_level: str | None
-    region: str | None
-    created_at: str | None
-
-
-class AwsMacieScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.AWS_MACIE]
-    extra: AwsMacieScannerFindingSignalExtra
-
-
-class SentineloneScannerFindingSignalExtra(SignalExtraBase):
-    classification: str | None
-    confidence_level: str | None
-    analyst_verdict: str | None
-    incident_status: str | None
-    threat_mitigation_status: str | None
-    detection_type: str | None
-    created_at: str | None
-
-
-class SentineloneScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.SENTINELONE]
-    extra: SentineloneScannerFindingSignalExtra
-
-
-class JfrogXrayScannerFindingSignalExtra(SignalExtraBase):
-    issue_id: str | None
-    violation_severity: str | None
-    violation_type: str | None
-    violations: str | None
-    first_seen: str | None
-
-
-class JfrogXrayScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.JFROG_XRAY]
-    extra: JfrogXrayScannerFindingSignalExtra
-
-
-class DynatraceSecurityScannerFindingSignalExtra(SignalExtraBase):
-    display_id: str | None
-    vulnerability_type: str | None
-    status: str | None
-    first_seen_timestamp: str | None
-
-
-class DynatraceSecurityScannerFindingSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.SCANNER_FINDING]
-    source_product: Literal[SignalSourceProduct.DYNATRACE_SECURITY]
-    extra: DynatraceSecurityScannerFindingSignalExtra
-
-
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -2324,6 +2183,8 @@ SignalInput = Annotated[
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2351,17 +2212,6 @@ SignalInput = Annotated[
     | AzureApplicationInsightsIssueSignalInput
     | AppsignalIssueSignalInput
     | CursorIssueSignalInput
-    | SonarcloudScannerFindingSignalInput
-    | CheckmarxScannerFindingSignalInput
-    | VeracodeScannerFindingSignalInput
-    | VeracodeScaScannerFindingSignalInput
-    | SemgrepScaScannerFindingSignalInput
-    | GitguardianScannerFindingSignalInput
-    | InfisicalScannerFindingSignalInput
-    | AwsMacieScannerFindingSignalInput
-    | SentineloneScannerFindingSignalInput
-    | JfrogXrayScannerFindingSignalInput
-    | DynatraceSecurityScannerFindingSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput
@@ -2455,6 +2305,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -2482,17 +2334,6 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureApplicationInsightsIssueSignalInput,
     AppsignalIssueSignalInput,
     CursorIssueSignalInput,
-    SonarcloudScannerFindingSignalInput,
-    CheckmarxScannerFindingSignalInput,
-    VeracodeScannerFindingSignalInput,
-    VeracodeScaScannerFindingSignalInput,
-    SemgrepScaScannerFindingSignalInput,
-    GitguardianScannerFindingSignalInput,
-    InfisicalScannerFindingSignalInput,
-    AwsMacieScannerFindingSignalInput,
-    SentineloneScannerFindingSignalInput,
-    JfrogXrayScannerFindingSignalInput,
-    DynatraceSecurityScannerFindingSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,

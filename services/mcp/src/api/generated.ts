@@ -13690,7 +13690,7 @@ export namespace Schemas {
       /** When the agent ran the query. */
       occurred_at: string;
       /**
-         * Agent session of the query, when known.
+         * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
          * @nullable
          */
       session_id: string | null;
@@ -18377,14 +18377,6 @@ export namespace Schemas {
       exploit_available: string | null;
       region: string | null;
       first_observed_at: string | null;
-    }
-
-    export interface AwsMacieScannerFindingSignalExtra {
-      type: string | null;
-      category: string | null;
-      severity_level: string | null;
-      region: string | null;
-      created_at: string | null;
     }
 
     export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
@@ -27331,14 +27323,6 @@ export namespace Schemas {
       error_hash: string | null;
       first_seen: string | null;
       last_seen: string | null;
-    }
-
-    export interface CheckmarxScannerFindingSignalExtra {
-      result_type: string | null;
-      finding_severity: string | null;
-      finding_state: string | null;
-      first_seen: string | null;
-      scans: string | null;
     }
 
     /**
@@ -39037,13 +39021,6 @@ export namespace Schemas {
       start_time: string | null;
       root_cause_entity: string | null;
       affected_entities: string[];
-    }
-
-    export interface DynatraceSecurityScannerFindingSignalExtra {
-      display_id: string | null;
-      vulnerability_type: string | null;
-      status: string | null;
-      first_seen_timestamp: string | null;
     }
 
     /**
@@ -54946,15 +54923,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export interface GitguardianScannerFindingSignalExtra {
-      severity: string | null;
-      validity: string | null;
-      status: string | null;
-      occurrences_count: string | null;
-      gitguardian_url: string | null;
-      date: string | null;
-    }
-
     export interface GithubCodeScanningScannerFindingSignalExtra {
       number: string | null;
       state: string | null;
@@ -62075,6 +62043,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+         * @nullable
+         */
+      readonly id_jag_registered_by_application_name: string | null;
     }
 
     /**
@@ -62326,6 +62299,8 @@ export namespace Schemas {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -62343,17 +62318,6 @@ export namespace Schemas {
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
      * * `github_secret_scanning` - GitHub secret scanning
-     * * `sonarcloud` - SonarCloud
-     * * `checkmarx` - Checkmarx
-     * * `veracode` - Veracode
-     * * `veracode_sca` - Veracode SCA
-     * * `semgrep_sca` - Semgrep Supply Chain
-     * * `gitguardian` - GitGuardian
-     * * `infisical` - Infisical
-     * * `aws_macie` - AWS Macie
-     * * `sentinelone` - SentinelOne
-     * * `jfrog_xray` - JFrog Xray
-     * * `dynatrace_security` - Dynatrace Application Security
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -62458,6 +62422,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -62475,17 +62441,6 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
-      Sonarcloud: 'sonarcloud',
-      Checkmarx: 'checkmarx',
-      Veracode: 'veracode',
-      VeracodeSca: 'veracode_sca',
-      SemgrepSca: 'semgrep_sca',
-      Gitguardian: 'gitguardian',
-      Infisical: 'infisical',
-      AwsMacie: 'aws_macie',
-      Sentinelone: 'sentinelone',
-      JfrogXray: 'jfrog_xray',
-      DynatraceSecurity: 'dynatrace_security',
     } as const;
 
     /**
@@ -62640,6 +62595,8 @@ export namespace Schemas {
        * * `helpscout` - Help Scout
        * * `decagon` - Decagon
        * * `vitally` - Vitally
+       * * `intercom_tickets` - Intercom tickets
+       * * `pylon` - Pylon
        * * `usersnap` - Usersnap
        * * `typeform` - Typeform
        * * `qualtrics` - Qualtrics
@@ -62656,18 +62613,7 @@ export namespace Schemas {
        * * `cursor` - Cursor
        * * `github_dependabot` - GitHub Dependabot
        * * `github_code_scanning` - GitHub code scanning
-       * * `github_secret_scanning` - GitHub secret scanning
-       * * `sonarcloud` - SonarCloud
-       * * `checkmarx` - Checkmarx
-       * * `veracode` - Veracode
-       * * `veracode_sca` - Veracode SCA
-       * * `semgrep_sca` - Semgrep Supply Chain
-       * * `gitguardian` - GitGuardian
-       * * `infisical` - Infisical
-       * * `aws_macie` - AWS Macie
-       * * `sentinelone` - SentinelOne
-       * * `jfrog_xray` - JFrog Xray
-       * * `dynatrace_security` - Dynatrace Application Security */
+       * * `github_secret_scanning` - GitHub secret scanning */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -62986,16 +62932,6 @@ export namespace Schemas {
     export interface IncrementalFieldRecommendationsResponse {
       /** Only the tables where the decision model picked a field, with that field first and recommended. */
       tables: IncrementalFieldTable[];
-    }
-
-    export interface InfisicalScannerFindingSignalExtra {
-      rule: string | null;
-      resource_name: string | null;
-      resource_type: string | null;
-      data_source_type: string | null;
-      severity: string | null;
-      status: string | null;
-      created_at: string | null;
     }
 
     /**
@@ -64316,6 +64252,14 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface IntercomTicketsTicketSignalExtra {
+      ticket_id: string | null;
+      category: string | null;
+      ticket_state_category: string | null;
+      ticket_type_name: string | null;
+      created_at: string | null;
+    }
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -64612,14 +64556,6 @@ export namespace Schemas {
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
-    }
-
-    export interface JfrogXrayScannerFindingSignalExtra {
-      issue_id: string | null;
-      violation_severity: string | null;
-      violation_type: string | null;
-      violations: string | null;
-      first_seen: string | null;
     }
 
     export interface JiraIssueSignalExtra {
@@ -78138,6 +78074,11 @@ export namespace Schemas {
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
       /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes: number | null;
+      /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
          */
@@ -89126,6 +89067,11 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /**
+         * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+         * @nullable
+         */
+      readonly id_jag_registered_by_application_name?: string | null;
     }
 
     /**
@@ -92341,6 +92287,11 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes?: number | null;
       /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
@@ -101079,6 +101030,14 @@ export namespace Schemas {
       failed_distinct_ids: string[];
     }
 
+    export interface PylonTicketSignalExtra {
+      number: string | null;
+      state: string | null;
+      type: string | null;
+      link: string | null;
+      created_at: string | null;
+    }
+
     export interface QualtricsFeedbackSignalExtra {
       survey_id: string | null;
       recorded_date: string | null;
@@ -105975,6 +105934,8 @@ export namespace Schemas {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -105992,17 +105953,6 @@ export namespace Schemas {
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
      * * `github_secret_scanning` - github_secret_scanning
-     * * `sonarcloud` - sonarcloud
-     * * `checkmarx` - checkmarx
-     * * `veracode` - veracode
-     * * `veracode_sca` - veracode_sca
-     * * `semgrep_sca` - semgrep_sca
-     * * `gitguardian` - gitguardian
-     * * `infisical` - infisical
-     * * `aws_macie` - aws_macie
-     * * `sentinelone` - sentinelone
-     * * `jfrog_xray` - jfrog_xray
-     * * `dynatrace_security` - dynatrace_security
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -106107,6 +106057,8 @@ export namespace Schemas {
       Helpscout: 'helpscout',
       Decagon: 'decagon',
       Vitally: 'vitally',
+      IntercomTickets: 'intercom_tickets',
+      Pylon: 'pylon',
       Usersnap: 'usersnap',
       Typeform: 'typeform',
       Qualtrics: 'qualtrics',
@@ -106124,17 +106076,6 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
-      Sonarcloud: 'sonarcloud',
-      Checkmarx: 'checkmarx',
-      Veracode: 'veracode',
-      VeracodeSca: 'veracode_sca',
-      SemgrepSca: 'semgrep_sca',
-      Gitguardian: 'gitguardian',
-      Infisical: 'infisical',
-      AwsMacie: 'aws_macie',
-      Sentinelone: 'sentinelone',
-      JfrogXray: 'jfrog_xray',
-      DynatraceSecurity: 'dynatrace_security',
     } as const;
 
     /**
@@ -106429,56 +106370,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export interface SonarcloudScannerFindingSignalExtra {
-      severity: string | null;
-      type: string | null;
-      status: string | null;
-      component: string | null;
-      rule: string | null;
-      creation_date: string | null;
-    }
-
-    export interface VeracodeScannerFindingSignalExtra {
-      application_guid: string | null;
-      scan_type: string | null;
-      finding_severity: string | null;
-      violates_policy: string | null;
-      cwe_id: string | null;
-      finding_category: string | null;
-      finding_state: string | null;
-      resolution_status: string | null;
-      first_found_date: string | null;
-    }
-
-    export interface VeracodeScaScannerFindingSignalExtra {
-      cve_name: string | null;
-      component_filename: string | null;
-      component_version: string | null;
-      max_severity: string | null;
-      affected_applications: string | null;
-      first_seen: string | null;
-    }
-
-    export interface SemgrepScaScannerFindingSignalExtra {
-      vulnerability_identifier: string | null;
-      package_name: string | null;
-      ecosystem: string | null;
-      finding_severity: string | null;
-      reachability_state: string | null;
-      affected_findings: string | null;
-      first_seen: string | null;
-    }
-
-    export interface SentineloneScannerFindingSignalExtra {
-      classification: string | null;
-      confidence_level: string | null;
-      analyst_verdict: string | null;
-      incident_status: string | null;
-      threat_mitigation_status: string | null;
-      detection_type: string | null;
-      created_at: string | null;
-    }
-
     export interface TriggerDevErrorSignalExtra {
       task_identifier: string | null;
       status: string | null;
@@ -106515,7 +106406,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106632,6 +106523,8 @@ export namespace Schemas {
        * * `helpscout` - helpscout
        * * `decagon` - decagon
        * * `vitally` - vitally
+       * * `intercom_tickets` - intercom_tickets
+       * * `pylon` - pylon
        * * `usersnap` - usersnap
        * * `typeform` - typeform
        * * `qualtrics` - qualtrics
@@ -106648,18 +106541,7 @@ export namespace Schemas {
        * * `cursor` - cursor
        * * `github_dependabot` - github_dependabot
        * * `github_code_scanning` - github_code_scanning
-       * * `github_secret_scanning` - github_secret_scanning
-       * * `sonarcloud` - sonarcloud
-       * * `checkmarx` - checkmarx
-       * * `veracode` - veracode
-       * * `veracode_sca` - veracode_sca
-       * * `semgrep_sca` - semgrep_sca
-       * * `gitguardian` - gitguardian
-       * * `infisical` - infisical
-       * * `aws_macie` - aws_macie
-       * * `sentinelone` - sentinelone
-       * * `jfrog_xray` - jfrog_xray
-       * * `dynatrace_security` - dynatrace_security */
+       * * `github_secret_scanning` - github_secret_scanning */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -117303,6 +117185,15 @@ export namespace Schemas {
       history_table: HistoryTableRef | null;
     }
 
+    export interface TableSource {
+      /** Name of the table or view, as the agent's search returned it. */
+      name: string;
+      /** Sessions in the window that found its description and then queried it. */
+      sessions: number;
+      /** Distinct people behind those sessions. */
+      people: number;
+    }
+
     export interface TaggerUpdate {
       /** @maxLength 400 */
       name: string;
@@ -120683,27 +120574,32 @@ export namespace Schemas {
     }
 
     export interface TopicCoverage {
-      /** Sessions that ran a catalog metric directly. */
-      canonical: number;
-      /** Sessions that read a catalog metric, then changed it. */
-      adapted: number;
-      /** Sessions that re-derived a catalog metric without consulting it. */
-      silent: number;
-      /** Sessions that ran SQL that matches no catalog metric. */
-      raw_sql_only: number;
-      /** Sessions that ran no query. */
-      no_sql: number;
+      /** Sessions that asked for a metric and found one that fits. */
+      metric: number;
+      /** Sessions that asked for a metric, found none, and found a table or view description that fits. */
+      table: number;
+      /** Sessions that asked for a metric and found neither. */
+      nothing: number;
     }
 
     export interface TopicCluster {
-      /** Short name of the topic, written by a model from sample intents. */
+      /** Short name of the subject. 'Other' holds the sessions that fit no topic. */
       title: string;
-      /** Agent sessions in the topic. Scout sessions are not clustered. */
+      /** One sentence on what the topic covers. */
+      description: string;
+      /** Agent sessions in the topic. Scout sessions are not included. */
       session_count: number;
-      /** How the topic's sessions got their numbers. */
+      /** Distinct people behind the topic's sessions. */
+      people: number;
+      /** What the sessions that asked for a metric ended up with. */
       coverage: TopicCoverage;
-      /** A few intents from the topic's sessions. */
-      sample_intents: string[];
+    }
+
+    export interface TopicDefinition {
+      /** Short name of the subject. */
+      title: string;
+      /** One sentence on what the topic covers. */
+      description: string;
     }
 
     /**
@@ -120721,6 +120617,21 @@ export namespace Schemas {
       all_marketing: boolean | null;
       /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
       topics: TopicPreferencesTopics;
+    }
+
+    export interface TopicSessionCounts {
+      /** Sampled sessions that calculated or compared data. */
+      analysis: number;
+      /** Sampled sessions that read or checked specific things. */
+      lookup: number;
+      /** Sampled sessions from a scheduled or repeated job. */
+      automation: number;
+      /** Sampled sessions whose intents did not show what they did with data. */
+      unclear: number;
+      /** Sampled sessions that the model failed to read. */
+      unread: number;
+      /** Analysis sessions whose coverage check failed. They count as a metric only after a direct run. */
+      coverage_unchecked: number;
     }
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
@@ -122131,10 +122042,22 @@ export namespace Schemas {
          */
       adjusted_runs: AdjustedRun[] | null;
       /**
-         * Agent session topics. Null until clustered.
+         * Agent session topics. Null until grouped.
          * @nullable
          */
       topics: TopicCluster[] | null;
+      /**
+         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
+         * @nullable
+         */
+      topic_definitions: TopicDefinition[] | null;
+      /** What the sampled sessions were about, by kind. Null until grouped. */
+      topic_sessions: TopicSessionCounts | null;
+      /**
+         * Tables and views that agents found by description and then queried. Null until counted.
+         * @nullable
+         */
+      table_sources: TableSource[] | null;
       /**
          * Recurring query shapes and their catalog outcome. Null until grouped.
          * @nullable

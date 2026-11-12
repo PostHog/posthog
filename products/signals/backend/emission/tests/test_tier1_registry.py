@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -130,18 +132,6 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
-    # Tier-2 code, secret and cloud security scanners
-    (ExternalDataSourceType.SONARCLOUD, "issues", "sonarcloud", "scanner_finding"),
-    (ExternalDataSourceType.CHECKMARX, "scan_results", "checkmarx", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "findings", "veracode", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "sca_findings", "veracode_sca", "scanner_finding"),
-    (ExternalDataSourceType.SEMGREP, "sca_findings", "semgrep_sca", "scanner_finding"),
-    (ExternalDataSourceType.GITGUARDIAN, "secret_incidents", "gitguardian", "scanner_finding"),
-    (ExternalDataSourceType.INFISICAL, "secret_scanning_findings", "infisical", "scanner_finding"),
-    (ExternalDataSourceType.AWSMACIE, "findings", "aws_macie", "scanner_finding"),
-    (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
-    (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
-    (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
