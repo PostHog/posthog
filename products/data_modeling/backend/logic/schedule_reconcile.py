@@ -398,8 +398,12 @@ def clamp_targets_to_plan_floor() -> int:
         floor = organization_plan_refresh_floor(organization)
         if floor is None:
             continue
-        dag_ids = _user_set_targets_finer_than(floor).filter(team__organization_id=organization.id).values("dag_id")
-        for dag in DAG.objects.filter(id__in=dag_ids).select_related("team"):
+        dags = (
+            DAG.objects.filter(team__organization_id=organization.id, node__in=_user_set_targets_finer_than(floor))
+            .distinct()
+            .select_related("team")
+        )
+        for dag in dags:
             try:
                 clamped += _clamp_dag_targets_to_plan_floor(dag, floor)
             except Exception as error:

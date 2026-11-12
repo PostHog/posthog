@@ -19,6 +19,7 @@ from posthog.schema import EndpointRequest, HogQLQuery
 
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import Product
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -45,6 +46,13 @@ def apply_tags(endpoint: Endpoint, tags: list[str] | None) -> None:
     # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / replace_tags_on_object;
     # it's not declared on the Endpoint model.
     endpoint.prefetched_tags = replace_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
+
+
+@frozen
+class QueryChange:
+    version: EndpointVersion
+    created: bool
+    replaced_version: EndpointVersion | None  # the materialized version a new one takes over from
 
 
 @dataclasses.dataclass(frozen=True)
@@ -225,9 +233,9 @@ class EndpointCrudService:
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
             step = "versioning"
-            target_version, version_was_created, replaced_version = self._apply_query_change(
-                endpoint, data, target_version, was_materialized
-            )
+            query_change = self._apply_query_change(endpoint, data, target_version, was_materialized)
+            target_version, version_was_created = query_change.version, query_change.created
+            replaced_version = query_change.replaced_version
 
             # A rejected enable must also roll back changes to the direct query cache duration.
             with transaction.atomic():
@@ -327,22 +335,21 @@ class EndpointCrudService:
         data: EndpointRequest,
         target_version: EndpointVersion,
         was_materialized: bool,
-    ) -> tuple[EndpointVersion, bool, EndpointVersion | None]:
-        """Create a new version when the query changed. Returns (target_version, created, replaced_version).
-
-        `replaced_version` is the materialized version the new one takes over from, or None.
-        """
+    ) -> QueryChange:
+        """Create a new version when the query changed."""
         if data.query is None:
-            return target_version, False, None
+            return QueryChange(version=target_version, created=False, replaced_version=None)
 
         new_query_dict = data.query.model_dump()
         if not endpoint.has_query_changed(new_query_dict):
-            return target_version, False, None
+            return QueryChange(version=target_version, created=False, replaced_version=None)
 
         new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
         # The "current" version changed — its cached throttle readiness no longer applies.
         clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
-        return new_version, True, target_version if was_materialized else None
+        return QueryChange(
+            version=new_version, created=True, replaced_version=target_version if was_materialized else None
+        )
 
     def _apply_version_field_updates(
         self,

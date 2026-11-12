@@ -99,11 +99,8 @@ def node_identity(node: Node) -> NodeIdentity:
     )
 
 
-_TARGET_SECONDS_LOOKUP = f"properties__{_SYSTEM_KEY}__{_FREQUENCY_KEY}__{_TARGET_SECONDS_KEY}"
-
-
 def nodes_declared_finer_than(interval: timedelta) -> QuerySet[Node]:
-    return Node.objects.filter(**{f"{_TARGET_SECONDS_LOOKUP}__lt": int(interval.total_seconds())})
+    return Node.objects.filter(properties__system__frequency__target_seconds__lt=int(interval.total_seconds()))
 
 
 def get_declared_target(node: Node) -> timedelta | None:

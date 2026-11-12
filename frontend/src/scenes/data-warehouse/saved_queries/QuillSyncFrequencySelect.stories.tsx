@@ -25,6 +25,7 @@ function boundsWithCeiling(ceiling: DataModelingSyncInterval): SyncFrequencyBoun
             speeds_up_withheld: false,
         })),
         floor: null,
+        plan_floor: null,
         ceiling: { label: '6 hours', blocker: CONSUMER },
         best_effort_sources: [],
         best_effort_sources_withheld: false,
