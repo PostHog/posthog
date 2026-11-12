@@ -261,7 +261,7 @@ export function WidgetCardHeader({
     return (
         <div
             data-slot="widget-card-header"
-            className="WidgetCard__header flex flex-col p-4 pb-2 min-w-0 overflow-hidden"
+            className="WidgetCard__header flex flex-col p-[var(--dashboard-tile-inset,1rem)] pb-2 min-w-0 overflow-hidden"
         >
             <div className="flex flex-row items-center gap-2">
                 <div className={clsx('drag-handle cursor-move flex-1 min-w-0', !showEditingControls && 'hidden')}>

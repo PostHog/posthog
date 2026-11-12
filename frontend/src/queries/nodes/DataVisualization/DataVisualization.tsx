@@ -616,7 +616,7 @@ function DataTableVisualizationContent({
         component = (
             <BindLogic logic={insightLogic} props={chartLogics?.alertsInsightProps}>
                 <SqlChart
-                    className="p-3"
+                    className="p-[var(--dashboard-tile-inset,0.75rem)]"
                     {...sqlChartData}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
@@ -659,7 +659,7 @@ function DataTableVisualizationContent({
     } else if (pieDisplayData) {
         component = (
             <PartOfWholeChart
-                className="p-3"
+                className="p-[var(--dashboard-tile-inset,0.75rem)]"
                 {...pieDisplayData}
                 onSliceClick={
                     canDrill
@@ -688,7 +688,7 @@ function DataTableVisualizationContent({
                     chartKey={dataVisualizationProps.key}
                     onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}
                     onInspect={canDrill ? inspect : undefined}
-                    className="p-3"
+                    className="p-[var(--dashboard-tile-inset,0.75rem)]"
                     xData={xData}
                     yData={yData}
                     chartSettings={chartSettings}
@@ -696,7 +696,7 @@ function DataTableVisualizationContent({
                 />
             ) : (
                 <SqlScatterGraph
-                    className="p-3"
+                    className="p-[var(--dashboard-tile-inset,0.75rem)]"
                     xData={xData}
                     yData={yData}
                     chartSettings={chartSettings}

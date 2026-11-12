@@ -73,7 +73,7 @@ export function WidgetCardBody({
             data-slot="widget-card-body"
             className={clsx(
                 '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
-                padding && 'p-4 pt-2',
+                padding && 'p-[var(--dashboard-tile-inset,1rem)] pt-2',
                 className
             )}
             {...divProps}

@@ -79,14 +79,14 @@ function ButtonTileCardInternal(
             ref={ref}
         >
             {moreButtonOverlay && !shouldHideMoreButton && (
-                <div className="absolute right-4 top-4">
+                <div className="absolute right-(--dashboard-tile-inset) top-(--dashboard-tile-inset)">
                     <More overlay={moreButtonOverlay} />
                 </div>
             )}
 
             <div
                 className={clsx(
-                    'DashboardTileCard__body ButtonTileCard__body flex w-full flex-1 p-4 items-center',
+                    'DashboardTileCard__body ButtonTileCard__body flex w-full flex-1 p-(--dashboard-tile-inset) items-center',
                     !shouldHideMoreButton && 'pr-14',
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start'
                 )}

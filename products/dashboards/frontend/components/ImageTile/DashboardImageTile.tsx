@@ -63,11 +63,11 @@ function DashboardImageTileInternal(
                 ref={ref}
             >
                 {moreButtonOverlay && !shouldHideMoreButton && (
-                    <div className="absolute right-4 top-4">
+                    <div className="absolute right-(--dashboard-tile-inset) top-(--dashboard-tile-inset)">
                         <More overlay={moreButtonOverlay} />
                     </div>
                 )}
-                <div className="DashboardTileCard__body ImageTile__body flex flex-1 min-h-0 w-full overflow-hidden p-4">
+                <div className="DashboardTileCard__body ImageTile__body flex flex-1 min-h-0 w-full overflow-hidden p-(--dashboard-tile-inset)">
                     {/* Not a <button>: the grid will not start a drag from one (see the grid's drag `cancel`
                     selector in DashboardItems), so editors could not move the tile by its image. */}
                     <div

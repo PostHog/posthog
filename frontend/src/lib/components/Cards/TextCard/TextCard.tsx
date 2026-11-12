@@ -55,13 +55,16 @@ function TextCardInternal(
             ref={ref}
         >
             {moreButtonOverlay && !shouldHideMoreButton && (
-                <div className="absolute right-4 top-4">
+                <div className="absolute right-(--dashboard-tile-inset) top-(--dashboard-tile-inset)">
                     <More overlay={moreButtonOverlay} />
                 </div>
             )}
 
             <div className="DashboardTileCard__body TextCard__body w-full">
-                <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+                <LazyTextContent
+                    text={text.body}
+                    className={shouldHideMoreButton ? 'p-(--dashboard-tile-inset)' : 'p-(--dashboard-tile-inset) pr-14'}
+                />
             </div>
 
             {showResizeHandles && <DashboardResizeHandles />}

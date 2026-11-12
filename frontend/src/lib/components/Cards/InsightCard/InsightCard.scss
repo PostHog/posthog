@@ -1,6 +1,5 @@
 .InsightCard {
-    // Inset between the tile edge and the chart area.
-    --insight-viz-content-padding: 0.75rem;
+    --insight-viz-content-padding: var(--dashboard-tile-inset);
 
     position: relative;
     z-index: 3;
