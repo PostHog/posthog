@@ -242,6 +242,8 @@ export interface ChatMessage {
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
     fromZendesk?: boolean
+    /** Synced from a GitHub issue. Its content is GitHub-flavored Markdown, where HTML is markup. */
+    fromGithub?: boolean
     hasFullEmailContent?: boolean
     citations?: string[]
     confidence?: number
