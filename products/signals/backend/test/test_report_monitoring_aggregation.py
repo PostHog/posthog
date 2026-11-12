@@ -833,6 +833,25 @@ class TestReportMonitoringAggregation(BaseTest):
         self.client.force_login(self.user)
         assert "seventeen synthetic observations" in self.client.get(artefacts_url).content.decode()
 
+    def test_assessment_prompt_leaves_out_cancelled_checks(self) -> None:
+        self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        self._request_assessment()
+        assert self.attempt is not None
+        cancelled = self.checks[1]
+        with self.captureOnCommitCallbacks(execute=True):
+            assert cancel_check(cancelled, reason="stopped_by_person", attribution=ArtefactAttribution.system())
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "pending"
+        )
+        run = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:0").runs.get()
+        prompt = run.state["initial_prompt_override"]
+        assert str(self.checks[0].id) in prompt
+        assert str(cancelled.id) not in prompt
+        assert run.state["analytics_query_context"] == [{}]
+
     def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
         self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
         self._request_assessment()

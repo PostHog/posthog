@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -76,13 +76,17 @@ def _ready_attempt(team_id: int, report_id: UUID, attempt_id: UUID) -> SignalRep
     return attempt
 
 
+def _assessed_checks(attempt: SignalReportMonitoringAttempt) -> QuerySet[SignalReportCheck]:
+    return (
+        SignalReportCheck.objects.for_team(attempt.team_id)
+        .filter(report_id=attempt.report_id, id__in=attempt.check_versions)
+        .exclude(status=SignalReportCheck.Status.CANCELLED)
+    )
+
+
 def _assessment_queries(attempt: SignalReportMonitoringAttempt) -> list[dict[str, JsonValue]]:
     configs = (
-        SignalReportCheck.objects.for_team(attempt.team_id)
-        .filter(
-            report_id=attempt.report_id, id__in=attempt.check_versions, kind=SignalReportCheck.Kind.METRIC_THRESHOLD
-        )
-        .values_list("config", flat=True)
+        _assessed_checks(attempt).filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD).values_list("config", flat=True)
     )
     return [config.get("query") if isinstance(config.get("query"), dict) else {} for config in configs]
 
@@ -94,11 +98,7 @@ def _assessment_prompt(report: SignalReport, attempt: SignalReportMonitoringAtte
         user=User.objects.get(id=user_id),
         token_scopes=resolve_scopes("signals_assessment"),
     )
-    checks = list(
-        SignalReportCheck.objects.for_team(report.team_id)
-        .filter(report_id=report.id, id__in=attempt.check_versions)
-        .values("id", "title", "kind", "rationale", "config", "soak_minutes")
-    )
+    checks = list(_assessed_checks(attempt).values("id", "title", "kind", "rationale", "config", "soak_minutes"))
     hidden = set()
     for check in checks:
         if check["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD and not policy.may_read_snapshot(check["config"]):
@@ -107,7 +107,7 @@ def _assessment_prompt(report: SignalReport, attempt: SignalReportMonitoringAtte
             check["rationale"] = "The acting user cannot read this check's stored metric evidence."
     results = list(
         SignalReportMonitoringResult.objects.for_team(report.team_id)
-        .filter(attempt_id=attempt.id)
+        .filter(attempt_id=attempt.id, report_check_id__in=[check["id"] for check in checks])
         .order_by("created_at", "id")
         .values()
     )
