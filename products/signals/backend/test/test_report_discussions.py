@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
@@ -67,6 +67,9 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         )
         return task
 
+    def _identity(self, user: User) -> dict:
+        return {"user_uuid": str(user.uuid), "first_name": user.first_name, "last_name": user.last_name}
+
     def _list(self) -> list[dict]:
         _authenticate_as_scout(self, sandbox_task_id=self.scout_run.task_run.task_id)
         response = self.client.get(self.url)
@@ -87,6 +90,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         assert rows[str(authored_task.id)]["task_summary"] == "Intended behavior."
         assert rows[str(authored_task.id)]["source"] == "inbox"
         assert rows[str(authored_task.id)]["question"] is None
+        assert rows[str(authored_task.id)]["started_by"] == self._identity(self.user)
         assert rows[str(edited_task.id)]["involvement"] == "edited"
 
     @parameterized.expand(
@@ -174,6 +178,31 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         assert row["source"] == "slack"
         assert row["task_summary"] == (None if outsider else "Intended behavior.")
         assert row["question"] == (None if outsider else "Is this expected?")
+        assert row["started_by"] == (None if outsider else self._identity(self.user))
+
+    @parameterized.expand([("member_who_may_not_steer",), ("former_member",), ("no_creator",)])
+    def test_started_by_follows_the_row_not_the_steering_gate(self, case: str) -> None:
+        member = User.objects.create_and_join(self.organization, "member@example.com", None, first_name="Mira")
+        task = self._discussion(self.authored, state={"task_summary": "Intended behavior."}, created_by=member)
+        if case == "former_member":
+            OrganizationMembership.objects.filter(user=member, organization=self.organization).delete()
+        elif case == "no_creator":
+            Task.objects.filter(id=task.id).update(created_by=None)
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(access, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_llm_skill
+        ):
+            [row] = self._list()
+
+        assert row["task_summary"] is None
+        assert row["started_by"] == (self._identity(member) if case == "member_who_may_not_steer" else None)
 
     def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:
         three_days_ago = timezone.now() - timedelta(days=3)

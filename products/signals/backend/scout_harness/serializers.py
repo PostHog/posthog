@@ -5000,6 +5000,16 @@ class ScoutReportDiscussionsQuerySerializer(serializers.Serializer):
     )
 
 
+class ScoutDiscussionStarterSerializer(serializers.Serializer):
+    """The project member who started a discussion."""
+
+    user_uuid = serializers.CharField(
+        help_text="The member's stable PostHog user UUID, the same `user_uuid` `scout-members-list` returns."
+    )
+    first_name = serializers.CharField(help_text="The member's first name (may be empty).")
+    last_name = serializers.CharField(help_text="The member's last name (may be empty).")
+
+
 class ScoutReportDiscussionSerializer(serializers.Serializer):
     """One discussion a person opened on a report your scout emitted or edited."""
 
@@ -5037,5 +5047,14 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
             "For a `slack` discussion, the message that started it, in the person's own words. Null when that "
             "person may not steer scouts on this project, or started a later Slack discussion on the same report. "
             "Always null for an `inbox` discussion, because a scout note carried its question."
+        ),
+    )
+    started_by = ScoutDiscussionStarterSerializer(
+        allow_null=True,
+        help_text=(
+            "The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message "
+            "started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an "
+            "`inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has "
+            "no creator, or when the creator no longer has access to this project."
         ),
     )

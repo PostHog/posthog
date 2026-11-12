@@ -9910,6 +9910,18 @@ export const DiscussionSourceEnumApi = {
 } as const
 
 /**
+ * The project member who started a discussion.
+ */
+export interface ScoutDiscussionStarterApi {
+    /** The member's stable PostHog user UUID, the same `user_uuid` `scout-members-list` returns. */
+    user_uuid: string
+    /** The member's first name (may be empty). */
+    first_name: string
+    /** The member's last name (may be empty). */
+    last_name: string
+}
+
+/**
  * One discussion a person opened on a report your scout emitted or edited.
  */
 export interface ScoutReportDiscussionApi {
@@ -9948,6 +9960,8 @@ export interface ScoutReportDiscussionApi {
      * @nullable
      */
     question: string | null
+    /** The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an `inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has no creator, or when the creator no longer has access to this project. */
+    started_by: ScoutDiscussionStarterApi | null
 }
 
 /**
