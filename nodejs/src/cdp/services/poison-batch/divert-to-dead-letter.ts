@@ -17,6 +17,8 @@ const messagesDiverted = new Counter({
 /**
  * The crash guard's set aside for the hog worker. It produces the messages of a flagged partition unchanged
  * to the dead letter topic, where the dead letter worker sorts the poisoned messages from the healthy ones.
+ * When one produce fails, the set aside rejects and the replay produces every message again, including the
+ * ones that already reached the topic, so a healthy message can run twice.
  */
 export function divertToDeadLetter(produce: (message: ProducerMessage) => Promise<void>, group: string): SetAside {
     return async (messages: Message[]): Promise<void> => {

@@ -177,7 +177,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
         offset: number
     ): Promise<string | null> =>
         quarantine.valkey.useClient({ name: 'test' }, (client) =>
-            client.get(batchAttemptsKey(group, partition, offset))
+            client.hget(batchAttemptsKey(group, partition, offset), 'attempts')
         )
 
     const growTopic = async (partitions: number): Promise<void> => {
@@ -267,6 +267,64 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
             defaultConfig.CONSUMER_USE_V2 = configuredV2
         }
     })
+
+    it.each([
+        ['v1', false],
+        ['v2', true],
+    ])(
+        'takes back the attempt of a background task that outlives the guard timeout, with consumer %s',
+        async (_, useV2) => {
+            const configured = {
+                useV2: defaultConfig.CONSUMER_USE_V2,
+                timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+            }
+            defaultConfig.CONSUMER_USE_V2 = useV2
+            // The guard gives up 2s earlier, after twice the 500ms Valkey timeout and a 1s margin.
+            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS = 4_000
+            try {
+                const quarantine = quarantineFor('enforce')
+                const id = await produceInvocation()
+                // A produce that librdkafka keeps retrying through a Kafka outage holds the background task. In
+                // production consumer v2 exits the process on the timeout, so the task never finishes and no
+                // success clears the count. The test cannot kill the process, so with v2 the task fails instead.
+                const stalled: ConsumeBatch = (invocations) => {
+                    if (invocations.length === 0) {
+                        return recordProcessed(invocations)
+                    }
+                    processed.push(...invocations.map((invocation) => invocation.id))
+                    const backgroundTask = new Promise((resolve, reject) =>
+                        setTimeout(() => (useV2 ? reject(new Error('process exited')) : resolve(undefined)), 6_000)
+                    )
+                    return Promise.resolve({ backgroundTask })
+                }
+
+                if (useV2) {
+                    // Consumer v2 gives up on the task and restarts, which reads as a crash without the take back.
+                    const crashes = await crashLoop(quarantine, MAX_ATTEMPTS + 1, stalled)
+                    expect(crashes).toEqual(
+                        Array(MAX_ATTEMPTS + 1).fill(
+                            expect.objectContaining({ message: 'background_task_timeout_after_4000ms' })
+                        )
+                    )
+                    expect(await storedAttempts(quarantine, 0, 0)).toEqual('0')
+                } else {
+                    // Consumer v1 waits for the task, so the take back leaves the batch running and clears the count once it finishes.
+                    await startWorker(quarantine, stalled)
+                    await waitForExpect(
+                        async () => expect(await counter('cdp_batch_attempts_uncounted_total', { group })).toEqual(1),
+                        30_000
+                    )
+                    expect(await storedAttempts(quarantine, 0, 0)).toEqual('0')
+                    await waitForExpect(async () => expect(await storedAttempts(quarantine, 0, 0)).toBeNull(), 30_000)
+                }
+                expect(processed).toEqual(Array(useV2 ? MAX_ATTEMPTS + 1 : 1).fill(id))
+                expect(await counter('cdp_batch_diverted_total', { group, mode: 'enforce' })).toEqual(0)
+            } finally {
+                defaultConfig.CONSUMER_USE_V2 = configured.useV2
+                defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS = configured.timeoutMs
+            }
+        }
+    )
 
     it('diverts a healthy partition together with the poisoned partition it was fetched with', async () => {
         await growTopic(2)

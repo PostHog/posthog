@@ -23,8 +23,14 @@ const batchesDiverted = new Counter({
 
 const batchAttemptsUncounted = new Counter({
     name: 'cdp_batch_attempts_uncounted_total',
-    help: 'Partitions whose attempt was taken back because the batch failed on an unavailable dependency.',
+    help: 'Partitions whose attempt was taken back because the batch failed on an unavailable dependency or its background task outlived the guard timeout.',
     labelNames: ['group'],
+})
+
+const setAsideCeilingReached = new Counter({
+    name: 'cdp_batch_set_aside_ceiling_reached_total',
+    help: 'Flagged partitions the guard did not set aside, because more partitions of the group were flagged within the key TTL than CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS allows. The worker keeps crashing on them.',
+    labelNames: ['group', 'mode'],
 })
 
 export type CrashGuardValkeyConfig = Pick<
@@ -85,13 +91,20 @@ export type CrashGuardSettings = {
     mode: Exclude<CrashGuardMode, 'off'>
     maxAttempts: number
     keyTtlSeconds: number
+    maxFlaggedPartitions: number
+    /** Shorter than CONSUMER_BACKGROUND_TASK_TIMEOUT_MS, so the take back finishes before consumer v2 restarts. */
+    backgroundTaskTimeoutMs: number
 }
 
 type CrashGuardConfig = CrashGuardValkeyConfig &
     Pick<
         CdpConfig,
-        'CDP_BATCH_QUARANTINE_MODE' | 'CDP_BATCH_QUARANTINE_MAX_ATTEMPTS' | 'CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS'
-    >
+        | 'CDP_BATCH_QUARANTINE_MODE'
+        | 'CDP_BATCH_QUARANTINE_MAX_ATTEMPTS'
+        | 'CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS'
+        | 'CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS'
+    > &
+    Pick<CommonConfig, 'CONSUMER_BACKGROUND_TASK_TIMEOUT_MS'>
 
 export function createCrashGuardSettings(config: CrashGuardConfig): CrashGuardSettings | null {
     const mode = parseCrashGuardMode(config.CDP_BATCH_QUARANTINE_MODE)
@@ -100,8 +113,27 @@ export function createCrashGuardSettings(config: CrashGuardConfig): CrashGuardSe
     }
     const maxAttempts = positiveInteger(config, 'CDP_BATCH_QUARANTINE_MAX_ATTEMPTS')
     const keyTtlSeconds = positiveInteger(config, 'CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS')
-    return { valkey: createCrashGuardValkeyPool(config), mode, maxAttempts, keyTtlSeconds }
+    const maxFlaggedPartitions = positiveInteger(config, 'CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS')
+    const valkeyTimeoutMs = positiveInteger(config, 'CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS')
+    // The take back waits for a pooled client and then for its command, each up to the Valkey timeout.
+    const backgroundTaskTimeoutMs =
+        positiveInteger(config, 'CONSUMER_BACKGROUND_TASK_TIMEOUT_MS') - 2 * valkeyTimeoutMs - TAKE_BACK_MARGIN_MS
+    if (backgroundTaskTimeoutMs < 1) {
+        throw new Error(
+            `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS must exceed twice CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS plus ${TAKE_BACK_MARGIN_MS}ms, got "${config.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS}"`
+        )
+    }
+    return {
+        valkey: createCrashGuardValkeyPool(config),
+        mode,
+        maxAttempts,
+        keyTtlSeconds,
+        maxFlaggedPartitions,
+        backgroundTaskTimeoutMs,
+    }
 }
+
+const TAKE_BACK_MARGIN_MS = 1000
 
 export type ConsumedBatch = { backgroundTask: Promise<unknown> }
 
@@ -114,14 +146,28 @@ export const batchAttemptsKey = (group: string, partition: number, start: number
     `cdp:batch-attempts:${group}:${partition}:${start}`
 
 // A crash in the other partitions replays the fetch after a flagged partition was set aside, and the marker
-// keeps the replay from setting it aside a second time.
+// skips the messages that the set aside already produced. It does not rule out a second copy: when one
+// produce fails after others succeeded, run throws before the marker is written and the replay produces
+// them all again. That is the at-least-once delivery the worker gives every message.
 export const batchSetAsideKey = (group: string, partition: number, start: number): string =>
     `cdp:batch-set-aside:${group}:${partition}:${start}`
 
+// A fetch after a restart can stop short of the offset that crashed. The partition's later fetches then
+// start at a new offset, so their counts start over, and this key sets them aside through that offset.
+export const batchDivertThroughKey = (group: string, partition: number): string =>
+    `cdp:batch-divert-through:${group}:${partition}`
+
+export const batchFlaggedPartitionsKey = (group: string): string => `cdp:batch-flagged-partitions:${group}`
+
 type BatchStart = { partition: number; start: number; last: number; messages: number }
 
-/** highestOffset is the highest offset that any attempt from this start fetched, this one included. */
-type CountedStart = BatchStart & { attempts: number; highestOffset: number }
+/**
+ * highestOffset is the highest offset that any attempt from this start fetched, this one included.
+ * divertThrough is the offset through which a set aside of the partition reaches, or -1.
+ */
+type CountedStart = BatchStart & { attempts: number; highestOffset: number; divertThrough: number }
+
+type Diverted = CountedStart & { upTo: number }
 
 // librdkafka reports a broker outage on a produce as a delivery error that has no isRetriable flag.
 const KAFKA_OUTAGE_CODES: ReadonlySet<number> = new Set([
@@ -165,6 +211,42 @@ redis.call('EXPIRE', KEYS[1], ARGV[2])
 return {attempts, highest}
 `
 
+// A key that expired or was cleared stays gone, so a take back cannot leave a key without a TTL.
+const UNCOUNT_ATTEMPT_SCRIPT = `
+if redis.call('EXISTS', KEYS[1]) == 0 then
+    return 0
+end
+redis.call('HINCRBY', KEYS[1], 'attempts', -1)
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return 1
+`
+
+// Admits a flagged partition while the group has fewer than ARGV[2] admitted partitions. A partition admitted
+// before stays admitted, so a replay never runs messages that were already set aside. Every script here
+// touches one key, because CDP Valkey runs in cluster mode and refuses a script whose keys sit in two slots.
+const ADMIT_FLAGGED_SCRIPT = `
+local admitted = redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1
+if not admitted and redis.call('SCARD', KEYS[1]) < tonumber(ARGV[2]) then
+    redis.call('SADD', KEYS[1], ARGV[1])
+    admitted = true
+end
+if not admitted then
+    return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+return 1
+`
+
+const RAISE_DIVERT_THROUGH_SCRIPT = `
+local through = tonumber(redis.call('GET', KEYS[1]))
+if through == nil or tonumber(ARGV[1]) > through then
+    redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+else
+    redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return 1
+`
+
 /**
  * Counts how often each partition's batch of a consumer group started without finishing. A count above
  * maxAttempts means a fetch that held the batch killed the worker. A healthy partition that shares that
@@ -186,16 +268,20 @@ export class CrashGuard {
     /**
      * The job queue calls this for every fetched batch, in place of consuming it directly. The order is:
      * 1. count: add 1 to the attempt count of each partition in the fetch.
-     * 2. In enforce mode, set aside the messages of each partition whose count is above maxAttempts, through
-     *    the setAside callback. This finishes before anything else runs. If it fails, this throws and no
-     *    offset is stored.
-     * 3. markSetAside: record the highest offset set aside for each partition.
-     * 4. consume the messages of the other partitions.
-     * 5. clear: when the background task of the consume finishes, delete the counts of the consumed partitions.
+     * 2. admit: a partition whose count is above maxAttempts is flagged. It is admitted for a set aside while
+     *    fewer than maxFlaggedPartitions partitions of the group were admitted within the key TTL. A flagged
+     *    partition past that ceiling runs as without the guard, so the worker stalls on it.
+     * 3. In enforce mode, set aside the messages of each admitted partition, and the messages of any other
+     *    partition up to the offset that an earlier set aside of it reached, through the setAside callback.
+     *    This finishes before anything else runs. If it fails, this throws and no offset is stored.
+     * 4. markSetAside: record the highest offset set aside for each partition.
+     * 5. consume the other messages.
+     * 6. clear: when the background task of the consume finishes, delete the counts of the consumed partitions.
      *
      * A crash at any step leaves the counts in place. The next start of the worker fetches the same offsets
-     * and counts them again. A dependency error in the set aside, the consume or its background
-     * task calls uncount, so an outage does not count toward a set aside.
+     * and counts them again. A dependency error in the set aside, the consume or its background task calls
+     * uncount, and so does a background task that outlives backgroundTaskTimeoutMs, so an outage does not
+     * count toward a set aside.
      */
     public async run(
         messages: Message[],
@@ -207,51 +293,93 @@ export class CrashGuard {
 
         const counted = await this.count(batchStarts(messages))
         const { mode, maxAttempts } = this.settings
-        const poisoned = counted?.filter((x) => x.attempts > maxAttempts) ?? []
-        for (const batch of poisoned) {
-            batchesDiverted.labels(this.group, mode).inc()
-            logger.warn(
-                '☠️',
-                mode === 'enforce'
-                    ? 'batch crashed the worker repeatedly, setting it aside'
-                    : 'batch crashed the worker repeatedly and would be diverted',
-                { group: this.group, mode, ...batch }
-            )
+        const flagged = counted?.filter((x) => x.attempts > maxAttempts) ?? []
+        const admitted = await this.admit(flagged)
+        for (const batch of flagged) {
+            if (admitted.has(batch.partition)) {
+                batchesDiverted.labels(this.group, mode).inc()
+                logger.warn(
+                    '☠️',
+                    mode === 'enforce'
+                        ? 'batch crashed the worker repeatedly, setting it aside'
+                        : 'batch crashed the worker repeatedly and would be diverted',
+                    { group: this.group, mode, ...batch }
+                )
+            } else {
+                setAsideCeilingReached.labels(this.group, mode).inc()
+                logger.error('☠️', 'batch crashed the worker repeatedly, but too many partitions are flagged', {
+                    group: this.group,
+                    mode,
+                    maxFlaggedPartitions: this.settings.maxFlaggedPartitions,
+                    ...batch,
+                })
+            }
         }
 
-        const setAsideStarts = mode === 'enforce' ? poisoned : []
-        const setAsidePartitions = new Set(setAsideStarts.map((x) => x.partition))
-        const isSetAside = (message: Message) => setAsidePartitions.has(message.partition)
-        const setAsideUpTo = await this.setAsideUpTo(setAsideStarts)
-        const pending = messages.filter((x) => isSetAside(x) && x.offset > (setAsideUpTo.get(x.partition) ?? -1))
+        const diverted: Diverted[] =
+            mode === 'enforce'
+                ? (counted ?? []).flatMap((batch) =>
+                      admitted.has(batch.partition)
+                          ? [{ ...batch, upTo: Infinity }]
+                          : batch.divertThrough >= batch.start
+                            ? [{ ...batch, upTo: batch.divertThrough }]
+                            : []
+                  )
+                : []
+        const upTo = new Map(diverted.map((x) => [x.partition, x.upTo]))
+        const isDiverted = (message: Message) => message.offset <= (upTo.get(message.partition) ?? -1)
+        const setAsideUpTo = await this.setAsideUpTo(diverted)
+        const pending = messages.filter((x) => isDiverted(x) && x.offset > (setAsideUpTo.get(x.partition) ?? -1))
+        const uncount = this.uncountOnce(counted)
         if (pending.length > 0) {
             // Consumer v1 stores offsets even when backgroundTask rejects, so only a throw here keeps a failed
             // set aside from being committed.
-            await this.uncountOnDependencyError(counted, this.setAside(pending))
-            await this.markSetAside(setAsideStarts, pending)
+            await this.uncountOnDependencyError(uncount, this.setAside(pending))
+            await this.markSetAside(diverted, pending)
         }
         const { backgroundTask } = await this.uncountOnDependencyError(
-            counted,
-            consume(messages.filter((x) => !isSetAside(x)))
+            uncount,
+            consume(messages.filter((x) => !isDiverted(x)))
         )
-        const done = this.uncountOnDependencyError(counted, backgroundTask)
+        const done = this.uncountOnDependencyError(uncount, this.uncountOnTimeout(uncount, backgroundTask))
 
         // A partition set aside keeps its key, so a crash before the commit sets the replay aside at once.
-        const cleared = counted?.filter((x) => !setAsidePartitions.has(x.partition))
+        const cleared = counted?.filter((x) => !(mode === 'enforce' && admitted.has(x.partition)))
         return { backgroundTask: cleared ? done.then(() => this.clear(cleared)) : done }
     }
 
     // A personhog, Postgres or Kafka outage fails every batch at its offset, which would read as poison.
     // Other errors, and crashes that kill the process before this catch, keep their count.
-    private async uncountOnDependencyError<T>(counted: CountedStart[] | null, work: Promise<T>): Promise<T> {
+    private async uncountOnDependencyError<T>(uncount: () => Promise<void>, work: Promise<T>): Promise<T> {
         try {
             return await work
         } catch (error) {
-            if (counted && isDependencyError(error)) {
-                await this.uncount(counted)
+            if (isDependencyError(error)) {
+                await uncount()
             }
             throw error
         }
+    }
+
+    // Consumer v2 restarts the worker when a background task outlives CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+    // and the restart would count as a crash. A task that slow waits on a dependency, such as a produce that
+    // librdkafka retries through a Kafka outage. The task keeps running and nothing rejects, because
+    // consumer v1 stores the offsets of a background task even when it rejects.
+    private uncountOnTimeout<T>(uncount: () => Promise<void>, task: Promise<T>): Promise<T> {
+        const timer = setTimeout(() => {
+            logger.warn('☠️', 'background task outlived the crash guard timeout, taking back its attempt', {
+                group: this.group,
+                timeoutMs: this.settings.backgroundTaskTimeoutMs,
+            })
+            void uncount()
+        }, this.settings.backgroundTaskTimeoutMs)
+        return task.finally(() => clearTimeout(timer))
+    }
+
+    // A timeout and a later dependency error of the same task must take back one attempt, not two.
+    private uncountOnce(counted: CountedStart[] | null): () => Promise<void> {
+        let taken: Promise<void> | null = null
+        return () => (taken ??= counted ? this.uncount(counted) : Promise.resolve())
     }
 
     /**
@@ -265,9 +393,7 @@ export class CrashGuard {
                 { name: 'cdp-batch-attempts-uncount' },
                 (pipeline) => {
                     for (const key of this.keys(counted)) {
-                        pipeline.decr(key)
-                        // DECR on a key that expired creates it at -1 without a TTL.
-                        pipeline.expire(key, this.settings.keyTtlSeconds)
+                        pipeline.eval(UNCOUNT_ATTEMPT_SCRIPT, 1, key, this.settings.keyTtlSeconds)
                     }
                 }
             )
@@ -285,13 +411,55 @@ export class CrashGuard {
     }
 
     /**
-     * Reads the set-aside marker of each flagged partition before the set aside. run sets aside only the
+     * Admits the flagged partitions that fit under the ceiling and returns them. When Valkey fails, this
+     * admits none, so the batch runs and crashes again rather than going aside unchecked.
+     */
+    private async admit(flagged: CountedStart[]): Promise<Set<number>> {
+        const admitted = new Set<number>()
+        if (flagged.length === 0) {
+            return admitted
+        }
+        try {
+            const { valkey, keyTtlSeconds, maxFlaggedPartitions } = this.settings
+            const results = await valkey.usePipeline({ name: 'cdp-batch-flagged-admit' }, (pipeline) => {
+                for (const { partition } of flagged) {
+                    pipeline.eval(
+                        ADMIT_FLAGGED_SCRIPT,
+                        1,
+                        batchFlaggedPartitionsKey(this.group),
+                        partition,
+                        maxFlaggedPartitions,
+                        keyTtlSeconds
+                    )
+                }
+            })
+            flagged.forEach(({ partition }, i) => {
+                const [error, reply] = results?.[i] ?? [null, 0]
+                if (error) {
+                    throw error
+                }
+                if (reply === 1) {
+                    admitted.add(partition)
+                }
+            })
+        } catch (error) {
+            logger.warn('☠️', 'could not admit flagged partitions, running them', {
+                group: this.group,
+                error: String(error),
+            })
+            admitted.clear()
+        }
+        return admitted
+    }
+
+    /**
+     * Reads the set-aside marker of each diverted partition before the set aside. run sets aside only the
      * messages above the marker, so a replay of a fetch that was already set aside handles only the new
      * messages. The marker holds the highest offset set aside, because a replay starts at the same offset but
      * can fetch more. A marker Valkey cannot read counts as missing: a second copy beats a message that was
      * never set aside.
      */
-    private async setAsideUpTo(flagged: CountedStart[]): Promise<Map<number, number>> {
+    private async setAsideUpTo(flagged: Diverted[]): Promise<Map<number, number>> {
         const upTo = new Map<number, number>()
         if (flagged.length === 0) {
             return upTo
@@ -323,9 +491,11 @@ export class CrashGuard {
     /**
      * Writes the set-aside marker after a set aside succeeded. The marker matters only if the worker crashes
      * after the set aside and before the offsets are stored. A failure here only logs, so the replay sets the
-     * same messages aside a second time, which is safer than losing them.
+     * same messages aside a second time, which is safer than losing them. For an admitted partition it also
+     * raises the divert-through offset to the highest offset that crashed. If that write fails, the later
+     * fetches count from zero, as they would without it.
      */
-    private async markSetAside(flagged: CountedStart[], setAside: Message[]): Promise<void> {
+    private async markSetAside(flagged: Diverted[], setAside: Message[]): Promise<void> {
         const upTo = new Map<number, number>()
         for (const { partition, offset } of setAside) {
             upTo.set(partition, Math.max(offset, upTo.get(partition) ?? offset))
@@ -338,6 +508,15 @@ export class CrashGuard {
                         batchSetAsideKey(this.group, partition, start),
                         upTo.get(partition)!,
                         'EX',
+                        keyTtlSeconds
+                    )
+                }
+                for (const { partition, highestOffset } of flagged.filter((x) => x.upTo === Infinity)) {
+                    pipeline.eval(
+                        RAISE_DIVERT_THROUGH_SCRIPT,
+                        1,
+                        batchDivertThroughKey(this.group, partition),
+                        highestOffset,
                         keyTtlSeconds
                     )
                 }
@@ -367,15 +546,23 @@ export class CrashGuard {
             const results = await valkey.usePipeline({ name: 'cdp-batch-attempts-count' }, (pipeline) => {
                 for (const batch of starts) {
                     pipeline.eval(COUNT_ATTEMPT_SCRIPT, 1, this.keys([batch])[0], batch.last, keyTtlSeconds)
+                    pipeline.get(batchDivertThroughKey(this.group, batch.partition))
                 }
             })
             const counted = starts.map((batch, i) => {
-                const [error, reply] = results![i]
-                if (error) {
-                    throw error
+                const [error, reply] = results![2 * i]
+                const [throughError, through] = results![2 * i + 1]
+                if (error || throughError) {
+                    throw error ?? throughError
                 }
                 const [attempts, highestOffset] = reply as [number, number]
-                return { ...batch, attempts, highestOffset }
+                const divertThrough = Number(through ?? NaN)
+                return {
+                    ...batch,
+                    attempts,
+                    highestOffset,
+                    divertThrough: Number.isSafeInteger(divertThrough) ? divertThrough : -1,
+                }
             })
             for (const { attempts } of counted) {
                 batchAttemptsMarked.labels(this.group, attempts === 1 ? 'new' : 'repeat').inc()

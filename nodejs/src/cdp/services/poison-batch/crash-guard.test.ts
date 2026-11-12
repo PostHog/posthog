@@ -50,6 +50,8 @@ describe('CrashGuard', () => {
         mode,
         maxAttempts,
         keyTtlSeconds: 60 * 60,
+        maxFlaggedPartitions: 100,
+        backgroundTaskTimeoutMs: 10_000,
     })
 
     const storedKey = (partition: number, start: number) =>
@@ -124,6 +126,65 @@ describe('CrashGuard', () => {
             expect(consume.mock.calls).toEqual([[healthy], [healthy]])
         }
     )
+
+    it('sets aside through the highest offset that crashed when the fetch after a restart is shorter', async () => {
+        const produce = jest.fn(setAside)
+        guard = new CrashGuard(settings(valkey, 'enforce', 2), group, produce)
+        await crashRepeatedly(messages(0, 100, 5), 2)
+        const consume = jest.fn(succeed)
+
+        await (
+            await guard.run(messages(0, 100, 2), consume)
+        ).backgroundTask
+        await (
+            await guard.run(messages(0, 102, 5), consume)
+        ).backgroundTask
+
+        expect(produce.mock.calls).toEqual([[messages(0, 100, 2)], [messages(0, 102, 3)]])
+        expect(consume.mock.calls).toEqual([[[]], [messages(0, 105, 2)]])
+    })
+
+    it('stops setting aside once more partitions are flagged than the ceiling allows, and keeps the ones it took', async () => {
+        const produce = jest.fn(setAside)
+        guard = new CrashGuard({ ...settings(valkey, 'enforce', 2), maxFlaggedPartitions: 1 }, group, produce)
+        await crashRepeatedly(messages(0, 100, 5), 2)
+        await crashRepeatedly(messages(1, 40, 5), 2)
+        const consume = jest.fn(succeed)
+
+        await (
+            await guard.run(messages(0, 100, 5), consume)
+        ).backgroundTask
+        await (
+            await guard.run(messages(1, 40, 5), consume)
+        ).backgroundTask
+        await (
+            await guard.run(messages(0, 100, 5), consume)
+        ).backgroundTask
+
+        expect(produce.mock.calls).toEqual([[messages(0, 100, 5)]])
+        expect(consume.mock.calls).toEqual([[[]], [messages(1, 40, 5)], [[]]])
+        expect(await counter('cdp_batch_set_aside_ceiling_reached_total', { group, mode: 'enforce' })).toEqual(1)
+    })
+
+    it('takes the attempt back once when the background task outlives the guard timeout', async () => {
+        guard = new CrashGuard({ ...settings(valkey), backgroundTaskTimeoutMs: 50 }, group, setAside)
+        await crashRepeatedly(messages(0, 0, 5), 2)
+        let failProduce: (error: Error) => void = () => {}
+        const hanging = new Promise<void>((_, reject) => (failProduce = reject))
+        const uncounted = () => counter('cdp_batch_attempts_uncounted_total', { group })
+
+        const { backgroundTask } = await guard.run(messages(0, 0, 5), () =>
+            Promise.resolve({ backgroundTask: hanging })
+        )
+        for (let waited = 0; (await uncounted()) === 0 && waited < 2000; waited += 10) {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        failProduce(unavailable())
+        await expect(backgroundTask).rejects.toThrow('personhog unavailable')
+
+        expect(await uncounted()).toEqual(1)
+        expect((await storedKey(0, 0))!.attempts).toEqual('2')
+    })
 
     it.each(['cdp-batch-set-aside-get', 'cdp-batch-set-aside-set'])(
         'sets the flagged partition aside again on a replay when the %s pipeline fails',
@@ -210,7 +271,9 @@ describe('CrashGuard', () => {
         Object.assign(new Error('Local: Message timed out'), { code: CODES.ERRORS.ERR__MSG_TIMED_OUT })
     const failOnKafkaInBackground = () => Promise.resolve({ backgroundTask: Promise.reject(kafkaTimedOut()) })
     const failOnDependencyAfterCorruptingTheKey = async () => {
-        await valkey.useClient({ name: 'test' }, (client) => client.set(batchAttemptsKey(group, 0, 0), 'corrupt'))
+        await valkey.useClient({ name: 'test' }, (client) =>
+            client.hset(batchAttemptsKey(group, 0, 0), 'attempts', 'corrupt')
+        )
         throw unavailable()
     }
 
@@ -373,6 +436,9 @@ describe('CrashGuard', () => {
         ['CDP_BATCH_QUARANTINE_MAX_ATTEMPTS', 0],
         ['CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS', NaN],
         ['CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS', 2.5],
+        ['CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS', 0],
+        // The take back after a timeout needs two Valkey timeouts and a margin before the consumer gives up.
+        ['CONSUMER_BACKGROUND_TASK_TIMEOUT_MS', 1500],
     ])('refuses %s set to %p', (name, value) => {
         expect(() =>
             createCrashGuardSettings({ ...defaultConfig, CDP_BATCH_QUARANTINE_MODE: 'shadow', [name]: value })
