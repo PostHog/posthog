@@ -58,6 +58,8 @@ export class ActivityQueryRequest {
     }
 
     perform<N extends DataNode>(query: N, refresh?: RefreshType): Promise<NonNullable<N['response']>> {
-        return this.run((signal, queryId) => performQuery(query, { signal }, refresh, queryId))
+        return this.run((signal, queryId) =>
+            performQuery(query, { signal, queryTelemetry: 'metadata' }, refresh, queryId)
+        )
     }
 }

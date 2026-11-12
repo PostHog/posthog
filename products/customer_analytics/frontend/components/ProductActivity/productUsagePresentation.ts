@@ -2,11 +2,25 @@ import type { DotMatrixCountBin, DotMatrixGroup, DotMatrixSeries } from 'lib/com
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    AccountActivityMatrixEmptyReason,
+    BookActivityMatrixEmptyReason,
     BookActivityInterval,
     BookActivityMatrixFirstUse,
     BookActivityMatrixGrouping,
     BookActivityMatrixProduct,
 } from '~/queries/schema/schema-general'
+
+export function getActivityMatrixEmptyMessage(
+    reason: AccountActivityMatrixEmptyReason | BookActivityMatrixEmptyReason | undefined
+): string | null {
+    const messages: Record<AccountActivityMatrixEmptyReason | BookActivityMatrixEmptyReason, string> = {
+        no_metrics: 'Add a usage metric in project settings to see activity here.',
+        no_group_type: 'Choose an account group type in Customer analytics settings to see activity here.',
+        no_external_id: "This account isn't linked to any activity yet.",
+        empty_book: 'No linked account is available. Check the account link and your access.',
+    }
+    return reason ? messages[reason] : null
+}
 
 export function getProductUsageGrouping(
     products: BookActivityMatrixProduct[],

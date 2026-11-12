@@ -61,7 +61,7 @@ export async function queryDotMatrixSource(
                     accountId: context.accountId,
                     weeks: context.weeks,
                 },
-                { signal },
+                { signal, queryTelemetry: 'metadata' },
                 'blocking',
                 queryId
             )
@@ -77,7 +77,7 @@ export async function queryDotMatrixSource(
                     interval: 'week',
                     includeFirstUse: context.includeFirstUse ?? false,
                 },
-                { signal },
+                { signal, queryTelemetry: 'metadata' },
                 'blocking',
                 queryId
             )
@@ -89,7 +89,7 @@ export async function queryDotMatrixSource(
                 query: source.query,
                 result: await performQuery(
                     createMatrixHogQLQuery(source.query, context),
-                    { signal },
+                    { signal, queryTelemetry: 'metadata' },
                     'blocking',
                     queryId
                 ),

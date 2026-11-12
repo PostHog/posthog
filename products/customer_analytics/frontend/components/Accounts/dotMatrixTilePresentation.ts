@@ -1,6 +1,7 @@
 import type { ActivityMatrixProps } from '../ProductActivity/activityMatrixTypes'
 import type { DotMatrixSourceMapping } from '../ProductActivity/dotMatrixTileConfig'
 import { getHogQLActivityMatrix, getHogQLLimitNotice } from '../ProductActivity/hogqlActivityMatrix'
+import { getActivityMatrixEmptyMessage } from '../ProductActivity/productUsagePresentation'
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX, getAccountActivityMatrixProps } from './accountActivityMatrix'
 import { getBookActivityMatrixProps } from './bookActivityMatrix'
 import type { DotMatrixTileResult } from './dotMatrixTileQuery'
@@ -32,12 +33,6 @@ export function getDotMatrixTilePresentation(
         }
     }
     const reason = response.result.emptyReason
-    const messages: Record<string, string> = {
-        no_metrics: 'Add a usage metric in project settings to see activity here.',
-        no_group_type: 'Choose an account group type in Customer analytics settings to see activity here.',
-        no_external_id: "This account isn't linked to any activity yet.",
-        empty_book: 'No linked account is available. Check the account link and your access.',
-    }
     const matrix =
         response.kind === 'usage_metrics'
             ? getAccountActivityMatrixProps(response.result, selected)
@@ -45,7 +40,7 @@ export function getDotMatrixTilePresentation(
     return {
         matrix: reason || !response.result.data.length ? { ...matrix, rows: [], data: [] } : matrix,
         error: null,
-        empty: reason ? messages[reason] : `No activity for this account in the last ${weeks} weeks.`,
+        empty: getActivityMatrixEmptyMessage(reason) ?? `No activity for this account in the last ${weeks} weeks.`,
         notices: response.result.truncated
             ? [
                   response.kind === 'usage_metrics'
