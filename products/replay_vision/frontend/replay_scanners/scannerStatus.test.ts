@@ -17,7 +17,7 @@ const HEALTHY: ScannerStatusFields = {
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
     filter_error: null,
-    unrunnable_reason: null,
+    disabled_reason: null,
 }
 
 const DROUGHT = { everScanned: true, samplingRate: 1 }
@@ -32,7 +32,7 @@ describe('scannerStatus', () => {
     test.each([
         ['running when nothing is wrong', {}, {}, 'running'],
         ['off wins over every other problem', { enabled: false, limit_reached: true }, { quotaExhausted: true }, 'off'],
-        ['off at 0% sampling, ahead of a reached limit', { sampling_rate: 0, limit_reached: true }, {}, 'off'],
+        ['off at 0% sampling, ahead of a reached limit', { sampling_rate: 0, limit_reached: true }, {}, 'no_sampling'],
         [
             "the scanner's own limit ahead of the org quota",
             { limit_reached: true },
@@ -47,18 +47,6 @@ describe('scannerStatus', () => {
             'replay_off',
         ],
         ['off wins over replay being off', { enabled: false }, { recordingsBlock: 'replay-off' as const }, 'off'],
-        [
-            'missing AI consent explains an off scanner',
-            { enabled: false, unrunnable_reason: 'no_ai_consent' as const },
-            { recordingsBlock: 'replay-off' as const },
-            'no_ai_consent',
-        ],
-        [
-            'a creator who lost access explains an off scanner',
-            { enabled: false, unrunnable_reason: 'creator_lost_access' as const },
-            {},
-            'creator_lost_access',
-        ],
         [
             'no recordings instead of blaming the filters',
             {},
@@ -99,6 +87,18 @@ describe('scannerStatus', () => {
             { quotaExhausted: false, drought: null, now: NOW, ...options }
         )
         expect(status.kind).toBe(expected)
+    })
+
+    it.each([
+        ['free_credits_used' as const, 'free_credits_used'],
+        [null, null],
+    ])('an off scanner carries why it is off (%s)', (disabled_reason, expected) => {
+        expect(
+            scannerStatus(
+                { ...HEALTHY, enabled: false, disabled_reason },
+                { quotaExhausted: true, drought: null, now: NOW, recordingsBlock: 'replay-off' }
+            )
+        ).toEqual({ kind: 'off', reason: expected })
     })
 
     it('reports the stretched interval so the strip can say how often it checks', () => {

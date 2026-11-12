@@ -163,7 +163,7 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "Human-readable sync frequency value."
+                        "description": "How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead."
                     },
                     "sync_time_of_day": {
                         "anyOf": [

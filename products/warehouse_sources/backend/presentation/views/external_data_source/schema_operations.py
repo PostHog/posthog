@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     known_source_key,
     new_source_requires_ssl,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
@@ -91,7 +92,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     sync_frequency = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Human-readable sync frequency value.",
+        help_text=SYNC_FREQUENCY_HELP_TEXT,
     )
     sync_time_of_day = serializers.TimeField(
         required=False,

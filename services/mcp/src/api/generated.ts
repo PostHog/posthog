@@ -22537,6 +22537,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `bounce` - Bounce
+     * * `complaint` - Complaint
+     * * `manual` - Manual
+     */
+    export type BulkSuppressionReasonEnum = typeof BulkSuppressionReasonEnum[keyof typeof BulkSuppressionReasonEnum];
+
+
+    export const BulkSuppressionReasonEnum = {
+      Bounce: 'bounce',
+      Complaint: 'complaint',
+      Manual: 'manual',
+    } as const;
+
+    export interface BulkSuppressionEntry {
+      /**
+         * The email address to suppress. Matched case-insensitively.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.
+       *
+       * * `bounce` - Bounce
+       * * `complaint` - Complaint
+       * * `manual` - Manual */
+      reason?: BulkSuppressionReasonEnum;
+    }
+
+    export interface BulkAddSuppressionsRequest {
+      /** Addresses to suppress, at most 1000 per request. */
+      suppressions: BulkSuppressionEntry[];
+    }
+
+    export interface BulkAddSuppressionsResult {
+      /** Number of distinct addresses received, after lowercasing. */
+      total: number;
+      /** Number of addresses added to the suppression list. */
+      created: number;
+      /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+      already_present: number;
+    }
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial
@@ -38205,7 +38247,7 @@ export namespace Schemas {
          * @maximum 100000000
          */
       monthly_credit_budget?: number;
-      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
       free_only?: boolean;
       /**
          * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
@@ -50486,7 +50528,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -50501,7 +50542,6 @@ export namespace Schemas {
 
 
     export const SettableSyncFrequencyEnum = {
-      Never: 'never',
       '5min': '5min',
       '15min': '15min',
       '30min': '30min',
@@ -50612,9 +50652,8 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync. The fastest sync frequency is 5 minutes.
+      /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
        *
-       * * `never` - never
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -50772,7 +50811,7 @@ export namespace Schemas {
          */
       incremental_field_type?: string | null;
       /**
-         * Human-readable sync frequency value.
+         * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
          * @nullable
          */
       sync_frequency?: string | null;
@@ -54313,6 +54352,37 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubCodeScanningScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      rule_id: string | null;
+      rule_severity: string | null;
+      security_severity_level: string | null;
+      tool_name: string | null;
+      location_path: string | null;
+      location_start_line: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
+    }
+
+    export interface GithubDependabotScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      severity: string | null;
+      ghsa_id: string | null;
+      cve_id: string | null;
+      package_ecosystem: string | null;
+      package_name: string | null;
+      vulnerable_version_range: string | null;
+      first_patched_version: string | null;
+      manifest_path: string | null;
+      dependency_scope: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
+    }
+
     export interface GithubIssueDependencyRef {
       repository: string;
       number: number;
@@ -54329,6 +54399,16 @@ export namespace Schemas {
       author_login?: string | null;
       author_association?: string | null;
       depends_on_issues?: GithubIssueDependencyRef[];
+    }
+
+    export interface GithubSecretScanningScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      secret_type: string | null;
+      validity: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
     }
 
     export interface GitlabIssueSignalExtra {
@@ -61635,6 +61715,9 @@ export namespace Schemas {
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
      * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -61753,6 +61836,9 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      GithubDependabot: 'github_dependabot',
+      GithubCodeScanning: 'github_code_scanning',
+      GithubSecretScanning: 'github_secret_scanning',
     } as const;
 
     /**
@@ -61920,7 +62006,10 @@ export namespace Schemas {
        * * `google_play_console` - Google Play Console
        * * `azure_application_insights` - Azure Application Insights
        * * `appsignal` - AppSignal
-       * * `cursor` - Cursor */
+       * * `cursor` - Cursor
+       * * `github_dependabot` - GitHub Dependabot
+       * * `github_code_scanning` - GitHub code scanning
+       * * `github_secret_scanning` - GitHub secret scanning */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -77127,12 +77216,22 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
-    export type UnrunnableReasonEnum = typeof UnrunnableReasonEnum[keyof typeof UnrunnableReasonEnum];
+    /**
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted
+     */
+    export type ScannerDisabledReasonEnum = typeof ScannerDisabledReasonEnum[keyof typeof ScannerDisabledReasonEnum];
 
 
-    export const UnrunnableReasonEnum = {
+    export const ScannerDisabledReasonEnum = {
+      Manual: 'manual',
+      FreeCreditsUsed: 'free_credits_used',
       NoAiConsent: 'no_ai_consent',
       CreatorLostAccess: 'creator_lost_access',
+      ExperimentDeleted: 'experiment_deleted',
     } as const;
 
     /**
@@ -77209,7 +77308,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -77272,8 +77371,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason: ScannerDisabledReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -87198,9 +87303,8 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync. The fastest sync frequency is 5 minutes.
+      /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
        *
-       * * `never` - never
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -91364,7 +91468,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -91427,8 +91531,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason?: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason?: ScannerDisabledReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
@@ -104945,6 +105055,9 @@ export namespace Schemas {
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
      * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -105063,6 +105176,9 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      GithubDependabot: 'github_dependabot',
+      GithubCodeScanning: 'github_code_scanning',
+      GithubSecretScanning: 'github_secret_scanning',
     } as const;
 
     /**
@@ -105393,7 +105509,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -105523,7 +105639,10 @@ export namespace Schemas {
        * * `google_play_console` - google_play_console
        * * `azure_application_insights` - azure_application_insights
        * * `appsignal` - appsignal
-       * * `cursor` - cursor */
+       * * `cursor` - cursor
+       * * `github_dependabot` - github_dependabot
+       * * `github_code_scanning` - github_code_scanning
+       * * `github_secret_scanning` - github_secret_scanning */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
