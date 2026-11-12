@@ -1318,7 +1318,7 @@ describe('dashboardLogic', () => {
                         expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
                     }
                     expect(logic.values.waitingTileRefresh).toBeNull()
-                    // Each tab switch must not count a cancelled tile into "X out of Y" a second time.
+                    // Only the opened target tab's tile joins the batch. The left tiles are cancelled and reloaded, so they must not be counted a second time.
                     expect(logic.values.refreshMetrics.total).toEqual(totalBeforeSwitch + 1)
 
                     // A hidden browser tab pauses disposables and reruns them on return, so a finished one must not stay.
