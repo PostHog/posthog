@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="evaluationreportrun",
             name="delivery_destinations",
-            field=models.JSONField(default=list),
+            field=models.JSONField(db_default=[], default=list),
         ),
     ]

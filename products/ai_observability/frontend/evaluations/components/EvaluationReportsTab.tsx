@@ -127,7 +127,8 @@ export function EvaluationReportsTab({
         )
     }
 
-    const isWriting = generateResultLoading || !!waitingForNewReportSince
+    // The wait starts from an empty timestamp when the evaluation has no report yet.
+    const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const savedDraft = activeReport ? draftFromReport(activeReport) : null
 
     return (

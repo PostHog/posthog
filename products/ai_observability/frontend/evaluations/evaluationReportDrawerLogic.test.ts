@@ -62,10 +62,10 @@ describe('evaluationReportDrawerLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: [REPORT] },
-                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/runs/': ({ request }) => [
-                    200,
-                    runsPages[new URL(request.url).searchParams.get('offset') ?? '0'],
-                ],
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/runs/': ({ request }) => {
+                    const page = runsPages[new URL(request.url).searchParams.get('offset') ?? '0']
+                    return page ? [200, page] : [500, {}]
+                },
             },
             patch: {
                 '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': async ({ request }) => {
@@ -131,14 +131,34 @@ describe('evaluationReportDrawerLogic', () => {
         reportLogic.actions.setDraftReportPromptGuidance('Unsaved guidance')
         reportLogic.actions.setDraftEmailValue('alerts@example.com')
         reportLogic.actions.saveDestinations()
-        await expectLogic(reportLogic).toDispatchActions(['updateReportSuccess'])
+        await expectLogic(reportLogic).toDispatchActions(['saveReportDestinationsSuccess'])
 
         expect(patchBodies).toEqual([{ delivery_targets: [{ type: 'email', value: 'alerts@example.com' }] }])
+        expect(reportLogic.values.configDraft.reportPromptGuidance).toBe('Unsaved guidance')
     })
 
-    it('waits for the new report after "Generate now" and stops once it arrives', async () => {
+    it('offers a retry when a page of a linked report fails to load', async () => {
+        delete runsPages['2']
+        router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'run-1' })
+        const logic = await mountWithRuns()
+
+        await expectLogic(evaluationReportLogic({ evaluationId: EVALUATION_ID })).toDispatchActions([
+            'loadOlderReportRunsFailure',
+        ])
+        expect(logic.values.runLoadFailed).toBe(true)
+        expect(logic.values.isSearchingForRun).toBe(false)
+
+        runsPages['2'] = { results: SECOND_PAGE, next: null }
+        logic.actions.retryLoad()
+        await expectLogic(logic).toDispatchActions(['loadOlderReportRunsSuccess'])
+        expect(logic.values.openRun?.id).toBe('run-1')
+    })
+
+    it('waits for the new report after "Generate now" and keeps older pages once it arrives', async () => {
         await mountWithRuns()
         const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        reportLogic.actions.loadOlderReportRuns()
+        await expectLogic(reportLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
         jest.useFakeTimers()
         try {
             reportLogic.actions.generateReport(REPORT.id)
@@ -149,10 +169,10 @@ describe('evaluationReportDrawerLogic', () => {
             jest.advanceTimersByTime(15_000)
             // The poll has fired. The mocked response resolves on real timers.
             jest.useRealTimers()
-            await expectLogic(reportLogic).toDispatchActions(['loadReportRunsSuccess', 'stopWaitingForNewReport'])
+            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
 
             expect(reportLogic.values.waitingForNewReportSince).toBeNull()
-            expect(reportLogic.values.reportRuns[0].id).toBe('run-4')
+            expect(reportLogic.values.reportRuns.map((run) => run.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
         } finally {
             jest.useRealTimers()
         }

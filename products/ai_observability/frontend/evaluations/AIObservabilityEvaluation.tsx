@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -404,7 +405,16 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 <EvaluationReportDrawer
                     evaluationId={evaluation.id}
                     generateDisabledReason={
-                        isReportableEvaluation ? undefined : 'Add a passing rule to generate new reports.'
+                        evaluation.user_access_level &&
+                        !accessLevelSatisfied(
+                            AccessControlResourceType.Evaluation,
+                            toAccessControlLevel(evaluation.user_access_level),
+                            AccessControlLevel.Editor
+                        )
+                            ? 'You need edit access to this evaluation to generate reports.'
+                            : isReportableEvaluation
+                              ? undefined
+                              : 'Add a passing rule to generate new reports.'
                     }
                     onOpenTrace={(traceId, eventId) =>
                         router.actions.push(router.values.location.pathname, {
@@ -420,8 +430,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     }}
                 />
             )}
-            {/* Mounted for the whole page, so a report's cited trace opens from any tab, above the report. */}
-            <TraceDrawerHost listId="evaluation-runs" />
+            {/* Opens a report's cited trace above the report from any tab. Configuration mounts its own host for the
+                preview, and two hosts on one URL would both open. */}
+            {activeTab !== 'configuration' && <TraceDrawerHost listId="evaluation-runs" />}
         </div>
     )
 }

@@ -319,6 +319,7 @@ export interface evaluationReportLogicValues {
     hasOlderReportRuns: boolean
     isConfigDirty: boolean
     isNewEvaluation: boolean
+    olderReportRunsLoadFailed: boolean
     reportRuns: EvaluationReportRun[]
     reportRunsLoadFailed: boolean
     reportRunsLoading: boolean
@@ -400,6 +401,21 @@ export interface evaluationReportLogicActions {
         generateResult: null
         payload?: string
     }
+    loadNewestReportRuns: (reportId: string) => string
+    loadNewestReportRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNewestReportRunsSuccess: (
+        reportRuns: EvaluationReportRunApi[],
+        payload?: string
+    ) => {
+        reportRuns: EvaluationReportRunApi[]
+        payload?: string
+    }
     loadOlderReportRuns: () => any
     loadOlderReportRunsFailure: (
         error: string,
@@ -456,6 +472,36 @@ export interface evaluationReportLogicActions {
     }
     saveDraft: () => {
         value: true
+    }
+    saveReportDestinations: ({
+        reportId,
+        targets,
+    }: {
+        reportId: string
+        targets: EvaluationReportDeliveryTarget[]
+    }) => {
+        reportId: string
+        targets: EvaluationReportDeliveryTarget[]
+    }
+    saveReportDestinationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveReportDestinationsSuccess: (
+        reports: EvaluationReport[],
+        payload?: {
+            reportId: string
+            targets: EvaluationReportDeliveryTarget[]
+        }
+    ) => {
+        reports: EvaluationReport[]
+        payload?: {
+            reportId: string
+            targets: EvaluationReportDeliveryTarget[]
+        }
     }
     seedDraftFromReport: (report: EvaluationReport) => {
         report: EvaluationReport
@@ -670,6 +716,15 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 loadReportRunsFailure: () => true,
             },
         ],
+        olderReportRunsLoadFailed: [
+            false,
+            {
+                loadOlderReportRuns: () => false,
+                loadOlderReportRunsSuccess: () => false,
+                loadOlderReportRunsFailure: () => true,
+                loadReportRuns: () => false,
+            },
+        ],
         // The newest report's creation time when "Generate now" was pressed. A newer report ends the wait. The server
         // stamps both, so a browser clock that runs ahead can't hide the new one.
         waitingForNewReportSince: [
@@ -747,6 +802,20 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     )
                     return values.reports.map((r) => (r.id === reportId ? (updated as EvaluationReport) : r))
                 },
+                // Unlike updateReport, this skips the reload, which would reseed the whole draft and drop unsaved edits.
+                saveReportDestinations: async ({
+                    reportId,
+                    targets,
+                }: {
+                    reportId: string
+                    targets: EvaluationReportDeliveryTarget[]
+                }) => {
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
+                    const updated = await llmAnalyticsEvaluationReportsPartialUpdate(teamId.toString(), reportId, {
+                        delivery_targets: targets,
+                    } as EvaluationReportPatchBody)
+                    return values.reports.map((r) => (r.id === reportId ? (updated as EvaluationReport) : r))
+                },
             },
         ],
         reportRuns: [
@@ -773,6 +842,15 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     actions.setHasOlderReportRuns(!!response?.next)
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
                     return [...values.reportRuns, ...(response?.results ?? []).filter((run) => !loadedIds.has(run.id))]
+                },
+                // Puts new reports in front of the loaded ones, so polling keeps older pages and the open report.
+                loadNewestReportRuns: async (reportId: string) => {
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
+                    const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId, {
+                        limit: REPORT_RUNS_PAGE_SIZE,
+                    })
+                    const loadedIds = new Set(values.reportRuns.map((run) => run.id))
+                    return [...(response?.results ?? []).filter((run) => !loadedIds.has(run.id)), ...values.reportRuns]
                 },
             },
         ],
@@ -868,13 +946,13 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                         return
                     }
                     if (reportId) {
-                        actions.loadReportRuns(reportId)
+                        actions.loadNewestReportRuns(reportId)
                     }
                 }, NEW_REPORT_POLL_INTERVAL_MS)
                 return () => clearInterval(timer)
             }, NEW_REPORT_POLL)
         },
-        loadReportRunsSuccess: ({ reportRuns }) => {
+        loadNewestReportRunsSuccess: ({ reportRuns }) => {
             const since = values.waitingForNewReportSince
             if (since !== null && reportRuns.some((run) => run.created_at > since)) {
                 actions.stopWaitingForNewReport()
@@ -904,7 +982,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 destination_types: destinationTypes,
                 added: destinationTypes.filter((type) => !before.has(type)),
             })
-            actions.updateReport({ reportId: activeReport.id, data: { delivery_targets: targets } })
+            actions.saveReportDestinations({ reportId: activeReport.id, targets })
         },
         saveDraft: () => {
             const { configDraft, activeReport } = values

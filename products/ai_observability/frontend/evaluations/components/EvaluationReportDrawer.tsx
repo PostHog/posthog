@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -32,8 +33,12 @@ export function EvaluationReportDrawer({
     onShowResults,
 }: EvaluationReportDrawerProps): JSX.Element | null {
     const logic = evaluationReportDrawerLogic({ evaluationId })
-    const { openRunId, openRun, isSearchingForRun, position, previousRun, nextRun, reportRuns } = useValues(logic)
-    const { stepTo, close, openRun: openRunById } = useActions(logic)
+    const { openRunId, openRun, isSearchingForRun, runLoadFailed, position, previousRun, nextRun, reportRuns } =
+        useValues(logic)
+    const { stepTo, close, retryLoad, openRun: openRunById } = useActions(logic)
+    const { searchParams } = useValues(router)
+    // A cited trace opens in a drawer above this one, and the keys belong to it until it closes.
+    const traceOpen = !!searchParams.trace
     const { activeReport, generateResultLoading, waitingForNewReportSince } = useValues(
         evaluationReportLogic({ evaluationId })
     )
@@ -61,7 +66,7 @@ export function EvaluationReportDrawer({
         intent: 'Newer report',
         interaction: 'function',
         callback: () => stepUnlessOverlayOpen('previous'),
-        disabled: !openRunId || !previousRun,
+        disabled: !openRunId || !previousRun || traceOpen,
     })
     useShortcut({
         name: 'EvaluationReportDrawerNext',
@@ -69,14 +74,15 @@ export function EvaluationReportDrawer({
         intent: 'Older report',
         interaction: 'function',
         callback: () => stepUnlessOverlayOpen('next'),
-        disabled: !openRunId || !nextRun,
+        disabled: !openRunId || !nextRun || traceOpen,
     })
 
     if (!openRunId || !mainContentRect) {
         return null
     }
 
-    const isWriting = generateResultLoading || !!waitingForNewReportSince
+    // The wait starts from an empty timestamp when the evaluation has no report yet.
+    const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const newestRun = reportRuns[0]
 
     return (
@@ -108,6 +114,13 @@ export function EvaluationReportDrawer({
                     onOpenTrace={onOpenTrace}
                     onShowResults={() => onShowResults(openRun.period_start, openRun.period_end)}
                 />
+            ) : runLoadFailed ? (
+                <div className="flex flex-col items-start gap-2 text-sm">
+                    <p className="mb-0">Couldn't load this report.</p>
+                    <LemonButton type="secondary" size="small" onClick={retryLoad}>
+                        Try again
+                    </LemonButton>
+                </div>
             ) : isSearchingForRun ? (
                 <div className="flex flex-col gap-2">
                     <LemonSkeleton className="h-6 w-2/3" />
