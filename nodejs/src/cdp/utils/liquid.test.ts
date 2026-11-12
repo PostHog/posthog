@@ -486,7 +486,15 @@ describe('LiquidRenderer', () => {
             )
         )
         // Engines spell entities differently. Keep markup characters escaped so escaped text never equals real tags.
-        const markupEntities: Record<string, string> = { '<': '&lt;', '>': '&gt;', '&': '&amp;' }
+        const markupEntities: Record<string, string> = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;',
+            '=': '&#x3D;',
+            '`': '&#x60;',
+        }
         const namedEntities: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
         const decodeEntities = (text: string): string =>
             text.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
