@@ -40,8 +40,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.dags.common import dagster_tags
-from posthog.dags.flag_evaluations_backfill import shard_workload
-from posthog.dags.geoip_backfill import OWNER_TAG, GeoipStagingTable, staged_team_ids, tagged
+from posthog.dags.common.shards import shard_workload, tagged
+from posthog.dags.geoip_backfill import OWNER_TAG, PRODUCT, GeoipStagingTable, staged_team_ids
 from posthog.dags.geoip_enrichment import GEOIP_KEYS, GEOIP_PREFIX, INITIAL_GEOIP_PREFIX
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -329,7 +329,7 @@ class PersonsRepair:
         if to_write:
             # Logged before the writes, so a run that fails part way through still lists every person it wrote.
             self.cluster.any_host_by_role(
-                tagged(self.query_tags, partial(self.written_persons.insert, to_write)), NodeRole.DATA
+                tagged(self.query_tags, partial(self.written_persons.insert, to_write), product=PRODUCT), NodeRole.DATA
             ).result()
         written = 0 if self.config.dry_run else self._write(client, to_write)
         action = "would write" if self.config.dry_run else "wrote"
@@ -393,7 +393,9 @@ class PersonsRepair:
 
     def _on_every_shard(self, fn: Callable[[Client], list[Any]]) -> list[Any]:
         rows: list[Any] = []
-        for shard_rows in self.cluster.map_one_host_per_shard(tagged(self.query_tags, fn)).result().values():
+        for shard_rows in (
+            self.cluster.map_one_host_per_shard(tagged(self.query_tags, fn, product=PRODUCT)).result().values()
+        ):
             rows.extend(shard_rows)
         return rows
 
