@@ -724,7 +724,7 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
         )
     reply_to = config.get("reply_to")
     display_name, address = parseaddr(str(config.get("from") or ""))
-    sender = senders.get(address.lower()) if address else None
+    sender = sender_for_address(address, senders) if address else None
     if address and sender is None:
         notes.append(f"This step sends from {address}, which isn't a PostHog sender yet. Add it, then choose it here.")
     elif sender is not None and not sender.config.get("verified"):
