@@ -67,11 +67,12 @@ export function FacetSearchBar<TItem>({
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const activeOptionId = open && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
+    // A new list keeps the highlight's id but can render it at a scrolled-away row.
     useEffect(() => {
         if (activeOptionId) {
             document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' })
         }
-    }, [activeOptionId])
+    }, [activeOptionId, suggestions])
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
         // Keys during IME composition belong to the input method, not to the suggestions. Safari reports 229.
@@ -112,7 +113,8 @@ export function FacetSearchBar<TItem>({
 
     const overlay = open ? (
         // Pressing anywhere in the popover (scrollbar, title, hint row) keeps the focus, and so the popover, in the input.
-        <div className="w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
+        // Suggestions carry search terms and facet values in their text and titles, so autocapture must skip them.
+        <div className="ph-no-capture w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
             <div className="px-2 py-1 text-xs font-semibold text-secondary">{title}</div>
             <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
                 {suggestions.map((suggestion, index) =>
@@ -207,12 +209,12 @@ export function FacetSearchBar<TItem>({
                                 const label = pillLabel(facets, filter)
                                 return (
                                     <LemonSnack
-                                        key={facetFilterKey(filter, facets)}
+                                        key={facetFilterKey(filter)}
                                         closeLabel={`Remove filter ${label}`}
                                         onClose={() => removePill(filter)}
                                         title={label}
                                         data-attr={`${dataAttr}-pill`}
-                                        className="max-w-80"
+                                        className="ph-no-capture max-w-80"
                                     >
                                         <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
                                     </LemonSnack>

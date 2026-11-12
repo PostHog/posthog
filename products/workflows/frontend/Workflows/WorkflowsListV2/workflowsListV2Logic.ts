@@ -16,13 +16,12 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { UserType } from '~/types'
 
 import {
@@ -56,7 +55,6 @@ import {
     parseFacetQuery,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
-import { workflowFilesByRef } from './workflowFilesByRef'
 import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
 import {
     LIST_TYPES,
@@ -73,12 +71,17 @@ const WORKFLOWS_PAGE_TYPES = LIST_TYPES.join(',')
 const PAGE_LIMIT = 500
 const MIN_SERVER_SEARCH_LENGTH = 3
 const SERVER_SEARCH_DEBOUNCE_MS = 300
+// The generated client has no timeout, so a stalled page would leave the list loading with no way to retry.
+export const SUMMARY_REQUEST_TIMEOUT_MS = 10_000
 
 export interface ServerSearchResult {
     text: string
     ids: string[]
     failed: boolean
 }
+
+/** `idle` until the first metrics request, so a list still loading its pages is not read as a metrics failure. */
+export type MetricsStatus = 'idle' | 'loading' | 'loaded' | 'failed'
 
 /** `pending` while a server search for the current text is debouncing or in flight. */
 export type ServerSearchStatus = 'off' | 'pending' | 'done' | 'failed'
@@ -91,10 +94,26 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
     { param: 'trigger_type', facet: 'trigger', isValid: (value) => value in TRIGGER_LABELS },
     { param: 'created_by', facet: 'createdBy', isValid: isUUIDLike },
 ]
-const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
+const LEGACY_FILTER_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search']
+const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
+
+function withRequestDeadline<T>(
+    controller: AbortController,
+    request: (signal: AbortSignal) => Promise<T>,
+    message?: string
+): Promise<T> {
+    return withTimeout(
+        (deadline) => {
+            deadline.addEventListener('abort', () => controller.abort(), { once: true })
+            return request(controller.signal)
+        },
+        SUMMARY_REQUEST_TIMEOUT_MS,
+        message
+    )
+}
 
 function nextOffsetOf(page: PaginatedHogFlowListSummaryListApi): number | null {
     const nextOffset = page.next ? new URL(page.next, window.location.origin).searchParams.get('offset') : null
@@ -106,7 +125,8 @@ function nextOffsetOf(page: PaginatedHogFlowListSummaryListApi): number | null {
  * page. Rows are keyed by id, because that row shifts later offsets and repeats one.
  */
 async function loadAllPages(
-    fetchPage: (offset: number | undefined) => Promise<PaginatedHogFlowListSummaryListApi>
+    fetchPage: (offset: number | undefined) => Promise<PaginatedHogFlowListSummaryListApi>,
+    onPartialRows?: (rowsSoFar: HogFlowListSummaryApi[]) => void
 ): Promise<HogFlowListSummaryApi[]> {
     const byId = new Map<string, HogFlowListSummaryApi>()
     let offset = 0
@@ -124,9 +144,16 @@ async function loadAllPages(
                 `Loading stopped after ${byId.size} workflows because the server kept sending the same page. Try again.`
             )
         }
+        onPartialRows?.([...byId.values()])
         offset = nextOffset
         page = await fetchPage(offset)
     }
+}
+
+/** Rows from `next` win, and rows only `previous` has stay. */
+function mergeRows(previous: HogFlowListSummaryApi[] | null, next: HogFlowListSummaryApi[]): HogFlowListSummaryApi[] {
+    const nextIds = new Set(next.map((row) => row.id))
+    return [...(previous ?? []).filter((row) => !nextIds.has(row.id)), ...next]
 }
 
 function loadErrorDetailOf(error: string, errorObject: unknown): string {
@@ -182,6 +209,35 @@ function legacyParamsToValue(searchParams: Record<string, unknown>): FacetSearch
     return { filters, text: rawSearchParam('search') }
 }
 
+/** The kept filters come back only when the list opens without filters in the URL. */
+function restoresKeptFilters(searchParams: Record<string, unknown>, kept: FacetSearchValue): boolean {
+    const urlHasFilters =
+        'q' in searchParams || 'text' in searchParams || LEGACY_PARAMS.some((param) => param in searchParams)
+    return !urlHasFilters && (kept.filters.length > 0 || !!kept.text)
+}
+
+/** An old filter link can also arrive while the list is open. A later `page` param alone is not one. */
+function isLegacyLink(searchParams: Record<string, unknown>, opening: boolean): boolean {
+    return LEGACY_FILTER_PARAMS.some((param) => param in searchParams) || (opening && 'page' in searchParams)
+}
+
+/** The URL params with an old filter link folded into the facet query. */
+function migrateLegacyLink(searchParams: Record<string, unknown>, current: FacetSearchValue): Record<string, unknown> {
+    const legacy = legacyParamsToValue(searchParams)
+    const next = { ...searchParams }
+    for (const param of LEGACY_PARAMS) {
+        delete next[param]
+    }
+    return withFacetParams(next, {
+        filters: [...current.filters, ...legacy.filters],
+        text: current.text || legacy.text,
+    })
+}
+
+function sameFacetValue(a: FacetSearchValue, b: FacetSearchValue): boolean {
+    return serializeFacetQuery(a.filters) === serializeFacetQuery(b.filters) && a.text === b.text
+}
+
 /** The flag-off list writes tags as a JSON list, which kea-router has usually parsed already. */
 function legacyTagsOf(raw: unknown): string[] {
     const parsed = typeof raw === 'string' ? parseJsonOr(raw, [raw]) : raw
@@ -198,22 +254,22 @@ function parseJsonOr(raw: string, fallback: unknown): unknown {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface workflowsListV2LogicValues {
-    sortedItems: FileSystemEntry[] // projectTreeDataLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     facets: FacetDefinition<WorkflowListRow>[]
-    filesByRef: Record<string, FileSystemEntry>
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
-    hasNoAutomations: boolean
     isUnfilteredAutomationView: boolean
+    listComplete: boolean
     listLoaded: boolean
     loadErrorDetail: string | null
     loadFailed: boolean
+    loadingMoreWorkflows: boolean
     matchesText: MatchesText<WorkflowListRow>
     metrics: WorkflowStatsRowApi[] | null
     metricsLoaded: boolean
     metricsLoading: boolean
+    metricsStatus: MetricsStatus
     pendingRowActions: Record<string, WorkflowRowAction>
     requestedSearchText: string | null
     rows: WorkflowListRow[]
@@ -328,6 +384,9 @@ export interface workflowsListV2LogicActions {
     setValue: (value: FacetSearchValue) => {
         value: FacetSearchValue
     }
+    showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => {
+        workflows: HogFlowListSummaryApi[]
+    }
     toggleColumn: (column: OptionalColumn) => {
         column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
     }
@@ -339,25 +398,14 @@ export interface workflowsListV2LogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface workflowsListV2LogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        filesByRef: (sortedItems: FileSystemEntry[]) => Record<string, FileSystemEntry>
         hasHealthFilter: (value: FacetSearchValue) => boolean
         metricsLoaded: (metrics: WorkflowStatsRowApi[] | null) => boolean
         isUnfilteredAutomationView: (value: FacetSearchValue) => boolean
-        hasNoAutomations: (
-            listLoaded: boolean,
-            isUnfilteredAutomationView: boolean,
-            filteredRows: WorkflowListRow[],
-            serverSearchStatus: ServerSearchStatus
-        ) => boolean
         templateTypeFilter: (value: FacetSearchValue) => WorkflowTemplateTypeFilter
         rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
-        facets: (
-            rows: WorkflowListRow[],
-            filesByRef: Record<string, FileSystemEntry>,
-            value: FacetSearchValue,
-            user: UserType | null
-        ) => FacetDefinition<WorkflowListRow>[]
+        loadingMoreWorkflows: (listLoaded: boolean, listComplete: boolean, workflowsLoading: boolean) => boolean
+        facets: (rows: WorkflowListRow[], user: UserType | null) => FacetDefinition<WorkflowListRow>[]
         matchesText: (serverSearch: ServerSearchResult | null) => MatchesText<WorkflowListRow>
         serverSearchStatus: (value: FacetSearchValue, serverSearch: ServerSearchResult | null) => ServerSearchStatus
         filteredRows: (
@@ -382,14 +430,13 @@ export type workflowsListV2LogicType = MakeLogicType<
 export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
     path(['products', 'workflows', 'frontend', 'workflowsListV2Logic']),
     // `hog_flows` is looked up by team, and a child environment's team id differs from its project id.
-    connect(() => ({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], projectTreeDataLogic, ['sortedItems']],
-    })),
+    connect(() => ({ values: [teamLogic, ['currentTeamId'], userLogic, ['user']] })),
     actions({
         loadWorkflows: true,
-        /** Reloads the rows and the server search, for workflows created outside this list. */
+        /** Reloads the rows, the metrics and the server search, for workflows created or run outside this list. */
         refreshWorkflows: true,
         loadMetrics: true,
+        showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => ({ workflows }),
         setValue: (value: FacetSearchValue) => ({ value }),
         clearFilters: true,
         toggleColumn: (column: OptionalColumn) => ({ column }),
@@ -403,22 +450,50 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         restoreWorkflow: (row: WorkflowListRow) => ({ row }),
         deleteWorkflow: (row: WorkflowListRow) => ({ row }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         workflows: [
             null as HogFlowListSummaryApi[] | null,
             {
                 loadWorkflows: async (_, breakpoint) => {
+                    cache.loadAbort?.abort()
+                    const loadAbort = new AbortController()
+                    cache.loadAbort = loadAbort
                     const teamId = String(values.currentTeamId)
                     // A row action that lands while the pages load is newer than what the server sent.
                     const changes: RowChange[] = []
                     cache.rowChangesDuringLoad = changes
-                    const workflows = await loadAllPages((offset) => {
-                        // Stops paging once a newer load starts or the list closes.
+                    try {
+                        const workflows = await loadAllPages(
+                            (offset) => {
+                                // Stops paging once a newer load starts or the list closes.
+                                breakpoint()
+                                return withRequestDeadline(
+                                    loadAbort,
+                                    (signal) =>
+                                        hogFlowsSummariesList(
+                                            teamId,
+                                            { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset },
+                                            { signal }
+                                        ),
+                                    'Workflows took too long to load. Check your connection and try again.'
+                                )
+                            },
+                            (rowsSoFar) => {
+                                breakpoint()
+                                // Shown rows the new scan has not reached yet stay, so a refresh or a retry
+                                // after a failed page does not drop rows until the scan ends.
+                                actions.showLoadedWorkflows(
+                                    changes.reduce(applyRowChange, mergeRows(values.workflows, rowsSoFar))
+                                )
+                            }
+                        )
                         breakpoint()
-                        return hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
-                    })
-                    breakpoint()
-                    return changes.reduce(applyRowChange, workflows)
+                        return changes.reduce(applyRowChange, workflows)
+                    } catch (error) {
+                        // A newer load aborted this one's request, so the newer load reports the outcome.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -426,10 +501,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             null as WorkflowStatsRowApi[] | null,
             {
                 loadMetrics: async (_, breakpoint) => {
+                    cache.metricsAbort?.abort()
+                    const controller = new AbortController()
+                    cache.metricsAbort = controller
                     try {
-                        const metrics = await hogFlowsMetricsGlobalRetrieve(String(values.currentTeamId), {
-                            after: '-7d',
-                        })
+                        const metrics = await withRequestDeadline(controller, (signal) =>
+                            hogFlowsMetricsGlobalRetrieve(String(values.currentTeamId), { after: '-7d' }, { signal })
+                        )
                         breakpoint()
                         return metrics
                     } catch {
@@ -455,19 +533,21 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     const teamId = String(values.currentTeamId)
                     try {
                         const workflows = await loadAllPages((offset) =>
-                            hogFlowsSummariesList(
-                                teamId,
-                                { type: WORKFLOWS_PAGE_TYPES, search: text, limit: PAGE_LIMIT, offset },
-                                { signal: controller.signal }
+                            withRequestDeadline(controller, (signal) =>
+                                hogFlowsSummariesList(
+                                    teamId,
+                                    { type: WORKFLOWS_PAGE_TYPES, search: text, limit: PAGE_LIMIT, offset },
+                                    { signal }
+                                )
                             )
                         )
                         breakpoint()
                         return { text, ids: workflows.map((workflow) => workflow.id), failed: false }
-                    } catch {
-                        // `breakpoint()` drops a search that a newer one aborted. Other failures keep the client
-                        // matches and show a notice instead of an error toast.
+                    } catch (error) {
+                        // `breakpoint()` drops a search that a newer one aborted. Other failures, a passed deadline
+                        // included, keep the client matches and show a notice instead of an error toast.
                         breakpoint()
-                        if (controller.signal.aborted) {
+                        if (controller.signal.aborted && !(error instanceof PromiseTimeoutError)) {
                             return values.serverSearch
                         }
                         return { text, ids: [], failed: true }
@@ -492,6 +572,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 searchWorkflows: (_, text) => text,
                 setValue: (state, { value }) => (value.text.trim().length < MIN_SERVER_SEARCH_LENGTH ? null : state),
                 clearFilters: () => null,
+            },
+        ],
+        metricsStatus: [
+            'idle' as MetricsStatus,
+            {
+                loadMetrics: () => 'loading',
+                loadMetricsSuccess: (_, { metrics }) => (metrics === null ? 'failed' : 'loaded'),
             },
         ],
         loadFailed: [
@@ -535,16 +622,20 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 },
             },
         ],
+        /** False while pages remain or after a page failed, so counts and empty states are not final yet. */
+        listComplete: [
+            false,
+            {
+                loadWorkflowsSuccess: () => true,
+            },
+        ],
         workflows: {
+            showLoadedWorkflows: (_, { workflows }) => workflows,
             patchWorkflow: (state, { id, patch }) => state && applyRowChange(state, { id, patch }),
             removeWorkflow: (state, { id }) => state && applyRowChange(state, { id, removed: true }),
         },
     })),
     selectors({
-        filesByRef: [
-            (s) => [s.sortedItems],
-            (sortedItems: FileSystemEntry[]): Record<string, FileSystemEntry> => workflowFilesByRef(sortedItems),
-        ],
         hasHealthFilter: [
             (s) => [s.value],
             (value: FacetSearchValue): boolean => value.filters.some((filter) => filter.facet === 'health'),
@@ -558,19 +649,6 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 value.filters[0].facet === 'kind' &&
                 value.filters[0].value === 'automation' &&
                 !value.filters[0].negated,
-        ],
-        hasNoAutomations: [
-            (s) => [s.listLoaded, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
-            (
-                listLoaded: boolean,
-                isUnfilteredAutomationView: boolean,
-                filteredRows: WorkflowListRow[],
-                serverSearchStatus: ServerSearchStatus
-            ): boolean =>
-                listLoaded &&
-                isUnfilteredAutomationView &&
-                filteredRows.length === 0 &&
-                serverSearchStatus !== 'pending',
         ],
         templateTypeFilter: [
             (s) => [s.value],
@@ -590,20 +668,15 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 workflows ? buildWorkflowListRows(workflows, metrics) : [],
         ],
         listLoaded: [(s) => [s.workflows], (workflows: HogFlowListSummaryApi[] | null): boolean => workflows !== null],
+        loadingMoreWorkflows: [
+            (s) => [s.listLoaded, s.listComplete, s.workflowsLoading],
+            (listLoaded: boolean, listComplete: boolean, workflowsLoading: boolean): boolean =>
+                listLoaded && !listComplete && workflowsLoading,
+        ],
         facets: [
-            (s) => [s.rows, s.filesByRef, s.value, s.user],
-            (
-                rows: WorkflowListRow[],
-                filesByRef: Record<string, FileSystemEntry>,
-                value: FacetSearchValue,
-                user: UserType | null
-            ): FacetDefinition<WorkflowListRow>[] =>
-                buildWorkflowListFacets(rows, {
-                    viewer: user,
-                    filesByRef,
-                    includeDescendants:
-                        !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
-                }),
+            (s) => [s.rows, s.user],
+            (rows: WorkflowListRow[], user: UserType | null): FacetDefinition<WorkflowListRow>[] =>
+                buildWorkflowListFacets(rows, user),
         ],
         matchesText: [
             (s) => [s.serverSearch],
@@ -677,6 +750,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         return {
             refreshWorkflows: () => {
                 actions.loadWorkflows()
+                // The loader keeps the previous counts until the new ones arrive.
+                actions.loadMetrics()
                 // A new workflow has a new id, so a server search from before it existed can't match it.
                 const text = values.value.text.trim()
                 if (text.length >= MIN_SERVER_SEARCH_LENGTH) {
@@ -703,7 +778,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 cache.rowChangesDuringLoad?.push({ id, removed: true })
             },
             loadWorkflowsFailure: () => {
-                if (values.listLoaded) {
+                // A partial list shows the load error with a retry instead.
+                if (values.listComplete) {
                     lemonToast.error("Couldn't refresh workflows. Showing the list from before.")
                 }
             },
@@ -727,10 +803,20 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             duplicateWorkflow: async ({ row }) => {
                 await runRowAction(row, 'duplicate', async () => {
                     const teamId = String(values.currentTeamId)
+                    const controller = new AbortController()
+                    const timeoutMessage = 'The server took too long to respond. Refresh the list before you try again.'
                     try {
                         // The summary row has no step graph, so the copy starts from the full workflow.
-                        const full = await hogFlowsRetrieve(teamId, row.id)
-                        await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
+                        const full = await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsRetrieve(teamId, row.id, { signal }),
+                            timeoutMessage
+                        )
+                        await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsCreate(teamId, prepareWorkflowDuplicate(full), { signal }),
+                            timeoutMessage
+                        )
                         lemonToast.success(`Workflow "${row.name}" duplicated`)
                         actions.refreshWorkflows()
                     } catch (error) {
@@ -783,40 +869,14 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 filters: parseFacetQuery(rawSearchParam('q'), QUERY_FACETS),
                 text: rawSearchParam('text'),
             }
-            // Old filter links and the kept filters are read once, when the list opens. Later URLs are the list's own.
-            if (!cache.legacyChecked) {
-                cache.legacyChecked = true
-                const kept = values.value
-                if (
-                    !('q' in searchParams || 'text' in searchParams) &&
-                    !LEGACY_PARAMS.some((param) => param in searchParams) &&
-                    (kept.filters.length > 0 || kept.text)
-                ) {
-                    router.actions.replace(
-                        router.values.location.pathname,
-                        withFacetParams(searchParams, kept),
-                        hashParams
-                    )
-                    return
-                }
-                if (LEGACY_PARAMS.some((param) => param in searchParams)) {
-                    const legacy = legacyParamsToValue(searchParams)
-                    const next = { ...searchParams }
-                    for (const param of LEGACY_PARAMS) {
-                        delete next[param]
-                    }
-                    const merged = {
-                        filters: [...current.filters, ...legacy.filters],
-                        text: current.text || legacy.text,
-                    }
-                    router.actions.replace(router.values.location.pathname, withFacetParams(next, merged), hashParams)
-                    return
-                }
-            }
-            if (
-                serializeFacetQuery(current.filters) !== serializeFacetQuery(values.value.filters) ||
-                current.text !== values.value.text
-            ) {
+            const opening = !cache.opened
+            cache.opened = true
+            const { pathname } = router.values.location
+            if (opening && restoresKeptFilters(searchParams, values.value)) {
+                router.actions.replace(pathname, withFacetParams(searchParams, values.value), hashParams)
+            } else if (isLegacyLink(searchParams, opening)) {
+                router.actions.replace(pathname, migrateLegacyLink(searchParams, current), hashParams)
+            } else if (!sameFacetValue(current, values.value)) {
                 actions.setValue(current)
             }
         }
@@ -834,6 +894,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
+        cache.loadAbort?.abort()
+        cache.metricsAbort?.abort()
         cache.searchAbort?.abort()
     }),
 ])

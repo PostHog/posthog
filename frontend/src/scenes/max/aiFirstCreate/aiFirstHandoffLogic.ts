@@ -27,7 +27,6 @@ export interface AiFirstHandoffLogicProps {
      * call's parsed input. Returns null when it cannot say which one.
      */
     findCreatedId: (innerInput: Record<string, unknown> | undefined) => Promise<string | null>
-    prepareCreated?: (id: string) => Promise<void>
     /** The editor page for the created entity. */
     urlFor: (id: string) => string
     /** Toast for a saved entity the page could not open. Say where to find it. */
@@ -209,31 +208,6 @@ export const aiFirstHandoffLogic: LogicWrapper<aiFirstHandoffLogicType> = kea<ai
             if (!createdId) {
                 lemonToast.error(props.notOpenedMessage)
                 return
-            }
-            if (props.prepareCreated) {
-                const preparationKey = JSON.stringify([event.streamKey, event.toolCallId])
-                const pendingPreparations: Set<string> = (cache.pendingPreparations ??= new Set<string>())
-                if (pendingPreparations.has(preparationKey)) {
-                    return
-                }
-                pendingPreparations.add(preparationKey)
-                try {
-                    await props.prepareCreated(createdId)
-                } catch {
-                    if (
-                        !disposables.isDisposed &&
-                        !cache.handedOff &&
-                        event.streamKey === values.activeCreation?.streamKey
-                    ) {
-                        lemonToast.error(props.notOpenedMessage)
-                    }
-                    return
-                } finally {
-                    pendingPreparations.delete(preparationKey)
-                }
-                if (disposables.isDisposed || cache.handedOff || event.streamKey !== values.activeCreation?.streamKey) {
-                    return
-                }
             }
             cache.handedOff = true
             posthog.capture(props.createdEvent, { [props.createdIdProperty]: createdId })

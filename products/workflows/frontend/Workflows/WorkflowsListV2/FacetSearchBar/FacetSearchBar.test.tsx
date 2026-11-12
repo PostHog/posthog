@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
@@ -37,9 +36,6 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
         <div>
-            <button type="button" data-attr="before">
-                Before
-            </button>
             <FacetSearchBar
                 facets={FACETS}
                 items={ITEMS}
@@ -51,9 +47,6 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
             />
             <output data-attr="query">{serializeFacetQuery(value.filters)}</output>
             <output data-attr="text">{value.text}</output>
-            <button type="button" data-attr="after">
-                After
-            </button>
         </div>
     )
 }
@@ -62,118 +55,202 @@ const input = (): HTMLInputElement => document.querySelector<HTMLInputElement>('
 const shown = (attr: string): string => document.querySelector(`[data-attr="${attr}"]`)?.textContent ?? ''
 const listbox = (): Element | null => document.querySelector('[role="listbox"]')
 
+const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+
+function changeInput(text: string, caret: number = text.length): void {
+    const field = input()
+    setInputValue.call(field, text)
+    field.setSelectionRange(caret, caret)
+    fireEvent.input(field)
+}
+
+function clickInput(): void {
+    input().focus()
+    fireEvent.click(input())
+}
+
+function typeText(text: string): void {
+    for (const character of text) {
+        const field = input()
+        if (fireEvent.keyDown(field, { key: character })) {
+            const start = field.selectionStart ?? field.value.length
+            const end = field.selectionEnd ?? start
+            changeInput(field.value.slice(0, start) + character + field.value.slice(end), start + 1)
+        }
+    }
+}
+
+function press(key: string, init: KeyboardEventInit = {}): boolean {
+    const field = input()
+    const notPrevented = fireEvent.keyDown(field, { key, ...init })
+    const caret = field.selectionStart ?? field.value.length
+    if (notPrevented && key === 'ArrowLeft') {
+        field.setSelectionRange(Math.max(0, caret - 1), Math.max(0, caret - 1))
+    }
+    if (notPrevented && key === 'Backspace' && caret > 0) {
+        changeInput(field.value.slice(0, caret - 1) + field.value.slice(caret), caret - 1)
+    }
+    return notPrevented
+}
+
+/** Presses an element as a browser does: an unprevented mousedown moves the focus before the click. */
+function pressPointer(element: Element): void {
+    if (fireEvent.mouseDown(element)) {
+        const focusable = element.closest<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')
+        act(() => (focusable ? focusable.focus() : (document.activeElement as HTMLElement | null)?.blur()))
+    }
+    fireEvent.mouseUp(element)
+    fireEvent.click(element)
+}
+
 describe('FacetSearchBar', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
 
-    const setup = (initial: FacetSearchValue = { filters: [], text: '' }): ReturnType<typeof userEvent.setup> => {
+    const setup = (initial: FacetSearchValue = { filters: [], text: '' }): void => {
         render(<Harness initial={initial} />)
-        return userEvent.setup()
     }
 
-    it('Tab and → take the first filter row, never the search row', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('sta{ArrowDown}')
+    it('Tab and → take the first filter row, never the search row', () => {
+        setup()
+        clickInput()
+        typeText('sta')
+        press('ArrowDown')
         expect(document.querySelector('[role="option"][aria-selected="true"]')).toHaveTextContent('Search for "sta"')
 
-        await user.keyboard('{Tab}')
+        press('Tab')
         expect(input()).toHaveValue('status:')
         expect(shown('text')).toEqual('')
 
-        await user.keyboard('act{ArrowRight}')
+        typeText('act')
+        press('ArrowRight')
         expect(shown('query')).toEqual('status:active')
         expect(input()).toHaveValue('')
         expect(input()).toHaveFocus()
     })
 
-    it('Enter on the search row closes the popover and keeps the text', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('renew')
+    it('Enter on the search row closes the popover and keeps the text', () => {
+        setup()
+        clickInput()
+        typeText('renew')
         expect(listbox()).not.toBeNull()
 
-        await user.keyboard('{Enter}')
+        press('Enter')
         expect(listbox()).toBeNull()
         expect(input()).toHaveValue('renew')
         expect(shown('text')).toEqual('renew')
         expect(shown('query')).toEqual('')
     })
 
-    it('Esc closes the popover, and a click on the focused input opens it again', async () => {
-        const user = setup()
-        await user.click(input())
+    it('Esc closes the popover, and a click on the focused input opens it again', () => {
+        setup()
+        clickInput()
         expect(listbox()).not.toBeNull()
-        await user.keyboard('{Escape}')
+        press('Escape')
         expect(listbox()).toBeNull()
-        await user.click(input())
+        clickInput()
         expect(listbox()).not.toBeNull()
     })
 
-    it('Backspace on an empty input removes the last pill', async () => {
-        const user = setup({
+    it('Backspace on an empty input removes the last pill', () => {
+        setup({
             filters: [
                 { facet: 'status', value: 'draft', negated: false },
                 { facet: 'status', value: 'archived', negated: true },
             ],
             text: '',
         })
-        await user.click(input())
-        await user.keyboard('{Backspace}')
+        clickInput()
+        press('Backspace')
         expect(shown('query')).toEqual('status:draft')
     })
 
-    it('Tab on an empty input moves focus out of the bar', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('{Tab}')
-        expect(document.querySelector('[data-attr="after"]')).toHaveFocus()
+    it('leaves Tab on an empty input to the browser', () => {
+        setup()
+        clickInput()
+        expect(press('Tab')).toBe(true)
+        expect(input()).toHaveValue('')
     })
 
     it.each([
         ['a typed facet value followed by a space', 'status:active ', 'status:active', ''],
         ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ''],
         ['text around a typed facet value', 'wel status:active ren', 'status:active', 'wel ren'],
-    ])('turns %s into a pill', async (_, typed, query, text) => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard(typed)
+        [
+            'a quoted value that holds a facet token',
+            'sends:"Check status:active now" wel',
+            'sends:"Check status:active now"',
+            'wel',
+        ],
+    ])('turns %s into a pill', (_, typed, query, text) => {
+        setup()
+        clickInput()
+        typeText(typed)
         expect(shown('query')).toEqual(query)
         expect(shown('text')).toEqual(text)
     })
 
-    it('turns a pasted query into pills', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.paste('status:draft -status:archived ')
-        expect(shown('query')).toEqual('status:draft -status:archived')
+    it.each([
+        ['a pasted query', 'status:draft -status:archived'],
+        [
+            'a pasted quoted value that ends in a backslash',
+            serializeFacetQuery([
+                { facet: 'sends', value: 'Path C:\\', negated: false },
+                { facet: 'status', value: 'active', negated: false },
+            ]),
+        ],
+    ])('turns %s into pills', (_, query) => {
+        setup()
+        clickInput()
+        changeInput(`${query} `)
+        expect(shown('query')).toEqual(query)
         expect(input()).toHaveValue('')
     })
 
-    it('adds a pasted token once, even when the paste repeats it', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.paste('status:active status:active ')
+    it.each([
+        ['pasted', (text: string) => changeInput(text)],
+        ['typed one character at a time', typeText],
+    ])('reads a long query with quotes and escapes the same way when %s', (_, enter) => {
+        const filters = [
+            ...Array.from({ length: 12 }, (_, index) => ({
+                facet: 'sends',
+                value: `Deal ${index} "x status:active \\`,
+                negated: false,
+            })),
+            { facet: 'status', value: 'draft', negated: false },
+        ]
+        const openQuote = 'sends:"Open status:archived '
+        setup()
+        clickInput()
+        enter(`${serializeFacetQuery(filters)} ${openQuote}`)
+        expect(shown('query')).toEqual(serializeFacetQuery(filters))
+        expect(input()).toHaveValue(openQuote)
+    })
+
+    it('adds a pasted token once, even when the paste repeats it', () => {
+        setup()
+        clickInput()
+        changeInput('status:active status:active ')
         expect(shown('query')).toEqual('status:active')
         expect(document.querySelectorAll('[aria-label="Remove filter Status: Active"]')).toHaveLength(1)
     })
 
-    it('Shift+Tab moves focus back instead of applying a filter', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('sta')
-        await user.keyboard('{Shift>}{Tab}{/Shift}')
-        expect(document.querySelector('[data-attr="before"]')).toHaveFocus()
+    it('leaves Shift+Tab to the browser instead of applying a filter', () => {
+        setup()
+        clickInput()
+        typeText('sta')
+        // A Tab the bar does not prevent leaves the browser to move the focus.
+        expect(press('Tab', { shiftKey: true })).toBe(true)
         expect(shown('query')).toEqual('')
     })
 
     it.each([
         ['flags the composition', { isComposing: true }],
         ['sends key code 229, as Safari does', { keyCode: 229 }],
-    ])('Enter while an IME %s does not apply the highlighted row', async (_, composition) => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('status:')
+    ])('Enter while an IME %s does not apply the highlighted row', (_, composition) => {
+        setup()
+        clickInput()
+        typeText('status:')
         fireEvent.keyDown(input(), { key: 'Enter', ...composition })
         expect(shown('query')).toEqual('')
         expect(input()).toHaveValue('status:')
@@ -183,9 +260,9 @@ describe('FacetSearchBar', () => {
         ['a value that names one option', 'status:active', 'status:active'],
         ['a value and a space', 'status:draft ', 'status:draft'],
         ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"'],
-    ])('adds %s as a pill only once the IME composition ends', async (_, composed, query) => {
-        const user = setup()
-        await user.click(input())
+    ])('adds %s as a pill only once the IME composition ends', (_, composed, query) => {
+        setup()
+        clickInput()
         fireEvent.compositionStart(input())
         fireEvent.change(input(), { target: { value: composed } })
         expect(shown('query')).toEqual('')
@@ -196,9 +273,9 @@ describe('FacetSearchBar', () => {
         expect(input()).toHaveValue('')
     })
 
-    it('leaves a value composed in its middle as a draft when the composition ends', async () => {
-        const user = setup()
-        await user.click(input())
+    it('leaves a value composed in its middle as a draft when the composition ends', () => {
+        setup()
+        clickInput()
         fireEvent.compositionStart(input())
         fireEvent.change(input(), { target: { value: 'status:active' } })
         input().setSelectionRange('status:act'.length, 'status:act'.length)
@@ -207,56 +284,85 @@ describe('FacetSearchBar', () => {
         expect(input()).toHaveValue('status:active')
     })
 
-    it('leaves a value corrected in its middle as a draft', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('status:actiive{ArrowLeft}{ArrowLeft}{ArrowLeft}{Backspace}')
+    it('leaves a value corrected in its middle as a draft', () => {
+        setup()
+        clickInput()
+        typeText('status:actiive')
+        press('ArrowLeft')
+        press('ArrowLeft')
+        press('ArrowLeft')
+        press('Backspace')
         expect(input()).toHaveValue('status:active')
         expect(shown('query')).toEqual('')
     })
 
-    it('keeps focus in the input when the popover chrome is pressed', async () => {
-        const user = setup()
-        await user.click(input())
-        const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
-        // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
-        expect(fireEvent.mouseDown(hints)).toBe(false)
+    it('keeps focus in the input and the popover open when the popover chrome is pressed', () => {
+        setup()
+        clickInput()
+        pressPointer(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
+        expect(input()).toHaveFocus()
+        expect(listbox()).not.toBeNull()
     })
 
-    it('shows the no-values message as text, not as an option', async () => {
-        const user = setup()
-        await user.click(input())
-        await user.keyboard('status:zzz')
+    it('scrolls the first row into view when typing changes the list', () => {
+        // jsdom has no layout, so this records what the browser would be asked to scroll to.
+        const scrolled: Element[] = []
+        const scrollIntoView = Element.prototype.scrollIntoView
+        Element.prototype.scrollIntoView = function (this: Element) {
+            scrolled.push(this)
+        }
+        try {
+            setup()
+            clickInput()
+            typeText('status:')
+            scrolled.length = 0
+            typeText('r')
+            expect(scrolled).toHaveLength(1)
+            expect(scrolled[0]).toHaveTextContent('Archived')
+            expect(scrolled[0]).toHaveAttribute('aria-selected', 'true')
+        } finally {
+            Element.prototype.scrollIntoView = scrollIntoView
+        }
+    })
+
+    it('shows the no-values message as text, not as an option', () => {
+        setup()
+        clickInput()
+        typeText('status:zzz')
         expect(document.querySelectorAll('[role="option"]')).toHaveLength(0)
         expect(listbox()).toHaveTextContent('No value matches "zzz"')
         expect(input()).not.toHaveAttribute('aria-activedescendant')
     })
 
-    it('keeps focus in the input after a pill is removed with the keyboard', async () => {
-        const user = setup({ filters: [{ facet: 'status', value: 'draft', negated: false }], text: '' })
-        document.querySelector<HTMLElement>('[aria-label="Remove filter Status: Draft"]')!.focus()
-        await user.keyboard('{Enter}')
+    it('keeps focus in the input after a pill is removed with the keyboard', () => {
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: false }], text: '' })
+        const remove = document.querySelector<HTMLElement>('[aria-label="Remove filter Status: Draft"]')!
+        remove.focus()
+        fireEvent.click(remove)
         expect(shown('query')).toEqual('')
         expect(input()).toHaveFocus()
     })
 
-    it('exposes the combobox and labels each pill remove button', async () => {
-        const user = setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
+    it('exposes the combobox, labels each pill remove button, and keeps the values out of autocapture', () => {
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
         expect(input()).toHaveAttribute('role', 'combobox')
         expect(input()).toHaveAttribute('aria-expanded', 'false')
-        expect(document.querySelector('[aria-label="Remove filter Status is not: Draft"]')).not.toBeNull()
-        expect(document.querySelector('[title="Status is not: Draft"]')).not.toBeNull()
+        const remove = document.querySelector('[aria-label="Remove filter Status is not: Draft"]')
+        expect(remove?.closest('.ph-no-capture')).not.toBeNull()
+        expect(document.querySelector('[title="Status is not: Draft"]')?.closest('.ph-no-capture')).not.toBeNull()
 
-        await user.click(input())
-        await user.keyboard('status:')
+        clickInput()
+        typeText('status:')
         expect(input()).toHaveAttribute('aria-expanded', 'true')
         expect(input().getAttribute('aria-controls')).toEqual(listbox()!.id)
         const selected = document.querySelector('[role="option"][aria-selected="true"]')!
         expect(input().getAttribute('aria-activedescendant')).toEqual(selected.id)
         expect(shown('facet-search-bar-hints')).toContain('Esc to close')
 
-        await user.clear(input())
-        await user.keyboard('sends:')
-        expect(document.querySelector('[role="option"] [title="Your trial ends"]')).not.toBeNull()
+        changeInput('')
+        typeText('sends:')
+        expect(
+            document.querySelector('[role="option"] [title="Your trial ends"]')?.closest('.ph-no-capture')
+        ).not.toBeNull()
     })
 })

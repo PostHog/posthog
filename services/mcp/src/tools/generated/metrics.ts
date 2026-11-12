@@ -93,7 +93,28 @@ const metricAttributesList = (): ToolBase<
 
 const MetricNamesListSchema = () => {
     const MetricsValuesRetrieveQueryParams = orvalSchemas.MetricsValuesRetrieveQueryParams()
-    return MetricsValuesRetrieveQueryParams
+    return MetricsValuesRetrieveQueryParams.extend({
+        limit: MetricsValuesRetrieveQueryParams.shape['limit']
+            .default(50)
+            .optional()
+            .describe('Max names to return, 1 to 1000. Defaults to 50.'),
+        sparklines: MetricsValuesRetrieveQueryParams.shape['sparklines']
+            .default(false)
+            .optional()
+            .describe(
+                'Attach a 24-point sparkline of the last 6 hours to each name. Defaults to false; turn on only when you need the recent shape, since it makes the response several times larger.'
+            ),
+        first_seen: MetricsValuesRetrieveQueryParams.shape['first_seen']
+            .default(true)
+            .optional()
+            .describe('Add `first_seen`, the earliest hour each name arrived in within retention. Defaults to true.'),
+        fold_histograms: MetricsValuesRetrieveQueryParams.shape['fold_histograms']
+            .default(true)
+            .optional()
+            .describe(
+                "Fold a Prometheus classic histogram's `_bucket`, `_sum` and `_count` names into one `_bucket` entry with `classic_histogram` set. Defaults to true."
+            ),
+    })
 }
 
 const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, Schemas._MetricNamesResponse> => ({
@@ -105,8 +126,12 @@ const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, S
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/values/`,
             query: {
+                first_seen: params.first_seen,
+                fold_histograms: params.fold_histograms,
                 limit: params.limit,
+                match: params.match,
                 service: params.service,
+                sparklines: params.sparklines,
                 value: params.value,
             },
         })
@@ -163,7 +188,12 @@ const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/query/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'hint']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'results',
+            'hint',
+            'omitted_empty_series',
+            'omitted_by_limit',
+        ]) as typeof result
         return filtered
     },
 })

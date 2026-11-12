@@ -206,8 +206,14 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], url=custom_url)
         SSOTestHelper.assert_successful_redirect(response, custom_url)
 
-    def test_sso_redirect_with_resource_switching(self, sso_setup):
-        team = Team.objects.create(organization=sso_setup["organization"], name="SSO Test Team")
+    @pytest.mark.parametrize("resource_in_installation_org", [True, False])
+    def test_sso_redirect_with_resource_switching(self, sso_setup, resource_in_installation_org):
+        if resource_in_installation_org:
+            organization = sso_setup["organization"]
+        else:
+            organization = Organization.objects.create(name="Other Org")
+            sso_setup["user"].join(organization=organization, level=OrganizationMembership.Level.MEMBER)
+        team = Team.objects.create(organization=organization, name="SSO Test Team")
         resource = Integration.objects.create(
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
@@ -217,10 +223,14 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         )
 
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id=str(resource.pk))
-        SSOTestHelper.assert_successful_redirect(response)
 
         sso_setup["user"].refresh_from_db()
-        assert sso_setup["user"].current_team == team
+        if resource_in_installation_org:
+            SSOTestHelper.assert_successful_redirect(response)
+            assert sso_setup["user"].current_team == team
+        else:
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert sso_setup["user"].current_team != team
 
     def test_sso_redirect_with_experimentation_item(self, sso_setup):
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -542,8 +552,13 @@ EU_SITE_URL = "https://eu.posthog.com"
 
 
 class TestSSORegionRedirect:
-    def test_us_region_redirects_to_eu_when_resource_not_found(self, sso_setup):
-        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+    def test_us_region_redirects_to_eu_when_installation_not_found(self, sso_setup):
+        eu_installation_id = "icfg_eu_only_123"
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(create_user_claims(eu_installation_id)),
+        ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
 
         assert response.status_code == status.HTTP_302_FOUND
@@ -556,6 +571,7 @@ class TestSSORegionRedirect:
         assert qs["code"] == [TestConstants.AUTH_CODE]
         assert qs["state"] == [TestConstants.STATE]
         assert qs["resource_id"] == ["99999"]
+        assert "_claims_token" in qs
 
     def test_us_region_processes_normally_when_resource_found(self, sso_setup):
         team = Team.objects.create(organization=sso_setup["organization"], name="Region Test Team")
@@ -613,7 +629,12 @@ class TestSSORegionRedirect:
         assert "eu.posthog.com" not in response.url
 
     def test_redirect_preserves_all_query_params(self, sso_setup):
-        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+        eu_installation_id = "icfg_eu_only_123"
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(create_user_claims(eu_installation_id)),
+        ):
             response = SSOTestHelper.make_sso_request(
                 sso_setup["client"],
                 sso_setup["url"],

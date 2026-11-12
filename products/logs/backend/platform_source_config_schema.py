@@ -17,7 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.logs.backend.alert_deletion import delete_platform_owned, remove_native_destinations
+from products.logs.backend.alert_deletion import delete_platform_owned, remove_alert_destinations
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
 from products.logs.backend.models import CHECK_INTERVAL_MINUTES, LogsAlertConfiguration
@@ -77,7 +77,7 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     # For a logs alert with no logs row. `admit_platform_write` holds the cap, so the platform keeps none,
     # and the destinations stay HogFunctions, which the logs API and Terraform manage.
     native=NativeAlertLifecycle(
-        check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=remove_native_destinations
+        check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=remove_alert_destinations
     ),
     native_create=creates_native_alert,
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,

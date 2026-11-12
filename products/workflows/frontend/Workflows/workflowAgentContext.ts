@@ -4,7 +4,8 @@ import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateSc
 import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
+import { isEmailStep } from './hogflows/steps/email/emailStepVariants'
+import { isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -127,37 +128,12 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
         '5. Test the workflow and leave it disabled.',
 }
 
-// The folder name is user data, so it travels as an untrusted item and this static instruction only points at it.
-const NEW_WORKFLOW_FOLDER_TYPE = 'new_workflow_folder'
-const FOLDER_PLACEMENT_CONTEXT_ITEM: AttachedContextItem = {
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
-    value:
-        `The user is creating this workflow in a project folder, given by the ${NEW_WORKFLOW_FOLDER_TYPE} item. ` +
-        'Pass that value unchanged as folder on workflows-create, so the draft lands in the folder.',
-}
-
-/**
- * Skill pointer plus the draft-first instruction, no editor state, and the folder the draft is created in.
- * Not dismissible: the page only advances once the draft exists.
- */
-export function buildNewWorkflowComposerContext(folder: string | null = null): AttachedContextItem[] {
+/** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
+export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
     return [
         { ...TOOLING_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
         { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
         DRAFT_FIRST_CONTEXT_ITEM,
-        ...(folder
-            ? [
-                  FOLDER_PLACEMENT_CONTEXT_ITEM,
-                  {
-                      type: NEW_WORKFLOW_FOLDER_TYPE,
-                      value: folder,
-                      hidden: true,
-                      dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
-                  },
-              ]
-            : []),
     ]
 }
 
@@ -173,7 +149,7 @@ function findEmailAction(workflow: HogFlow | null, actionId: string | null): Hog
         return null
     }
     const action = workflow?.actions?.find((a) => a.id === actionId)
-    return action && isEmailAction(action) ? action : null
+    return action && isEmailStep(action) ? action : null
 }
 
 /**
@@ -204,8 +180,10 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `anything earlier in the conversation. Requests about "this email" mean that action's ` +
                 `config.inputs.email.value. For content and layout changes prefer ` +
                 `workflows-patch-action-email with design operations targeting that action; use ` +
-                `workflows-patch-graph with update_action on it for other fields. The open editor reloads ` +
-                `external edits live, so the user sees applied changes immediately.`,
+                `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
+                `from PostHog's sandbox sender to verified members of the organization only, so it takes no ` +
+                `from, replyTo, cc or bcc. The open editor reloads external edits live, so the user sees ` +
+                `applied changes immediately.`,
         },
         {
             type: 'skill',
@@ -296,7 +274,7 @@ export function redactWorkflowSecretInputs(
 }
 
 function emailValueOf(action: HogFlow['actions'][number]): Record<string, unknown> | null {
-    if (!isEmailAction(action)) {
+    if (!isEmailStep(action)) {
         return null
     }
     const value = (action.config as { inputs?: Record<string, CyclotronJobInputType> | null })?.inputs?.email?.value

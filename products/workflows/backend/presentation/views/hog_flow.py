@@ -4,6 +4,7 @@ import uuid as uuid_mod
 import hashlib
 import dataclasses
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -60,6 +61,7 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemViewSetMixin,
 )
+from posthog.api.utils import MAX_LISTED_IDS, parse_id_list
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -68,8 +70,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
-from posthog.models.file_system.constants import workflows_list_v2_enabled
-from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.file_system.constants import resolved_workflows_list_v2, workflows_list_v2_enabled
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -132,6 +133,7 @@ from products.cdp.backend.presentation.serializers import (
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
+    reject_new_non_email_senders,
     require_viewer_access_to_added_actions,
 )
 from products.cohorts.backend.facade.api import get_cohort_ref
@@ -170,8 +172,10 @@ from products.workflows.backend.facade.api import (
 )
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
+    get_audience_snapshot_page,
     get_batch_job,
     list_batch_jobs,
+    request_audience_snapshot,
     set_batch_job_status,
 )
 from products.workflows.backend.facade.blast_radius import (
@@ -183,6 +187,7 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+    reject_unusable_audience_conditions,
 )
 from products.workflows.backend.facade.broadcast_conversion import (
     BROADCAST_CONVERSION_CANDIDATE_LIMIT,
@@ -237,6 +242,7 @@ from products.workflows.backend.facade.email_health import (
     verified_email_domains,
 )
 from products.workflows.backend.facade.enums import (
+    HogFlowBatchJobAudienceStatus,
     HogFlowBatchJobState,
     HogFlowExitCondition,
     HogFlowOriginProduct,
@@ -270,6 +276,24 @@ from products.workflows.backend.facade.proposals import (
     version_outcome,
 )
 from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.sandbox_email import (
+    INVALID_ACTION_ID,
+    SANDBOX_EMAIL_ACTION_TYPE,
+    SandboxSenderUnavailable,
+    can_default_to_sandbox,
+    check_sandbox_sender_available,
+    has_verified_own_sender,
+    own_only_settings,
+    provision_sandbox_sender,
+    require_sandbox_runtime,
+    sandbox_adoption_enabled,
+    to_own_email_action,
+    to_sandbox_action,
+    valid_sandbox_action_id,
+    validate_sandbox_email_action,
+    verified_own_sender_ids,
+    written_in_liquid,
+)
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -390,7 +414,7 @@ _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "sour
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
-def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
             WORKFLOWS_COHORT_CONDITIONS_FLAG,
@@ -638,23 +662,6 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
         for key in secret_keys_for_action(deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
-
-
-# A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
-# condition must resolve to a concrete set of persons/groups. Feature flag evaluation is dynamic
-# (rollout %, distinct_id hashing, super-conditions, holdouts) and has no such fixed membership, so a
-# flag condition can't be turned into an audience query — it falls through to a NotImplementedError
-# deeper in HogQL property compilation. Reject it up front with a clear 400 instead.
-BATCH_FLAG_CONDITION_REJECTION = (
-    "Feature flags can't be used as a batch audience condition. Use person properties or cohorts instead."
-)
-
-
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    # Cohorts are expanded so a flag condition nested inside one is still caught.
-    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
-    if any(prop.type == "flag" for prop in property_groups.flat):
-        raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:
@@ -1055,6 +1062,84 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
+SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
+
+
+def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
+    actions = data.get("actions") if isinstance(data, dict) else None
+    get_team = context.get("get_team")
+    user = getattr(context.get("request"), "user", None)
+    if (
+        not isinstance(actions, list)
+        or not context.get("default_new_email_steps_to_sandbox")
+        or context.get("event_source") in (None, EventSource.WEB)
+        or get_team is None
+        or not isinstance(user, User)
+        or (instance.origin_product if instance else data.get("origin_product"))
+    ):
+        return data
+    stored_ids = (
+        {
+            action.get("id")
+            for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
+            if isinstance(action, dict) and isinstance(action.get("id"), str)
+        }
+        if instance
+        else set()
+    )
+    new_steps = [
+        index
+        for index, action in enumerate(actions)
+        if isinstance(action, dict) and can_default_to_sandbox(action) and action["id"] not in stored_ids
+    ]
+    if not new_steps:
+        return data
+    team = get_team()
+    if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
+        return data
+    try:
+        check_sandbox_sender_available(team, user)
+    except SandboxSenderUnavailable:
+        return data
+    converted = list(actions)
+    moved = False
+    for index in new_steps:
+        step = _with_saved_template_content(actions[index], team, context)
+        if step is not None:
+            converted[index] = to_sandbox_action(step)
+            moved = True
+    if not moved:
+        return data
+    return {**data, "actions": converted}
+
+
+def _with_saved_template_content(action: dict, team: Team, context: dict) -> Optional[dict]:
+    step = deepcopy(action)
+    config = step["config"]
+    try:
+        _apply_fixed_template_id(
+            config, config.get("template_id") or "", _FIXED_TEMPLATE_IDS["function_email"], strict=False
+        )
+    except serializers.ValidationError:
+        return None
+    _apply_email_template_content(config, team, False, context)
+    if config.get("template_uuid") and not _has_email_body(step):
+        return None
+    return step
+
+
+def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+
+
+def _has_email_body(action: dict) -> bool:
+    inputs = action["config"].get("inputs")
+    email = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email.get("value") if isinstance(email, dict) else None
+    return isinstance(value, dict) and any(value.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS)
+
+
 _WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 
@@ -1194,7 +1279,7 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, list[dict]]:
+def _existing_email_from_by_action(instance: WorkflowEditState, *, include_draft: bool = True) -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
@@ -1202,7 +1287,7 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
     a value matching either - both are values already stored on the workflow.
     """
     result: dict[str, list[dict]] = {}
-    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    draft = instance.draft if isinstance(instance.draft, dict) and include_draft else {}
     for actions in (instance.actions, draft.get("actions")):
         for stored_action in actions or []:
             if not isinstance(stored_action, dict) or not stored_action.get("id"):
@@ -1357,6 +1442,22 @@ class BlastRadiusSerializer(serializers.Serializer):
             "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
             "a realtime cohort has to be the only condition."
         ),
+    )
+
+
+class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
+    """Response contract for the internal audience snapshot endpoint. Mirrors
+    AudienceSnapshotResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJobAudienceStatus.choices,
+        help_text="Where the audience resolution got to: resolving, ready, or failed.",
+    )
+    audience_size = serializers.IntegerField(
+        allow_null=True, help_text="Number of persons in the stored audience once it is ready."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the audience could not be resolved, in words meant for the customer."
     )
 
 
@@ -1621,6 +1722,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
+            "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
+            "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
+            "html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, "
+            "so it takes no sender, reply-to, template, headers or attachments. Needs text or html. "
+            "Only workflows, not broadcasts or templates, can hold it. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
@@ -1700,7 +1806,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -2030,12 +2136,37 @@ class HogFlowActionSerializer(serializers.Serializer):
                 }
             )
 
+    def _validate_sandbox_email(self, data: dict, *, strict: bool) -> dict:
+        stored = self.context.get("stored_sandbox_action_ids") or set()
+        return validate_sandbox_email_action(
+            data,
+            stored_sandbox_action_ids=stored,
+            adoption_enabled=data.get("id") in stored or self._sandbox_adoption_enabled(),
+            require_complete=strict,
+            is_dwh_source=self.context.get("is_dwh_source", False),
+        )
+
+    def _sandbox_adoption_enabled(self) -> bool:
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return True
+        if "_sandbox_adoption_enabled" not in self.context:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            self.context["_sandbox_adoption_enabled"] = sandbox_adoption_enabled(
+                get_team(), user if isinstance(user, User) else None
+            )
+        return self.context["_sandbox_adoption_enabled"]
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
         # (MCP/API) get full validation even on drafts so a broken or unsupported config fails at create
         # time rather than being silently stored and surfacing only at enable.
         strict = _should_validate_strictly(self.context, is_draft)
+
+        if data.get("type") == SANDBOX_EMAIL_ACTION_TYPE:
+            return self._validate_sandbox_email(data, strict=strict)
 
         trigger_is_function = False
         if data.get("type") == "trigger":
@@ -2126,6 +2257,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
+                        stored_filters = (self.context.get("stored_batch_audience_filters") or {}).get(data.get("id"))
+                        if filters != stored_filters:
+                            reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
@@ -2267,34 +2401,32 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
 
+                function_inputs_context = {
+                    "function_type": template.type,
+                    "is_dwh_source": self.context.get("is_dwh_source", False),
+                    # The existing (decrypted) secret inputs for this action, so a resent
+                    # {"secret": true} marker recovers the stored value instead of wiping it.
+                    "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                    # Team plus this action's stored sender override, so a literal custom
+                    # sender address is checked against the integration's verified domain at
+                    # save time, while an unchanged stored value is grandfathered.
+                    "get_team": self.context.get("get_team"),
+                    "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(data.get("id")),
+                    "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
+                    # Request-scoped: a drip sequence's steps share senders, and the actions
+                    # list validates one action at a time (mirrors _message_template_cache).
+                    "email_integration_domain_cache": self.context.setdefault("_email_integration_domain_cache", {}),
+                }
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={
-                        "function_type": template.type,
-                        "is_dwh_source": self.context.get("is_dwh_source", False),
-                        # The existing (decrypted) secret inputs for this action, so a resent
-                        # {"secret": true} marker recovers the stored value instead of wiping it.
-                        "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
-                        or {},
-                        # Team plus this action's stored sender override, so a literal custom
-                        # sender address is checked against the integration's verified domain at
-                        # save time, while an unchanged stored value is grandfathered.
-                        "get_team": self.context.get("get_team"),
-                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
-                            data.get("id")
-                        ),
-                        # Request-scoped: a drip sequence's steps share senders, and the actions
-                        # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
-                    },
+                    context=function_inputs_context,
                 )
 
                 if not strict:
+                    reject_new_non_email_senders(input_schema, inputs, function_inputs_context)
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
                     else:
@@ -2736,6 +2868,13 @@ class SendCalendarQuerySerializer(serializers.Serializer):
             "days after start."
         )
     )
+    ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated workflow IDs, at most {MAX_LISTED_IDS}. Only these workflows are returned.",
+    )
+
+    def validate_ids(self, value: str) -> list[uuid_mod.UUID]:
+        return parse_id_list(value, name="ids", parse=uuid_mod.UUID) or []
 
     def validate(self, data: dict) -> dict:
         if data["end"] <= data["start"]:
@@ -3647,8 +3786,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
+        self.context["stored_sandbox_action_ids"] = {
+            action["id"]
+            for action in [
+                *((instance.actions if instance else None) or []),
+                *(((instance.draft or {}).get("actions") if instance else None) or []),
+            ]
+            if isinstance(action, dict) and action.get("id") and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        }
+
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
+
+        self.context["stored_batch_audience_filters"] = {
+            action["id"]: (action.get("config") or {}).get("filters")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+        }
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -3720,6 +3877,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["live_action_email_from"] = _existing_email_from_by_action(instance, include_draft=False)
             # Live "Run scout" notes, so only a new or changed note needs skill editor access.
             self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 
@@ -3734,10 +3892,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        validated = super().to_internal_value(data)
+        defaulted = _with_new_email_steps_on_the_sandbox_sender(data, instance, self.context)
+        if defaulted is not data:
+            self.context[SETS_UP_SANDBOX_SENDER] = True
+        validated = super().to_internal_value(defaulted)
         # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
         folder = validated.pop("folder", None)
-        if folder and self.instance is None and not validated.get("_create_in_folder"):
+        # An empty folder is the project root, so only an omitted one falls back to the default.
+        if folder is not None and self.instance is None and "_create_in_folder" not in validated:
             try:
                 validate_file_system_placement(folder, validated.get("name"))
             except serializers.ValidationError as error:
@@ -3838,8 +4000,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if duplicate_ids:
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
-        actions = data.get("actions", instance.actions if instance else [])
         stored = instance or self.context.get("instance")
+        actions = data.get("actions", instance.actions if instance else [])
+        origin_product = stored.origin_product if stored else data.get("origin_product")
+        if origin_product and any(
+            isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+            for action in data.get("actions", stored.actions if stored else None) or []
+        ):
+            raise serializers.ValidationError(
+                {"actions": "Only workflows can use the sandbox sender. Choose a verified email sender for this step."}
+            )
         require_viewer_access_to_added_actions(
             self.context,
             {"actions": submitted_actions, "conversion": data.get("conversion")},
@@ -4171,6 +4341,11 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
     )
 
 
+class EmailStepSender(models.TextChoices):
+    SANDBOX = "sandbox", "sandbox"
+    OWN = "own", "own"
+
+
 class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
     base_updated_at = serializers.DateTimeField(
         required=False,
@@ -4195,8 +4370,28 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
             "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
             "where email and name are optional templated overrides resolved per invocation; the address must "
-            "resolve to the selected sender's verified domain or the send fails. The design is edited via "
+            "resolve to the selected sender's verified domain or the send fails. A sandbox step (type "
+            "email_sandbox) takes only subject, preheader, text and to. The design is edited via "
             "operations, and html is always re-rendered from it."
+        ),
+    )
+    sender = serializers.ChoiceField(
+        choices=EmailStepSender.choices,
+        required=False,
+        help_text=(
+            "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "
+            "verified members of the organization and needs no verified domain; it is set up for the project "
+            "on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in "
+            "email_patch.from.integrationId. The step keeps its id, recipient, content and category."
+        ),
+    )
+    drop_own_sender_settings = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or "
+            "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
+            "is refused and the error lists them, so confirm with the user before setting it."
         ),
     )
 
@@ -4212,20 +4407,43 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         return value
 
     def validate(self, data: Any) -> Any:
-        if not data.get("operations") and not data.get("email_patch"):
-            raise serializers.ValidationError("Provide operations and/or email_patch.")
+        if not data.get("operations") and not data.get("email_patch") and not data.get("sender"):
+            raise serializers.ValidationError("Provide operations, email_patch and/or sender.")
+        sender_id = _patched_sender_id(data.get("email_patch"))
+        if data.get("sender") == "own" and (not isinstance(sender_id, int) or isinstance(sender_id, bool)):
+            raise serializers.ValidationError(
+                {"sender": "Name the verified sender to switch to in email_patch.from.integrationId."}
+            )
         return data
+
+
+def _patched_sender_id(email_patch: Any) -> Any:
+    sender = email_patch.get("from") if isinstance(email_patch, dict) else None
+    return sender.get("integrationId") if isinstance(sender, dict) else None
+
+
+def _patched_sender_ids(email_patch: Any) -> list[Any]:
+    sender = email_patch.get("from") if isinstance(email_patch, dict) else None
+    rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
+    return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
+
+
+def _all_verified(sender_ids: list[Any], verified: frozenset[int]) -> bool:
+    return all(
+        isinstance(sender_id, int) and not isinstance(sender_id, bool) and sender_id in verified
+        for sender_id in sender_ids
+    )
 
 
 def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
     target = next((a for a in actions if isinstance(a, dict) and a.get("id") == action_id), None)
     if target is None:
         raise exceptions.ValidationError({"action_id": f"Action '{action_id}' not found in this workflow."})
-    if target.get("type") != "function_email":
+    if target.get("type") not in ("function_email", SANDBOX_EMAIL_ACTION_TYPE):
         raise exceptions.ValidationError(
             {
                 "action_id": f"Action '{action_id}' is a '{target.get('type')}' step. "
-                "Only function_email steps carry an email."
+                "Only function_email and email_sandbox steps carry an email."
             }
         )
     inputs = (target.get("config") or {}).get("inputs")
@@ -4283,12 +4501,41 @@ def _render_action_email_operations(
     return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
 
 
+_SANDBOX_EMAIL_PATCH_KEYS = frozenset({"subject", "preheader", "text", "to"})
+
+
 def _apply_action_email_edit(
-    actions: list[dict], action_id: str, email_patch: dict, rendered: Optional[_RenderedActionEmailDesign]
+    actions: list[dict],
+    action_id: str,
+    email_patch: dict,
+    rendered: Optional[_RenderedActionEmailDesign],
+    *,
+    sender: Optional[str] = None,
+    drop_own_sender_settings: bool = False,
 ) -> list[dict]:
     # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
     # email value patched (the pre-rendered design installed, then the field merge).
     new_actions = deepcopy(actions)
+    _locate_action_email_value(new_actions, action_id)
+    index = next(i for i, a in enumerate(new_actions) if isinstance(a, dict) and a.get("id") == action_id)
+    if sender == "own" and new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
+        if not written_in_liquid(new_actions[index]):
+            raise exceptions.ValidationError(
+                {
+                    "sender": "This step is written in Hog, and steps on the project's own senders use Liquid. "
+                    "Add a new email step in Liquid on that sender, then remove this one."
+                }
+            )
+        new_actions[index] = to_own_email_action(new_actions[index], _patched_sender_id(email_patch))
+    elif new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
+        own_only = sorted(set(email_patch) - _SANDBOX_EMAIL_PATCH_KEYS)
+        if own_only:
+            raise exceptions.ValidationError(
+                {
+                    "email_patch": f"A sandbox email step can't set {', '.join(own_only)}. To send from one of "
+                    "the project's own senders, set sender: 'own' with email_patch.from.integrationId."
+                }
+            )
     value = _locate_action_email_value(new_actions, action_id)
 
     if rendered is not None:
@@ -4303,7 +4550,29 @@ def _apply_action_email_edit(
     if email_patch:
         deep_merge(value, email_patch)
 
+    if sender == "sandbox" and new_actions[index]["type"] == "function_email":
+        new_actions[index] = _switched_to_sandbox(new_actions[index], drop_own_sender_settings)
+
     return new_actions
+
+
+def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
+    if not valid_sandbox_action_id(action.get("id")):
+        raise exceptions.ValidationError(
+            {
+                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the sandbox sender, "
+                "then remove this one."
+            }
+        )
+    dropped = own_only_settings(action)
+    if dropped and not drop_own_sender_settings:
+        raise exceptions.ValidationError(
+            {
+                "sender": f"The sandbox sender can't keep these settings: {', '.join(dropped)}. Clear them first, "
+                "or send drop_own_sender_settings: true to drop them."
+            }
+        )
+    return to_sandbox_action(action)
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
@@ -5342,7 +5611,7 @@ class HogFlowViewSet(
                 user is not None
                 and not user.is_anonymous
                 and not isinstance(user, SyntheticUser)
-                and _cohort_conditions_rolled_out(user, str(self.team.organization_id))
+                and cohort_conditions_rolled_out(user, str(self.team.organization_id))
             )
         if self._cohort_conditions_rollout:
             return True
@@ -5381,6 +5650,7 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
+        context["default_new_email_steps_to_sandbox"] = self.action in WORKFLOW_SAVE_ACTIONS
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
         if self._proposals_hog_flow is not None:
@@ -5524,6 +5794,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             start=request.validated_query_data["start"],
             end=request.validated_query_data["end"],
+            workflow_ids=request.validated_query_data.get("ids"),
             # Service credentials are synthetic users that UserAccessControl cannot evaluate.
             user_access_control=None if is_service_auth(request) else self.user_access_control,
         )
@@ -5578,7 +5849,9 @@ class HogFlowViewSet(
         summary="List workflow summaries",
         description=(
             "Workflow rows without the step graph, for loading a whole project's list page by page. "
-            "Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`."
+            "Sorted newest created first. Takes the list's filters, but not its sort options or `admin_include_all`. "
+            "With `search`, `count` is not a total: it counts the rows through this page, plus one when another page "
+            "follows. Follow `next` to read every match."
         ),
         parameters=SUMMARIES_QUERY_PARAMETERS,
         responses={200: HogFlowListSummarySerializer(many=True)},
@@ -5765,11 +6038,19 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        result = create_workflow(
-            team_id=self.team_id,
-            user_id=self._actor_id(),
-            validated_data=serializer.validated_data,
-        )
+        # Filing into a requested folder asks the flag service, so it has to answer before the save takes its locks.
+        creator = self.request.user if self.request.user.is_authenticated else None
+        with (
+            resolved_workflows_list_v2(self.team, [cast(User, creator)])
+            if creator is not None and "_create_in_folder" in serializer.validated_data
+            else nullcontext()
+        ):
+            result = create_workflow(
+                team_id=self.team_id,
+                user_id=self._actor_id(),
+                validated_data=serializer.validated_data,
+                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+            )
         serializer.instance = self._written_workflow(result)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
@@ -5835,6 +6116,7 @@ class HogFlowViewSet(
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
+                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
@@ -5942,7 +6224,12 @@ class HogFlowViewSet(
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
         serializer.is_valid(raise_exception=True)
+        self._set_up_defaulted_sandbox_sender(serializer)
         return serializer.validated_data
+
+    def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
+        if serializer.context.get(SETS_UP_SANDBOX_SENDER):
+            provision_sandbox_sender(self.team, cast(User, self.request.user))
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -5993,7 +6280,10 @@ class HogFlowViewSet(
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "action_id", str, OpenApiParameter.PATH, description="Id of the function_email step to edit."
+                "action_id",
+                str,
+                OpenApiParameter.PATH,
+                description="Id of the function_email or email_sandbox step to edit.",
             )
         ],
         request=HogFlowActionEmailUpdateSerializer,
@@ -6008,10 +6298,23 @@ class HogFlowViewSet(
         op_serializer.is_valid(raise_exception=True)
         operations = op_serializer.validated_data.get("operations") or []
         email_patch = op_serializer.validated_data.get("email_patch") or {}
+        sender = op_serializer.validated_data.get("sender")
+        drop_own_sender_settings = op_serializer.validated_data["drop_own_sender_settings"]
         action_id = kwargs["action_id"]
 
         # Authorize + team-scope via the normal lookup; the service re-reads FOR UPDATE inside the transaction.
         unlocked = self._edit_state()
+        if sender == "sandbox":
+            self._check_sandbox_sender_available(request)
+        if sender == "own" and not _all_verified(
+            _patched_sender_ids(email_patch), verified_own_sender_ids(self.team.id)
+        ):
+            raise exceptions.ValidationError(
+                {
+                    "sender": "That sender's domain isn't verified yet. Verify it in the project's email settings, "
+                    "or keep the sandbox sender until then."
+                }
+            )
 
         # Rendering is a synchronous Unlayer HTTP call, so it runs before the transaction, against the
         # unlocked row — it must not extend the select_for_update hold. Draft routing is predicted the
@@ -6027,7 +6330,16 @@ class HogFlowViewSet(
             rendered = _render_action_email_operations(render_base, action_id, operations)
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
-            new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
+            new_actions = _apply_action_email_edit(
+                base_actions,
+                action_id,
+                email_patch,
+                rendered,
+                sender=sender,
+                drop_own_sender_settings=drop_own_sender_settings,
+            )
+            if sender == "sandbox":
+                provision_sandbox_sender(self.team, cast(User, request.user))
             return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
@@ -6055,10 +6367,23 @@ class HogFlowViewSet(
                 "operations_count": len(operations),
                 "merged_fields": sorted(email_patch.keys()),
                 "routed_to_draft": result.routed_to_draft,
+                "sender": sender,
             },
         )
 
         return Response(self.get_serializer(instance).data)
+
+    def _check_sandbox_sender_available(self, request: Request) -> None:
+        if not isinstance(request.user, User):
+            raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
+        if not _can_set_up_sandbox_sender(self.team, request.user):
+            raise exceptions.PermissionDenied(
+                "Setting up the sandbox sender needs edit access to all workflows in this project."
+            )
+        try:
+            check_sandbox_sender_available(self.team, request.user)
+        except SandboxSenderUnavailable as error:
+            raise exceptions.ValidationError({"sender": str(error)})
 
     def _require_audience_confirm_token(self, request: Request, hog_flow: WorkflowRef) -> None:
         """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""
@@ -6783,11 +7108,13 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        configuration = payload.get("configuration") or {}
+        # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+        actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+        require_sandbox_runtime(actions)
+
         test_run_row = None
         if not payload.get("mock_async_functions", True):
-            configuration = payload.get("configuration") or {}
-            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
-            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
             self._require_replay_vision_caller_access(request, actions)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
@@ -7047,7 +7374,7 @@ class HogFlowViewSet(
                 ).data
             )
 
-        reject_flag_conditions_in_audience(self.team, filters)
+        reject_unusable_audience_conditions(self.team, filters)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7280,7 +7607,6 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        # The list that reads these counts launches behind its flag, and so does the way it counts runs.
         if workflows_list_v2_enabled(self.team, cast(User, request.user)):
             totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
         else:
@@ -7985,7 +8311,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             result = get_audience_size(
                 team_id=team.id,
                 filters=filters,
@@ -8034,7 +8360,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,
@@ -8056,6 +8382,77 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
+
+    def internal_batch_job_audience_snapshot(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
+        background. The first call starts it; later calls report its status. The resolver pages the
+        stored audience through internal_batch_job_audience_page once the status is ready.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        dedupe_key = request.data.get("dedupe_key", None)
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
+        max_audience_size = request.data.get("max_audience_size")
+        if not isinstance(max_audience_size, int) or max_audience_size < 1:
+            return Response({"error": "max_audience_size must be a positive integer"}, status=400)
+
+        try:
+            snapshot = request_audience_snapshot(
+                team_id=team.id,
+                batch_job_id=batch_job_id,
+                dedupe_key=dedupe_key,
+                max_audience_size=max_audience_size,
+            )
+        except WorkflowBatchJobNotFound:
+            return Response({"error": "Batch job not found"}, status=404)
+        except Exception as e:
+            logger.exception("Error in internal_batch_job_audience_snapshot", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+        return Response(
+            InternalBatchJobAudienceSnapshotSerializer(
+                {"status": snapshot.status, "audience_size": snapshot.audience_size, "error": snapshot.error}
+            ).data
+        )
+
+    def internal_batch_job_audience_page(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
+        like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        cursor = request.data.get("cursor", None)
+        try:
+            page = get_audience_snapshot_page(team_id=team.id, batch_job_id=batch_job_id, cursor=cursor)
+        except ValueError:
+            return Response({"error": "cursor and batch_job_id must be UUIDs"}, status=400)
+        except Exception as e:
+            logger.exception("Error in internal_batch_job_audience_page", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+        return Response(
+            InternalBlastRadiusPersonsSerializer(
+                {
+                    "users_affected": page.ids,
+                    "cursor": page.ids[-1] if page.ids else None,
+                    "has_more": page.has_more,
+                }
+            ).data
+        )
 
     def internal_account_audience(self, request: Request, team_id: str) -> Response:
         """

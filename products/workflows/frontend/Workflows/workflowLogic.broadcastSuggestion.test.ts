@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -159,29 +158,6 @@ describe('workflowLogic broadcast suggestion on create', () => {
             expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
         }
     )
-
-    it.each([
-        { name: 'with project folders on', flags: true, folder: '007' },
-        { name: 'with project folders off', flags: false, folder: undefined },
-    ])('sends the folder from the URL with a new workflow $name', async ({ flags, folder }) => {
-        const flag = jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue(flags)
-        router.actions.push('/workflows/new/workflow', { _create_in_folder: '007' })
-        logic.actions.setWorkflowValues({
-            name: 'Welcome',
-            actions: [trigger('event'), email, exit],
-            edges: emailEdges,
-        })
-        try {
-            await expectLogic(logic, () => {
-                logic.actions.submitWorkflow()
-            })
-                .toDispatchActions(['saveWorkflowSuccess'])
-                .toFinishAllListeners()
-            expect(createdBodies[0]._create_in_folder).toBe(folder)
-        } finally {
-            flag.mockRestore()
-        }
-    })
 
     it('creates nothing when the user closes the dialog', async () => {
         jest.mocked(confirmCreateAsBroadcast).mockResolvedValue(null)

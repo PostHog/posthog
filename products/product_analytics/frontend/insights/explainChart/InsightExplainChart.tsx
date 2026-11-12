@@ -3,8 +3,6 @@ import { ExternalLink } from 'lucide-react'
 import posthog from 'posthog-js'
 import { type ReactNode, useMemo } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 
 import type { InsightLogicProps } from '~/types'
@@ -17,6 +15,7 @@ import {
 import { ExplainChartEvidenceChart } from './ExplainChartEvidenceChart'
 import { ExplainChartFollowUp } from './ExplainChartFollowUp'
 import { explainChartLogic } from './explainChartLogic'
+import { ExplainChartOutdatedNotice } from './ExplainChartOutdatedNotice'
 
 const EVIDENCE_CHARTS: StoryEvidenceCharts = {
     canShow: (item) => !!item.chart || !!item.queryTool,
@@ -54,11 +53,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
     if (storyAvailable && storyShown && storyOutdated) {
         return (
             <>
-                <LemonBanner type="info" className="m-2">
-                    {explainAvailable
-                        ? "The explanation is hidden because your changes affect the chart's data. Undo them to see it again, or save and explain this version."
-                        : "The explanation is hidden because your changes affect the chart's data. Undo them to see it again."}
-                </LemonBanner>
+                <ExplainChartOutdatedNotice explainAvailable={explainAvailable} />
                 {renderChart()}
             </>
         )

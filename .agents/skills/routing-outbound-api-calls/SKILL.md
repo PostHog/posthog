@@ -83,7 +83,7 @@ Copy the closest reference domain for the file layout:
 
 Invoke `/writing-tests` first. In this package, these tests earn their place:
 
-- **Transport wiring.** Patch `requests.request` (or the aiohttp session), call the real `<domain>_request`, and assert the scope, the headers, and the recorded counter. Assert that a secret never reaches a label.
+- **Transport wiring.** Call the real `<domain>_request` against a fake vendor: `responses.RequestsMock` (or `aioresponses`) answering with the documented response, and its rate-limit headers if the domain declares gauges. Assert what the fake received, the domain's counter, any gauges, and that a secret never reaches a label. To prove the gate, set a per-minute budget of 1 and delete the key's counters from `get_client()`, the per-process fake Redis that earlier tests share. Then the first sheddable call reaches the fake, and the second raises `<Domain>EgressBudgetExhausted` without reaching it.
 - **Settings names.** Assert `resolve_policy(key).limits` under `override_settings`. The `getattr` defaults silently swallow a misspelled setting.
 - **Header parsing.** One parser case per documented header, plus garbage values.
 - **Lanes, only for a domain that overrides the reserve.** Use the real policy through `OutboundRateLimiter(LimitsBackend())` and a unique key.

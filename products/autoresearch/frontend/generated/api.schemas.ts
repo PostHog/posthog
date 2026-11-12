@@ -1924,9 +1924,9 @@ export interface StartTrainingRequestApi {
 export interface TrainingRunCapReachedApi {
     /** Why the run did not start. */
     detail: string
-    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
     used: number
-    /** Sandbox training runs the project may start in any 24 hours. */
+    /** The project's daily limit of sandbox training runs. */
     limit: number
     /**
      * When the next training run can start. Null when training runs are turned off for the project.
@@ -1986,9 +1986,9 @@ export const LimitSourceEnumApi = {
 } as const
 
 export interface ProjectLimitsApi {
-    /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+    /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
     max_training_runs_per_day: number
-    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
     training_runs_used: number
     /**
      * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
@@ -2204,6 +2204,20 @@ export interface ValidationWarningApi {
     severity: ValidationWarningSeverityEnumApi
 }
 
+/**
+ * * `invalid_definition` - Invalid definition
+ * * `too_expensive` - Too expensive
+ * * `unavailable` - Unavailable
+ */
+export type AutoresearchValidationErrorCodeEnumApi =
+    (typeof AutoresearchValidationErrorCodeEnumApi)[keyof typeof AutoresearchValidationErrorCodeEnumApi]
+
+export const AutoresearchValidationErrorCodeEnumApi = {
+    InvalidDefinition: 'invalid_definition',
+    TooExpensive: 'too_expensive',
+    Unavailable: 'unavailable',
+} as const
+
 export interface ValidatePipelineResponseApi {
     /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
@@ -2241,6 +2255,12 @@ export interface ValidatePipelineResponseApi {
      * @nullable
      */
     error: string | null
+    /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+     *
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable */
+    error_code: AutoresearchValidationErrorCodeEnumApi | null
 }
 
 export type AutoresearchListParams = {

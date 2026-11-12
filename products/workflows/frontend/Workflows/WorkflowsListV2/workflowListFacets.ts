@@ -1,6 +1,3 @@
-import { parentPath, splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
-
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { FacetDefinition } from './FacetSearchBar/facetQuery'
@@ -21,20 +18,6 @@ const valueFromLabel =
     (typed: string): string =>
         Object.keys(labels).find((value) => labels[value].toLowerCase() === typed.toLowerCase()) ?? typed
 
-/** The folder view lists everything under Unfiled in one place, so its subfolders are not scopes of their own. */
-export function displayedFolder(folder: string): string {
-    return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
-}
-
-export function folderScopes(parent: string, includeDescendants: boolean): string[] {
-    const folder = displayedFolder(parent)
-    if (folder === 'Unfiled' || !includeDescendants) {
-        return [folder]
-    }
-    const parts = splitPath(folder)
-    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
-}
-
 /** Every word of the text must appear in the name or description. */
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
     return text
@@ -53,15 +36,7 @@ const isMe = (value: string): boolean => value.toLowerCase() === ME
 /** `rows` supplies the names shown for creator uuids. `me` stays `me` in the URL and resolves to `viewer`. */
 export function buildWorkflowListFacets(
     rows: WorkflowListRow[],
-    {
-        viewer = null,
-        filesByRef = {},
-        includeDescendants = false,
-    }: {
-        viewer?: WorkflowListViewer | null
-        filesByRef?: Record<string, FileSystemEntry>
-        includeDescendants?: boolean
-    } = {}
+    viewer: WorkflowListViewer | null = null
 ): FacetDefinition<WorkflowListRow>[] {
     const pinnedValues = viewer ? [ME] : undefined
     const creators = new Map(
@@ -85,18 +60,6 @@ export function buildWorkflowListFacets(
     }
 
     return [
-        {
-            key: 'in',
-            aliases: ['path', 'folder'],
-            label: 'in',
-            description: 'Project folder',
-            caseSensitive: true,
-            formatValue: (value) => splitPath(value).join(' / '),
-            getValues: (row) => {
-                const entry = filesByRef[`hog_flow::${row.id}`]
-                return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
-            },
-        },
         {
             key: 'status',
             label: 'Status',

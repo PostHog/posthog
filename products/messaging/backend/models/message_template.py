@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import QuerySet
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE, workflows_list_v2_enabled
+from posthog.models.file_system.constants import DEFAULT_SURFACE, creator_files_workflow_rows
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
@@ -69,9 +69,7 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
         )
 
     def files_new_rows(self) -> bool:
-        return self.created_by is not None and workflows_list_v2_enabled(
-            self.team, self.created_by, only_evaluate_locally=self._create_in_folder is None
-        )
+        return creator_files_workflow_rows(self.team_id, self.created_by_id, lambda: (self.team, self.created_by))
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

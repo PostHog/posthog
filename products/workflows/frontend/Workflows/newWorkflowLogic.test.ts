@@ -10,7 +10,6 @@ import { maxMocks } from 'scenes/max/testUtils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { newWorkflowFolder } from './newWorkflowFolder'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
@@ -33,59 +32,7 @@ describe('newWorkflowLogic', () => {
         initKeaTests()
     })
 
-    it('keeps normal unfiled creation when no project folder is open', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
-        const logic = newWorkflowLogic()
-        logic.mount()
-        router.actions.push('/workflows', {}, {})
-        await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
-        expect(newWorkflowFolder()).toBeNull()
-        logic.unmount()
-    })
-
-    it('keeps the default workflow location when browsing Unfiled', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
-        const logic = newWorkflowLogic()
-        logic.mount()
-        router.actions.push('/workflows', { q: 'in:Unfiled' }, {})
-        await expectLogic(logic, () => logic.actions.startNewWorkflow()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.createEmptyWorkflow()).toFinishAllListeners()
-        expect(newWorkflowFolder()).toBeNull()
-        logic.unmount()
-    })
-
-    it('carries the open project folder through the new workflow picker', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
-        const logic = newWorkflowLogic()
-        logic.mount()
-        router.actions.push('/workflows', { q: 'in:"Campaigns/Annual plans"' }, {})
-        logic.actions.startNewWorkflow()
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.createEmptyWorkflow()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(newWorkflowFolder()).toBe('Campaigns/Annual plans')
-        logic.unmount()
-    })
-
     describe('AI-first new workflow', () => {
-        it.each(['007', '1.50'])(
-            'keeps the number-like folder %s when switching from the composer to the editor',
-            async (folder) => {
-                setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, ...AI_FIRST_FLAGS])
-                const logic = newWorkflowLogic()
-                logic.mount()
-                router.actions.push('/workflows', { q: `in:${folder}` }, {})
-                logic.actions.startNewWorkflow()
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.openEditorFromAiComposer()
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.createEmptyWorkflow()
-                await expectLogic(logic).toFinishAllListeners()
-                expect(newWorkflowFolder()).toBe(folder)
-                logic.unmount()
-            }
-        )
         // The flag-off path must stay byte-identical, and exposure is recorded only for a click the composer could answer.
         it.each([
             { name: 'flag on', flags: AI_FIRST_FLAGS, routed: true, exposed: true },

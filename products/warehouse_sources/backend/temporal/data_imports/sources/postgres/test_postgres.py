@@ -2307,6 +2307,24 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
+    def test_metadata_probe_statement_timeout_is_classified_retryable(self, source):
+        # `_get_table`'s per-table catalog probes (materialized-view/view checks, the column
+        # metadata SELECT) raise the raw psycopg QueryCanceled unconverted, unlike the data-read
+        # path and the whole-schema catalog scan, which both convert a statement_timeout hit into a
+        # more specific exception first. Without this classification, every occurrence floods error
+        # tracking at `exception` level (see `_handle_import_error`) instead of being treated as the
+        # self-recovering condition it is.
+        error_msg = "canceling statement due to statement timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Metadata-probe statement timeout should be classified retryable: {error_msg}"
+
+    def test_metadata_probe_statement_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to statement timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime

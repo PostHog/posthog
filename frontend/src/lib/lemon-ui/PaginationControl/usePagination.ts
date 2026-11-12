@@ -17,15 +17,20 @@ export function usePagination<T>(
     const [localCurrentPage, setLocalCurrentPage] = useState(1)
 
     const syncPageToUrl = pagination?.useUrl !== false
+    const autoPagination = pagination && !pagination.controlled ? pagination : undefined
+    const ownedPage = autoPagination?.currentPage
+    const onPageChange = autoPagination?.onPageChange
     const setCurrentPage = useCallback(
         (newPage: number) => {
-            if (syncPageToUrl) {
+            if (onPageChange) {
+                onPageChange(newPage)
+            } else if (syncPageToUrl) {
                 push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams)
             } else {
                 setLocalCurrentPage(newPage)
             }
         },
-        [location, searchParams, hashParams, push, syncPageToUrl] // oxlint-disable-line react-hooks/exhaustive-deps
+        [location, searchParams, hashParams, push, syncPageToUrl, onPageChange] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
@@ -35,7 +40,7 @@ export function usePagination<T>(
     const currentPage: number | null = pagination?.controlled
         ? pagination.currentPage || null
         : Math.min(
-              syncPageToUrl ? parseInt(searchParams[currentPageParam]) || 1 : localCurrentPage,
+              ownedPage ?? (syncPageToUrl ? parseInt(searchParams[currentPageParam]) || 1 : localCurrentPage),
               pageCount as number
           )
 

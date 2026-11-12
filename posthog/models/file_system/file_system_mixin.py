@@ -1,4 +1,7 @@
 import dataclasses
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import transaction
@@ -13,6 +16,22 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+_file_system_sync_enabled: ContextVar[bool] = ContextVar("file_system_sync_enabled", default=True)
+
+
+@contextmanager
+def file_system_sync(enabled: bool) -> Iterator[None]:
+    """Turn the save and delete signals' file row writes off for the saves inside the block.
+
+    A view whose caller may change an object but not its file in the tree saves inside
+    `file_system_sync(False)`. The object saves, and its file keeps its name, folder and existence.
+    """
+    token = _file_system_sync_enabled.set(enabled)
+    try:
+        yield
+    finally:
+        _file_system_sync_enabled.reset(token)
 
 
 class FileSystemSyncMixin(Model):
@@ -36,13 +55,16 @@ class FileSystemSyncMixin(Model):
 
         @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            instance.sync_file_system()
+            if _file_system_sync_enabled.get():
+                instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
             from posthog.models.file_system.file_system import delete_file
             from posthog.models.team import Team
 
+            if not _file_system_sync_enabled.get():
+                return
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore
@@ -87,9 +109,14 @@ class FileSystemSyncMixin(Model):
     @staticmethod
     def _has_file_system_row(team: "Team", fs_data: FileSystemRepresentation) -> bool:
         from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import file_refs_q
 
         return FileSystem.objects.filter(
-            surface_q(fs_data.surface), team=team, type=fs_data.type, ref=fs_data.ref, shortcut=False
+            surface_q(fs_data.surface),
+            file_refs_q(fs_data.type, [fs_data.ref]),
+            ~Q(shortcut=True),
+            team=team,
+            type=fs_data.type,
         ).exists()
 
     @classmethod
@@ -126,11 +153,12 @@ class FileSystemSyncMixin(Model):
         then exclude rows that are already saved to FileSystem for (team, surface, file_type).
         """
         from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import same_file_ref
 
         if type:
             types = [type] if isinstance(type, str) else type
             already_saved = FileSystem.objects.filter(
-                surface_q(surface), team=team, type__in=types, ref=OuterRef("ref_id")
+                surface_q(surface), same_file_ref(types, "ref", OuterRef("ref_id")), team=team, type__in=types
             ).filter(~Q(shortcut=True))
         elif type__startswith:
             already_saved = FileSystem.objects.filter(

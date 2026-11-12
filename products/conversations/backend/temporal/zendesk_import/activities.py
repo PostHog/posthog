@@ -15,33 +15,34 @@ from temporalio import activity, workflow
 # ORM query-expression names walk django.core.checks.translation -> gettext). Only the
 # activity sync helpers touch them at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
-    from django.db import transaction
     from django.db.models import F
     from django.utils import timezone
     from django.utils.dateparse import parse_datetime
     from django.utils.html import strip_tags
 
     from posthog.dataclasses import frozen
-    from posthog.models import Tag, Team
+    from posthog.event_usage import report_team_action
+    from posthog.exceptions_capture import capture_exception
+    from posthog.models import Team
     from posthog.models.comment import Comment
     from posthog.models.tag import tagify
-    from posthog.models.tagged_item import TaggedItem
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import (
-        EmailChannel,
-        EmailChannelKind,
-        PurgedTicketThread,
-        Ticket,
-        ZendeskImportJob,
-    )
-    from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.models import EmailChannel, PurgedTicketThread, Ticket, ZendeskImportJob
     from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
         save_file_to_uploaded_media,
+    )
+    from products.conversations.backend.temporal.ticket_import.persistence import (
+        BuiltTicket,
+        persist_ticket_batch,
+        resolve_email_channels,
+        resolve_tags,
+        set_historical_created_at,
+        strip_nul,
     )
     from products.conversations.backend.temporal.zendesk_import.client import (
         ZendeskAttachmentTooLargeError,
@@ -129,28 +130,12 @@ def _credentials_from_job(job: ZendeskImportJob) -> ZendeskCredentials:
     return ZendeskCredentials(subdomain=subdomain, email_address=email_address, api_token=api_token)
 
 
-def _strip_nul(value: str) -> str:
-    """Remove NUL (0x00) bytes, which Postgres text/jsonb columns reject outright.
-
-    Zendesk ticket bodies occasionally carry stray NULs (bad email encodings, copy-paste
-    artifacts). One such byte anywhere in a batch aborts the entire bulk_create with a
-    DataError and exhausts the activity's retries, so scrub it from every stored string.
-    """
-    return value.replace("\x00", "") if "\x00" in value else value
-
-
 def _comment_body(comment: dict[str, Any]) -> str:
     body = (comment.get("body") or "").strip()
     if body:
-        return _strip_nul(body)
+        return strip_nul(body)
     html_body = comment.get("html_body") or ""
-    return _strip_nul(strip_tags(html_body).strip())
-
-
-def _comment_is_private(comment: Comment) -> bool:
-    """True for internal notes, which must never surface in customer-facing denormalized stats."""
-    ctx = comment.item_context
-    return isinstance(ctx, dict) and ctx.get("is_private") is True
+    return strip_nul(strip_tags(html_body).strip())
 
 
 def _process_attachments(
@@ -252,38 +237,6 @@ class _BuiltComments:
     agent_reply_count: int
 
 
-@frozen(eq=False)
-class _BuiltTicket:
-    """One ticket built in Phase 2, ready for the Phase 3 transaction.
-
-    `ticket` and `comments` are the exact model instances persisted, so after bulk_create
-    sets their ids Phase 3 reads those ids back off the same objects.
-    """
-
-    ticket: Ticket
-    comments: list[Comment]
-    tag_names: list[str]
-    customer_message_count: int
-    agent_reply_count: int
-    created_at: datetime | None
-    updated_at: datetime | None
-
-
-def _resolve_email_channels(
-    team_id: int, default_email_channel_id: str | None
-) -> tuple[dict[str, EmailChannel], EmailChannel | None]:
-    # Map the team's support addresses so each ticket's Zendesk `recipient` (the address the
-    # customer originally emailed) resolves to the matching EmailChannel. Unmatched/absent
-    # recipients fall back to the caller-selected default channel, if any. Bounded to
-    # MAX_EMAIL_CONFIGS_PER_TEAM rows, so a single query up front is cheap.
-    email_channels = list(EmailChannel.objects.filter(team_id=team_id, kind=EmailChannelKind.SUPPORT))
-    by_addr = {(c.from_email or "").strip().lower(): c for c in email_channels}
-    default_channel = None
-    if default_email_channel_id:
-        default_channel = next((c for c in email_channels if str(c.id) == default_email_channel_id), None)
-    return by_addr, default_channel
-
-
 def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> _TicketPartition:
     # all_objects so a soft-deleted import still counts as present. Re-inserting it
     # would hit the zendesk ticket unique constraint, or reopen a deleted thread.
@@ -379,15 +332,15 @@ def _customer_side_ids(zendesk_ticket: dict[str, Any]) -> set[int]:
 
 
 def _resolve_comment_author(zd_comment: dict[str, Any], author: dict, author_type: str) -> _CommentAuthor:
-    author_name = _strip_nul((author.get("name") or "").strip())
-    author_email = _strip_nul((author.get("email") or "").strip())
+    author_name = strip_nul((author.get("name") or "").strip())
+    author_email = strip_nul((author.get("email") or "").strip())
     # A staff author whose Zendesk user no longer resolves (deleted ex-agent) has no name/email —
     # recover it from the comment's own sender (`via.source.from`), which survives user deletion,
     # so the reply doesn't render as "Anonymous user".
     if author_type == "support" and not author_name and not author_email:
         via_from = ((zd_comment.get("via") or {}).get("source") or {}).get("from") or {}
-        author_name = _strip_nul((via_from.get("name") or "").strip())
-        author_email = _strip_nul((via_from.get("address") or "").strip())
+        author_name = strip_nul((via_from.get("name") or "").strip())
+        author_email = strip_nul((via_from.get("address") or "").strip())
     return _CommentAuthor(name=author_name, email=author_email)
 
 
@@ -432,13 +385,11 @@ def _build_comment(
         team=team,
         scope="conversations_ticket",
         item_id="",  # placeholder — set after ticket gets an ID
-        content=_strip_nul(body),
+        content=strip_nul(body),
         rich_content=rich_content,
         item_context=item_context,
     )
-    # auto_now_add clobbers created_at during bulk_create, so stash the
-    # historical value on a shadow attr and re-apply it via bulk_update.
-    comment_obj._zendesk_created_at = _parse_zendesk_datetime(zd_comment.get("created_at"))  # type: ignore[attr-defined]
+    set_historical_created_at(comment_obj, _parse_zendesk_datetime(zd_comment.get("created_at")))
     return _BuiltComment(comment=comment_obj, author_type=author_type, is_private=is_private)
 
 
@@ -479,14 +430,14 @@ def _build_ticket(
     users_by_id: dict,
     email_channels_by_addr: dict[str, EmailChannel],
     default_email_channel: EmailChannel | None,
-) -> _BuiltTicket:
+) -> BuiltTicket:
     zendesk_ticket = thread.ticket
     zendesk_id = int(zendesk_ticket["id"])
     requester = users_by_id.get(int(zendesk_ticket.get("requester_id") or 0), {})
-    requester_email = _strip_nul(
+    requester_email = strip_nul(
         (requester.get("email") or f"zendesk-user-{zendesk_ticket.get('requester_id')}").strip()
     )
-    requester_name = _strip_nul((requester.get("name") or "").strip())
+    requester_name = strip_nul((requester.get("name") or "").strip())
     # Access identity: use the Zendesk requester email verbatim. This gates verified-widget ticket
     # history (widget.py checks ticket.distinct_id ∈ the caller's person distinct_ids), and person
     # distinct_ids are set only by the app's own identify()/alias() calls. We must NOT resolve this
@@ -517,7 +468,7 @@ def _build_ticket(
         distinct_id=distinct_id,
         status=map_zendesk_status(zendesk_ticket.get("status")),
         priority=map_zendesk_priority(zendesk_ticket.get("priority")),
-        email_subject=_strip_nul(zendesk_ticket.get("subject") or "")[:500] or None,
+        email_subject=strip_nul(zendesk_ticket.get("subject") or "")[:500] or None,
         email_from=requester_email if "@" in requester_email else None,
         email_config=email_config,
         anonymous_traits=anonymous_traits,
@@ -526,11 +477,11 @@ def _build_ticket(
 
     # Zendesk tags are plain strings on the ticket payload; PostHog tags are per-team Tag rows,
     # so normalize the same way the live tagging API does (tagify).
-    zendesk_tags = {tagify(_strip_nul(str(t)))[:255] for t in (zendesk_ticket.get("tags") or [])}
+    zendesk_tags = {tagify(strip_nul(str(t)))[:255] for t in (zendesk_ticket.get("tags") or [])}
     tag_names = sorted(t for t in zendesk_tags if t)
 
     built_comments = _build_comments(client, team, thread.comments, users_by_id, _customer_side_ids(zendesk_ticket))
-    return _BuiltTicket(
+    return BuiltTicket(
         ticket=ticket,
         comments=built_comments.comments,
         tag_names=tag_names,
@@ -548,9 +499,9 @@ def _build_tickets(
     users_by_id: dict,
     email_channels_by_addr: dict[str, EmailChannel],
     default_email_channel: EmailChannel | None,
-) -> tuple[list[_BuiltTicket], int]:
+) -> tuple[list[BuiltTicket], int]:
     """Phase 2: build each ticket + its comments (attachments involve network I/O, so outside atomic)."""
-    built: list[_BuiltTicket] = []
+    built: list[BuiltTicket] = []
     failed = 0
     for thread in threads:
         try:
@@ -568,109 +519,11 @@ def _build_tickets(
     return built, failed
 
 
-def _apply_ticket_timestamps(built: list[_BuiltTicket]) -> None:
-    updates: list[Ticket] = []
-    for b in built:
-        if b.created_at or b.updated_at:
-            b.ticket.created_at = b.created_at or timezone.now()
-            b.ticket.updated_at = b.updated_at or timezone.now()
-            updates.append(b.ticket)
-    if updates:
-        Ticket.objects.bulk_update(updates, ["created_at", "updated_at"])
-
-
-def _link_ticket_tags(built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> None:
-    # bulk_create skips TaggedItem.save()/full_clean() on purpose — the same no-signals rule as
-    # the ticket/comment writes here.
-    tagged_items = [TaggedItem.for_content_object(tags_by_name[name], b.ticket) for b in built for name in b.tag_names]
-    if tagged_items:
-        TaggedItem.objects.bulk_create(tagged_items, ignore_conflicts=True)
-
-
-def _create_ticket_comments(built: list[_BuiltTicket]) -> None:
-    all_comments: list[Comment] = []
-    for b in built:
-        for c in b.comments:
-            c.item_id = str(b.ticket.id)
-        all_comments.extend(b.comments)
-    if not all_comments:
-        return
-    created_comments = Comment.objects.bulk_create(all_comments)
-    # bulk_create's auto_now_add overwrote created_at, so re-apply the stashed
-    # historical timestamps for comments that had one.
-    comment_ts_updates: list[Comment] = []
-    for c in created_comments:
-        historical = getattr(c, "_zendesk_created_at", None)
-        if historical is not None:
-            c.created_at = historical
-            comment_ts_updates.append(c)
-    if comment_ts_updates:
-        Comment.objects.bulk_update(comment_ts_updates, ["created_at"])
-
-
-def _apply_denormalized_counters(team: Team, built: list[_BuiltTicket]) -> None:
-    # All of these back the customer-facing widget (message_count, last_message_*, unread badge),
-    # so they must exclude private notes — see _build_comments and signals.update_ticket_on_message.
-    for b in built:
-        if not b.comments:
-            continue
-        ticket_obj = b.ticket
-        cust_count = b.customer_message_count
-        agent_count = b.agent_reply_count
-        update_fields_dict: dict[str, Any] = {
-            "message_count": F("message_count") + cust_count + agent_count,
-        }
-        # last_message_* is shown to the customer, so use the latest non-private comment. Comments
-        # are appended in Zendesk chronological order, so reverse-scan for the newest visible one.
-        last_visible = next((c for c in reversed(b.comments) if not _comment_is_private(c)), None)
-        if last_visible is not None:
-            update_fields_dict["last_message_at"] = last_visible.created_at
-            update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
-        # Only still-active imported tickets should surface unread badges. Pending/on-hold/resolved
-        # (Zendesk solved+closed) tickets are done or parked, so lighting up the agent inbox
-        # (unread_team_count) or the customer widget (unread_customer_count) with years-old activity
-        # is pure alert fatigue — import them read.
-        is_active = ticket_obj.status in (Status.NEW, Status.OPEN)
-        if is_active and cust_count:
-            update_fields_dict["unread_team_count"] = F("unread_team_count") + cust_count
-        if is_active and agent_count:
-            update_fields_dict["unread_customer_count"] = F("unread_customer_count") + agent_count
-        Ticket.objects.filter(team_id=team.id, id=ticket_obj.id).update(**update_fields_dict)
-
-
-def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> int:
-    # Phase 3: Persist tickets + comments in a single transaction (no network I/O). Ticket numbers
-    # are assigned under the same advisory lock as create_with_number, so live creates and
-    # concurrent batch activities can't collide on unique_ticket_number_per_team.
-    #
-    # IMPORTANT: persist historical rows with bulk_create/bulk_update ONLY. These bypass the
-    # post_save/pre_save receivers in products/conversations/backend/signals.py, which is what
-    # keeps a backfill silent: those receivers emit the $conversation_* analytics events that
-    # power hogflow triggers (New ticket created, Ticket message sent/received, ...) AND enqueue
-    # outbound Slack/email/Teams/GitHub replies. Switching any write here to create_with_number(),
-    # Comment.objects.create(), or .save() would fire those signals for every imported row —
-    # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
-    with transaction.atomic():
-        Ticket.all_objects.lock_ticket_number_allocation(team.id)
-        max_num = Ticket.all_objects.highest_used_ticket_number(team.id)
-        tickets_to_create = [b.ticket for b in built]
-        for offset, ticket_to_number in enumerate(tickets_to_create):
-            ticket_to_number.ticket_number = max_num + 1 + offset
-        # bulk_create sets each object's id in place, so built[i].ticket now carries its new id.
-        Ticket.objects.bulk_create(tickets_to_create)
-
-        _apply_ticket_timestamps(built)
-        _link_ticket_tags(built, tags_by_name)
-        _create_ticket_comments(built)
-        _apply_denormalized_counters(team, built)
-        return len(tickets_to_create)
-
-
 def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     job = ZendeskImportJob.objects.for_team(input.team_id).get(id=input.job_id)
     team = Team.objects.get(id=input.team_id)
     client = ZendeskImportClient(_credentials_from_job(job))
-    email_channels_by_addr, default_email_channel = _resolve_email_channels(team.id, input.default_email_channel_id)
+    email_channels_by_addr, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
 
     partition = _partition_new_tickets(input.team_id, input.ticket_ids)
     skipped = partition.skipped
@@ -702,13 +555,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     if not built:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
 
-    # Resolve Tag rows before the ticket transaction to keep its lock window narrow. get_or_create
-    # matches the live tagging path (set_tags_on_object); a Tag row left behind by a failed batch
-    # is harmless — it's reused on retry.
-    all_tag_names = {name for b in built for name in b.tag_names}
-    tags_by_name = {name: Tag.objects.get_or_create(name=name, team_id=team.id)[0] for name in all_tag_names}
-
-    imported = _persist_ticket_batch(team, built, tags_by_name)
+    imported = persist_ticket_batch(team, built, resolve_tags(team.id, built))
     return ImportBatchOutput(imported=imported, skipped=skipped, failed=failed)
 
 
@@ -731,6 +578,24 @@ async def zendesk_import_batch_activity(input: ImportBatchInput) -> ImportBatchO
         return await database_sync_to_async(_import_ticket_batch_sync, thread_sensitive=False)(input)
 
 
+def _report_import_finished(job: ZendeskImportJob) -> None:
+    try:
+        report_team_action(
+            job.team,
+            "support import finished",
+            {
+                "source": "zendesk",
+                "import_job_id": str(job.id),
+                "status": job.status,
+                "imported": job.imported_tickets,
+                "skipped": job.skipped_tickets,
+                "failed": job.failed_tickets,
+            },
+        )
+    except Exception as e:
+        capture_exception(e, {"import_job_id": str(job.id)})
+
+
 def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
     job = ZendeskImportJob.objects.unscoped().get(id=input.job_id)
     update_fields = ["status", "updated_at"]
@@ -747,6 +612,8 @@ def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
     # Narrow update_fields so this write can't clobber counters / cursor
     # that in-flight batch children may update concurrently (e.g. on FAILED).
     job.save(update_fields=update_fields)
+    if input.status in (ZendeskImportJob.Status.COMPLETED, ZendeskImportJob.Status.FAILED):
+        _report_import_finished(job)
 
 
 def _update_job_progress_sync(input: UpdateJobProgressInput) -> None:

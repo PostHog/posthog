@@ -11,10 +11,16 @@ from posthog.models.utils import uuid7
 
 from .facade.enums import (
     ActorType,
+    AutoQuarantineMode,
+    BaselineApprovalState,
+    BaselineEntrySource,
+    BaselineEvidence,
+    BaselineMode,
     ClassificationReason,
     QuarantineLiftState,
     ReviewDecision,
     ReviewState,
+    RunGate,
     RunPurpose,
     RunStatus,
     RunType,
@@ -49,6 +55,20 @@ class Repo(ProductTeamModel):
 
     # Off by default: the digest posts into other teams' Slack channels, so a repo opts in.
     debt_digest_enabled = models.BooleanField(default=False, db_default=False)
+
+    # Off by default, because an automatic quarantine hides a gate failure from every pull request.
+    auto_quarantine_mode = models.CharField(
+        max_length=10,
+        choices=AutoQuarantineMode.choices,
+        default=AutoQuarantineMode.OFF.value,
+        db_default=AutoQuarantineMode.OFF.value,
+    )
+
+    baseline_mode = models.CharField(
+        max_length=10, choices=BaselineMode.choices, default=BaselineMode.YAML.value, db_default=BaselineMode.YAML.value
+    )
+    # Off: every commit status follows the yaml rules, also in shadow mode. Ledger mode needs it on.
+    commit_status_gate_enabled = models.BooleanField(default=False, db_default=False)
 
     # HMAC signing keys for baseline hash verification: {kid: secret_hex}
     # Supports key rotation — new signatures use the latest key, verification
@@ -170,6 +190,10 @@ class Run(ProductTeamModel):
 
     # CI ran only a subset of the test suite
     is_partial = models.BooleanField(default=False)
+
+    gate = models.CharField(
+        max_length=20, choices=RunGate.choices, default=RunGate.CI_JOB.value, db_default=RunGate.CI_JOB.value
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -420,6 +444,8 @@ class QuarantinedIdentifier(ProductTeamModel):
     # so it lacks what the lift relied on, such as a baseline entry that landed on the default
     # branch. Null for a quarantine that expired on its own or was lifted before this column.
     lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
+    # Empty unless visual review lifted the quarantine by itself.
+    lift_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -499,3 +525,145 @@ class QuarantineLiftRequest(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.identifier} #{self.pr_number} ({self.state})"
+
+
+class BaselineCommit(ProductTeamModel):
+    """
+    One commit on the default branch's first-parent line, with its position in the baseline ledger.
+
+    Position 0 is the commit the ledger was seeded at. A run maps its merge-base commit to a
+    position through this table, and reads the ledger at that position.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="baseline_commits")
+    position = models.PositiveIntegerField()
+    commit_sha = models.CharField(max_length=40)
+    pr_number = models.IntegerField(null=True, blank=True)
+    # False when the commit subject names a pull request that GitHub does not show as merged yet.
+    # pr_number then holds the named number, so a later pass can land that pull request here.
+    resolved = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["repo", "position"], name="unique_baseline_commit_position"),
+            models.UniqueConstraint(fields=["repo", "commit_sha"], name="unique_baseline_commit_sha"),
+        ]
+        indexes = [
+            models.Index(
+                fields=["repo", "position"],
+                condition=models.Q(resolved=False),
+                name="baseline_commit_unresolved",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.position} {self.commit_sha[:12]}"
+
+
+class BaselineApproval(ProductTeamModel):
+    """
+    One approved change of one identifier in one pull request. An empty hash approves a removal.
+
+    The row outlives the runs it names, because the retention sweep deletes superseded pull
+    request runs long before the pull request merges.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="baseline_approvals")
+    run_type = models.CharField(max_length=64)
+    pr_number = models.IntegerField()
+    identifier = models.CharField(max_length=512)
+
+    content_hash = models.CharField(max_length=128, blank=True)
+    ledger_base_hash = models.CharField(max_length=128, blank=True)
+    # The baseline the reviewer saw. An earlier approval of this pull request or of a stack parent can supply it.
+    effective_base_hash = models.CharField(max_length=128, blank=True)
+
+    commit_sha = models.CharField(max_length=40)
+    # The newest commit where a run of the pull request reproduced the approval, so it survives a rebase.
+    carried_commit_sha = models.CharField(max_length=40, blank=True)
+
+    source_run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="recorded_baseline_approvals"
+    )
+    approved_by_id = models.BigIntegerField(null=True, blank=True)
+    approved_at = models.DateTimeField()
+
+    state = models.CharField(
+        max_length=20, choices=BaselineApprovalState.choices, default=BaselineApprovalState.OPEN.value
+    )
+    detail = models.CharField(max_length=255, blank=True)
+    landed_position = models.PositiveIntegerField(null=True, blank=True)
+    landed_commit_sha = models.CharField(max_length=40, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    evidence = models.CharField(max_length=20, choices=BaselineEvidence.choices, blank=True)
+    evidence_run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="evidenced_baseline_approvals"
+    )
+    evidence_commit_sha = models.CharField(max_length=40, blank=True)
+    # Evidence from a later run replaces earlier evidence, and the earlier run row can be gone by then.
+    evidence_run_created_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repo", "run_type", "pr_number", "identifier"],
+                condition=models.Q(state=BaselineApprovalState.OPEN.value),
+                name="unique_open_baseline_approval",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["repo", "state"], name="baseline_approval_repo_state"),
+            models.Index(fields=["repo", "pr_number"], name="baseline_approval_repo_pr"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} #{self.pr_number} ({self.state})"
+
+
+class BaselineEntry(ProductTeamModel):
+    """
+    One change of one identifier's baseline in the ledger. Rows are only ever appended.
+
+    The ledger at a position holds, per identifier, the entry with the highest (position, id) at
+    or below that position. An entry with an empty hash removes the identifier.
+    """
+
+    # A sequence, not a uuid7: the id breaks a tie between two entries at one position, so it must grow in
+    # insert order. A uuid7 is random inside a millisecond. Every insert holds the ledger lock.
+    id = models.BigAutoField(primary_key=True)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="baseline_entries")
+    run_type = models.CharField(max_length=64)
+    identifier = models.CharField(max_length=512)
+    content_hash = models.CharField(max_length=128, blank=True)
+    previous_hash = models.CharField(max_length=128, blank=True)
+    position = models.PositiveIntegerField()
+    commit_sha = models.CharField(max_length=40)
+    source = models.CharField(max_length=10, choices=BaselineEntrySource.choices)
+    approval = models.ForeignKey(
+        BaselineApproval, on_delete=models.SET_NULL, null=True, blank=True, related_name="ledger_entries"
+    )
+    pr_number = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            # The full ledger read at a position walks every entry of the run type in this order. The hash is
+            # included so that walk stays an index-only read and does not visit the table for each entry.
+            models.Index(
+                fields=["repo", "run_type", "identifier", "-position", "-id"],
+                name="baseline_entry_identifier",
+                include=["content_hash"],
+            ),
+            models.Index(fields=["repo", "run_type", "position"], name="baseline_entry_position"),
+            models.Index(fields=["repo", "content_hash"], name="baseline_entry_hash"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} @{self.position} ({self.content_hash[:12] or 'removed'})"

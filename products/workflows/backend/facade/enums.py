@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -89,6 +95,13 @@ class WorkflowImportStatus(LabeledStrEnum):
     UPDATED = "updated", "Updated"
     SKIPPED = "skipped", "Skipped"
     FAILED = "failed", "Failed"
+
+
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
 
 
 class HogFlowState(LabeledStrEnum):

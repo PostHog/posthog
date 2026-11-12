@@ -552,45 +552,62 @@ describe('projectTreeDataLogic', () => {
         ])
     })
 
-    it('moves a large selection a few items at a time and still reports it once', async () => {
-        const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
-        const releases: (() => void)[] = []
+    it('moves a large selection a few items at a time, each item once to its new path', async () => {
+        const held: (() => void)[] = []
+        const received: { id: string; newPath: string }[] = []
         let inFlight = 0
         let mostInFlight = 0
-        const move = jest.spyOn(api.fileSystem, 'move').mockImplementation(
-            () =>
-                new Promise((resolve) => {
+        let onHeld: (() => void) | null = null
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/move/': async ({ params, request }) => {
+                    const { new_path } = (await request.json()) as { new_path: string }
+                    received.push({ id: String(params.id), newPath: new_path })
                     inFlight += 1
                     mostInFlight = Math.max(mostInFlight, inFlight)
-                    releases.push(() => {
-                        inFlight -= 1
-                        resolve({} as any)
+                    await new Promise<void>((resolve) => {
+                        held.push(() => {
+                            inFlight -= 1
+                            resolve()
+                        })
+                        onHeld?.()
                     })
-                })
-        )
+                    return { id: params.id, path: new_path, type: 'hog_flow' }
+                },
+            },
+        })
         const items = Array.from({ length: 40 }, (_, index) => ({
             id: `fs-${index}`,
             type: 'hog_flow',
             path: `Old/${index}`,
             ref: String(index),
         }))
+        const limit = 6
+        // Every held request leaves the queue unable to send another, so once `limit` are held (or the rest
+        // of the queue), the next macrotask shows whether anything slipped past the limit.
+        const nextWave = async (): Promise<void> => {
+            const expected = Math.min(limit, items.length - (received.length - held.length))
+            while (held.length < expected) {
+                await new Promise<void>((resolve) => (onHeld = resolve))
+            }
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
 
         logic.actions.moveItems(
             items.map((item) => ({ item: item as any, newPath: `New/${item.ref}` })),
             true,
             'test'
         )
-        for (let round = 0; round < 100 && (releases.length > 0 || move.mock.calls.length < items.length); round++) {
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            releases.splice(0).forEach((release) => release())
+        while (received.length < items.length || held.length > 0) {
+            await nextWave()
+            held.splice(0).forEach((release) => release())
         }
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(move).toHaveBeenCalledTimes(items.length)
-        expect(mostInFlight).toBeGreaterThan(1)
-        expect(mostInFlight).toBeLessThanOrEqual(6)
-        expect(success).toHaveBeenCalledTimes(1)
-        expect(toastText(success.mock.calls[0][0])).toEqual('Moved 40 items')
+        expect(received.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))).toEqual(
+            items.map((item) => ({ id: item.id, newPath: `New/${item.ref}` }))
+        )
+        expect(mostInFlight).toBe(limit)
     })
 
     it('reports a partly failed bulk move as what moved plus what did not', async () => {

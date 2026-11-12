@@ -100,3 +100,23 @@ export function operationIdToPascal(operationId) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join('')
 }
+
+/**
+ * The `exclude_params` each operation's Orval schema drops. Tools on one operation share that schema, so it drops only
+ * what every enabled tool on the operation excludes; generate-tools omits the rest per tool.
+ *
+ * @param {Record<string, { enabled?: boolean, operation?: string, exclude_params?: string[] } | undefined>} tools
+ * @returns {Map<string, string[]>}
+ */
+export function schemaExclusionsByOperation(tools) {
+    const byOperation = new Map()
+    for (const tool of Object.values(tools ?? {})) {
+        if (!tool?.enabled || !tool.operation) {
+            continue
+        }
+        const excluded = tool.exclude_params ?? []
+        const shared = byOperation.get(tool.operation)
+        byOperation.set(tool.operation, shared ? shared.filter((param) => excluded.includes(param)) : excluded)
+    }
+    return byOperation
+}
