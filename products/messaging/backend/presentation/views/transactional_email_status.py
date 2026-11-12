@@ -264,7 +264,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="List scheduled emails",
         description=(
             "List the emails that wait for their time, soonest first, a page at a time. An email leaves the list "
-            "when it goes out or is canceled, and an email sent a moment ago can take a few seconds to show up. "
+            "when it goes out or is canceled. A new email, a cancel or a move can take up to a minute to show in "
+            "the list. "
             "Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` "
             "also works, but that scope reaches the rest of Workflows too."
         ),
