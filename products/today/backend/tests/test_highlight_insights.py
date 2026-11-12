@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models import FileSystemViewLog, User
 
+from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import (
     AgentInsightRead,
@@ -472,17 +473,19 @@ class TestRoutineInsights(BaseTest):
 
     @parameterized.expand(
         [
-            ("a person without habits", [], {}, ["team_fav", "runner_up", "third"]),
-            ("a habit that is already popular", ["team_fav"], {}, ["runner_up", "third"]),
-            ("habits and a key metric leave one place", ["h1", "h2"], {"signup_event": "Sign-ups"}, ["team_fav"]),
-            ("habits that fill the row", ["h1", "h2", "h3", "h4"], {}, []),
-            ("a dashboard habit takes one place", ["dashboard:7"], {}, ["team_fav", "runner_up", "third"]),
-            ("a habit without data frees its place", ["h1", "h2", "broken"], {}, ["team_fav", "runner_up"]),
+            ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
+            ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
+            ("habits and a key metric leave one place", ["h1", "h2"], [5.0], ["team_fav"]),
+            ("a key metric without activity keeps no place", ["h1", "h2"], [0.0], ["team_fav", "runner_up"]),
+            ("key metrics still computing keep their places", ["h1", "h2"], None, ["team_fav"]),
+            ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
+            ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
-        self, _name: str, habits: list[str], key_metrics: dict[str, str], expected: list[str]
+        self, _name: str, habits: list[str], key_metric_weeks: list[float] | None, expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
         seen = {
@@ -528,7 +531,25 @@ class TestRoutineInsights(BaseTest):
 
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
-            patch.object(routine, "get_key_metric_names", return_value=key_metrics),
+            patch.object(
+                routine,
+                "get_key_metrics",
+                return_value=None
+                if key_metric_weeks is None
+                else [
+                    KeyMetric(
+                        key=f"metric{i}",
+                        name="Sign-ups",
+                        people=False,
+                        daily=[],
+                        this_week=weeks,
+                        last_week=weeks,
+                        node={},
+                    )
+                    for i, weeks in enumerate(key_metric_weeks)
+                ],
+            ),
+            patch.object(routine, "get_key_metric_names", return_value={"metric0": "Sign-ups"}),
             patch.object(routine, "dashboard_insights", return_value=growth),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
