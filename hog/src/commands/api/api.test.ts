@@ -445,6 +445,38 @@ describe('hog api tool catalog', () => {
         expect(library.received()).toMatchObject({ build: 'def456' })
     })
 
+    test('revalidates a day-old catalog with its ETag, and keeps it on a 304', async () => {
+        const library = catalogLibrary()
+        const files = cached(['flag-list'], 25 * HOUR)
+        const sent: (string | null)[] = []
+        const revalidated = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files,
+            respond: (url, _body, _authorization, headers) => {
+                if (url === CATALOG_URL) {
+                    sent.push(headers.get('If-None-Match'))
+                    return { status: 304, body: null }
+                }
+                return { status: 500, body: {} }
+            },
+        })
+        const again = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: revalidated.files,
+            now: NOW + HOUR,
+        })
+
+        expect(sent).toEqual(['"v1"'])
+        expect(library.received()).toMatchObject({ build: 'abc123', tools: [{ name: 'flag-list' }] })
+        expect(JSON.parse(revalidated.files[CACHE] ?? '{}').hosts[US]).toEqual({
+            ...JSON.parse(files[CACHE]!).hosts[US],
+            fetchedAt: NOW,
+        })
+        expect(catalogRequests(again)).toBe(0)
+    })
+
     test.each([
         ['keeps the saved catalog when the download fails', cached(['flag-list'], 25 * HOUR), { build: 'abc123' }],
         ['runs the built-in tools when there is no saved catalog either', {}, undefined],
