@@ -729,8 +729,7 @@ tools:
             take a few seconds, and turning enabled off removes those views until a source is enabled again. The
             source's synced warehouse tables are not changed. Get the source id from external-data-sources-list. The
             current values are in revenue_analytics_config on external-data-sources-retrieve and
-            external-data-sources-list. Returns the source id, type, prefix and the updated
-            revenue_analytics_config.
+            external-data-sources-list. Returns the source id, type, prefix and the updated revenue_analytics_config.
         param_overrides:
             id:
                 aliases:
