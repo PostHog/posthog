@@ -55,6 +55,24 @@ export function reportOwnerKind(
     return mine ? 'me' : 'teammate'
 }
 
+type ClaimKeyEvent = Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>
+
+/** What the U key does: U alone claims, and U with the platform's command key releases the user's own claim. */
+export function claimKeyIntent(
+    event: ClaimKeyEvent,
+    isMac: boolean,
+    { canClaim, canUnclaim }: { canClaim: boolean; canUnclaim: boolean }
+): 'claim' | 'unclaim' | null {
+    if (event.shiftKey || event.altKey) {
+        return null
+    }
+    const command = isMac ? event.metaKey : event.ctrlKey
+    if (command) {
+        return canUnclaim ? 'unclaim' : null
+    }
+    return canClaim && !event.metaKey && !event.ctrlKey ? 'claim' : null
+}
+
 export function reportOwnerLabel(kind: ReportOwnerKind, holderName: string | null): string {
     switch (kind) {
         case 'none':

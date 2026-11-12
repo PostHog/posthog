@@ -4,8 +4,6 @@ import { ReactNode } from 'react'
 
 import {
     IconArrowLeft,
-    IconCode,
-    IconDocument,
     IconEllipsis,
     IconExternal,
     IconSearch,
@@ -51,6 +49,7 @@ import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { QuillReportDetail } from './QuillReportDetail'
+import { QuillReportDocumentSections } from './QuillReportDocumentSections'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
@@ -175,6 +174,13 @@ export function ReportDetailSkeleton(): JSX.Element {
     )
 }
 
+function reportBackLabel(backOverride: string | null, listLabel: string): string {
+    if (!backOverride) {
+        return listLabel
+    }
+    return backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back'
+}
+
 interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
@@ -237,11 +243,7 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride
-        ? backOverride.startsWith(urls.inboxTriage())
-            ? 'Triage'
-            : 'Back'
-        : 'Self-driving inbox'
+    const backLabel = reportBackLabel(backOverride, 'Self-driving inbox')
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -699,42 +701,25 @@ export function InboxDetailFrame({
         return (
             <QuillReportDetail
                 report={report}
-                // pinned: the flag-off label is 'Self-driving inbox'; the Quill page names the list as its header does.
                 backUrl={backOverride ?? urls.inbox('reports')}
-                backLabel={backOverride ? backLabel : 'Inbox'}
+                backLabel={reportBackLabel(backOverride, 'Inbox')}
                 actions={reportActions}
                 notesEnabled={notesEnabled}
-                banner={dataOnlyBanner || undefined}
+                banner={dataOnlyBanner}
                 fallback={lemonFrame}
             >
                 <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
                     {observationSection}
                     {detailSections}
-                    <DetailSection
-                        icon={<IconDocument />}
-                        title="Full report"
-                        afterTitle={<SignalReportBillingBadge report={report} />}
-                        meta={generatedAt}
-                        line={{ text: generatedAt }}
-                        collapsible
-                        defaultCollapsed
-                        onToggleCollapsed={captureSectionToggle('full_report')}
-                    >
-                        {reportBody(null)}
-                    </DetailSection>
-                    {showFilesTab && (
-                        <DetailSection
-                            icon={<IconCode />}
-                            title="Files changed"
-                            afterTitle={diffStat}
-                            line={diffStat ? { text: diffStat } : null}
-                            collapsible
-                            defaultCollapsed
-                            onToggleCollapsed={captureSectionToggle('files_changed')}
-                        >
-                            {diffSection}
-                        </DetailSection>
-                    )}
+                    <QuillReportDocumentSections
+                        report={report}
+                        fullReport={reportBody(null)}
+                        generatedAt={generatedAt}
+                        diffStat={diffStat}
+                        showFilesTab={!!showFilesTab}
+                        diffSection={diffSection}
+                        onToggle={captureSectionToggle}
+                    />
                 </BindLogic>
             </QuillReportDetail>
         )

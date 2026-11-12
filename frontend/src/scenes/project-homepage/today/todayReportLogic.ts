@@ -26,7 +26,6 @@ import {
     todayExcerptChoiceCreate,
     todayReportsFigureMarksRetrieve,
     todayReportsKeyClausesRetrieve,
-    todayReportsEvidenceRetrieve,
     todayReportsPageRetrieve,
 } from 'products/today/frontend/generated/api'
 import type {
@@ -87,8 +86,6 @@ export interface todayReportLogicValues {
     reportOpenContext: TodayReportOpenContext | null // todayLogic
     reports: SignalReport[] // todayLogic
     reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
-    allEvidence: SignalViewApi[] | null
-    allEvidenceLoading: boolean
     asksJev: boolean
     codeQuotes: Record<string, TodayCodeQuoteState>
     composerOpen: boolean
@@ -205,21 +202,6 @@ export interface todayReportLogicActions {
     expandEvidence: (signalId: string) => {
         signalId: string
     }
-    loadAllEvidence: () => any
-    loadAllEvidenceFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadAllEvidenceSuccess: (
-        allEvidence: SignalViewApi[],
-        payload?: any
-    ) => {
-        allEvidence: SignalViewApi[]
-        payload?: any
-    }
     loadFigureMarks: () => any
     loadFigureMarksFailure: (
         error: string,
@@ -317,7 +299,7 @@ export interface todayReportLogicMeta {
             reportFailed: boolean
         ) => SignalReport | null
         lead: (page: ReportPageApi | null) => string
-        shownEvidence: (page: ReportPageApi | null, allEvidence: any) => SignalViewApi[]
+        shownEvidence: (page: ReportPageApi | null) => SignalViewApi[]
         evidenceCount: (page: ReportPageApi | null) => number
         lastSeen: (page: ReportPageApi | null) => string | null
         impactNumbers: (currentReport: SignalReport | null, page: ReportPageApi | null) => TodayImpactNumber[]
@@ -408,13 +390,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             {
                 loadPage: async (): Promise<ReportPageApi> =>
                     await todayReportsPageRetrieve(String(values.currentProjectId), props.reportId),
-            },
-        ],
-        allEvidence: [
-            null as SignalViewApi[] | null,
-            {
-                loadAllEvidence: async (): Promise<SignalViewApi[]> =>
-                    (await todayReportsEvidenceRetrieve(String(values.currentProjectId), props.reportId)).evidence,
             },
         ],
         figureMarks: [
@@ -514,11 +489,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 reportFailed ? null : (fullReport ?? reports.find((report) => report.id === props.reportId) ?? null),
         ],
         lead: [(s) => [s.page], (page: ReportPageApi | null): string => page?.lead ?? ''],
-        shownEvidence: [
-            (s) => [s.page, s.allEvidence],
-            (page: ReportPageApi | null, allEvidence: SignalViewApi[] | null): SignalViewApi[] =>
-                allEvidence ?? page?.evidence ?? [],
-        ],
+        shownEvidence: [(s) => [s.page], (page: ReportPageApi | null): SignalViewApi[] => page?.evidence ?? []],
         evidenceCount: [(s) => [s.page], (page: ReportPageApi | null): number => page?.source_count ?? 0],
         lastSeen: [(s) => [s.page], (page: ReportPageApi | null): string | null => page?.last_seen ?? null],
         impactNumbers: [

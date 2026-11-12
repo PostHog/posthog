@@ -62,7 +62,8 @@ export function DetailSection({
         return (
             <QuillDetailSection
                 title={title}
-                line={line ?? { text: typeof meta === 'function' ? meta(false) : meta }}
+                line={line}
+                meta={meta}
                 rightSlot={rightSlot}
                 onToggleCollapsed={onToggleCollapsed}
             >

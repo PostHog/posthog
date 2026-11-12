@@ -19,18 +19,22 @@ export interface QuillDetailLine {
 
 export function QuillDetailSection({
     title,
-    line,
+    line: givenLine,
+    meta,
     rightSlot,
     children,
     onToggleCollapsed,
 }: {
     title: string
     line?: QuillDetailLine | null
+    /** The flag-off header summary. It is the closed line's text when the section gives no `line`. */
+    meta?: ReactNode | ((open: boolean) => ReactNode)
     rightSlot?: ReactNode
     children: ReactNode
     onToggleCollapsed?: (collapsed: boolean) => void
 }): JSX.Element {
     const [open, setOpen] = useState(false)
+    const line = givenLine ?? { text: typeof meta === 'function' ? meta(false) : meta }
     const toggle = (next: boolean): void => {
         setOpen(next)
         onToggleCollapsed?.(!next)

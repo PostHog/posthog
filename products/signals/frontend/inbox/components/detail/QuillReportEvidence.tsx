@@ -5,11 +5,17 @@ import { Button, Text } from '@posthog/quill'
 import { todayReportLogic } from 'scenes/project-homepage/today/todayReportLogic'
 import { TodayReportSignalRow } from 'scenes/project-homepage/today/TodayReportSignalRow'
 import { TodaySectionTitle } from 'scenes/project-homepage/today/TodaySectionTitle'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { reportEvidenceLogic } from '../../logics/reportEvidenceLogic'
 
 export function QuillReportEvidence({ reportId }: { reportId: string }): JSX.Element | null {
-    const logic = todayReportLogic({ reportId })
-    const { shownEvidence, evidenceCount, allEvidence, allEvidenceLoading } = useValues(logic)
-    const { loadAllEvidence } = useActions(logic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { shownEvidence: firstEvidence, evidenceCount } = useValues(todayReportLogic({ reportId }))
+    const evidenceLogic = reportEvidenceLogic({ teamId: currentTeamId ?? 0, reportId })
+    const { allEvidence, allEvidenceLoading } = useValues(evidenceLogic)
+    const { loadAllEvidence } = useActions(evidenceLogic)
+    const shownEvidence = allEvidence ?? firstEvidence
 
     if (evidenceCount === 0) {
         return null
