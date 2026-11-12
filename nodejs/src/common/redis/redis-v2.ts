@@ -39,6 +39,9 @@ export type RedisV2 = {
 // failed create immediately while a caller waits, so without this pause the pool reconnects in a tight loop.
 const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
 
+const isStalled = (client: RedisClient): boolean =>
+    (client as unknown as { commandQueue: { length: number } }).commandQueue.length > 0
+
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const nonFatal = config.connection.exitOnRepeatedErrors === false
     let lastCreateFailureAt = 0
@@ -63,13 +66,20 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
                 return client as RedisClient
             },
             destroy: async (client) => {
+                // QUIT on a connection that stopped answering never gets a reply, so close the socket instead.
+                if (config.discardStalledClients === true && isStalled(client)) {
+                    client.disconnect()
+                    return
+                }
                 await client.quit()
             },
+            validate: (client) => Promise.resolve(!isStalled(client)),
         },
         {
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            testOnBorrow: config.discardStalledClients === true,
             ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
     )
