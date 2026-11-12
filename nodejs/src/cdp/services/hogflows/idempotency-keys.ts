@@ -142,8 +142,8 @@ const pendingCompletionKey = ({ redisKey, value }: PendingCompletion): string =>
 
 /**
  * Caller-supplied idempotency keys, scoped to a team. A key reserves a run before it is queued, and
- * holds the run's id for 24 hours once it is, or until a day after a scheduled or moved run can last
- * be due. A queue failure releases the key, so the caller's retry can queue the run.
+ * holds the run's id for 24 hours once it is. A queue failure releases the key, so the caller's
+ * retry can queue the run.
  */
 export class IdempotencyKeys {
     private pendingCompletions = new Map<string, PendingCompletion>()

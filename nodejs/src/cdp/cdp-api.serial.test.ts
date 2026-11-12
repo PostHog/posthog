@@ -4567,9 +4567,10 @@ describe('CDP API', () => {
                         expect(retry.status).toEqual(202)
                         expect(retry.body).toEqual({
                             ...first.body,
-                            invocation_id: replays ? first.body.invocation_id : expect.any(String),
+                            invocation_id: retry.body.invocation_id,
                             replayed: replays,
                         })
+                        expect(retry.body.invocation_id === first.body.invocation_id).toEqual(replays)
                     } finally {
                         api['transactionalEmailIdempotencyKeys'] = keys
                     }
