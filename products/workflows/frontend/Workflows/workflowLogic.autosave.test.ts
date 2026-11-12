@@ -854,7 +854,7 @@ describe('workflowLogic auto-save', () => {
             initKeaTests()
             logic = workflowLogic({ id })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
         }
 
         it('blocks the trigger while only the draft carries the new trigger type', async () => {
