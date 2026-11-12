@@ -39,6 +39,15 @@ const confirmedEmail = {
     capture_engagement: false,
 }
 
+const sensitiveEmail = {
+    to: 'jane@example.com',
+    template_key: 'reset-password',
+    subject: 'Reset your password',
+    html: '<p>Reset</p>',
+    tracking: { opens: true, clicks: true },
+    sensitive: true,
+}
+
 describe('Generated confirmed tools', () => {
     afterEach(() => setConfirmedActionRuntime(undefined))
 
@@ -47,6 +56,11 @@ describe('Generated confirmed tools', () => {
             tool: 'workflows-send-email',
             input: confirmedEmail,
             request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmedEmail },
+        },
+        {
+            tool: 'workflows-send-email',
+            input: sensitiveEmail,
+            request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: sensitiveEmail },
         },
         {
             tool: 'access-control-default-rule-set',
