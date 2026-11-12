@@ -473,8 +473,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             stage_declared_target(node, floor)
             rewritten.append((node, previous))
         Node.objects.bulk_update([node for node, _ in rewritten], ["properties"])
-        if rewritten:
-            maybe_reconcile_dag(dag)
+        maybe_reconcile_dag(dag)
     for node, previous in rewritten:
         report_team_action(
             dag.team,
