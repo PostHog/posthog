@@ -1022,13 +1022,24 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             return
         require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
 
-    def _require_filing_access(self, fields: dict[str, Any]) -> None:
+    def _require_filing_access(self, fields: dict[str, Any], template: MessageTemplateRow | None = None) -> None:
         # Filing places the template's file in the project tree, which needs editor access to the workflow
         # resource. The action check alone also passes with an editor grant to one unrelated workflow.
-        if "_create_in_folder" not in fields or is_authenticated_via_project_secret_api_key(self.request):
+        # A rename or a delete of a filed template changes its file as well, so it needs the same access as
+        # the same change through the file API.
+        changes_file = template is not None and (
+            ("name" in fields and fields["name"] != template.name) or (fields.get("deleted") and not template.deleted)
+        )
+        if not ("_create_in_folder" in fields or changes_file) or is_authenticated_via_project_secret_api_key(
+            self.request
+        ):
             return
-        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
+        if not self.user_access_control or self.user_access_control.check_access_level_for_resource(
             "hog_flow", "editor"
+        ):
+            return
+        if "_create_in_folder" in fields or (
+            template is not None and get_template_placement(self.team_id, template.id).path is not None
         ):
             raise exceptions.PermissionDenied(
                 "You need editor access to workflows to file this template. Ask a project admin to grant it."
@@ -1223,7 +1234,7 @@ class MessageTemplatesViewSet(
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data
-        self._require_filing_access(fields)
+        self._require_filing_access(fields, template)
         if fields.keys() == {"draft_content"}:
             # Sends never read the draft, so it skips the sendability check and the workflow sync. It is still an edit
             # of the transactional email, so it needs the same workflow access as a publish.
@@ -1244,6 +1255,9 @@ class MessageTemplatesViewSet(
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
         with self._resolve_files_flag(fields, template.created_by_id), transaction.atomic():
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            # The first check read the placement without a lock, so a file filed since then is checked again
+            # while the template row is locked, before the save renames or deletes that file.
+            self._require_filing_access(fields, template)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
