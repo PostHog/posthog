@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="providerimportrun",
             name="settings",
-            field=models.JSONField(default=dict),
+            field=models.JSONField(db_default={}, default=dict),
         ),
     ]

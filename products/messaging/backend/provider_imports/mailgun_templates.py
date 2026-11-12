@@ -17,6 +17,8 @@ from typing import Any, Literal
 from posthog.dataclasses import frozen
 
 _MAX_NOTED_TAGS = 5
+# Liquid can't parse a longer template, and deep blocks can make the result far longer than the source.
+_MAX_OUTPUT_CHARS = 5_000_000
 # Tag bodies are capped, so text full of unclosed braces scans in linear time, and stop at the next opening, so an
 # unclosed tag can't swallow a real variable after it.
 _TOKEN = re.compile(
@@ -51,8 +53,7 @@ class _Frame:
     """A level of template context: what `this` means inside a `with` or `each`."""
 
     expression: str
-    # The loop variable when the frame iterates an object, whose items Liquid gives as [key, value].
-    pair: str | None = None
+    key: str | None = None
     in_loop: bool = False
 
 
@@ -62,6 +63,7 @@ class _Block:
     # False for a block PostHog couldn't convert: its tags stay as text, and its body still converts.
     converted: bool = True
     pops_frame: bool = False
+    saved_go_variables: Mapping[str, str] | None = None
 
 
 @frozen
@@ -82,6 +84,8 @@ class ConvertedText:
     list_unsubscribe: bool = False
     unsubscribe_email: bool = False
     unclosed_blocks: bool = False
+    go_value_in_tag: bool = False
+    too_large: bool = False
 
 
 @frozen
@@ -129,6 +133,13 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         notes.append(f"PostHog can't convert {shown}{more}, so it appears as plain text. Rewrite it in Liquid.")
     if any(part.unclosed_blocks for part in parts):
         notes.append("A block in this template was never closed. PostHog closed it at the end, so check the layout.")
+    if any(part.too_large for part in parts):
+        notes.append("This template is too large to convert, so it appears as plain text. Rewrite it in Liquid.")
+    if any(part.go_value_in_tag for part in parts):
+        notes.append(
+            "Go templates check values inside HTML tags, such as a link's address, and PostHog doesn't. Make sure "
+            "those values come from a source you trust."
+        )
     if engine == "go":
         notes.append(
             "Mailgun renders this version with Go templates. PostHog converted it to Liquid and escapes values for "
@@ -172,6 +183,10 @@ def _header(headers: Mapping[str, Any], name: str) -> Any:
     return next((value for key, value in headers.items() if key.lower() == name.lower()), None)
 
 
+class _TooLarge(Exception):
+    pass
+
+
 class _Converter:
     def __init__(self, text: str, engine: Engine, is_html: bool) -> None:
         self.text = text
@@ -188,16 +203,31 @@ class _Converter:
         self.unsubscribe_email = False
         self.has_tags = False
         self.go_variables: dict[str, str] = {}
+        # Whether the text so far ends inside an HTML tag, where an unquoted attribute can end at a space or `=`.
+        self.in_tag = False
+        self.go_value_in_tag = False
 
     def convert(self) -> ConvertedText:
+        try:
+            return self._convert()
+        except _TooLarge:
+            return ConvertedText(text=_literal(self.text), has_tags=True, too_large=True)
+
+    def _convert(self) -> ConvertedText:
         matches = list(_TOKEN.finditer(self.text))
         # Text and tags alternate: [text, tag, text, tag, ..., text].
         pieces: list[str] = []
         kept: list[tuple[str, bool]] = []
         cursor = 0
+        size = 0
         for match in matches:
-            pieces.append(self.text[cursor : match.start()])
-            kept.append(self._read_token(match, matches))
+            before = self.text[cursor : match.start()]
+            pieces.append(before)
+            self._track_tag(before)
+            kept.append(self._read_token(match))
+            size += len(before) + len(kept[-1][0])
+            if size > _MAX_OUTPUT_CHARS:
+                raise _TooLarge
             cursor = match.end()
         pieces.append(self.text[cursor:])
         self._strip_whitespace(pieces, matches, kept)
@@ -219,7 +249,13 @@ class _Converter:
             list_unsubscribe=self.list_unsubscribe,
             unsubscribe_email=self.unsubscribe_email,
             unclosed_blocks=unclosed,
+            go_value_in_tag=self.go_value_in_tag,
         )
+
+    def _track_tag(self, text: str) -> None:
+        opened, closed = text.rfind("<"), text.rfind(">")
+        if opened != closed:
+            self.in_tag = opened > closed
 
     def _strip_whitespace(self, pieces: list[str], matches: list[re.Match[str]], kept: list[tuple[str, bool]]) -> None:
         previous_ended_its_line = False
@@ -250,7 +286,7 @@ class _Converter:
             pieces[index], pieces[index + 1] = before, after
             previous_ended_its_line = ended_its_line
 
-    def _read_token(self, match: re.Match[str], matches: list[re.Match[str]]) -> tuple[str, bool]:
+    def _read_token(self, match: re.Match[str]) -> tuple[str, bool]:
         """The Liquid for one tag, and whether Handlebars treats it as able to stand alone on its line."""
         token = match.group(0)
         if match.group("escaped") is not None:
@@ -263,19 +299,17 @@ class _Converter:
         self.has_tags = True
         if self.engine == "go":
             return self._read_go(token, body if body is not None else token), False
-        return self._read_handlebars(token, triple, body, match, matches)
+        return self._read_handlebars(token, triple, body)
 
     # Handlebars
 
-    def _read_handlebars(
-        self, token: str, triple: str | None, body: str | None, match: re.Match[str], matches: list[re.Match[str]]
-    ) -> tuple[str, bool]:
+    def _read_handlebars(self, token: str, triple: str | None, body: str | None) -> tuple[str, bool]:
         source = (triple if triple is not None else body or "").strip()
         source = source.strip("~").strip()
         if triple is not None or source.startswith("&"):
             return self._output(token, source.removeprefix("&").strip(), raw=True), False
         if source.startswith("#"):
-            return self._open_handlebars(token, source[1:].strip(), match, matches), True
+            return self._open_handlebars(token, source[1:].strip()), True
         if source.startswith("/"):
             return self._close_handlebars(token, source[1:].strip()), True
         if source in ("else", "^"):
@@ -291,19 +325,19 @@ class _Converter:
         if source.startswith("^") and len(source) > 1:
             self.blocks.append(_Block(closer=source[1:].strip(), converted=False))
 
-    def _open_handlebars(self, token: str, source: str, match: re.Match[str], matches: list[re.Match[str]]) -> str:
+    def _open_handlebars(self, token: str, source: str) -> str:
         parts = _ARGUMENT.findall(source)
         helper = parts[0] if parts else ""
         args = parts[1:]
         if helper in ("if", "unless") and len(args) == 1 and (path := self._value(args[0])) is not None:
             self.blocks.append(_Block(closer=helper))
-            return f"{{% {helper} {_truthy(path)} %}}"
+            return f"{{% {helper} {self._truthy(path)} %}}"
         if helper == "with" and len(args) == 1 and (path := self._path(args[0])) is not None:
             self.blocks.append(_Block(closer="with", pops_frame=True))
             self.frames.append(_Frame(expression=path))
-            return f"{{% if {_truthy(path)} %}}"
+            return f"{{% if {self._truthy(path)} %}}"
         if helper == "each" and len(args) == 1 and (path := self._path(args[0])) is not None:
-            return self._open_loop(path, closer="each", over_object=self._loop_uses_key(match, matches))
+            return self._open_loop(path, closer="each")
         if helper == "equal" and len(args) == 2:
             comparison = self._equal(args[0], args[1])
             if comparison is not None:
@@ -312,27 +346,26 @@ class _Converter:
         self.blocks.append(_Block(closer=helper, converted=False))
         return self._unsupported(token)
 
-    def _open_loop(self, path: str, *, closer: str, over_object: bool = False) -> str:
+    def _open_loop(self, path: str, *, closer: str, saved_go_variables: Mapping[str, str] | None = None) -> str:
+        # Handlebars and Go loop over an object's values, and Liquid over [key, value] pairs. Only the data says which
+        # one a send passes, and an object is the one with no length.
         self.loop_depth += 1
-        variable = f"item{self.loop_depth}"
-        expression = f"{variable}[1]" if over_object else variable
-        self.frames.append(_Frame(expression=expression, pair=variable if over_object else None, in_loop=True))
-        self.blocks.append(_Block(closer=closer, pops_frame=True))
-        return f"{{% for {variable} in {path} %}}"
+        item = f"item{self.loop_depth}"
+        is_object, key, value = f"{item}_is_object", f"{item}_key", f"{item}_value"
+        self.frames.append(_Frame(expression=value, key=key, in_loop=True))
+        self.blocks.append(_Block(closer=closer, pops_frame=True, saved_go_variables=saved_go_variables))
+        return (
+            f"{{% assign {is_object} = false %}}{{% if {path}.length == nil and {path}.size > 0 %}}"
+            f"{{% assign {is_object} = true %}}{{% endif %}}{{% for {item} in {path} %}}{{% if {is_object} %}}"
+            f"{{% assign {key} = {item}[0] %}}{{% assign {value} = {item}[1] %}}{{% else %}}"
+            f"{{% assign {key} = forloop.index0 %}}{{% assign {value} = {item} %}}{{% endif %}}"
+        )
 
-    def _loop_uses_key(self, match: re.Match[str], matches: list[re.Match[str]]) -> bool:
-        depth = 1
-        for later in matches[matches.index(match) + 1 :]:
-            body = (later.group("body") or "").strip().strip("~").strip()
-            if body.startswith("#"):
-                depth += 1
-            elif body.startswith("/"):
-                depth -= 1
-                if depth == 0:
-                    return False
-            elif depth == 1 and body == "@key":
-                return True
-        return False
+    def _truthy(self, path: str) -> str:
+        # Liquid treats "", 0 and empty lists as true. Handlebars treats an empty object as true and Go as false.
+        if self.engine == "go":
+            return f"{path} and {path} != empty and {path} != 0"
+        return f"{path} and {path}.length != 0 and {path} != 0"
 
     def _equal(self, left: str, right: str) -> _Comparison | None:
         # Mailgun's `equal` compares both sides as strings, so 5 equals "5". Liquid can't filter inside an `if`.
@@ -362,6 +395,8 @@ class _Converter:
 
     def _close(self, closer: str) -> str:
         block = self.blocks.pop()
+        if block.saved_go_variables is not None:
+            self.go_variables = dict(block.saved_go_variables)
         if block.pops_frame:
             if self.frames[-1].in_loop:
                 self.loop_depth -= 1
@@ -381,7 +416,7 @@ class _Converter:
             if self.frames[-1].in_loop:
                 self.loop_depth -= 1
             self.frames.pop()
-            self.blocks[-1] = _Block(closer=block.closer, pops_frame=False)
+            self.blocks[-1] = _Block(closer=block.closer, pops_frame=False, saved_go_variables=block.saved_go_variables)
         return "{% else %}"
 
     def _else_if(self, token: str, source: str) -> str:
@@ -389,15 +424,18 @@ class _Converter:
             return self._unsupported(token)
         parts = _ARGUMENT.findall(source)
         if len(parts) == 2 and parts[0] == "if" and (path := self._value(parts[1])) is not None:
-            return f"{{% elsif {_truthy(path)} %}}"
+            return f"{{% elsif {self._truthy(path)} %}}"
         return self._unsupported(token)
 
     def _output(self, token: str, source: str, *, raw: bool) -> str:
         path = self._value(source)
         if path is None:
             return self._unsupported(token)
-        filters = " | raw" if raw and self.is_html else ""
-        return f"{{{{ {path}{filters} }}}}"
+        if raw and self.is_html:
+            return f"{{{{ {path} | raw }}}}"
+        if self.in_tag and self.is_html:
+            return _attribute_safe(path)
+        return f"{{{{ {path} }}}}"
 
     def _value(self, source: str) -> str | None:
         return self._loop_value(source) or self._path(source)
@@ -413,7 +451,7 @@ class _Converter:
         if source == "@last":
             return "forloop.last"
         if source == "@key":
-            return f"{frame.pair}[0]" if frame.pair else "forloop.index0"
+            return frame.key
         return None
 
     def _path(self, source: str) -> str | None:
@@ -478,6 +516,9 @@ class _Converter:
         path = self._go_path(source)
         if path is None:
             return self._unsupported(token)
+        if self.in_tag and self.is_html:
+            self.go_value_in_tag = True
+            return _attribute_safe(path)
         return f"{{{{ {path} }}}}"
 
     def _open_go_condition(self, token: str, keyword: str, source: str) -> str:
@@ -486,7 +527,7 @@ class _Converter:
             if path is not None:
                 self.blocks.append(_Block(closer="with", pops_frame=True))
                 self.frames.append(_Frame(expression=path))
-                return f"{{% if {_truthy(path)} %}}"
+                return f"{{% if {self._truthy(path)} %}}"
         else:
             condition = self._go_condition(source)
             if condition is not None:
@@ -498,13 +539,13 @@ class _Converter:
     def _go_condition(self, source: str) -> str | None:
         parts = _ARGUMENT.findall(source)
         if len(parts) == 1 and (path := self._go_path(parts[0])) is not None:
-            return _truthy(path)
+            return self._truthy(path)
         if len(parts) == 2 and parts[0] == "not" and (path := self._go_path(parts[1])) is not None:
             return _falsy(path)
         if len(parts) >= 3 and parts[0] == "and":
             paths = [self._go_path(part) for part in parts[1:]]
             if all(paths):
-                return " and ".join(_truthy(str(path)) for path in paths)
+                return " and ".join(self._truthy(str(path)) for path in paths)
         if len(parts) == 3 and parts[0] in ("eq", "ne"):
             sides = [part if _LITERAL_ARGUMENT.match(part) else self._go_path(part) for part in parts[1:]]
             if all(sides):
@@ -525,11 +566,11 @@ class _Converter:
         if path is None:
             self.blocks.append(_Block(closer="end", converted=False))
             return self._unsupported(token)
-        opening = self._open_loop(path, closer="range")
+        opening = self._open_loop(path, closer="range", saved_go_variables=dict(self.go_variables))
         if element_name:
             self.go_variables[element_name] = self.frames[-1].expression
         if index_name:
-            self.go_variables[index_name] = "forloop.index0"
+            self.go_variables[index_name] = str(self.frames[-1].key)
         return opening
 
     def _go_path(self, source: str) -> str | None:
@@ -585,8 +626,9 @@ class _Converter:
         return _literal(token)
 
 
-def _truthy(path: str) -> str:
-    return f"{path} and {path} != empty and {path} != 0"
+def _attribute_safe(path: str) -> str:
+    # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
+    return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
 
 
 def _falsy(path: str) -> str:

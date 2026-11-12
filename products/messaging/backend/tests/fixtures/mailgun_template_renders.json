@@ -26,7 +26,7 @@
       "spanish": false,
       "french": false
     },
-    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer != empty and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% for item1 in variables.items %}    <li>{{ item1.name }} - Quantity: {{ item1.quantity }} - ${{ item1.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish != empty and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer.length != 0 and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived.length != 0 and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived.length != 0 and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = false %}{% if variables.items.length == nil and variables.items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name }} - Quantity: {{ item1_value.quantity }} - ${{ item1_value.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish.length != 0 and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french.length != 0 and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
     "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n\n\n\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n\n  <h2>Order Items:</h2>\n  <ul>\n    <li>Wireless Headphones - Quantity: 1 - $79.99</li>\n    <li>Phone Case - Quantity: 2 - $24.99</li>\n  </ul>\n\n  <p>Thank you for your purchase!</p>\n  \n</body>\n</html>",
     "collapse_whitespace": true
   },
@@ -46,7 +46,7 @@
       "spanish": false,
       "french": true
     },
-    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer != empty and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% for item1 in variables.items %}    <li>{{ item1.name }} - Quantity: {{ item1.quantity }} - ${{ item1.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish != empty and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer.length != 0 and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived.length != 0 and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived.length != 0 and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = false %}{% if variables.items.length == nil and variables.items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name }} - Quantity: {{ item1_value.quantity }} - ${{ item1_value.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish.length != 0 and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french.length != 0 and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
     "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n\n\n  <h2>Order Items:</h2>\n  <ul>\n  </ul>\n\n  <p>Merci pour votre achat!</p>\n\n</body>\n</html>",
     "collapse_whitespace": true
   },
@@ -57,7 +57,7 @@
     "variables": {
       "spanish": true
     },
-    "liquid": "{% if variables.english and variables.english != empty and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish != empty and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
+    "liquid": "{% if variables.english and variables.english.length != 0 and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish.length != 0 and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french.length != 0 and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
     "expected": "<p>Este texto está en idioma español.</p>\n"
   },
   {
@@ -65,7 +65,7 @@
     "engine": "handlebars",
     "template": "{{#if english}}\n<p>This text is in the English language.</p>\n{{else if spanish}}\n<p>Este texto está en idioma español.</p>\n{{else if french}}\n<p>Ce texte est en langue française.</p>\n{{/if}}\n",
     "variables": {},
-    "liquid": "{% if variables.english and variables.english != empty and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish != empty and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
+    "liquid": "{% if variables.english and variables.english.length != 0 and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish.length != 0 and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french.length != 0 and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
     "expected": ""
   },
   {
@@ -75,7 +75,7 @@
     "variables": {
       "paid": false
     },
-    "liquid": "{% unless variables.paid and variables.paid != empty and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}",
+    "liquid": "{% unless variables.paid and variables.paid.length != 0 and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}",
     "expected": "<h3>WARNING</h3>\n"
   },
   {
@@ -85,7 +85,7 @@
     "variables": {
       "paid": true
     },
-    "liquid": "{% unless variables.paid and variables.paid != empty and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}end",
+    "liquid": "{% unless variables.paid and variables.paid.length != 0 and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}end",
     "expected": "end"
   },
   {
@@ -106,7 +106,7 @@
         ]
       }
     },
-    "liquid": "{% for item1 in variables.user.services %}<li>You scheduled {{ item1.service }} on {{ item1.date }}</li>\n{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.user.services.length == nil and variables.user.services.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.user.services %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}<li>You scheduled {{ item1_value.service }} on {{ item1_value.date }}</li>\n{% endfor %}",
     "expected": "<li>You scheduled deliverability consultation on 07/30/2019</li>\n<li>You scheduled sales consultation on 08/05/2019</li>\n"
   },
   {
@@ -121,7 +121,7 @@
         "email": "jean@example.com"
       }
     },
-    "liquid": "<div class=\"entry\">\n  <h1>{{ variables.title }}</h1>\n\n{% if variables.author and variables.author != empty and variables.author != 0 %}  <h2>By {{ variables.author.firstName }} {{ variables.author.lastName }}</h2>\n  <p>Email: {{ variables.author.email }}</p>\n{% endif %}</div>\n",
+    "liquid": "<div class=\"entry\">\n  <h1>{{ variables.title }}</h1>\n\n{% if variables.author and variables.author.length != 0 and variables.author != 0 %}  <h2>By {{ variables.author.firstName }} {{ variables.author.lastName }}</h2>\n  <p>Email: {{ variables.author.email }}</p>\n{% endif %}</div>\n",
     "expected": "<div class=\"entry\">\n  <h1>My first post!</h1>\n\n  <h2>By Jean Valjean</h2>\n  <p>Email: jean@example.com</p>\n</div>\n"
   },
   {
@@ -152,7 +152,7 @@
     "variables": {
       "x": ""
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x.length != 0 and variables.x != 0 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -162,7 +162,7 @@
     "variables": {
       "x": 0
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x.length != 0 and variables.x != 0 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -172,7 +172,7 @@
     "variables": {
       "x": []
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x.length != 0 and variables.x != 0 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -182,7 +182,7 @@
     "variables": {
       "x": null
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x.length != 0 and variables.x != 0 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -192,7 +192,7 @@
     "variables": {
       "x": false
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x.length != 0 and variables.x != 0 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -200,7 +200,7 @@
     "engine": "handlebars",
     "template": "{{#if x}}yes{{else}}no{{/if}}",
     "variables": {},
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "no"
   },
   {
@@ -210,7 +210,7 @@
     "variables": {
       "x": "0"
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -220,7 +220,7 @@
     "variables": {
       "x": 1
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -232,7 +232,7 @@
         "a"
       ]
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -244,7 +244,7 @@
         "a": 1
       }
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -254,7 +254,7 @@
     "variables": {
       "x": " "
     },
-    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -320,7 +320,7 @@
         }
       ]
     },
-    "liquid": "{% for item1 in variables.groups %}<h2>{{ item1.name }} of {{ variables.title }}</h2>{% for item2 in item1.members %}<i>{{ forloop.index0 }}:{{ item2 }}:{{ item1.name }}:{{ variables.title }}:{{ variables.title }}</i>{% endfor %}{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.groups.length == nil and variables.groups.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.groups %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}<h2>{{ item1_value.name }} of {{ variables.title }}</h2>{% assign item2_is_object = false %}{% if item1_value.members.length == nil and item1_value.members.size > 0 %}{% assign item2_is_object = true %}{% endif %}{% for item2 in item1_value.members %}{% if item2_is_object %}{% assign item2_key = item2[0] %}{% assign item2_value = item2[1] %}{% else %}{% assign item2_key = forloop.index0 %}{% assign item2_value = item2 %}{% endif %}<i>{{ forloop.index0 }}:{{ item2_value }}:{{ item1_value.name }}:{{ variables.title }}:{{ variables.title }}</i>{% endfor %}{% endfor %}",
     "expected": "<h2>A of T</h2><i>0:x:A:T:T</i><i>1:y:A:T:T</i><h2>B of T</h2>"
   },
   {
@@ -334,7 +334,7 @@
         "c"
       ]
     },
-    "liquid": "{% for item1 in variables.xs %}{{ forloop.index0 }}{% if forloop.first and forloop.first != empty and forloop.first != 0 %}F{% endif %}{% if forloop.last and forloop.last != empty and forloop.last != 0 %}L{% endif %},{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.xs.length == nil and variables.xs.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ forloop.index0 }}{% if forloop.first and forloop.first.length != 0 and forloop.first != 0 %}F{% endif %}{% if forloop.last and forloop.last.length != 0 and forloop.last != 0 %}L{% endif %},{% endfor %}",
     "expected": "0F,1,2L,"
   },
   {
@@ -345,7 +345,7 @@
       "xs": [],
       "title": "t"
     },
-    "liquid": "{% for item1 in variables.xs %}{{ item1 }}{% else %}none {{ variables.title }}{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.xs.length == nil and variables.xs.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_value }}{% else %}none {{ variables.title }}{% endfor %}",
     "expected": "none t"
   },
   {
@@ -358,7 +358,7 @@
         "b": "two"
       }
     },
-    "liquid": "{% for item1 in variables.o %}{{ item1[0] }}={{ item1[1] }};{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.o.length == nil and variables.o.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.o %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_key }}={{ item1_value }};{% endfor %}",
     "expected": "a=1;b=two;"
   },
   {
@@ -371,7 +371,7 @@
       },
       "t": "y"
     },
-    "liquid": "{% if variables.u and variables.u != empty and variables.u != 0 %}{{ variables.u.n }}{% else %}nobody{% endif %}|{% if variables.v and variables.v != empty and variables.v != 0 %}{{ variables.v.n }}{% else %}nobody {{ variables.t }}{% endif %}",
+    "liquid": "{% if variables.u and variables.u.length != 0 and variables.u != 0 %}{{ variables.u.n }}{% else %}nobody{% endif %}|{% if variables.v and variables.v.length != 0 and variables.v != 0 %}{{ variables.v.n }}{% else %}nobody {{ variables.t }}{% endif %}",
     "expected": "x|nobody y"
   },
   {
@@ -387,7 +387,7 @@
       },
       "e": "E"
     },
-    "liquid": "{% if variables.a and variables.a != empty and variables.a != 0 %}{% if variables.a.b and variables.a.b != empty and variables.a.b != 0 %}{{ variables.a.b.c }}{{ variables.a.d }}{{ variables.e }}{% endif %}{% endif %}",
+    "liquid": "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}{% if variables.a.b and variables.a.b.length != 0 and variables.a.b != 0 %}{{ variables.a.b.c }}{{ variables.a.d }}{{ variables.e }}{% endif %}{% endif %}",
     "expected": "CDE"
   },
   {
@@ -398,7 +398,7 @@
       "a": true,
       "b": true
     },
-    "liquid": "{% unless variables.a and variables.a != empty and variables.a != 0 %}1{% elsif variables.b and variables.b != empty and variables.b != 0 %}2{% else %}3{% endunless %}",
+    "liquid": "{% unless variables.a and variables.a.length != 0 and variables.a != 0 %}1{% elsif variables.b and variables.b.length != 0 and variables.b != 0 %}2{% else %}3{% endunless %}",
     "expected": "2"
   },
   {
@@ -424,7 +424,7 @@
         }
       }
     },
-    "liquid": "{% if variables.u and variables.u != empty and variables.u != 0 %}{{ variables.u.n }} {{ variables.u.n }} {{ variables.u.u2.x }}{% endif %}",
+    "liquid": "{% if variables.u and variables.u.length != 0 and variables.u != 0 %}{{ variables.u.n }} {{ variables.u.n }} {{ variables.u.u2.x }}{% endif %}",
     "expected": "N N X"
   },
   {
@@ -465,7 +465,7 @@
         "b"
       ]
     },
-    "liquid": "<ul>\n{% for item1 in variables.xs %}{% if item1 and item1 != empty and item1 != 0 %}  <li>{{ item1 }}</li>\n{% endif %}{% endfor %}</ul>\n",
+    "liquid": "<ul>\n{% assign item1_is_object = false %}{% if variables.xs.length == nil and variables.xs.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% if item1_value and item1_value.length != 0 and item1_value != 0 %}  <li>{{ item1_value }}</li>\n{% endif %}{% endfor %}</ul>\n",
     "expected": "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>\n"
   },
   {
@@ -475,7 +475,7 @@
     "variables": {
       "x": "X"
     },
-    "liquid": "a{{ variables.x }}b{% if variables.x and variables.x != empty and variables.x != 0 %}c{% endif %}d",
+    "liquid": "a{{ variables.x }}b{% if variables.x and variables.x.length != 0 and variables.x != 0 %}c{% endif %}d",
     "expected": "aXbcd"
   },
   {
@@ -597,7 +597,7 @@
       ],
       "Title": "T"
     },
-    "liquid": "{% for item1 in variables.Items %}<li>{{ item1.Name }}:{{ variables.Title }}</li>{% else %}none{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Items.length == nil and variables.Items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}<li>{{ item1_value.Name }}:{{ variables.Title }}</li>{% else %}none{% endfor %}",
     "expected": "<li>a:T</li><li>b:T</li>"
   },
   {
@@ -607,7 +607,7 @@
     "variables": {
       "Items": []
     },
-    "liquid": "{% for item1 in variables.Items %}<li>{{ item1.Name }}</li>{% else %}none{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Items.length == nil and variables.Items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}<li>{{ item1_value.Name }}</li>{% else %}none{% endfor %}",
     "expected": "none"
   },
   {
@@ -624,7 +624,7 @@
         }
       ]
     },
-    "liquid": "{% for item1 in variables.Items %}{{ forloop.index0 }}={{ item1.Name }},{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Items.length == nil and variables.Items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_key }}={{ item1_value.Name }},{% endfor %}",
     "expected": "0=a,1=b,"
   },
   {
@@ -637,7 +637,7 @@
         "b"
       ]
     },
-    "liquid": "{% for item1 in variables.Items %}{{ item1 }},{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Items.length == nil and variables.Items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_value }},{% endfor %}",
     "expected": "a,b,"
   },
   {
@@ -650,7 +650,7 @@
         "b"
       ]
     },
-    "liquid": "{% for item1 in variables.Items %}{{ item1 }},{% endfor %}",
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Items.length == nil and variables.Items.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_value }},{% endfor %}",
     "expected": "a,b,"
   },
   {
@@ -697,5 +697,101 @@
     },
     "liquid": "{{ variables.Grüße }} 🎉",
     "expected": "你好 🎉"
+  },
+  {
+    "name": "each over objects without a key",
+    "engine": "handlebars",
+    "template": "{{#each users}}{{name}};{{/each}}",
+    "variables": {
+      "users": {
+        "a": {
+          "name": "Ann"
+        },
+        "b": {
+          "name": "Bo"
+        }
+      }
+    },
+    "liquid": "{% assign item1_is_object = false %}{% if variables.users.length == nil and variables.users.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.users %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_value.name }};{% endfor %}",
+    "expected": "Ann;Bo;"
+  },
+  {
+    "name": "if with empty object is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": {}
+    },
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "with an empty object renders its block",
+    "engine": "handlebars",
+    "template": "{{#with x}}in{{else}}out{{/with}}",
+    "variables": {
+      "x": {}
+    },
+    "liquid": "{% if variables.x and variables.x.length != 0 and variables.x != 0 %}in{% else %}out{% endif %}",
+    "expected": "in"
+  },
+  {
+    "name": "unquoted attribute escapes equals",
+    "engine": "handlebars",
+    "template": "<a title={{name}}>x</a>",
+    "variables": {
+      "name": "hello onclick=alert(1) `x`"
+    },
+    "liquid": "<a title={{ variables.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>x</a>",
+    "expected": "<a title=hello onclick&#x3D;alert(1) &#x60;x&#x60;>x</a>"
+  },
+  {
+    "name": "go if with empty map is false",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": {}
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "go nested ranges restore the outer variable",
+    "engine": "go",
+    "template": "{{range $e := .Outer}}{{range $e := .Inner}}{{$e}}{{end}}{{$e.Name}};{{end}}",
+    "variables": {
+      "Outer": [
+        {
+          "Name": "A",
+          "Inner": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "Name": "B",
+          "Inner": []
+        }
+      ]
+    },
+    "liquid": "{% assign item1_is_object = false %}{% if variables.Outer.length == nil and variables.Outer.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.Outer %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% assign item2_is_object = false %}{% if item1_value.Inner.length == nil and item1_value.Inner.size > 0 %}{% assign item2_is_object = true %}{% endif %}{% for item2 in item1_value.Inner %}{% if item2_is_object %}{% assign item2_key = item2[0] %}{% assign item2_value = item2[1] %}{% else %}{% assign item2_key = forloop.index0 %}{% assign item2_value = item2 %}{% endif %}{{ item2_value }}{% endfor %}{{ item1_value.Name }};{% endfor %}",
+    "expected": "xyA;B;"
+  },
+  {
+    "name": "go range over a map",
+    "engine": "go",
+    "template": "{{range $k, $v := .M}}{{$k}}={{$v.N}};{{end}}",
+    "variables": {
+      "M": {
+        "a": {
+          "N": 1
+        },
+        "b": {
+          "N": 2
+        }
+      }
+    },
+    "liquid": "{% assign item1_is_object = false %}{% if variables.M.length == nil and variables.M.size > 0 %}{% assign item1_is_object = true %}{% endif %}{% for item1 in variables.M %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ item1_key }}={{ item1_value.N }};{% endfor %}",
+    "expected": "a=1;b=2;"
   }
 ]
