@@ -3,7 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import Client
 
-from posthog.temporal.mcp_analytics.intent_clustering.schedule import FEATURE_FLAG_KEY as CLUSTERING_FLAG_KEY
+from posthog.temporal.mcp_analytics.intent_clustering.schedule import (
+    FEATURE_FLAG_KEY as CLUSTERING_FLAG_KEY,
+    ScheduleFlagCheck,
+)
 from posthog.temporal.mcp_analytics.intent_topics.schedule import (
     FEATURE_FLAG_KEY,
     SCHEDULES,
@@ -26,7 +29,7 @@ def schedule_helpers():
 
 
 def _flag(enabled: bool):  # noqa: ANN202
-    return patch(f"{MODULE}._schedule_enabled", return_value=(enabled, True))
+    return patch(f"{MODULE}._schedule_enabled", return_value=ScheduleFlagCheck(enabled=enabled, check_succeeded=True))
 
 
 class TestCreateIntentTopicsSchedules:
