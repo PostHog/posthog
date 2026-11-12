@@ -1,9 +1,15 @@
 import os
+import ssl
 import importlib
 from collections.abc import Iterator
 
 import pytest
 from unittest import mock
+
+import redis
+from celery import Celery
+from celery.backends.redis import RedisBackend
+from kombu import Connection
 
 from posthog.settings.data_stores import REDIS_URL
 
@@ -94,3 +100,15 @@ def test_broker_visibility_timeout(env: dict[str, str], expected: dict[str, int]
         importlib.reload(celery_settings)
 
     assert getattr(celery_settings, "CELERY_BROKER_TRANSPORT_OPTIONS", None) == expected
+
+
+def test_rewritten_url_verifies_certificate_and_hostname_in_every_client() -> None:
+    url = celery_settings.with_tls_verification("rediss://:secret@broker:6379?ssl_cert_reqs=CERT_REQUIRED")
+    assert url is not None
+
+    redis_kwargs = redis.Redis.from_url(url).connection_pool.connection_kwargs
+    backend = RedisBackend(url=url, app=Celery())
+
+    assert (redis_kwargs["ssl_cert_reqs"], redis_kwargs["ssl_check_hostname"]) == ("required", True)
+    assert Connection(url).ssl == {"ssl_cert_reqs": ssl.CERT_REQUIRED, "ssl_check_hostname": True}
+    assert (backend.connparams["ssl_cert_reqs"], backend.connparams["ssl_check_hostname"]) == (ssl.CERT_REQUIRED, True)
