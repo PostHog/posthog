@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonMembershipsApi,
+    AccountPersonMembershipsRequestApi,
     AccountPersonsPageApi,
     AccountPersonsQueryRequestApi,
     AccountPresenceApi,
@@ -893,6 +895,24 @@ export const accountsPersonsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(accountPersonsQueryRequestApi),
+    })
+}
+
+export const getAccountsPersonsMembershipsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/persons/memberships/`
+}
+
+export const accountsPersonsMembershipsCreate = async (
+    projectId: string,
+    id: string,
+    accountPersonMembershipsRequestApi: AccountPersonMembershipsRequestApi,
+    options?: RequestInit
+): Promise<AccountPersonMembershipsApi[]> => {
+    return apiMutator<AccountPersonMembershipsApi[]>(getAccountsPersonsMembershipsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPersonMembershipsRequestApi),
     })
 }
 

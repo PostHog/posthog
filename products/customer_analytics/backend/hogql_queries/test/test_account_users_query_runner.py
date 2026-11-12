@@ -467,6 +467,41 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ],
         )
 
+    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(self) -> None:
+        other = create_account(team_id=self.team.pk, external_id="second-workspace", name="Second workspace")
+        hidden = create_account(team_id=self.team.pk, external_id="hidden-workspace")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+        )
+        self._insert_membership("member-one-alias", "2024-01-01", "2024-01-05", group_key=other.external_id)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key=hidden.external_id)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key="untracked-workspace")
+        outside = create_person(team=self.team, distinct_ids=["outside-person"], is_identified=True)
+        self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other.external_id)
+        flush_persons_and_events()
+        response = self.client.post(
+            self.endpoint + "memberships/",
+            {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
+        assert accounts == {
+            str(self.first.uuid): {str(self.account.id), str(other.id)},
+            str(self.second.uuid): {str(self.account.id)},
+        }
+
+    @parameterized.expand([([],), (["invalid"],), (["00000000-0000-0000-0000-000000000001"] * 501,)])
+    def test_membership_enrichment_rejects_invalid_or_oversized_requests(self, person_ids: list[str]) -> None:
+        response = self.client.post(self.endpoint + "memberships/", {"person_ids": person_ids}, format="json")
+        assert response.status_code == 400
+
     def test_persons_are_narrowed_aggregated_and_paginated(self) -> None:
         self.first.properties["email"] = "updated@example.com"
         del self.first.properties["private_note"]
@@ -699,6 +734,11 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
             response = self.client.get(self.endpoint)
         assert response.status_code == 404, response.content
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            memberships = self.client.post(
+                self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+        assert memberships.status_code == 404, memberships.content
 
     def test_bad_parameter_returns_400(self) -> None:
         assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400

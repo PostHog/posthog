@@ -4,10 +4,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataTableNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { IMPERSONATE_COLUMN, accountUsersTableLogic } from './accountUsersTableLogic'
+import * as generatedApi from '../../generated/api'
+import { IMPERSONATE_COLUMN, MEMBERSHIP_COLUMN, accountUsersTableLogic } from './accountUsersTableLogic'
 
 describe('accountUsersTableLogic', () => {
     beforeEach(() => {
@@ -18,7 +20,7 @@ describe('accountUsersTableLogic', () => {
         [
             'adds the staff column to a person select',
             ['properties.email'],
-            ['properties.email', IMPERSONATE_COLUMN],
+            ['properties.email', IMPERSONATE_COLUMN, MEMBERSHIP_COLUMN],
             { select: ['properties.email'] },
         ],
         ['keeps an aggregate select grouped', ['count()'], ['count()'], undefined],
@@ -47,6 +49,8 @@ describe('accountUsersTableLogic', () => {
                 select: expectedSelect,
                 source: { kind: NodeKind.AccountUsersQuery, accountId: 'current-account' },
             })
+            expect(logic.values.query.hiddenColumns).toContain(MEMBERSHIP_COLUMN)
+            expect(logic.values.exportQuery?.hiddenColumns ?? []).not.toContain(MEMBERSHIP_COLUMN)
             expect(logic.values.exportQuery?.source).toEqual(
                 expectedExportSource && expect.objectContaining(expectedExportSource)
             )
@@ -61,4 +65,39 @@ describe('accountUsersTableLogic', () => {
             })
         }
     )
+    it('enriches only after table results arrive and keeps failures out of the table', async () => {
+        const personId = '00000000-0000-0000-0000-000000000001'
+        const membership = {
+            person_id: personId,
+            accounts: [
+                { id: 'current-account', name: 'Current account' },
+                { id: 'other-account', name: 'Other account' },
+            ],
+        }
+        const request = jest.spyOn(generatedApi, 'accountsPersonsMembershipsCreate').mockResolvedValue([membership])
+        const logic = accountUsersTableLogic({ accountId: 'current-account' })
+        logic.mount()
+        expect(request).not.toHaveBeenCalled()
+        const node = dataNodeLogic({
+            key: 'account-users-current-account-default',
+            query: logic.values.query.source,
+            doNotLoad: true,
+        })
+        node.mount()
+        const response: HogQLQueryResponse = {
+            results: [[personId]],
+            columns: [MEMBERSHIP_COLUMN],
+            types: [],
+            hasMore: false,
+        }
+        await expectLogic(logic, () => node.actions.loadDataSuccess(response)).toFinishAllListeners()
+        expect(logic.values.memberships).toEqual({ [personId]: membership })
+        request.mockRejectedValueOnce(new Error('Enrichment unavailable'))
+        await expectLogic(logic, () => node.actions.loadDataSuccess(response)).toFinishAllListeners()
+        expect(logic.values.memberships).toBeNull()
+        expect(node.values.response).toEqual(response)
+        node.unmount()
+        logic.unmount()
+        request.mockRestore()
+    })
 })
