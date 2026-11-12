@@ -135,6 +135,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         showImageTileModal,
         showButtonTileModal,
         addWidgetModalOpen,
+        tileDisplayOptionsSavingIds,
     } = useValues(dashboardLogic)
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
@@ -804,6 +805,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     onDuplicate={tileActions.duplicate}
                     onUpdateDisplayOptions={tileActions.updateDisplayOptions}
+                    displayOptionsSaving={tileDisplayOptionsSavingIds.includes(tile.id)}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}

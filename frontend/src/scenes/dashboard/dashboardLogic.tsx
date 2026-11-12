@@ -918,6 +918,7 @@ export interface dashboardLogicValues {
     terraformModalOpen: boolean
     textTileId: DashboardTileIdOrNew
     textTiles: DashboardTile[]
+    tileDisplayOptionsSavingIds: number[]
     tileGroupDisplay: TileGroupDisplay
     tileGroupKeys: Map<number, string>
     tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
@@ -1585,6 +1586,13 @@ export interface dashboardLogicActions {
     }
     setTextTileId: (textTileId: DashboardTileIdOrNew) => {
         textTileId: DashboardTileIdOrNew
+    }
+    setTileDisplayOptionsSaving: (
+        tileId: number,
+        saving: boolean
+    ) => {
+        saving: boolean
+        tileId: number
     }
     setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
         groups: Record<string, DashboardTileGroupApi>
@@ -2449,6 +2457,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
         updateTileDisplayOptions: (tileId: number, displayOptions: TileDisplayOptions) => ({ tileId, displayOptions }),
+        setTileDisplayOptionsSaving: (tileId: number, saving: boolean) => ({ tileId, saving }),
         setTileProperty: (
             tileId: number,
             properties: Partial<
@@ -3119,6 +3128,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setTileSavesPending: (_, { pending }) => pending,
+            },
+        ],
+        tileDisplayOptionsSavingIds: [
+            [] as number[],
+            {
+                setTileDisplayOptionsSaving: (state, { tileId, saving }) =>
+                    saving ? [...state.filter((id) => id !== tileId), tileId] : state.filter((id) => id !== tileId),
             },
         ],
         // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
@@ -5121,12 +5137,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (isSharedView()) {
                 return
             }
+            // A second save before the first resolves can land out of order and leave the UI disagreeing with storage.
+            if (values.tileDisplayOptionsSavingIds.includes(tileId)) {
+                return
+            }
             const currentTile = values.tiles.find((tile) => tile.id === tileId)
             const previousOptions: TileDisplayOptions = {
                 show_description: currentTile?.show_description,
                 transparent_background: currentTile?.transparent_background,
             }
             actions.setTileProperty(tileId, displayOptions)
+            actions.setTileDisplayOptionsSaving(tileId, true)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -5135,6 +5156,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } catch {
                 actions.setTileProperty(tileId, previousOptions)
                 lemonToast.error('Failed to update tile')
+            } finally {
+                actions.setTileDisplayOptionsSaving(tileId, false)
             }
         },
         setRefreshError: sharedListeners.reportRefreshTiming,

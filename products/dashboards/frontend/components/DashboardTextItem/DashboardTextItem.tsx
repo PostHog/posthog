@@ -36,6 +36,7 @@ interface DashboardTextItemProps
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onUpdateDisplayOptions?: (displayOptions: TileDisplayOptions) => void
+    displayOptionsSaving?: boolean
     onRemove?: () => void
     isDraggingRef?: React.RefObject<boolean>
 }
@@ -52,6 +53,7 @@ function DashboardTextItemInternal(
         onMoveToTileGroup,
         onDuplicate,
         onUpdateDisplayOptions,
+        displayOptionsSaving,
         onRemove,
         isDraggingRef,
         ...textCardProps
@@ -72,7 +74,11 @@ function DashboardTextItemInternal(
     const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
     const displayOptions = onUpdateDisplayOptions ? (
-        <TextCardDisplayOptions tile={tile} onUpdateDisplayOptions={onUpdateDisplayOptions} />
+        <TextCardDisplayOptions
+            tile={tile}
+            onUpdateDisplayOptions={onUpdateDisplayOptions}
+            saving={displayOptionsSaving}
+        />
     ) : null
     const quillMenuItems = todayRailNav ? (
         <QuillDashboardTileMenuItems
