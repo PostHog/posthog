@@ -1137,6 +1137,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `github_dependabot` - GitHub Dependabot
  * * `github_code_scanning` - GitHub code scanning
  * * `github_secret_scanning` - GitHub secret scanning
+ * * `app_store_connect` - App Store Connect
+ * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1257,6 +1259,8 @@ export const SignalSourceProductEnumApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1427,7 +1431,9 @@ export interface InboxOnboardingSourceApi {
      * * `cursor` - Cursor
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
-     * * `github_secret_scanning` - GitHub secret scanning */
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4332,6 +4338,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `github_dependabot` - github_dependabot
  * * `github_code_scanning` - github_code_scanning
  * * `github_secret_scanning` - github_secret_scanning
+ * * `app_store_connect` - app_store_connect
+ * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4452,6 +4460,8 @@ export const SignalSourceProductApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -5491,6 +5501,19 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface AppStoreConnectReviewSignalExtraApi {
+    app_id: string | null
+    rating: string | null
+    territory: string | null
+    created_date: string | null
+}
+
+export interface SentryFeedbackSignalExtraApi {
+    project_slug: string | null
+    event_id: string | null
+    date_created: string | null
+}
+
 export interface TriggerDevErrorSignalExtraApi {
     task_identifier: string | null
     status: string | null
@@ -5753,6 +5776,8 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | AppStoreConnectReviewSignalExtraApi
+    | SentryFeedbackSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -5933,7 +5958,9 @@ export interface SignalNodeApi {
      * * `cursor` - cursor
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
-     * * `github_secret_scanning` - github_secret_scanning */
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *

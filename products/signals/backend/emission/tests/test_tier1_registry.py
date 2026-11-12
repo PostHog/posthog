@@ -130,6 +130,9 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
+    # App reviews and error-report feedback
+    (ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", "app_store_connect", "review"),
+    (ExternalDataSourceType.SENTRY, "project_user_feedback", "sentry_feedback", "feedback"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
