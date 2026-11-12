@@ -3,7 +3,7 @@ from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO
+from typing import IO, Final
 
 from django.utils.timezone import now
 
@@ -54,7 +54,7 @@ from ..logic.evaluations.preview_units import (
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
-from ..logic.message_normalizer.normalizer import check_stored_recipe_source
+from ..logic.message_normalizer.normalizer import RecipeNormalizer, check_stored_recipe_source, compile_candidate_recipe
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.dataset_item import StepDatasetItem
@@ -66,9 +66,10 @@ from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeed
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
+from ..logic.traces.parser_verdict import parser_test_result
 from ..logic.traces.review import HumanReview, QueueAssignment
 from ..logic.traces.review_queries import load_trace_review_state
-from ..logic.traces.step_content import step_content
+from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -82,7 +83,7 @@ from ..logic.traces.summary import (
 from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
-from ..logic.traces.team_recipes import team_normalizer
+from ..logic.traces.team_recipes import save_team_recipe, team_normalizer, team_normalizer_with
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_export import (
@@ -179,6 +180,45 @@ def load_trace_node_dataset_item(
     return lambda: _to_node_dataset_item(
         StepDatasetItem(trace_id=trace_id, trace_timestamp=timestamp_hint, event=event)
     )
+
+
+def run_trace_node_parser_test(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None, source: str
+) -> Callable[[], contracts.TraceNodeParserTest]:
+    """Loads one node's event and returns the step that tests a parser not saved yet against it. Saves nothing.
+
+    Raises `RecipeCompileError` before any read when the parser does not compile. The step reads the team's saved
+    recipes and normalizes the node twice, without and with the parser, but runs no ClickHouse query.
+    """
+    candidate = compile_candidate_recipe(source)
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_parser_test(team.pk, node_id, event, partial(team_normalizer_with, team.pk, candidate))
+
+
+def _to_parser_test(
+    team_id: int, node_id: str, event: NodeEvent | None, candidate_normalizer: Callable[[], RecipeNormalizer]
+) -> contracts.TraceNodeParserTest:
+    if event is None:
+        return _NOTHING_TO_TEST
+
+    def read(build_normalizer: Callable[[], RecipeNormalizer]) -> StepReading:
+        return read_step(
+            event.kind, node_id, event.input, event.output, build_normalizer=build_normalizer, team_id=team_id
+        )
+
+    return parser_test_result(read(partial(team_normalizer, team_id)), read(candidate_normalizer))
+
+
+_NOTHING_TO_FIX: Final = contracts.TraceParserTestSide(needed_fixing=False, fixed=False, broken=False, error=None)
+_NOTHING_TO_TEST: Final = contracts.TraceNodeParserTest(
+    content=contracts.TraceNodeContent(
+        input=contracts.TraceJsonSide(kind="json", value=None),
+        output=contracts.TraceJsonSide(kind="json", value=None),
+    ),
+    input=_NOTHING_TO_FIX,
+    output=_NOTHING_TO_FIX,
+    passed=False,
+)
 
 
 def _load_node_event(
@@ -872,3 +912,9 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
 def validate_parser_recipe_source(source: str) -> None:
     """Raises `RecipeCompileError` with a message for the author when trace reads would skip this recipe."""
     check_stored_recipe_source(source)
+
+
+def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
+    """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
+    validate_parser_recipe_source(source)
+    return save_team_recipe(team.pk, user, name=name, source=source)

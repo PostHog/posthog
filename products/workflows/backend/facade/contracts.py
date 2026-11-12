@@ -731,6 +731,16 @@ class SendingDomainSetup:
     unverified_sender_id: int | None
 
 
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

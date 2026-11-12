@@ -10,6 +10,7 @@ import {
     PostHogRateLimitError,
     PostHogTransportError,
     PostHogValidationError,
+    serverDetailOf,
     ToolInputValidationError,
 } from '@/lib/errors'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
@@ -61,16 +62,6 @@ function summarize(tool: Tool<ZodObjectAny>): ApiToolSummary {
     }
 }
 
-// The API answers errors as DRF JSON, so its `detail` reads better than the raw body.
-function apiErrorDetail(error: PostHogApiError): string {
-    try {
-        const body = JSON.parse(error.body) as { detail?: unknown }
-        return typeof body.detail === 'string' ? body.detail : error.message
-    } catch {
-        return error.message
-    }
-}
-
 const MCP_RESULT_CODES: Record<MCPToolResultError['errorType'], ApiToolError['code']> = {
     validation: 'validation_error',
     permission: 'permission_denied',
@@ -90,17 +81,18 @@ function typedError(error: unknown): ApiToolError | undefined {
             code: 'permission_denied',
             message: error.message,
             status: 403,
+            detail: serverDetailOf(error),
             ...(error.missingScope ? { missingScope: error.missingScope } : {}),
         }
     }
     if (error instanceof PostHogValidationError) {
-        return { code: 'validation_error', message: error.message, status: 400 }
+        return { code: 'validation_error', message: error.message, status: 400, detail: serverDetailOf(error) }
     }
     if (error instanceof PostHogRateLimitError) {
         return { code: 'rate_limited', message: error.message, status: 429 }
     }
     if (error instanceof PostHogApiError) {
-        return { code: 'api_error', message: apiErrorDetail(error), status: error.status }
+        return { code: 'api_error', message: error.message, status: error.status, detail: serverDetailOf(error) }
     }
     if (error instanceof PostHogTransportError) {
         return { code: 'unreachable', message: error.message }

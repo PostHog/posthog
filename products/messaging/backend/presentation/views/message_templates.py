@@ -6,14 +6,12 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.conf import settings
 from django.core.exceptions import (
     RequestDataTooBig,
     ValidationError as DjangoValidationError,
 )
 from django.core.validators import validate_email
 from django.db import transaction
-from django.utils.datastructures import MultiValueDict
 
 import structlog
 import posthoganalytics
@@ -73,10 +71,13 @@ from products.messaging.backend.facade.templates import (
 from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
+    AttachmentNotUploaded,
+    AttachmentsRefused,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
     FieldNotAccepted,
+    MessageTooLarge,
     QueuedEmail,
     SendWarningCode,
     TransactionalEmailError,
@@ -95,13 +96,21 @@ from products.messaging.backend.facade.transactional_email import (
 )
 from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
+    MESSAGE_LIMIT,
+    UPLOAD_ROUTE,
     AddressListField,
     AttachmentListField,
     attachment_size,
     field_not_accepted_refusal,
+    refused_attachment,
     template_send_refusal,
     validate_pipeline_address,
     with_code_send_reason,
+)
+from products.messaging.backend.presentation.views.refusals import (
+    ExplainedRefusal,
+    RequestBodyCapMixin,
+    email_body_too_large,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -542,9 +551,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     attachments = AttachmentListField(
         required=False,
         allow_null=True,
-        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
-        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
-        "`template_id`, which refuses any file here.",
+        help_text="Files attached to the email your code rendered: up to 10, each uploaded first through "
+        f"`{UPLOAD_ROUTE}` and named here by its SHA-256. The whole email can be at most {MESSAGE_LIMIT}. File "
+        "types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, "
+        "which refuses any file here.",
     )
     capture_engagement = OmittableBooleanField(
         required=False,
@@ -705,23 +715,15 @@ class TransactionalEmailUnavailable(exceptions.APIException):
     default_code = "delivery_unavailable"
 
 
-class RequestBodyTooLarge(exceptions.APIException):
-    status_code = status.HTTP_400_BAD_REQUEST
-    default_code = "content_too_large"
-    default_type = "invalid_request"
-
-    def __init__(self) -> None:
-        limit = f"{settings.DATA_UPLOAD_MAX_MEMORY_SIZE // (1024 * 1024)} MB"
-        super().__init__(f"The request body is over {limit}, so PostHog didn't send the email.")
-        self.why = f"PostHog reads at most {limit} of request body, so it refused the email without reading it."
-        self.fix = f"Keep the request under {limit}. To send a large file, link to it from the email body."
-
-
-class UnconfirmedEmailSend(TransactionalEmailUnavailable):
-    default_detail = (
+def unconfirmed_email_send() -> ExplainedRefusal:
+    return ExplainedRefusal(
         "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again "
         "within 24 hours with the same Idempotency-Key, so it goes out once. A retry without that key, or after "
-        "that time, may send it twice."
+        "that time, may send it twice.",
+        code="delivery_unavailable",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        why="PostHog's email pipeline or its file storage didn't confirm that the email was queued.",
+        fix="Send it again within 24 hours with the same `Idempotency-Key`, so it goes out once.",
     )
 
 
@@ -824,7 +826,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
 
 # The send path shared by the template-scoped route and the single send route. A comment, not a docstring:
 # drf-spectacular would publish a docstring as the description of every operation on both viewsets.
-class TransactionalEmailSendMixin:
+class TransactionalEmailSendMixin(RequestBodyCapMixin):
     request: Any
     team: Any
     team_id: int
@@ -870,34 +872,23 @@ class TransactionalEmailSendMixin:
         self._validation_started_at = time.monotonic()
 
     def handle_exception(self, exc: Exception) -> Response:
+        body_read = True
         if self._is_transactional_email_send() and isinstance(exc, RequestDataTooBig):
-            exc = self._refuse_body_over_the_cap()
+            exc, body_read = self.refuse_body_over_the_cap(), False
         response = cast(Any, super()).handle_exception(exc)
-        if isinstance(exc, RequestBodyTooLarge):
-            response.data = {**response.data, "why": exc.why, "fix": exc.fix}
+        if isinstance(exc, ExplainedRefusal):
+            exc.explain(response)
         # A body the serializer refuses never reaches the action, so its refusal is reported here.
         if (
             self._is_transactional_email_send()
             and not self._send_reported
-            and isinstance(exc, exceptions.ValidationError | RequestBodyTooLarge)
+            and isinstance(exc, exceptions.ValidationError | ExplainedRefusal)
         ):
-            self._report_refused_request(response, body_read=not isinstance(exc, RequestBodyTooLarge))
+            self._report_refused_request(response, body_read=body_read)
         return response
 
-    def _refuse_body_over_the_cap(self) -> exceptions.APIException:
-        self._empty_the_body_django_refuses_to_read_again()
-        return self._denial_from_the_interrupted_permission_checks() or RequestBodyTooLarge()
-
-    def _empty_the_body_django_refuses_to_read_again(self) -> None:
-        self.request._full_data = self.request._data = {}
-        self.request._files = MultiValueDict()
-
-    def _denial_from_the_interrupted_permission_checks(self) -> exceptions.APIException | None:
-        try:
-            cast(Any, super()).check_permissions(self.request)
-        except exceptions.APIException as denied:
-            return denied
-        return None
+    def body_too_large(self) -> ExplainedRefusal:
+        return email_body_too_large()
 
     def _report_refused_request(self, response: Response, *, body_read: bool) -> None:
         self._report_transactional_email_send(
@@ -957,20 +948,29 @@ class TransactionalEmailSendMixin:
         send: Callable[[str | None], QueuedEmail],
         *,
         addressed: dict[str, str],
-        unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
+        unavailable: Callable[[], exceptions.APIException] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
+        attachments = request.validated_data.get("attachments") or []
         outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
+            if attachments:
+                outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
+            if attachments:
+                outcome["attachment_bytes"] = e.attachment_bytes
+            if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
+                raise refused_attachment(e, attachments) from None
+            if isinstance(e, AttachmentsRefused):
+                raise ExplainedRefusal(str(e), code=e.code, attr=e.attr, why=e.why, fix=e.fix) from None
             raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"
@@ -1454,7 +1454,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
             ),
             addressed={"addressed_by": "template_key"},
-            unavailable=UnconfirmedEmailSend,
+            unavailable=unconfirmed_email_send,
         )
 
 
